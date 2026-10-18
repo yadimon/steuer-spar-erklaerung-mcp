@@ -433,6 +433,23 @@ Schreibfehler lassen die Benchmark-Verifikation scheitern, ohne eine
 ausgeführte Steueroperation zu wiederholen. Die Erfassung ist eine interne
 Testabhängigkeit und im regulären API-Start nicht aktiviert.
 
+Der private native Texteingriff liefert zusätzlich `nativeEditTrace` im
+ursprünglichen RPC-Ergebnis, auch bei `GUI_OPERATION_TIMEOUT`. Der feste
+Puffer enthält höchstens 32 Phasengrenzen mit Sequenz, monotoner Zeit und
+GUI-Thread-ID. Er enthält keine Werte, Selektoren oder Pfade. Die bestehende
+Antwort-ID ordnet ihn genau der ursprünglichen Anfrage zu. Ein während der
+Ausführung erfasster Präfix hat `captureComplete: false`; auch eine vollständige
+Erfassung beweist für sich keinen erfolgreichen Eingriff. Bei Transportverlust
+kann diese Diagnose fehlen. Sie ändert weder Frist noch Ergebnisbewertung und
+veranlasst keine erneute Mutation.
+
+Die Uhr `request-relative-steady-microseconds` beginnt für jede Anfrage neu.
+Zeiten des unabhängigen Fixture-Journals haben einen anderen Ursprung und
+dürfen davon nicht direkt abgezogen werden. Der Abschnitt `insert` enthält
+auch die synchronen Anwendungscallbacks. Der ältere Wert `lookupMs` enthält
+auf dem Aktionspfad weiterhin den anschließenden Eingriff; er ist keine
+exklusive Lookupdauer.
+
 ## Natives Paket selbst bauen
 
 Die C++-Quellen und der Paketbau liegen unter [native/qt](../native/qt/CMakeLists.txt).

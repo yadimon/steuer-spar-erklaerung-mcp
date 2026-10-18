@@ -12,6 +12,7 @@ static QString actionText(const Json &value) {
 // These mechanisms are private to authenticated, catalogue-bound compound
 // transactions. Generic public field and table writes remain unavailable.
 static Json replaceAccessibleEdit(QWidget *root, QAccessibleInterface *target, const Json &request) {
+    markNativeEdit(NativeEditPhase::EditEnter);
     if (!request.contains("expectedValue") || !request.at("expectedValue").is_string()
         || !request.contains("value") || !request.at("value").is_string())
         return noMutationError("INVALID_EDIT", "The exact edit requires old and requested literal values");
@@ -29,13 +30,17 @@ static Json replaceAccessibleEdit(QWidget *root, QAccessibleInterface *target, c
         if (line->text() != expected) return noMutationError("stale", "The exact Qt line edit changed before dispatch");
         QPointer<QLineEdit> live(line);
         mutationStarted = true;
+        markNativeEdit(NativeEditPhase::SelectAllBefore);
         line->selectAll();
+        markNativeEdit(NativeEditPhase::SelectAllAfter);
         if (!live) return error("stale", "The Qt line edit disappeared during selection");
         if (live->text() != expected || live->isReadOnly() || !live->isEnabled())
             return error("stale", "The Qt line edit changed during selection");
         // insert preserves validation and emits textEdited as user input does.
         // setText only changes presentation for clients listening to textEdited.
+        markNativeEdit(NativeEditPhase::InsertBefore);
         live->insert(value);
+        markNativeEdit(NativeEditPhase::InsertAfter);
         if (!live) return error("stale", "The Qt line edit disappeared during insertion");
         if (live->text() != value || !live->hasAcceptableInput())
             return error("EDIT_VALIDATION_FAILED", "The requested literal was not accepted as complete Qt input");
@@ -47,8 +52,10 @@ static Json replaceAccessibleEdit(QWidget *root, QAccessibleInterface *target, c
                 return error("EDIT_VALIDATION_FAILED", "The interpreted Qt input changed before its commit");
             commitTarget = liveSpin;
         }
+        markNativeEdit(NativeEditPhase::CommitBefore);
         if (!commitTarget || !QMetaObject::invokeMethod(commitTarget, "editingFinished", Qt::DirectConnection))
             return error("ACTION_DISPATCH_FAILED", "The Qt edit model commit could not be dispatched");
+        markNativeEdit(NativeEditPhase::CommitAfter);
         if (!live) return error("stale", "The Qt line edit disappeared during model commit");
         return {{"ok", true}, {"value", utf8(live->text())}};
     }

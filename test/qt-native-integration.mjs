@@ -21,6 +21,7 @@ import { readQtNativeSnapshot } from "../dist/qt-native-snapshot.js";
 import { executeQtNativeGetValue } from "../dist/qt-native-values.js";
 import { testPassiveModelWorkload, testPassiveGuiTimeouts } from "./qt-native-passive-workload.mjs";
 import { firstEditTraceCoverage } from "./qt-native-edit-trace-coverage.mjs";
+import { inspectNativeEditPhases } from "./qt-native-edit-phases.mjs";
 
 assert.equal(process.argv.length, 7, "Run this test through qt-native-desktop.ps1 or CTest.");
 const [packageConfig, executable, qtBin] = process.argv.slice(2, 5).map(path => resolve(path));
@@ -429,6 +430,14 @@ try {
   assert.equal(fields.length, 1);
   const fieldRid = fields[0].rid;
   assert.equal((await read("get_value", { rid: fieldRid })).value, "Native field – пример");
+  const qtField = await read("get_value", { selectorNamespace: "qt-object", aid: "syntheticField", hwnd: first.info.hwnd });
+  assert.equal(qtField.ok, true, JSON.stringify(qtField)); assert.equal(qtField.value, "Native field – пример");
+  assert.equal(qtField.node.aid, "syntheticField"); assert.match(qtField.node.rid, /^qt:/u);
+  const qtFieldByObservedRid = await read("get_value", { selectorNamespace: "qt-object", aid: "syntheticField",
+    rid: qtField.node.rid, hwnd: first.info.hwnd });
+  assert.equal(qtFieldByObservedRid.ok, true, JSON.stringify(qtFieldByObservedRid));
+  assert.equal(qtFieldByObservedRid.value, "Native field – пример");
+  assert.equal(qtFieldByObservedRid.node.rid, qtField.node.rid);
   const limited = await read("snapshot", { maxNodes: 2 });
   assert.equal(limited.count, 2); assert.equal(limited.stats.truncated, true);
   assert.deepEqual(limited.nodes, snapshot.nodes.slice(0, 2));
@@ -634,8 +643,10 @@ try {
   firstEditContext.response = { ...replaced, completedAt: new Date().toISOString(), ms: performance.now() - firstEditStarted };
   report.firstEditMeasurement.request = { ...firstEditContext.request, id: replaced.result.id };
   report.firstEditMeasurement.response = firstEditContext.response;
+  report.firstEditNativePhases = inspectNativeEditPhases(replaced.result, { complete: true, successfulLineEdit: true });
   report.firstEditWindow.nativeClockAfter = JSON.parse(await first.command("trace-clock-probe"));
   assert.equal(replaced.result.ok, true, JSON.stringify(replaced.result)); assert.equal(replaced.receiptAcknowledged, true);
+  assert.equal(report.firstEditNativePhases.valid, true, JSON.stringify(report.firstEditNativePhases));
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, literal);
   assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, literal);
   assert.equal((await read("get_value", { aid: "syntheticEditedCount" })).value, "1");
@@ -833,6 +844,36 @@ try {
     assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticCommittedModel")).val, "Slow verified commit");
   } finally { await slowSession.close(); }
   report.checks.push("A bounded slow application commit completes inside the GUI/pipe budget with exact acknowledgment and model readback");
+  // A distinct owned fixture proves timeout-prefix visibility. This deliberate
+  // unknown result remains an unknown mutation; never acknowledge or resend it.
+  const timeoutFixture = await fixture();
+  await timeoutFixture.command("timeout-field-commit");
+  const timeoutSession = await startQtNativeBroker({ package: nativePackage, expectedImage: executable,
+    timeoutMs: 5000, target: timeoutFixture.info });
+  try {
+    const before = await readQtNativeSnapshot(timeoutSession.client, { maxNodes: 5000 }, 5000);
+    const target = before.nodes.find(node => node.aid.endsWith(".syntheticField")); assert(target);
+    const unknown = await timeoutSession.client.requestAcknowledged("accessibility_action", {
+      expectedRootHwnd: timeoutFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+      action: "replace-edit-text", expectedValue: target.val, value: "Unknown timed commit",
+    }, 5000);
+    const phases = inspectNativeEditPhases(unknown.result, { complete: false, activePhase: "commit.before" });
+    report.nativeEditTimeout = { response: unknown, phases };
+    assert.equal(unknown.result.ok, false); assert.equal(unknown.result.code, "GUI_OPERATION_TIMEOUT");
+    assert.equal(unknown.result.outcomeUnknown, true); assert.equal(unknown.result.mutationAttempted, true);
+    assert.equal(unknown.receiptAcknowledged, false); assert.equal(unknown.mutationAckMs, 0);
+    assert.equal(phases.valid, true, JSON.stringify(phases));
+    // The separate receiver confirms that the original GUI call has drained;
+    // this is not a mutation acknowledgment. One passive snapshot reconciles it.
+    report.nativeEditTimeout.drained = JSON.parse(await timeoutFixture.command("trace-clock-probe"));
+    const after = await readQtNativeSnapshot(timeoutSession.client, { maxNodes: 5000 }, 5000);
+    assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticField")).val, "Unknown timed commit");
+    assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticCommittedModel")).val, "Unknown timed commit");
+    assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticEditedCount")).val, "1",
+      "The original unknown edit must be submitted once; passive reconciliation must never replay it.");
+    report.nativeEditTimeout.reconciledOnceWithoutReplay = true;
+  } finally { await timeoutSession.close(); }
+  report.checks.push("A separate unknown edit timeout preserves a bounded immutable native phase prefix; one passive read reconciles its eventual model effect without replay");
   await stopRuntime(); assert.equal(first.child.exitCode, null);
   report.checks.push("API shutdown ends every native helper while the target application remains alive");
   report.ok = true;

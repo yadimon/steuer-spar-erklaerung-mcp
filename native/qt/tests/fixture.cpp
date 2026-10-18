@@ -391,6 +391,7 @@ int main(int argc, char **argv) {
                 else if (command == "validate-field") { field->setText("10"); field->setValidator(new QIntValidator(10, 99, field)); }
                 else if (command == "mask-field") { field->setInputMask("99;_"); field->setText("10"); }
                 else if (command == "slow-field-commit") *commitDelayMs = 1600;
+                else if (command == "timeout-field-commit") *commitDelayMs = 2600;
                 else if (command == "date-commit-count") { std::cout << date->property("syntheticCommitCount").toInt() << std::endl; return; }
                 else if (command == "accessibility-status") rateModel->setText(QAccessible::isActive() ? "active" : "inactive");
                 else if (command == "reset-accessibility-status") rateModel->setText("Unactivated");

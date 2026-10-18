@@ -263,6 +263,7 @@ static bool accessibilityActionObstructed(QWidget *main, const Json &request) {
 #include "bridge-table-edit-actions.h"
 #include "bridge-navigation-actions.h"
 static Json accessibilityAction(QWidget *main, const Json &request) {
+    markNativeEdit(NativeEditPhase::ActionEnter);
     activateAccessibilityClient();
     const auto operation = request.value("action", std::string());
     const auto wantedRid = request.value("rid", std::string());
@@ -303,6 +304,7 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
     std::unordered_set<QAccessible::Id> seen;
     QAccessibleInterface *target = nullptr;
     int matches = 0, visited = 0;
+    markNativeEdit(NativeEditPhase::LookupBefore);
     QElapsedTimer timer; timer.start();
     while (!stack.empty()) {
         if (timer.elapsed() > 500) return noMutationError("ACTION_LOOKUP_TIMEOUT", "The exact native action lookup exceeded its bound");
@@ -330,6 +332,7 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
             stack.push_back({iface->child(index), work.depth + 1, host});
         }
     }
+    markNativeEdit(NativeEditPhase::LookupAfter);
     if (matches != 1 || !target || !target->isValid())
         return noMutationError(matches ? "ambiguous" : "not-found", "The exact native action target is not unique and live");
     const auto actualName = accessibleText(target->text(QAccessible::Name), true);
@@ -342,6 +345,8 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
             : operation == "toggle-check-box" ? toggleAccessibleCheckBox(root, target, request)
             : setAccessibleTableCheckState(root, target, request);
         result["action"] = operation; result["rid"] = wantedRid; result["aid"] = wantedAid;
+        // Legacy lookupMs includes the action and synchronous commit. The
+        // private nativeEditTrace separates those phases without changing it.
         result["name"] = actualName; result["lookupMs"] = timer.nsecsElapsed() / 1e6;
         return result;
     } else if (operation == "activate-navigation-item") {

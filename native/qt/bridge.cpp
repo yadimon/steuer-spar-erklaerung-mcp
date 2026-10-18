@@ -40,6 +40,7 @@ static_assert(sizeof(BridgeBuildIdentity) == BRIDGE_BUILD_ID_SIZE);
 
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
+#include "bridge-edit-trace.h"
 static std::atomic<bool> started{false};
 static std::mutex startMutex;
 static std::atomic<int> activeGuiRequests{0};
@@ -211,7 +212,9 @@ static Json nativeWidgetScreenRect(QWidget *widget) {
 
 static Json execute(const Json &request) {
     const auto before = Clock::now();
+    markNativeEdit(NativeEditPhase::RootBefore);
     auto *root = rootWidget();
+    markNativeEdit(NativeEditPhase::RootAfter);
     const auto op = request.at("op").get<std::string>();
     if (isMutation(op) && recoveryRequired) {
         return {{"ok", false}, {"code", "RECOVERY_REQUIRED"}, {"mutationAttempted", false},
@@ -354,6 +357,7 @@ static Json executeWithController(const Json &request) {
     if (wait != WAIT_OBJECT_0) return noMutationError("worker-isolation-lost", "Session controller lease could not be acquired");
     executing = true;
     mutationStarted = false;
+    markNativeEdit(NativeEditPhase::ControllerAcquired);
     Json result;
     try { result = execute(request); }
     catch (const std::exception &e) {
@@ -380,12 +384,16 @@ struct Pending {
     std::mutex mutex;
     std::condition_variable changed;
     Json result;
+    std::unique_ptr<NativeEditTrace> editTrace;
 };
 static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &session) {
     auto *app = QCoreApplication::instance();
     if (!app || QCoreApplication::closingDown()) return noMutationError("NO_QT_APPLICATION", "Qt application is unavailable");
     if (!ownerAlive(session)) return {{"ok", false}, {"code", "SESSION_OWNER_GONE"}, {"mutationAttempted", false}};
     auto pending = std::make_shared<Pending>();
+    if (request.value("op", std::string()) == "accessibility_action" && request.contains("action")
+        && request.at("action").is_string() && request.at("action").get<std::string>() == "replace-edit-text")
+        pending->editTrace = std::make_unique<NativeEditTrace>();
     const auto begin = Clock::now();
     ++activeGuiRequests;
     const bool queued = QMetaObject::invokeMethod(app, [pending, request, session] {
@@ -394,15 +402,18 @@ static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &
         if (!pending->state.compare_exchange_strong(expected, Pending::Running)) return;
         guiSession = session.get();
         Json result;
-        try {
-            if (!ownerAlive(session)) result = {{"ok", false}, {"code", "SESSION_OWNER_GONE"}, {"mutationAttempted", false}};
-            else result = executeWithController(request);
-        }
-        catch (const std::exception &e) {
-            result = error("NATIVE_OPERATION_FAILED", e.what());
-            result["mutationAttempted"] = isMutation(request.value("op", std::string()));
-            result["outcomeUnknown"] = true;
-            if (result["mutationAttempted"] == true) recoveryRequired = true;
+        {
+            NativeEditTraceScope trace(pending->editTrace.get());
+            try {
+                if (!ownerAlive(session)) result = {{"ok", false}, {"code", "SESSION_OWNER_GONE"}, {"mutationAttempted", false}};
+                else result = executeWithController(request);
+            }
+            catch (const std::exception &e) {
+                result = error("NATIVE_OPERATION_FAILED", e.what());
+                result["mutationAttempted"] = isMutation(request.value("op", std::string()));
+                result["outcomeUnknown"] = true;
+                if (result["mutationAttempted"] == true) recoveryRequired = true;
+            }
         }
         { std::lock_guard<std::mutex> lock(pending->mutex); pending->result = std::move(result); pending->state = Pending::Done; }
         pending->changed.notify_one();
@@ -419,9 +430,11 @@ static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &
         auto result = error(cancelled ? "GUI_QUEUE_TIMEOUT" : "GUI_OPERATION_TIMEOUT", cancelled ? "Operation cancelled before GUI dispatch" : "Operation is still executing on the GUI thread; verify its outcome before retry");
         result["outcomeUnknown"] = !cancelled;
         result["mutationAttempted"] = !cancelled && isMutation(operation);
+        if (pending->editTrace) result["nativeEditTrace"] = pending->editTrace->snapshot();
         return result;
     }
     pending->result["dispatchMs"] = elapsed(begin);
+    if (pending->editTrace) pending->result["nativeEditTrace"] = pending->editTrace->snapshot();
     return std::move(pending->result);
 }
 
