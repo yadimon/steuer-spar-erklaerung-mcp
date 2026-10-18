@@ -3,7 +3,7 @@
 ## Arbeitsstand und Ziel
 
 Die Änderungen liegen im Arbeitsbranch `fix/api-stability-20261017`. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
-Die abschließende Gesamtabnahme des jüngsten Quellstands läuft noch; eine Integrations- oder Veröffentlichungsfreigabe wird daraus nicht vorweggenommen.
+Die vollständige Standard-Live-Abnahme, Zustandsreise, große Cursorfolge und der produktfreie API/MCP-Soak bestehen. Die native Mega-Reise hat einen weiteren kontrollierten Abbruch gezeigt; ihre Diagnose und erneute Abnahme sind noch offen. Eine Integrations- oder Veröffentlichungsfreigabe wird daraus nicht vorweggenommen.
 
 Ziel sind komfortable Low-Level-Operationen und überprüfte höhere Abläufe: Identität und Ausgangszustand lesen, Aktion gezielt ausführen, Ergebnis frisch lesen und prüfen.
 Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt weder blindes Wiederholen noch einen alternativen Eingriff.
@@ -21,7 +21,7 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   sichtbare Nr.-Zelle mit eindeutigem Rohzeilen-/Semantik- und Inhaltsnachweis
   gebunden. Ihre RID und echte Grid-Zeile bleiben über den Einzelklick fest;
   der ursprüngliche Leseanker wird nicht ersetzt. Der reale Übergang nach
-  Werte-Info, Hilfe und Update besteht; die gemeinsame Abschlussabnahme läuft.
+  Werte-Info, Hilfe und Update besteht in der vollständigen Zustandsreise.
 - **Nr.-Editor und ESC:** Ein Nummerneditor darf die Navigation nur mit eigenem
   unverändertem ausgewähltem Zellnachweis tragen. ESC-Ausgang und spätere Navigation bleiben getrennt
   diagnostiziert; verlorene Ergebnisse erhalten auch öffentlich ihre Unsicherheit.
@@ -33,14 +33,12 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   Eingabe-/Fensterkontext bleiben Voraussetzungen. Bereits passende Auswahl
   benötigt keine Aktion; nach einer Auswahl folgen vollständiger unveränderter
   Roh-/Typ-/Checkbox-Readback und frischer Fokus-/Auswahlnachweis vor DOWN.
-  Die reale Abschlussabnahme dieser Korrektur steht noch aus.
 - **Fokus nach Seitenwechsel:** Die Nr.-Aktivierung erhält einen eigenen
   ausdrücklich profilierten Ausgangspunkt für das nicht editierbare
   Hilfe-Root-Dokument. Geladene Provider-Version, vollständige editorfreie
   Tabelle, genaue Quell-/Fensteridentität und erneute Prüfung vor dem
   bestehenden Einzelklick bleiben Voraussetzungen. Die allgemeine
-  Dokument-/Editorfreigabe wird dadurch nicht erweitert. Die reale
-  Zustandsreise auf dem gemeinsamen Endstand steht noch aus.
+  Dokument-/Editorfreigabe wird dadurch nicht erweitert.
 - **Passive Quelle mit erhaltener Auswahl:** Nach der Werte-Info darf der
   bestehende Nachweis einer eigenen passiven Quelle die einmalige Aktivierung
   tragen. Eine vorhandene Auswahl benötigt zusätzlich frische sichtbare
@@ -57,7 +55,6 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   Eine zusätzliche genau katalogisierte Werte-Info darf ausschließlich als
   nicht im Vordergrund stehender, vollständig unveränderter Beobachter gebunden
   werden. Nur Tipps werden geschlossen; unbekannte Peers bleiben gesperrt.
-  Die reale Abschlussabnahme dieser Ergänzung steht noch aus.
 - **Cursorleistung:** Beim bereits eigenen fokussierten Edit entfällt ein
   anschließend verworfener Tabellenlauf. Der Hinweis wählt nur den Prüfpfad;
   vollständiger frischer Tabellen-/Auswahl-, RAW-, Grid- und Wertnachweis bleiben.
@@ -74,6 +71,9 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
 - **Native Diagnose:** Begrenzte wertfreie Phasen für Erfolg und Timeout. Native Qt-Tests einschließlich mehrsprachiger Mutation,
   expliziter Getter und absichtlichem Commit-Timeout mit passivem Abgleich bestehen bei unveränderten Operationsfristen.
   Ein ungewisser Commit wird nicht erneut gesendet.
+  Fehlgeschlagene native Positionierungen erhalten feste Ablehnungsgründe und
+  getrennte boolesche Freigabenachweise. Die Mega-Berichte bewahren diese
+  begrenzte Diagnose; der ursprüngliche Fehler bleibt erhalten.
 - **Begrenzte Busy-Wiederholung:** Der optionale Client-/CLI-Helfer erlaubt höchstens drei Versuche nur für eine validierte HTTP-409-Ablehnung vor Dispatch. Instanzidentität und gemeinsames Zeitbudget bleiben gebunden. Workerfehler, verlorene Antworten und ungewisse Schreibausgänge werden nicht erneut gesendet.
 - **Verträge:** Produktionsfunktionen und echte Dispatcher-/Finish-Abschnitte werden geprüft.
   Schema-, Ergebnis-, Privacy-, Plugin- und Dokumentationsgates behalten ihre Grenzen; das OpenAPI-Größenlimit wurde nicht angehoben.
@@ -88,42 +88,38 @@ Kleine und große gespeicherte Standard-Ausgangsfixtures stimmen vollständig mi
 Tabellenende, sichtbare letzte Geschäftszeile, unverändertes Grid und unveränderte Falldaten sind geprüft.
 Die jüngste kleine Regression bestätigt zusätzlich die tatsächliche ESC-Route samt Metadaten.
 
-Die korrigierte Auswahl nach HOME überwindet den ursprünglichen Übergangsfehler:
-Die unmodifizierte Zustandsreise legt mehrere Zeilen an und bestätigt jede
-unmittelbar per vollständigem Cursorread. Der folgende Abbruch betraf die
-fehlende Vollständigkeitsangabe der kompakten MCP-Tabellenantwort; deren
-Projektion ist gezielt korrigiert. Ein weiterer Abbruch nach dem Seitenwechsel
-zeigte die fehlende Fokusübernahme vom eigenen Hilfe-Dokument. Diese Freigabe
-überwindet den Seitenwechsel und das folgende Anlegen mit vollständigem
-Readback. Nach der Werte-Info fand die Reise noch eine passive Schaltfläche
-mit erhaltener Zeilenauswahl; deren ergänzter Nachweis überwindet diese Hürde.
-Der nächste kontrollierte Abbruch zeigte eine vom Provider als sichtbar
-gemeldete Nr.-Zelle oberhalb des Tabelleninhalts. Die getrennte vollständig
-sichtbare Aktivierungszelle überwindet diesen Übergang und erhält die Tabelle
-auch nach Hilfe und Update vollständig. Beim späteren Seitenwechsel zeigte
-die Vorbereitung die Kombination Hauptfenster, Werte-Info und Tipps. Der enge
-Beobachternachweis muss die vollständige Reise auf dem gemeinsamen Endstand
-noch bestehen. Die große unmittelbare
-Add-/Delete-Cursorfolge besteht bereits für den vorherigen Stand; sie wird auf
-dem gemeinsamen Endstand erneut geprüft.
-Frühere passive Readbacks ersetzen diese Nachweise nicht.
+Die unmodifizierte Zustandsreise bestätigt vollständige Tabelleninventare
+unmittelbar nach Anlegen, Ändern und Löschen sowie nach drei Seitenwechseln,
+Werte-Info und Hilfelesen. Die geöffnet bleibende Werte-Info darf als exakt
+gebundener unveränderter Beobachter neben Tipps bestehen. Die große direkte
+Add-/Cursor-/Delete-/Cursorfolge bestätigt zusätzlich Rohwerte, typisierte
+Werte, Checkboxzustände und unveränderte unbeteiligte Zeilen. Rückbau,
+Falldatenintegrität und Cleanup sind in beiden Reisen bestätigt.
 
 Add-/Update-/Delete-Reisen mit nativer Konfiguration, offenem Tipps-Fenster, Nullbetrag und Off→On→Off erhalten alle übrigen Zeilen einschließlich Rohfingerprints.
 Tabellenänderungen bleiben hybrid: native Modell-/Positionierungsnachweise ergänzen den Worker-Schreibpfad; ein direkter Qt-DLL-Schreibhandler wird nicht behauptet.
-Die kanonische Mega-Reise mit nativer Konfiguration besteht nach der Geometriekorrektur für ihren Quellstand mit allen vorgesehenen Operationen und Mutation-/Readback-Prüfungen.
+Die kanonische Standard-Mega-Reise besteht in ihrem deklarierten Operationsumfang mit Mutation-/Readback-Prüfungen.
 Zulässige Dialog-Skips betreffen tatsächlich nicht vorhandene Startdialoge.
+Die jüngste native Mega-Reise wurde beim Positionsnachweis vor einer Änderung
+abgewiesen; zusätzlich konnte die Lease-Freigabe nicht vollständig bestätigt
+werden. Eingabe und Mutation fanden dabei nicht statt. Der genaue native
+Ablehnungsgrund fehlt im bisherigen Bericht und ist noch ungeklärt.
 Positionsgruppen mit Speichern/Wiederöffnen und Steuerwissen mit tatsächlichem Artikelinhalt sind zusätzlich auf dem Entwicklungsstand geprüft.
 Das Release-Evidenzregister bleibt ein gesondert gepflegter Snapshot.
+Der kanonische produktfreie HTTP/MCP-Soak besteht seine Transport-, Last-,
+Abbruch-, Neustart- und Bereinigungsprüfungen. Das belegt keine GUI-Latenz.
 
-## Noch abzuschließen
+## Abschlussprüfungen und Restarbeit
 
 | Prüfung auf dem endgültigen Quellstand | Status |
 | --- | --- |
-| Vollständiges `npm test` einschließlich Abschlussbilanzen | **PENDING** – nach jüngster Korrektur erneut ausführen |
-| Direkte Zustandsreise und große Add-/Delete-Cursorfolge | **PENDING** – auf neuer Korrektur prüfen |
-| Vollständiges `npm run test:live` | **PENDING** – nach jüngster Korrektur erneut ausführen |
-| Kanonischer API/MCP-Soak mit voller Mindestdauer | **PENDING** |
-| Abschließende Standard- und native Mega-Reise | **PENDING** |
+| Vollständiges `npm test` einschließlich Abschlussbilanzen | **PENDING** – für die jüngste Diagnoseänderung erneut ausführen; vorherige vollständige Suite bestanden |
+| Direkte Zustandsreise und große Add-/Delete-Cursorfolge | **PASS** – vollständige Standardcursor-/Modellorakel und Cleanup |
+| Vollständiges `npm run test:live` | **PASS** – beide Profile, alle vorgesehenen Funktionsphasen und Abschlussbilanzen |
+| Kanonischer API/MCP-Soak mit voller Mindestdauer | **PASS** – synthetischer Executor, volle Last- und Cleanup-Prüfung |
+| Abschließende Standard-Mega-Reise | **PASS** – deklarierter Operationsumfang |
+| Native Mega-Reise | **FAIL / TODO** – Positionsablehnung und unbestätigte Lease-Freigabe diagnostizieren und erneut prüfen |
+| Native Integration und installierte Produktprüfung | **PASS** – getrennte Komponenten- und Produktgrenzen |
 | Paketbau, Publish-Probelauf und saubere Testinstallation | **PENDING** |
 | Finaler Doku-/Runtime-Abgleich und Integrationsentscheidung | **PENDING** |
 
@@ -138,6 +134,8 @@ Es wurden keine Veröffentlichung, kein Push und keine Produktivinstallation vor
   Die Vergleiche begründen keine allgemeine Latenz- oder Durchsatzgarantie.
 - Die Ursache einer früheren sporadischen Verzögerung beim ersten nativen
   Unicode-Schreiben ist offen. Spätere erfolgreiche Läufe beweisen keine Behebung.
+- Der jüngste native Positionsabbruch bleibt ungeklärt. Eine erfolgreiche
+  spätere Reise allein würde seine Ursache nicht beweisen.
 - Beliebige Steuerfeld-/Labelzuordnungen sind nicht vollständig belegt.
   Ein positiver VaST-Ende-zu-Ende-Ablauf ist mangels externer Voraussetzungen nicht ausgeführt.
 - Profil 2024 bleibt experimentell mit `operationAccess: "verification-only"`.

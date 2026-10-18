@@ -8,11 +8,12 @@ import { sameSteppedContext } from "./table-cursor-step.js";
 
 // Native replies can contain application values and transport authority. Only
 // fixed producer reasons and scalar proof outcomes may leave this transaction.
-const nativeCodes = new Set(["unrecognized", "INVALID_POSITION_TARGET", "precondition-failed", "position-outcome-unknown", "stale-window", "stale",
+const nativeCodes = new Set(["unrecognized", "INVALID_POSITION_TARGET", "window-obstructed", "precondition-failed", "position-outcome-unknown", "stale-window", "stale",
   "editor-open", "worker-isolation-lost", "busy", "NATIVE_OPERATION_FAILED", "GUI_DISPATCH_FAILED", "GUI_QUEUE_TIMEOUT",
   "GUI_OPERATION_TIMEOUT", "NO_QT_APPLICATION", "SESSION_OWNER_GONE", "UNAUTHORIZED", "SESSION_RELEASING", "RECOVERY_REQUIRED",
   "MUTATION_ACK_REQUIRED", "INVALID_REQUEST", "INVALID_MUTATION_RECEIPT"]);
 const nativeReasons = new Map([
+  ["The bound window is disabled or blocked by a modal dialog", "window-disabled-or-modal"],
   ["The exact root, foreground, title or original input epoch changed", "root-or-input-epoch"],
   ["The exact complete table/model/current-selection binding changed", "prior-complete-binding"],
   ["The new viewport editor is not the exact current Nr. delegate", "new-number-delegate"],
@@ -107,6 +108,10 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
   const issuedNonces = new Set<string>();
   let submitted = false, positioned = false, stage = "native-position-preproof", result: WorkerResult;
   let nativeDiagnostic: ReturnType<typeof nativePositionDiagnostic> | undefined;
+  const nativeRelease: { attempted: boolean; workerOk: boolean | null; leaseReleased: boolean | null;
+    releasedByEmit: boolean | null; threw: boolean } = {
+    attempted: false, workerOk: null, leaseReleased: null, releasedByEmit: null, threw: false,
+  };
   const verify = async () => {
     const model = await readQtNativeCompleteTable(client, { ...args, hwnd: binding.hwnd }, remaining(), signal);
     if (tableCursorModelFingerprint(model) !== fingerprint) rejectProof("native-position-whole-model");
@@ -235,14 +240,24 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
       retryable: false, vollstaendig: false };
   } finally {
     if (lease && nativeQuiescent) {
+      nativeRelease.attempted = true;
       try {
         const released = await release("native-release", binding, { lease });
         const telemetry = released.focusTelemetry;
         unknownAuthority = released.ok !== true || released.cursorLeaseReleased !== true || !telemetry
           || typeof telemetry !== "object" || (telemetry as Record<string, unknown>).releasedByEmit !== true;
+        try {
+          nativeRelease.workerOk = typeof released.ok === "boolean" ? released.ok : null;
+          nativeRelease.leaseReleased = typeof released.cursorLeaseReleased === "boolean" ? released.cursorLeaseReleased : null;
+          const releasedByEmit = telemetry && typeof telemetry === "object"
+            ? (telemetry as Record<string, unknown>).releasedByEmit : undefined;
+          nativeRelease.releasedByEmit = typeof releasedByEmit === "boolean" ? releasedByEmit : null;
+        } catch { /* Local diagnostics cannot change the existing release proof. */ }
         if (!unknownAuthority) result = { ...result!, focusTelemetry: telemetry };
-      } catch { unknownAuthority = true; }
+      } catch { nativeRelease.threw = true; unknownAuthority = true; }
     } else if (lease) unknownAuthority = true;
   }
-  return { ...result!, ...(unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {}) };
+  return { ...result!, ...(nativeDiagnostic && (result!.ok === false || unknownAuthority) ? {
+    cursorActivation: { ...(result!.cursorActivation as Record<string, unknown> | undefined), nativeRelease },
+  } : {}), ...(unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {}) };
 }

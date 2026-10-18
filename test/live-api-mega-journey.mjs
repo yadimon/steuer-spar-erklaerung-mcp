@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { callApiOperationEnvelope, readApiHealthz } from "../dist/api-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
+import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "../dist/table-cursor-position.js";
 import { USTVA_PERIOD_SELECTORS } from "../dist/ustva.js";
 import { formatCents, parseCents } from "./currency-cents.mjs";
 import {
@@ -109,6 +110,51 @@ function timingSubset(value) {
   }));
 }
 
+function megaFailureDiagnostics(value) {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value) || value.ok !== false) return null;
+    // Fixed producer labels authorize report text only, never an action.
+    const phases = new Set([
+      "native-position-preproof", "native-position-acquire", "native-position-dispatch",
+      "native-position-number-preparation", "native-position-focus-only", "native-position-checkpoint",
+    ]);
+    const proofs = new Set([
+      "native-position-target-row", "native-position-number-model", "native-position-whole-model",
+      "native-position-acknowledgment", "native-position-editor-inventory", "native-position-checkpoint-context",
+      "native-position-acquire-worker-result", "native-position-acquire-context", "native-position-target-selection",
+      "native-position-current-model-readback", "native-position-number-closure", "native-position-number-closure-model",
+      "native-position-focus-binding", "native-position-focus-current-selection", "native-position-missing-checkpoint-authority",
+      "native-position-checkpoint-worker-result", "native-position-final-epoch", "native-position-contract",
+      "native-tree-complete-unblocked", "native-accessible-table-identity", "native-column-header-identity",
+      "native-column-headers", "native-qobject-table-identity", "native-genuine-viewport",
+      "native-viewport-dpi-geometry", "native-focus-binding-schema", "native-focus-table-cursor-identity",
+      "native-focus-current-selection-alignment", "native-number-policy",
+    ]);
+    const object = item => item && typeof item === "object" && !Array.isArray(item) ? item : null;
+    const label = (item, allowed) => typeof item === "string" ? allowed.has(item) ? item : "unrecognized" : null;
+    const project = (item, append = false) => {
+      const source = object(item);
+      if (!source) return null;
+      const activation = object(source.cursorActivation);
+      const nativePosition = sanitizeNativePositionDiagnostic(append ? source.nativePosition : activation?.nativePosition) ?? null;
+      const positionCheckpoint = sanitizePositionCheckpoint(append ? source.positionCheckpoint : activation?.positionCheckpoint) ?? null;
+      const release = object(append ? source.nativeRelease : activation?.nativeRelease);
+      const nativeRelease = release ? Object.fromEntries(
+        ["attempted", "workerOk", "leaseReleased", "releasedByEmit", "threw"]
+          .map(key => [key, typeof release[key] === "boolean" ? release[key] : null]),
+      ) : null;
+      const phase = label(source.phase, phases), proofCheck = label(source.proofCheck, proofs);
+      return phase === null && proofCheck === null && nativePosition === null && positionCheckpoint === null && nativeRelease === null
+        ? null : { phase, proofCheck, nativePosition, positionCheckpoint, nativeRelease };
+    };
+    const direct = project(value), append = project(object(value.freeRowSearch)?.cursorResult, true);
+    return direct === null && append === null ? null : { direct, append };
+  } catch {
+    // A malformed local object must not replace the original failure/assertion.
+    return null;
+  }
+}
+
 function recordMutationSkip(id, skipReason) {
   const declaration = mutationDeclarations.get(id);
   assert(declaration, `Nicht deklarierte optionale Mutation '${id}'.`);
@@ -143,6 +189,7 @@ async function call(operation, args = {}, timeoutMs = 300_000, label = operation
       workerReportedMs: null,
       workerPerformance: null,
       failureEvidence: null,
+      failureDiagnostics: null,
       resultSafety: null,
     });
     throw error;
@@ -164,6 +211,7 @@ async function call(operation, args = {}, timeoutMs = 300_000, label = operation
     // Nur Zahlen und Booleans: diagnostisch genug fuer Guards, ohne Falltexte,
     // Pfade, Fenstertitel oder andere private Ergebnisinhalte zu kopieren.
     failureEvidence: result.ok === false ? timingSubset(result) : null,
+    failureDiagnostics: megaFailureDiagnostics(result),
     resultSafety: {
       verified: typeof result.verified === "boolean" ? result.verified : null,
       foregroundLeaseUsed: typeof result.foregroundLeaseUsed === "boolean" ? result.foregroundLeaseUsed : null,

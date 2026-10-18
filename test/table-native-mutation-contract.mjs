@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { mock } from "node:test";
@@ -190,6 +191,8 @@ async function run(options = {}) {
     }
     if (plan.phase === "native-release") {
       releases.push(plan.lease.nonce);
+      if (options.releaseThrows) throw new Error("PRIVATE_RELEASE_ERROR");
+      if (options.releaseReply) return copy(options.releaseReply);
       return { ok: true, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } };
     }
     if (plan.phase === "checkpoint") return { ok: true, cursorCheckpoint: true };
@@ -404,7 +407,7 @@ for (const options of [{}, { freshNumberEditor: true }, { initial: model => { mo
   assert.equal(append.probes.length, 0);
   assert.equal(append.mutations.length, 0);
   assert.equal(append.releases.length, 1);
-  for (const field of ["cursorBinding", "cursorLease", "numberModel", "numberPolicy"]) {
+  for (const field of ["cursorBinding", "cursorLease", "numberModel", "numberPolicy", "cursorActivation"]) {
     assert.equal(Object.hasOwn(append.result, field), false);
   }
 }
@@ -517,6 +520,56 @@ assert.equal(cleanNativeRejection.result.reconciliationRequired, false);
 assert.equal(cleanNativeRejection.mutations.length, 0);
 assert.equal(cleanNativeRejection.positions.length, 1);
 assert.equal(cleanNativeRejection.releases.length, 1, "Proven no-op must release its existing passive lease.");
+assert.deepEqual(cleanNativeRejection.result.cursorActivation.nativeRelease,
+  { attempted: true, workerOk: true, leaseReleased: true, releasedByEmit: true, threw: false });
+for (const reply of [
+  { ok: false, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } },
+  { ok: true, cursorLeaseReleased: false, focusTelemetry: { releasedByEmit: true } },
+  { ok: true, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: false } },
+  { ok: true, cursorLeaseReleased: true },
+]) {
+  const rejected = await run({ positionRejects: true, releaseReply: { ...reply, privateError: "PRIVATE_RELEASE_ERROR" } });
+  assert.equal(rejected.result.outcomeUnknown, false);
+  assert.equal(rejected.result.activationSubmitted, false);
+  assert.equal(rejected.result.cleanupRequired, true);
+  assert.equal(rejected.result.reconciliationRequired, true);
+  assert.equal(rejected.result.mutationStarted, null);
+  assert.deepEqual(rejected.result.cursorActivation.nativeRelease, { attempted: true, workerOk: reply.ok,
+    leaseReleased: reply.cursorLeaseReleased, releasedByEmit: reply.focusTelemetry?.releasedByEmit ?? null, threw: false });
+  assert.equal(rejected.positions.length, 1); assert.equal(rejected.focuses.length, 0);
+  assert.equal(rejected.mutations.length, 0); assert.equal(rejected.releases.length, 1); assert.deepEqual(rejected.keys, []);
+  assert(!JSON.stringify(rejected.result).includes("PRIVATE_RELEASE_ERROR"));
+}
+const releaseThrew = await run({ positionRejects: true, releaseThrows: true });
+assert.equal(releaseThrew.result.outcomeUnknown, false);
+assert.equal(releaseThrew.result.cleanupRequired, true); assert.equal(releaseThrew.result.reconciliationRequired, true);
+assert.deepEqual(releaseThrew.result.cursorActivation.nativeRelease,
+  { attempted: true, workerOk: null, leaseReleased: null, releasedByEmit: null, threw: true });
+assert.equal(releaseThrew.positions.length, 1); assert.equal(releaseThrew.releases.length, 1);
+assert.equal(releaseThrew.focuses.length, 0); assert.equal(releaseThrew.mutations.length, 0); assert.deepEqual(releaseThrew.keys, []);
+assert(!JSON.stringify(releaseThrew.result).includes("PRIVATE_RELEASE_ERROR"));
+assert.deepEqual(nativeUnknown.result.cursorActivation.nativeRelease,
+  { attempted: false, workerOk: null, leaseReleased: null, releasedByEmit: null, threw: false });
+const commonBridgePreflight = readFileSync("native/qt/bridge.cpp", "utf8");
+assert.match(commonBridgePreflight,
+  /error\("window-obstructed", "The bound window is disabled or blocked by a modal dialog"\)/u);
+const commonBlocked = await run({ positionRejects: true, nativePayload: {
+  code: "window-obstructed", error: "The bound window is disabled or blocked by a modal dialog",
+  outcomeUnknown: false, physicalInputUsed: false, nonce: "PRIVATE_NONCE", values: ["PRIVATE_VALUE"],
+} });
+assert.equal(commonBlocked.result.cursorActivation.nativePosition.code, "window-obstructed");
+assert.equal(commonBlocked.result.cursorActivation.nativePosition.reason, "window-disabled-or-modal");
+assert.equal(commonBlocked.result.activationSubmitted, false); assert.equal(commonBlocked.result.outcomeUnknown, false);
+assert.equal(commonBlocked.result.mutationStarted, false);
+assert.equal(commonBlocked.positions.length, 1); assert.equal(commonBlocked.releases.length, 1);
+assert.equal(commonBlocked.focuses.length, 0); assert.equal(commonBlocked.mutations.length, 0); assert.deepEqual(commonBlocked.keys, []);
+assert(!JSON.stringify(commonBlocked.result).includes("PRIVATE_"));
+const changedCommonText = await run({ positionRejects: true, nativePayload: {
+  code: "window-obstructed", error: "The bound window is disabled or blocked by a modal dialog PRIVATE_VALUE",
+} });
+assert.equal(changedCommonText.result.cursorActivation.nativePosition.code, "window-obstructed");
+assert.equal(changedCommonText.result.cursorActivation.nativePosition.reason, "unrecognized");
+assert(!JSON.stringify(changedCommonText.result).includes("PRIVATE_VALUE"));
 for (const options of [
   { positionRejects: true, acquireFocusSubmitted: true },
   { positionRejects: true, nativePayload: { outcomeUnknown: true } },

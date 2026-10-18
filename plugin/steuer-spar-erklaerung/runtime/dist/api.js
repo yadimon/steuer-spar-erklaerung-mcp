@@ -17989,6 +17989,13 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
   const issuedNonces = /* @__PURE__ */ new Set();
   let submitted = false, positioned = false, stage = "native-position-preproof", result;
   let nativeDiagnostic;
+  const nativeRelease = {
+    attempted: false,
+    workerOk: null,
+    leaseReleased: null,
+    releasedByEmit: null,
+    threw: false
+  };
   const verify = async () => {
     const model = await readQtNativeCompleteTable(client, { ...args, hwnd: binding.hwnd }, remaining(), signal);
     if (tableCursorModelFingerprint(model) !== fingerprint) rejectProof("native-position-whole-model");
@@ -18164,17 +18171,28 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     };
   } finally {
     if (lease && nativeQuiescent) {
+      nativeRelease.attempted = true;
       try {
         const released = await release("native-release", binding, { lease });
         const telemetry = released.focusTelemetry;
         unknownAuthority = released.ok !== true || released.cursorLeaseReleased !== true || !telemetry || typeof telemetry !== "object" || telemetry.releasedByEmit !== true;
+        try {
+          nativeRelease.workerOk = typeof released.ok === "boolean" ? released.ok : null;
+          nativeRelease.leaseReleased = typeof released.cursorLeaseReleased === "boolean" ? released.cursorLeaseReleased : null;
+          const releasedByEmit = telemetry && typeof telemetry === "object" ? telemetry.releasedByEmit : void 0;
+          nativeRelease.releasedByEmit = typeof releasedByEmit === "boolean" ? releasedByEmit : null;
+        } catch {
+        }
         if (!unknownAuthority) result = { ...result, focusTelemetry: telemetry };
       } catch {
+        nativeRelease.threw = true;
         unknownAuthority = true;
       }
     } else if (lease) unknownAuthority = true;
   }
-  return { ...result, ...unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {} };
+  return { ...result, ...nativeDiagnostic && (result.ok === false || unknownAuthority) ? {
+    cursorActivation: { ...result.cursorActivation, nativeRelease }
+  } : {}, ...unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {} };
 }
 var nativeCodes, nativeReasons, nativeTransportKinds, checkpointReasons, checkpointProofReasons;
 var init_table_cursor_position = __esm({
@@ -18187,6 +18205,7 @@ var init_table_cursor_position = __esm({
     nativeCodes = /* @__PURE__ */ new Set([
       "unrecognized",
       "INVALID_POSITION_TARGET",
+      "window-obstructed",
       "precondition-failed",
       "position-outcome-unknown",
       "stale-window",
@@ -18208,6 +18227,7 @@ var init_table_cursor_position = __esm({
       "INVALID_MUTATION_RECEIPT"
     ]);
     nativeReasons = /* @__PURE__ */ new Map([
+      ["The bound window is disabled or blocked by a modal dialog", "window-disabled-or-modal"],
       ["The exact root, foreground, title or original input epoch changed", "root-or-input-epoch"],
       ["The exact complete table/model/current-selection binding changed", "prior-complete-binding"],
       ["The new viewport editor is not the exact current Nr. delegate", "new-number-delegate"],

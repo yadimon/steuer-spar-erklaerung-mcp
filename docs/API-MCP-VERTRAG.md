@@ -169,6 +169,14 @@ Bei verlorenem Kontext oder unbewiesenem Ergebnis bleiben `outcomeUnknown`,
 `reconciliationRequired` und `cleanupRequired` gesetzt, mit `retryable: false`.
 `activationSubmitted` beschreibt gesondert die Cursoraktivierung; Navigation
 mit bereits vorhandenem Fokus benötigt keine neue Aktivierung.
+Bei einem fehlgeschlagenen nativen Positionsnachweis kann
+`cursorActivation.nativeRelease` den Freigabenachweis getrennt erhalten:
+`attempted` und `threw` sind boolesch; `workerOk`, `leaseReleased` und
+`releasedByEmit` sind boolesch oder bei fehlender Beobachtung `null`.
+Eine unbestätigte Lease-Freigabe kann `cleanupRequired` und
+`reconciliationRequired` setzen, obwohl die native Aktion vor jeder Mutation
+abgelehnt wurde. Das beweist kein Ressourcenleck. Der ursprüngliche
+Positionierungsfehler bleibt der Primärfehler.
 Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
 eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
 abgelehnt, statt Werte einer anderen Spalte zuzuordnen.

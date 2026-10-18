@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { runInNewContext } from "node:vm";
+import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "../../dist/table-cursor-position.js";
 import { readFileSync } from "node:fs";
 import { SSE_API_OPERATIONS } from "../../dist/api-contract.js";
 import {
@@ -317,3 +319,117 @@ process.stdout.write(
   `API-Mega-Vertrag: ${MEGA_OPERATION_CATALOG.length} Operationen, ` +
   `${MEGA_MUTATION_READBACKS.length} Mutations-/Readback-Schritte, direkte API und fail-closed Lease bestanden\n`,
 );
+
+
+// Append after the existing journey/runner source reads in the same contract.
+assert.match(journey, /failureDiagnostics:\s*megaFailureDiagnostics\(result\)/u,
+  "Mega must retain bounded cursor reasons from the actual failed result.");
+const diagnosticStart = journey.indexOf("function megaFailureDiagnostics(value) {");
+const diagnosticEnd = journey.indexOf("\nfunction recordMutationSkip", diagnosticStart);
+assert(diagnosticStart >= 0 && diagnosticEnd > diagnosticStart, "Actual journey diagnostic boundary is missing.");
+const actualDiagnosticBoundary = runInNewContext(
+  `${journey.slice(diagnosticStart, diagnosticEnd)}\n({ megaFailureDiagnostics })`,
+  { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint },
+);
+// Normalize only VM-realm prototypes in assertions; the actual function and
+// production sanitizers execute unchanged, without starting the journey.
+const megaFailureDiagnostics = value => structuredClone(actualDiagnosticBoundary.megaFailureDiagnostics(value));
+const positionProducer = readFileSync("src/table-cursor-position.ts", "utf8");
+const proofProducer = readFileSync("src/table-cursor-proofs.ts", "utf8");
+const observedPhases = [...positionProducer.matchAll(/stage = "([a-z-]+)"/gu)].map(match => match[1]);
+for (const phase of new Set(observedPhases)) assert.equal(megaFailureDiagnostics({ ok: false, phase }).direct.phase, phase);
+const observedProofs = [...(positionProducer + proofProducer).matchAll(
+  /(?:rejectProof\(|CursorProofFailure\(|proofCheck:\s*)"([a-z-]+)"/gu,
+)].map(match => match[1]);
+observedProofs.push("native-position-contract"); // Catch-all literal in the actual conditional producer.
+for (const proofCheck of new Set(observedProofs)) assert.equal(megaFailureDiagnostics({ ok: false, proofCheck }).direct.proofCheck, proofCheck);
+
+const nativePosition = { operation: "table_position_number", code: "precondition-failed", reason: "focused-source-not-passive",
+  transportKind: null, replyReceived: true, ok: false, completed: false, physicalInputUsed: false,
+  inputEpochMatches: null, mutationAttempted: false, outcomeUnknown: false, receiptPresent: false,
+  receiptFormatValid: false, receiptAcknowledged: false, numberEditorPending: null };
+const checkpoint = { reason: "target-proof", proofReason: "current-number-cell-not-selected", targetProven: false };
+const release = { attempted: true, workerOk: false, leaseReleased: null, releasedByEmit: null, threw: false };
+const nativeFailure = { ok: false, phase: "native-position-dispatch", proofCheck: "native-position-acknowledgment",
+  error: "PRIVATE ERROR C:\\private\\case", cursorActivation: { source: "qt-native", nativePosition, positionCheckpoint: checkpoint, nativeRelease: release } };
+const failureBefore = structuredClone(nativeFailure);
+const projected = megaFailureDiagnostics(nativeFailure);
+assert.deepEqual(projected, { direct: {
+  phase: nativeFailure.phase, proofCheck: nativeFailure.proofCheck,
+  nativePosition: sanitizeNativePositionDiagnostic(nativePosition), positionCheckpoint: sanitizePositionCheckpoint(checkpoint), nativeRelease: release,
+}, append: null });
+assert.deepEqual(nativeFailure, failureBefore, "Report projection must never mutate the failed response.");
+assert(!JSON.stringify(projected).includes("PRIVATE"));
+
+// The genuine producer rejects an unknown source before attempting an input;
+// preserve its booleans/nulls without implying completed/zero measurements.
+assert.equal(projected.direct.nativePosition.mutationAttempted, false);
+assert.equal(projected.direct.nativePosition.inputEpochMatches, null);
+assert.equal(projected.direct.nativePosition.operation, "table_position_number");
+assert.equal(projected.direct.nativePosition.reason, "focused-source-not-passive");
+assert.equal(megaFailureDiagnostics({ ...nativeFailure, ok: true }), null);
+assert.equal(megaFailureDiagnostics({ ok: false, error: "PRIVATE", text: "PRIVATE" }), null);
+for (const invalid of [undefined, null, [], "PRIVATE", 17, false]) assert.equal(megaFailureDiagnostics(invalid), null);
+
+const secret = "PRIVATE \\server\\case C:\\private\\case taxpayer";
+const poisoned = { ok: false, phase: secret, proofCheck: secret, error: secret, path: secret,
+  cursorActivation: { nativePosition: { operation: "table_focus_only", code: secret, reason: secret, transportKind: secret,
+    replyReceived: secret, inputEpochMatches: secret, privateObject: { text: secret }, rawReply: [secret] },
+  positionCheckpoint: { reason: secret, proofReason: secret, targetProven: secret, rawText: secret },
+  nativeRelease: { attempted: secret, workerOk: secret, leaseReleased: 1, releasedByEmit: secret, threw: secret, rawError: secret } },
+  arbitrary: { nativePosition, phase: "native-position-dispatch", text: secret } };
+const safePoison = megaFailureDiagnostics(poisoned);
+assert.equal(safePoison.direct.phase, "unrecognized");
+assert.equal(safePoison.direct.proofCheck, "unrecognized");
+assert.equal(safePoison.direct.nativePosition.code, null);
+assert.equal(safePoison.direct.nativePosition.reason, null);
+assert.equal(safePoison.direct.positionCheckpoint.reason, "unrecognized");
+assert.deepEqual(safePoison.direct.nativeRelease, { attempted: null, workerOk: null, leaseReleased: null, releasedByEmit: null, threw: null });
+assert(!JSON.stringify(safePoison).includes(secret));
+assert(!JSON.stringify(safePoison).includes("rawReply"));
+assert(!JSON.stringify(safePoison).includes("arbitrary"));
+const unknownOperation = structuredClone(nativeFailure);
+unknownOperation.cursorActivation.nativePosition.operation = secret;
+assert.equal(megaFailureDiagnostics(unknownOperation).direct.nativePosition, null);
+
+const append = { ok: false, freeRowSearch: { cursorResult: {
+  phase: nativeFailure.phase, proofCheck: nativeFailure.proofCheck, nativePosition, positionCheckpoint: checkpoint, nativeRelease: release,
+} } };
+assert.deepEqual(megaFailureDiagnostics(append), { direct: null, append: projected.direct });
+const throwing = { ok: false, get cursorActivation() { throw new Error(secret); } };
+assert.equal(megaFailureDiagnostics(throwing), null);
+
+// Same actual journey record then assertion order: observability is additive.
+assert.match(journey, /operationRecords\.push\(\{[\s\S]*?failureDiagnostics:\s*megaFailureDiagnostics\(result\)[\s\S]*?\}\);\s*assert\.equal\(result\.ok, true,/u);
+
+// Execute the real call/diagnostic boundary with one synthetic HTTP envelope;
+// never start the journey, API, product, worker or a replacement controller.
+const callStart = journey.indexOf("async function call(operation,");
+const callEnd = journey.indexOf("\nasync function read(", callStart);
+const timingStart = journey.indexOf("function timingSubset(value) {");
+assert(callStart > diagnosticEnd && callEnd > callStart && timingStart < diagnosticStart);
+const callRecords = [];
+let apiCalls = 0, transportFailure = null;
+const actualCallBoundary = runInNewContext(
+  `${journey.slice(timingStart, diagnosticEnd)}\n${journey.slice(callStart, callEnd)}\n({ call })`,
+  { assert, sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint,
+    performance: { now: () => 1 }, rounded: value => value, currentPhase: "contract", operationRecords: callRecords, baseUrl: "http://127.0.0.1:1",
+    callApiOperationEnvelope: async () => {
+      apiCalls++;
+      if (transportFailure) throw transportFailure;
+      return { result: nativeFailure, requestId: "synthetic-request", durationMs: 1 };
+    } },
+);
+let expectedPrimaryError;
+try { assert.equal(false, true, `table_update meldete failure: ${nativeFailure.error}`); }
+catch (error) { expectedPrimaryError = error; }
+await assert.rejects(actualCallBoundary.call("table_update"), error =>
+  error.message === expectedPrimaryError.message && error.code === expectedPrimaryError.code);
+assert.equal(apiCalls, 1);
+assert.equal(callRecords.length, 1);
+assert.deepEqual(structuredClone(callRecords[0].failureDiagnostics), projected);
+transportFailure = new Error("Synthetic transport failure");
+await assert.rejects(actualCallBoundary.call("table_update"), error => error === transportFailure);
+assert.equal(apiCalls, 2);
+assert.equal(callRecords.length, 2);
+assert.equal(callRecords[1].failureDiagnostics, null);

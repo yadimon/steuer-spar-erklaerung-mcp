@@ -57,6 +57,9 @@ Tabellenvorbereitung und Fokuswege. Insbesondere sind große Tabellen,
 Nr.-Editorübergänge und das Zusammenwirken mit dem echten Hilfsfenster
 über eine vollständig geprüfte Arbeitskopie mit unverändertem
 unbeteiligtem Datenbestand und bestätigtem Abschluss zu verifizieren.
+Die vollständige unmodifizierte Zustandsreise und die große direkte
+Mutations-/Cursorfolge bestehen zusätzlich mit vollständigen Inventaren,
+Falldatenintegrität und bestätigtem Cleanup.
 
 `table-footer-focus-contract.ps1` bindet die tatsächlichen Worker-Helfer für
 Nummerneditor, Zeilenauswahl und Tastaturziel. Nach dem Sprung zum Anfang
@@ -75,8 +78,9 @@ ersetzt diese Zustandsübergänge nicht.
 Hilfe-Root als Ausgangspunkt derselben einmaligen Nr.-Zellenaktivierung.
 Provider-Version, tatsächliche Quellbindung und fehlendes TextPattern müssen
 zusammenpassen. Andere Dokumente, editierbare oder geänderte Quellen, fehlende
-Profilfreigabe und Fehler bleiben gesperrt. Die Zustandsreise muss diesen
-Übergang nach einem Seitenwechsel auch im echten Produkt bestehen.
+Profilfreigabe und Fehler bleiben gesperrt. Die vollständige unmodifizierte
+Zustandsreise bestätigt die Tabellennutzung nach Seitenwechseln auch im echten
+Produkt.
 Passive eigene Quellen und eine erhaltene Zeilenauswahl werden getrennt
 modelliert. Die direkten Produktionshelfer müssen eine eindeutig gebundene
 Auswahl vor dem Klick unverändert wiedererkennen. Gegenfälle umfassen fremde
