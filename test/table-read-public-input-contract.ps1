@@ -71,7 +71,10 @@ function Get-CurrentHeading {
 # Lost sender results do not establish whether input happened. Keep the
 # observed input epoch unchanged for that branch; Dirty/Page doubles exercise
 # independent post-input interference through the other public finish branch.
-function Get-SSELastInputTick {10+[SyntheticPublicTableInput.SendKeys]::Confirmed}
+function Get-SSELastInputTick {
+  if ($script:scenario -ceq 'existing-number-escape-tick-lost' -and [SyntheticPublicTableInput.SendKeys]::Calls -gt 0) {return $null}
+  10+[SyntheticPublicTableInput.SendKeys]::Confirmed
+}
 function Test-SSELastInputUnchanged($Tick) {$Tick -eq (Get-SSELastInputTick)}
 function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint='stable';windows=@([pscustomobject]@{role='main'})}}
 function Test-SSEWindowIsLockScreen {$false}
@@ -80,12 +83,23 @@ function Set-SSEForegroundLeaseInputCheckpoint {$script:checkpoints++}
 function Get-SSEPointObstruction {[pscustomobject]@{isBoundTarget=$true}}
 function Get-SSETableLiveInputState {
   param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
-  [pscustomobject]@{ok=[bool](-not $RequireKeyboard -or $script:scenario -cin @('lost-home','lost-home-dirty','confirmed-home-then-lost-down','confirmed-home-binding-lost'));
+  [pscustomobject]@{ok=[bool](-not $RequireKeyboard -or $script:scenario -cin @('lost-home','lost-home-dirty','confirmed-home-then-lost-down','confirmed-home-binding-lost') -or
+      ($script:scenario.StartsWith('existing-number-escape-',[StringComparison]::Ordinal) -and [SyntheticPublicTableInput.SendKeys]::Calls -gt 0));
     reason='keyboard-focus-is-not-table-or-cell';focusedType='Edit';selectedRids=@('1.2')}
 }
-function Test-SSETableReadNumberEditor {$false}
-function Test-SSETableReadKeyboardTarget {$true}
-function LiesZeilen {$erst}
+function Test-SSETableReadNumberEditor {$script:scenario.StartsWith('existing-number-escape-',[StringComparison]::Ordinal)}
+function Test-SSETableReadKeyboardTarget {
+  -not ($script:scenario -ceq 'existing-number-escape-guard-rejected' -and $navigationState.phase -ceq 'table-read-number-editor-cancel')
+}
+function LiesZeilen {
+  if ($script:scenario -ceq 'existing-number-escape-provider-lost' -and [SyntheticPublicTableInput.SendKeys]::Calls -gt 0) {throw 'Synthetic ESC readback provider lost'}
+  if ($script:scenario -ceq 'existing-number-escape-readback-failed' -and [SyntheticPublicTableInput.SendKeys]::Calls -gt 0) {
+    $changed=$erst | ConvertTo-Json -Depth 10 -Compress | ConvertFrom-Json
+    $changed.navigationBinding.contentSignature='changed after ESC'
+    return $changed
+  }
+  $erst
+}
 function Start-Sleep {}
 function Get-LiveElement {
   $element=[pscustomobject]@{}
@@ -187,5 +201,34 @@ foreach ($scenarioName in @('blocked-number-before-input','active-editor-before-
     $property=$result.PSObject.Properties[$name]
     if ($null -ne $property) {Same $property.Value $false "$scenarioName claimed input or uncertainty without any action."}
   }
+}
+foreach ($escapeScenario in @(
+  [pscustomobject]@{name='existing-number-escape-lost-send';throwAt=1;used=$null;kind='cursor-unavailable';unknown=$true;keys=1;reason='number-editor-cancel-failed'},
+  [pscustomobject]@{name='existing-number-escape-tick-lost';throwAt=0;used=$null;kind='interference';unknown=$true;keys=1;reason='number-editor-cancel-unproven'},
+  [pscustomobject]@{name='existing-number-escape-readback-failed';throwAt=0;used=$true;kind='cursor-unavailable';unknown=$true;keys=1;reason='number-editor-cancel-unproven'},
+  [pscustomobject]@{name='existing-number-escape-provider-lost';throwAt=0;used=$true;kind='cursor-unavailable';unknown=$true;keys=1;reason='number-editor-cancel-failed'},
+  [pscustomobject]@{name='existing-number-escape-success-then-home-lost';throwAt=2;used=$true;kind='cursor-unavailable';unknown=$false;keys=2;reason='unchanged-number-editor-cancelled'}
+)) {
+  $result=Invoke-PublicScenario $escapeScenario.name $escapeScenario.throwAt
+  Assert-Uncertain $result $true $escapeScenario.used $escapeScenario.kind $escapeScenario.keys 0 $escapeScenario.name
+  Same $result.cursorActivation.phase 'number-editor-cancel' "$($escapeScenario.name) lost exact action diagnostics."
+  Same $result.cursorActivation.reason $escapeScenario.reason "$($escapeScenario.name) replaced the ESC action outcome."
+  foreach ($name in @('activationSubmitted','physicalInputAttempted','escapeSubmitted')) {
+    Same $result.cursorActivation.$name $true "$($escapeScenario.name) lost per-ESC $name."
+  }
+  Same $result.cursorActivation.physicalInputUsed $escapeScenario.used "$($escapeScenario.name) confused ESC input with later navigation."
+  Same $result.cursorActivation.outcomeUnknown $escapeScenario.unknown "$($escapeScenario.name) replaced per-ESC uncertainty with whole-read uncertainty."
+  Same $result.cursorActivation.reconciliationRequired $escapeScenario.unknown "$($escapeScenario.name) lost per-ESC reconciliation."
+  Same $result.cursorActivation.retryable $false "$($escapeScenario.name) allowed ESC replay."
+}
+$result=Invoke-PublicScenario 'existing-number-escape-guard-rejected' 1
+Same $result.kind 'interference' 'Pre-ESC guard rejection lost the public binding failure.'
+Same ([SyntheticPublicTableInput.SendKeys]::Calls) 0 'Rejected ESC precondition submitted input.'
+Same $script:numberCalls 0 'Rejected ESC precondition tried the number-cell click route.'
+foreach ($name in @('activationSubmitted','physicalInputAttempted','physicalInputUsed','escapeSubmitted','outcomeUnknown','reconciliationRequired')) {
+  Same $result.cursorActivation.$name $false "Rejected ESC precondition claimed per-action $name."
+}
+foreach ($name in @('activationSubmitted','physicalInputAttempted','physicalInputUsed','outcomeUnknown','reconciliationRequired','cleanupRequired')) {
+  Same $result.$name $false "Rejected ESC precondition changed the public input union for $name."
 }
 Write-Output 'Public table_read: real dispatcher and both JSON finish branches preserve attempted/acknowledged/unknown input, terminal outcomes and input-free failures.'

@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "75558b24a7bb7f790f8f83d297ec7a7a2061a9bc079726c128954d136e05dbe3",
-      "size": 1474876
+      "sha256": "bba4aa3ad275ea2ad7936d83c1323805ac7dcfe14f5662114e94b46a786ff316",
+      "size": 1476441
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -113,8 +113,8 @@
     },
     {
       "path": "powershell/table-number-click.ps1",
-      "sha256": "89e2cea05f8eb122c787342d6c39c79d24fe5a1aebd5ec575971bff740931215",
-      "size": 20185
+      "sha256": "caf19d80189d7168d0d41c9310b1b0b066872a2b8cbccb90c67dba88e68eeb6e",
+      "size": 20243
     },
     {
       "path": "powershell/table-preparation.ps1",

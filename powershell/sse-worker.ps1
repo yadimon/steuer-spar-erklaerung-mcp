@@ -20040,15 +20040,36 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           if (-not (Test-SSETableReadNumberEditor $hwnd $targetPid $BeforeCancel $latestTableSnapshot.tree)) {return $null}
           $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
           $cancelled=[pscustomobject]@{ok=$false;method='existing-verified-table-focus';phase='number-editor-cancel';
-            reason='number-editor-cancel-unproven';exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$BeforeCancel}
-          if (-not (& $sendTableNavigation '{ESC}' 1 'table-read-number-editor-cancel')) {return $cancelled}
-          $afterCancel=LiesZeilen $hwnd;$navigationState.snapshot=$afterCancel
-          if (-not (Test-SSETableReadSnapshotBinding $BeforeCancel $afterCancel -BeforeNavigation) -or
-              -not (Get-SSETableLiveInputState $hwnd $targetPid $afterCancel.navigationBinding.tableRootAid `
-                $afterCancel.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection).ok -or
-              -not (& $readNavigationGuard 'number-editor-cancel-readback' -RequireKeyboard)) {return $cancelled}
-          $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
-          $cancelled.ok=$true;$cancelled.reason='unchanged-number-editor-cancelled';$cancelled.snapshot=$afterCancel
+            reason='number-editor-cancel-unproven';exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$BeforeCancel;
+            activationSubmitted=$false;physicalInputAttempted=$false;physicalInputUsed=$false;escapeSubmitted=$false;
+            outcomeUnknown=$false;reconciliationRequired=$false;retryable=$false}
+          # Initial editor cancellation precedes every cursor key. Bind the
+          # still unused input marker to this one ESC, rather than inferring
+          # its outcome from a later HOME or DOWN action.
+          $escapeInput=$readInputState
+          if (-not $escapeInput -or $escapeInput.submitted -or $escapeInput.confirmed) {
+            $cancelled.reason='number-editor-cancel-input-authority-unavailable';return $cancelled
+          }
+          try {
+            if (-not (& $sendTableNavigation '{ESC}' 1 'table-read-number-editor-cancel')) {return $cancelled}
+            $afterCancel=LiesZeilen $hwnd;$navigationState.snapshot=$afterCancel
+            if (-not (Test-SSETableReadSnapshotBinding $BeforeCancel $afterCancel -BeforeNavigation) -or
+                -not (Get-SSETableLiveInputState $hwnd $targetPid $afterCancel.navigationBinding.tableRootAid `
+                  $afterCancel.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection).ok -or
+                -not (& $readNavigationGuard 'number-editor-cancel-readback' -RequireKeyboard)) {return $cancelled}
+            $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
+            $cancelled.ok=$true;$cancelled.reason='unchanged-number-editor-cancelled';$cancelled.snapshot=$afterCancel
+          } catch {
+            $cancelled.reason='number-editor-cancel-failed'
+            $cancelled.exceptionType=(Get-SSETableExceptionDiagnostic $_ 'number-editor-cancel').exceptionType
+          } finally {
+            $cancelled.activationSubmitted=[bool]$escapeInput.submitted
+            $cancelled.physicalInputAttempted=[bool]$escapeInput.submitted
+            $cancelled.escapeSubmitted=[bool]$escapeInput.submitted
+            $cancelled.physicalInputUsed=$(if ($escapeInput.confirmed) {$true} elseif ($escapeInput.submitted) {$null} else {$false})
+            $cancelled.outcomeUnknown=[bool]($escapeInput.submitted -and -not $cancelled.ok)
+            $cancelled.reconciliationRequired=$cancelled.outcomeUnknown
+          }
           $cancelled
         }
         $activateReadNumberCell={
@@ -20207,7 +20228,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             exceptionType=$focusResult.exceptionType;tableFocusable=$focusResult.tableFocusable;anchorFocusable=$focusResult.anchorFocusable;anchorVerified=$false;
             subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$focusResult.footerFocus;existingCursorProof=$focusResult.existingCursorProof;
             activationSubmitted=[bool]$focusResult.activationSubmitted;physicalInputUsed=$focusResult.physicalInputUsed;
-            physicalInputAttempted=[bool]$focusResult.physicalInputAttempted;escapeSubmitted=[bool]$focusResult.escapeSubmitted}
+            physicalInputAttempted=[bool]$focusResult.physicalInputAttempted;escapeSubmitted=[bool]$focusResult.escapeSubmitted;
+            outcomeUnknown=[bool]$focusResult.outcomeUnknown;reconciliationRequired=[bool]$focusResult.reconciliationRequired;retryable=$false}
           if (-not $focusResult.ok) { throw 'Semantischer Tabellenfokus ist nicht sicher verfuegbar.' }
           }
           $anchoredSnapshot=LiesZeilen $hwnd

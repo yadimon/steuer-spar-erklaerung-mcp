@@ -27,7 +27,8 @@ function Get-SSETableNumberClickCellProof {
   $cell=$Snapshot.ersteZelle
   if (-not $cells.Count -or $cells[0].rid -cne $cell.rid -or
       @($cells | Where-Object {$_.y -eq $cells[0].y}).Count -ne 1 -or $cell.aid -cne $binding.tableRootAid -or
-      $cell.w -lt 5 -or $cell.h -lt 5 -or $cell.w -ne $headers[0].w -or
+      $cell.w -lt 5 -or $cell.h -lt 5 -or $cell.x -ne $headers[0].x -or
+      $cell.x+$cell.w -gt $headers[0].x+$headers[0].w -or
       $cell.x -lt $state.table.x -or $cell.y -lt $headers[0].y+$headers[0].h -or
       $cell.x+$cell.w -gt $state.table.x+$state.table.w -or $cell.y+$cell.h -gt $state.table.y+$state.table.h) {
     throw 'The first number cell is clipped, ambiguous or not the fixed initial anchor.'

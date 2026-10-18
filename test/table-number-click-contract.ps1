@@ -199,6 +199,10 @@ Reset-Scenario
 $null=Invoke-Scenario 'Exact cell single click' $true 1 0
 Assert-True ($AE::PointCalls -eq 10 -and $script:waits.Count -eq 1 -and $script:waits[0] -eq 200 -and $script:records -eq 1) 'Surface proof or bounded settled readback was omitted.'
 Reset-Scenario
+$script:cellNode.w=39;$script:cell.Current.BoundingRectangle.Width=39
+$null=Invoke-Scenario 'Exact cell narrower than its containing number header' $true 1 0
+Assert-True ($AE::PointCalls -eq 10 -and $script:clickHelperCalls -eq 1) 'Narrower number cell bypassed full direct surface proof or selected another route.'
+Reset-Scenario
 $script:mode='number-editor'
 $null=Invoke-Scenario 'Exact clicked-row unchanged number editor gets one Escape' $true 1 1
 Assert-True ($script:numberProofCalls -eq 1 -and $script:waits.Count -eq 2 -and $script:records -eq 2) 'Owned editor was not handled exactly once.'
@@ -234,6 +238,10 @@ foreach ($scenario in @(
   @{name='another selection';setup={$script:selection.items=@($script:cell)}},
   @{name='clipped top cell';setup={$script:cellNode.y=124}},
   @{name='clipped bottom cell';setup={$script:cellNode.h=200}},
+  @{name='cell overflows number header';setup={$script:cellNode.w=41;$script:cell.Current.BoundingRectangle.Width=41}},
+  @{name='narrower cell shifted from exact header start';setup={$script:cellNode.w=39;$script:cell.Current.BoundingRectangle.Width=39;$script:cellNode.x=101;$script:cell.Current.BoundingRectangle.X=101}},
+  @{name='narrower cell clipped at top';setup={$script:cellNode.w=39;$script:cell.Current.BoundingRectangle.Width=39;$script:cellNode.y=124;$script:cell.Current.BoundingRectangle.Y=124}},
+  @{name='narrower cell corner clipped';setup={$script:cellNode.w=39;$script:cell.Current.BoundingRectangle.Width=39;$AE::Hit={param($Point) if($Point.X -eq 138 -and $Point.Y -eq 154){return $script:header};$script:cell}}},
   @{name='wrong column';setup={$script:cell.patterns.grid.Current.Column=1}},
   @{name='spanned cell';setup={$script:cell.patterns.grid.Current.RowSpan=2}},
   @{name='wrong current name';setup={$script:cell.Current.Name='2'}},
