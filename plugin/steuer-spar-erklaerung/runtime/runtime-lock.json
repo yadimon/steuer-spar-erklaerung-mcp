@@ -118,8 +118,8 @@
     },
     {
       "path": "powershell/table-preparation.ps1",
-      "sha256": "e737ba4a13dd9ab05360acd919dca0f816d12712a3f650845a122e945998430b",
-      "size": 11892
+      "sha256": "4aad13ac42f579d072dc752f93a05e860354be4751ea9642d18b1d02edfc56cb",
+      "size": 14171
     },
     {
       "path": "powershell/table-region.ps1",

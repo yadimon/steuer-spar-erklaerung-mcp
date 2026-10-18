@@ -25,6 +25,15 @@ explizite Grid-Lesepfad ersetzt weiterhin keine Cursor- oder Schreibabnahme.
 
 ## Bereits umgesetzt
 
+**Neue Gesamtprüfung:** Paketbau, Veröffentlichungs-Probelauf, saubere
+Testinstallation und Standard-Mega-Reise bestehen. Die Mega-Reise mit nativer
+Konfiguration bricht dagegen vor dem ersten Anhängen in der privaten
+Tipps-Bindungsprüfung ab, noch vor Close oder Tabellenänderung. Der genaue
+Vergleich war nicht sichtbar; ein gezielt geprüfter Diagnosezusatz nennt jetzt
+feste Phasen und Feldklassen. Ursache und erneute Gesamtregression dieses
+Zusatzes stehen noch aus. Die Instanz wurde kontrolliert geschlossen, Daten
+und Konfiguration blieben unverändert.
+
 | Bereich | Umsetzung | Verbleibende Grenze |
 | --- | --- | --- |
 | Desktop-Lebenszyklus | Eigentümerschaft bleibt über kurzlebige Worker hinweg erhalten; Status und Stop beachten fremde Instanzen. Commit `3eac0da`. | Auf dem später integrierten Stand erneut prüfen. |

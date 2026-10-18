@@ -159,6 +159,12 @@ kein weiterer Schließversuch und keine Tabellenmutation. Der Fokuskontext
 bleibt zur Klärung erhalten; eine automatische Fokuswiederherstellung oder
 alternative Provideraktion erfolgt nach diesem Fehler nicht.
 
+Der zusätzliche Fehlercode `[preparation:…]` unterscheidet die abgebrochene
+Prüfphase. Bei abweichendem Seitenfingerprint nennt er nur eine feste
+Feldklasse, etwa Identität, Inhalt, Auswahl oder Geometrie. Die dafür bereits
+gelesenen Vergleichsknoten bleiben intern; die Diagnose fragt den Provider
+nicht erneut ab und verändert keine Freigabebedingung.
+
 ## Erreichbarkeit und Browser-Schutz
 
 - Die API bindet ausschließlich an `127.0.0.1` oder `::1`.

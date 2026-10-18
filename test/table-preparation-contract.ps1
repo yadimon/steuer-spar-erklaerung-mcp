@@ -15,14 +15,14 @@ foreach ($name in @('Arg','Get-SSEBoundedIntegerArg','Get-SSETextSha256','Resolv
 Add-Type -TypeDefinition @'
 using System;
 public static class SW {
- public static int Calls, MainPid=7, TipPid=7;
+ public static int Calls, MainPid=7, TipPid=7,ForegroundReads,OwnerReads,PidReads,ExistsReads;
  public static bool Closed, Timeout, ThrowDelivery, MainExists=true;
  public static IntPtr Foreground=new IntPtr(101),Owner=new IntPtr(101);
  public static Action OnSend;
- public static IntPtr GetForegroundWindow(){return Foreground;}
- public static IntPtr GetWindow(IntPtr hwnd,uint mode){return Owner;}
- public static uint GetWindowThreadProcessId(IntPtr hwnd,ref int processId){processId=hwnd.ToInt64()==101?MainPid:TipPid;return 1;}
- public static bool IsWindow(IntPtr hwnd){return hwnd.ToInt64()==101 ? MainExists : !Closed;}
+ public static IntPtr GetForegroundWindow(){ForegroundReads++;return Foreground;}
+ public static IntPtr GetWindow(IntPtr hwnd,uint mode){OwnerReads++;return Owner;}
+ public static uint GetWindowThreadProcessId(IntPtr hwnd,ref int processId){PidReads++;processId=hwnd.ToInt64()==101?MainPid:TipPid;return 1;}
+ public static bool IsWindow(IntPtr hwnd){ExistsReads++;return hwnd.ToInt64()==101 ? MainExists : !Closed;}
  public static IntPtr SendMessageTimeout(IntPtr hwnd,uint message,IntPtr wParam,IntPtr lParam,uint flags,uint timeout,ref IntPtr result){
   Calls++;Closed=true;if(OnSend!=null)OnSend();
   if(ThrowDelivery)throw new InvalidOperationException("Synthetic lost close result");
@@ -83,6 +83,7 @@ function Walk-BoundTree {
   if ($script:mode -ceq 'peer-during-readback' -and [SW]::Closed) {$script:afterWindows+=New-Window 303 'Unknown' 'qt-dialog'}
   if ($script:mode -ceq 'root-during-readback' -and [SW]::Closed) {$AE::Main.rid='1.9'}
   $copy=$script:tree | ConvertTo-Json -Depth 10 -Compress | ConvertFrom-Json
+  if ($script:walks -eq 2 -and $script:guardNodeMutation) { & $script:guardNodeMutation $copy.nodes[2] }
   if ($script:mode -ceq 'value-before-guard' -and $script:walks -eq 2) {$copy.nodes[2].val='99,00'}
   if ($script:mode -ceq 'value-after-close' -and [SW]::Closed) {$copy.nodes[2].val='99,00'}
   if ($script:mode -ceq 'toggle-after-close' -and [SW]::Closed) {$copy.nodes[2].checked=$true}
@@ -94,11 +95,13 @@ function Get-DirtyStateFast {
   if ($script:mode -ceq 'dirty-unknown') {return $null}
   if ($script:mode -ceq 'dirty-unknown-after' -and [SW]::Closed) {return $null}
   if ($script:mode -ceq 'dirty-after-close' -and [SW]::Closed) {return $true}
+  if ($script:mode -ceq 'dirty-during-guard' -and $script:walks -eq 2) {return $true}
   $false
 }
 function Get-CurrentHeading {
   if ($script:mode -ceq 'heading-unknown') {return $null}
   if ($script:mode -ceq 'heading-after-close' -and [SW]::Closed) {return 'Other page'}
+  if ($script:mode -ceq 'heading-during-guard' -and $script:walks -eq 2) {return 'Other page'}
   'Synthetic table'
 }
 function Set-FinalTipModalReadAction([scriptblock]$Action) {
@@ -110,8 +113,9 @@ function Set-FinalTipModalReadAction([scriptblock]$Action) {
 }
 function Reset-Scenario {
   $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
-  $script:mode='';$script:tick=10;$script:walks=0;$script:windowReads=0;$script:dialogReads=0;$script:epochReads=0;$script:beforeGuard=$null
+  $script:mode='';$script:tick=10;$script:walks=0;$script:windowReads=0;$script:dialogReads=0;$script:epochReads=0;$script:beforeGuard=$null;$script:guardNodeMutation=$null
   [SW]::Calls=0;[SW]::Closed=$false;[SW]::Timeout=$false;[SW]::ThrowDelivery=$false;[SW]::MainExists=$true
+  [SW]::ForegroundReads=0;[SW]::OwnerReads=0;[SW]::PidReads=0;[SW]::ExistsReads=0
   [SW]::MainPid=7;[SW]::TipPid=7;[SW]::Foreground=[IntPtr]101;[SW]::Owner=[IntPtr]101;[SW]::OnSend=$null
   $AE::MainReads=0;$AE::TipReads=0
   $script:catalog=[pscustomobject]@{windows=[pscustomobject]@{taxTips=[pscustomobject]@{
@@ -155,8 +159,13 @@ $script:catalog.windows.taxTips.PSObject.Properties.Remove('tablePreparationPoli
 $result=Invoke-SSETablePreparation ([IntPtr]101) 7
 Assert-True ($result.ok -and -not $result.prepared -and [SW]::Calls -eq 0 -and $script:walks -eq 0 -and $script:windowReads -eq 0) 'Unapproved profile performed preparation.'
 Reset-Scenario
-$null=Assert-Preparation 'Exact owned nonmodal Tips' $true 1
+[SW]::OnSend={
+  Assert-True ([SW]::ForegroundReads -eq 3 -and [SW]::OwnerReads -eq 2 -and [SW]::PidReads -eq 3 -and [SW]::ExistsReads -eq 3) 'Successful guard diagnostics changed the original Win32 query counts.'
+}
+$result=Assert-Preparation 'Exact owned nonmodal Tips' $true 1
 Assert-True ($script:walks -eq 3 -and $AE::MainReads -eq 3 -and $AE::TipReads -eq 2) 'Preparation did not obtain fresh before/dispatch/after main and exact Tips identities.'
+Assert-True ($script:windowReads -eq 8 -and $script:dialogReads -eq 2 -and $script:epochReads -eq 5) 'Successful diagnostic path changed the original query counts.'
+Assert-True ($null -eq $result.PSObject.Properties['nodes']) 'Private comparison evidence escaped the preparation result.'
 Reset-Scenario
 [SW]::Foreground=[IntPtr]202;[SW]::OnSend={[SW]::Foreground=[IntPtr]101}
 $null=Assert-Preparation 'Closing foreground Tips returns to bound main' $true 1
@@ -243,10 +252,81 @@ foreach ($scenario in @(
 }
 Reset-Scenario
 $script:mode='guard-provider-throws'
-$null=Assert-Preparation 'No provider work after pre-close provider exception' $false 0
+$result=Assert-Preparation 'No provider work after pre-close provider exception' $false 0
 Assert-True ($script:walks -eq 2 -and $AE::MainReads -eq 1 -and $AE::TipReads -eq 1 -and $script:dialogReads -eq 1) 'Provider exception triggered cleanup queries or alternate action.'
+Assert-True ($result.error.EndsWith('[preparation:guard-fresh-state]')) 'Provider exception lost the fixed dispatch phase.'
 Reset-Scenario
 $script:mode='post-provider-throws'
 $null=Assert-Preparation 'No provider work after post-close provider exception' $false 1 $true
 Assert-True ($script:walks -eq 3 -and $AE::MainReads -eq 2 -and $AE::TipReads -eq 2 -and $script:dialogReads -eq 2) 'Post-close provider exception triggered cleanup queries or replay.'
+
+# Execute the actual guard for every scalar comparison category. The error
+# carries only a fixed code, even when the differing provider field is private.
+foreach ($case in @(
+  @{category='runtime-id';mutate={param($node) $node.rid='PRIVATE-RUNTIME-ID'}},
+  @{category='structure';mutate={param($node) $node.aid='PRIVATE-AUTOMATION-ID'}},
+  @{category='content';mutate={param($node) $node.val='PRIVATE-CONTENT'}},
+  @{category='selected';mutate={param($node) $node.selected=$true}},
+  @{category='enabled';mutate={param($node) $node.on=$false}},
+  @{category='geometry';mutate={param($node) $node.x=21}}
+)) {
+  Reset-Scenario
+  $script:guardNodeMutation=$case.mutate
+  $result=Assert-Preparation ('Fingerprint category ' + $case.category) $false 0
+  $expected='Help-window close was not verified: Die private Fensterbindung hat sich vor WM_CLOSE geaendert. [preparation:guard-fingerprint-' + $case.category + ']'
+  Assert-True ($result.error -ceq $expected) 'Mismatch diagnostics were not a fixed value-free category.'
+  Assert-True ($script:walks -eq 2 -and $AE::MainReads -eq 1 -and $AE::TipReads -eq 1 -and
+    $script:dialogReads -eq 1 -and $script:windowReads -eq 3 -and $script:epochReads -eq 2) 'Fingerprint diagnostics performed additional provider or inventory work.'
+  Assert-True ([SW]::ForegroundReads -eq 2 -and [SW]::OwnerReads -eq 1 -and [SW]::PidReads -eq 1 -and [SW]::ExistsReads -eq 1) 'Fingerprint diagnostics performed additional Win32 queries.'
+  Assert-True ($null -eq $result.PSObject.Properties['nodes'] -and ($result | ConvertTo-Json -Depth 6 -Compress) -notmatch 'PRIVATE-') 'Private comparison evidence escaped into the public result.'
+}
+
+foreach ($case in @(
+  @{phase='guard-environment-before';setup={$script:beforeGuard={$script:tick++}}},
+  @{phase='guard-heading';setup={$script:mode='heading-during-guard'}},
+  @{phase='guard-dirty';setup={$script:mode='dirty-during-guard'}},
+  @{phase='guard-main-root';setup={$script:beforeGuard={$AE::Main.rid='1.9'}}},
+  @{phase='guard-tip-root';setup={$script:beforeGuard={$AE::Tip.rid='1.9'}}},
+  @{phase='guard-window-signature';setup={$script:mode='peer-during-guard'}},
+  @{phase='guard-owner';setup={$script:mode='owner-during-guard'}},
+  @{phase='guard-environment-after';setup={$script:mode='input-during-guard'}}
+)) {
+  Reset-Scenario
+  & $case.setup
+  $result=Assert-Preparation ('Dispatch phase ' + $case.phase) $false 0
+  Assert-True ($result.error.EndsWith('[preparation:' + $case.phase + ']')) 'Dispatch failure lost its exact fixed phase.'
+}
+
+foreach ($case in @(
+  @{name='WM_CLOSE timeout';setup={[SW]::Timeout=$true}},
+  @{name='Close postcondition failure';setup={$script:afterWindows+=New-Window 303 'Unknown' 'qt-dialog'}}
+)) {
+  Reset-Scenario
+  & $case.setup
+  $result=Assert-Preparation $case.name $false 1 $true
+  Assert-True ($result.error.EndsWith('[preparation:close-transaction]')) 'A verified guard was incorrectly blamed for a later close failure.'
+}
+
+# The pure categorizer reads only the already projected private arrays. No
+# command, provider call or further serialization belongs in that helper.
+$prepAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'powershell\table-preparation.ps1'),[ref]$null,[ref]$errors)
+Assert-True (-not $errors.Count) 'Preparation source does not parse.'
+$difference=@($prepAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-SSETablePreparationDifferenceCategory'},$true))
+Assert-True ($difference.Count -eq 1 -and @($difference[0].FindAll({param($node) $node -is [Management.Automation.Language.CommandAst]},$true)).Count -eq 0) 'Difference classification performs a new query or serialization.'
+Reset-Scenario
+$state=Get-SSETablePreparationState ([IntPtr]101)
+Assert-True ($state.nodes.Count -eq 3 -and $state.fingerprint -match '^[A-F0-9]{64}$') 'Private evidence no longer preserves the original strict fingerprint.'
+$same=Get-SSETablePreparationDifferenceCategory $state.nodes $state.nodes
+Assert-True ($same -ceq 'unclassified') 'Equal evidence invented a difference category.'
+$changed=@($state.nodes | ForEach-Object {$_.PSObject.Copy()})
+$changed[2].value=$false
+$state.nodes[2].value=$null
+Assert-True ((Get-SSETablePreparationDifferenceCategory $state.nodes $changed) -ceq 'content') 'Null and false provider values were conflated.'
+$changed[2].value=''
+Assert-True ((Get-SSETablePreparationDifferenceCategory $state.nodes $changed) -ceq 'content') 'Null and empty provider values were conflated.'
+Assert-True ((Get-SSETablePreparationDifferenceCategory $state.nodes @($changed[0])) -ceq 'structure') 'Different node counts lost structural classification.'
+Reset-Scenario
+$script:guardNodeMutation={param($node) $node.selected='false'}
+$result=Assert-Preparation 'Untrusted selection scalar remains strictly rejected' $false 0
+Assert-True ($result.error.EndsWith('[preparation:guard-fingerprint-selected]')) 'Unknown scalar type weakened the original hash comparison.'
 Write-Output 'Table preparation: explicit exact owned nonmodal Tips only; fresh complete state checks, zero-action fast path and one-attempt unknown outcomes verified.'

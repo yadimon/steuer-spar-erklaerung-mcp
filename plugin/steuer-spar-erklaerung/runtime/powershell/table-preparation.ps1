@@ -91,12 +91,38 @@ function Get-SSETablePreparationState([IntPtr]$MainHwnd) {
   [pscustomobject]@{
     heading=[string]$heading;dirty=$dirty
     fingerprint=(Get-SSETextSha256 ($nodes | ConvertTo-Json -Depth 6 -Compress))
+    # Private comparison evidence only; callers never emit this state.
+    nodes=$nodes
   }
+}
+
+function Get-SSETablePreparationDifferenceCategory($BeforeNodes,$AfterNodes) {
+  $before=@($BeforeNodes);$after=@($AfterNodes)
+  if ($before.Count -ne $after.Count) { return 'structure' }
+  $groups=@(
+    @{category='runtime-id';fields=@('rid','parentRid')},
+    @{category='structure';fields=@('type','aid','parentAid')},
+    @{category='content';fields=@('name','value','readOnly','checked')},
+    @{category='selected';fields=@('selected')},
+    @{category='enabled';fields=@('enabled')},
+    @{category='geometry';fields=@('x','y','w','h')}
+  )
+  foreach ($group in $groups) {
+    for ($index=0;$index -lt $before.Count;$index++) {
+      foreach ($field in $group.fields) {
+        if (-not [object]::Equals($before[$index].$field,$after[$index].$field)) { return $group.category }
+      }
+    }
+  }
+  # The original hash remains authoritative even if no projected field can
+  # explain its mismatch. Never include a value or identifier in the code.
+  'unclassified'
 }
 
 function Invoke-SSETablePreparation {
   param([IntPtr]$MainHwnd,[int]$ProcessId)
   $dispatch=@{attempted=$false}
+  $preparationDiagnostic=@{phase='initial'}
   try {
     if ($MainHwnd -eq [IntPtr]::Zero -or $ProcessId -le 0) { throw 'Preparation requires an exact positive main-window binding.' }
     $catalog=Get-SSEPageObjects
@@ -153,35 +179,55 @@ function Invoke-SSETablePreparation {
         (Get-SSETablePreparationProcessEpoch $preparationBinding.processId) -eq $preparationBinding.creation)
     }
     $guard={
+      $preparationDiagnostic.phase='guard-environment-before'
       if (-not (& $checkEnvironment $preparationBinding.foreground)) { return $false }
+      $preparationDiagnostic.phase='guard-fresh-state'
       $fresh=Get-SSETablePreparationState $preparationBinding.mainHwnd
-      if ($fresh.fingerprint -cne $preparationBinding.state.fingerprint -or $fresh.heading -cne $preparationBinding.state.heading -or
-          $fresh.dirty -ne $preparationBinding.state.dirty) { return $false }
+      if ($fresh.fingerprint -cne $preparationBinding.state.fingerprint) {
+        $preparationDiagnostic.phase='guard-fingerprint-' + (Get-SSETablePreparationDifferenceCategory $preparationBinding.state.nodes $fresh.nodes)
+        return $false
+      }
+      $preparationDiagnostic.phase='guard-heading'
+      if ($fresh.heading -cne $preparationBinding.state.heading) { return $false }
+      $preparationDiagnostic.phase='guard-dirty'
+      if ($fresh.dirty -ne $preparationBinding.state.dirty) { return $false }
+      $preparationDiagnostic.phase='guard-main-root'
       $null=Get-SSETablePreparationRoot $preparationBinding.mainHwnd $preparationBinding.processId -ExpectedAid $preparationBinding.mainRoot.aid -ExpectedRid $preparationBinding.mainRoot.rid
+      $preparationDiagnostic.phase='guard-tip-root'
       $null=Get-SSETablePreparationRoot $preparationBinding.tipHwnd $preparationBinding.processId -ExpectedAid $preparationBinding.tipAid -ExpectedRid $preparationBinding.tipRoot.rid -ExpectedName $preparationBinding.tipTitle -RequireNonModal
       # Provider reads can pump window messages. Complete them before the last
       # Win32 inventory/owner/process proofs; no provider query follows these.
+      $preparationDiagnostic.phase='guard-window-signature'
       if ((Get-SSETablePreparationWindowSignature (Get-SSETablePreparationWindows $preparationBinding.processId)) -cne $preparationBinding.windows -or
           -not [SW]::IsWindow($preparationBinding.tipHwnd)) { return $false }
+      $preparationDiagnostic.phase='guard-owner'
       $tipPid=0
       $null=[SW]::GetWindowThreadProcessId($preparationBinding.tipHwnd,[ref]$tipPid)
       if ($tipPid -ne $preparationBinding.processId -or
           [SW]::GetWindow($preparationBinding.tipHwnd,4) -ne $preparationBinding.mainHwnd) { return $false }
-      [bool](& $checkEnvironment $preparationBinding.foreground)
+      $preparationDiagnostic.phase='guard-environment-after'
+      $environmentVerified=[bool](& $checkEnvironment $preparationBinding.foreground)
+      if ($environmentVerified) { $preparationDiagnostic.phase='close-transaction' }
+      $environmentVerified
     }
+    $preparationDiagnostic.phase='close-transaction'
     $closed=Invoke-SSEWindowCloseTransaction ([pscustomobject]@{pid=$ProcessId;hwnd=[int64]$tipHwnd;expectedTitle=[string]$entry.title}) -BeforeDispatch $guard -DispatchState $dispatch
     if (-not $closed.ok) { throw ('Help-window close was not verified: ' + [string]$closed.error) }
+    $preparationDiagnostic.phase='after-close-environment'
     $expectedForeground=$(if ($foreground -eq $tipHwnd) {$MainHwnd} else {$foreground})
     if (-not (& $checkEnvironment $expectedForeground) -or
         (Get-SSETablePreparationWindowSignature (Get-SSETablePreparationWindows $ProcessId)) -cne $preparationBinding.main) {
       throw 'Main-window, process, peer, input or foreground identity changed after preparation.'
     }
+    $preparationDiagnostic.phase='after-close-state'
     $after=Get-SSETablePreparationState $MainHwnd
     if ($after.fingerprint -cne $before.fingerprint -or $after.heading -cne $before.heading -or
         $after.dirty -ne $before.dirty) {
       throw 'Page, values, dirty state, input or foreground changed while closing the help window.'
     }
+    $preparationDiagnostic.phase='after-close-main-root'
     $null=Get-SSETablePreparationRoot $MainHwnd $ProcessId -ExpectedAid $mainRoot.aid -ExpectedRid $mainRoot.rid
+    $preparationDiagnostic.phase='after-close-final-environment'
     if (-not (& $checkEnvironment $expectedForeground) -or
         (Get-SSETablePreparationWindowSignature (Get-SSETablePreparationWindows $ProcessId)) -cne $preparationBinding.main) {
       throw 'The final main-window, peer or input binding changed during preparation readback.'
@@ -192,7 +238,7 @@ function Invoke-SSETablePreparation {
     # after an exception. A submitted message may have taken effect already.
     if ($dispatch.attempted) { $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true }
     [pscustomobject]@{
-      ok=$false;kind='table-preparation-failed';error=$_.Exception.Message;retryable=$false
+      ok=$false;kind='table-preparation-failed';error=($_.Exception.Message + ' [preparation:' + $preparationDiagnostic.phase + ']');retryable=$false
       preparationAttempted=[bool]$dispatch.attempted;outcomeUnknown=[bool]$dispatch.attempted
       reconciliationRequired=[bool]$dispatch.attempted
     }
