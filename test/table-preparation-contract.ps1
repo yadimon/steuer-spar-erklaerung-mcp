@@ -22,14 +22,16 @@ Add-Type -TypeDefinition @'
 using System;
 public static class SW {
  public static int Calls, MainPid=7, TipPid=7,ForegroundReads,OwnerReads,PidReads,ExistsReads;
- public static bool Closed, Timeout, ThrowDelivery, MainExists=true;
+ public static bool Closed, Timeout, ThrowDelivery, MainExists=true, ObserverExists=true;
+ public static int ObserverPid=7;public static IntPtr ObserverOwner=new IntPtr(101);
  public static IntPtr Foreground=new IntPtr(101),Owner=new IntPtr(101);
  public static Action OnSend;
  public static IntPtr GetForegroundWindow(){ForegroundReads++;return Foreground;}
- public static IntPtr GetWindow(IntPtr hwnd,uint mode){OwnerReads++;return Owner;}
- public static uint GetWindowThreadProcessId(IntPtr hwnd,ref int processId){PidReads++;processId=hwnd.ToInt64()==101?MainPid:TipPid;return 1;}
- public static bool IsWindow(IntPtr hwnd){ExistsReads++;return hwnd.ToInt64()==101 ? MainExists : !Closed;}
+ public static IntPtr GetWindow(IntPtr hwnd,uint mode){OwnerReads++;return hwnd.ToInt64()==303?ObserverOwner:Owner;}
+ public static uint GetWindowThreadProcessId(IntPtr hwnd,ref int processId){PidReads++;processId=hwnd.ToInt64()==101?MainPid:(hwnd.ToInt64()==303?ObserverPid:TipPid);return 1;}
+ public static bool IsWindow(IntPtr hwnd){ExistsReads++;return hwnd.ToInt64()==101 ? MainExists : (hwnd.ToInt64()==303?ObserverExists:!Closed);}
  public static IntPtr SendMessageTimeout(IntPtr hwnd,uint message,IntPtr wParam,IntPtr lParam,uint flags,uint timeout,ref IntPtr result){
+  if(hwnd.ToInt64()!=202)throw new InvalidOperationException("Only the Tips HWND may be closed");
   Calls++;Closed=true;if(OnSend!=null)OnSend();
   if(ThrowDelivery)throw new InvalidOperationException("Synthetic lost close result");
   return Timeout?IntPtr.Zero:new IntPtr(1);
@@ -39,9 +41,9 @@ namespace System.Windows.Automation {
  public static class ControlType {public static object Window=new object(),Edit=new object();}
  public static class WindowPattern {public static object Pattern=new object();}
  public static class AutomationElement {
-  public static object Main,Tip;
-  public static int MainReads,TipReads;
-  public static object FromHandle(IntPtr hwnd){if(hwnd.ToInt64()==101){MainReads++;return Main;}TipReads++;return Tip;}
+  public static object Main,Tip,Observer;
+  public static int MainReads,TipReads,ObserverReads;
+  public static object FromHandle(IntPtr hwnd){if(hwnd.ToInt64()==101){MainReads++;return Main;}if(hwnd.ToInt64()==303){ObserverReads++;return Observer;}TipReads++;return Tip;}
  }
 }
 '@
@@ -79,6 +81,14 @@ function Get-SSELastInputTick { $script:tick }
 function Test-SSELastInputUnchanged($Expected) { $null -ne $script:tick -and $Expected -eq $script:tick }
 function Walk-BoundTree {
     param([IntPtr]$Hwnd,[switch]$WithValues,[switch]$Strict)
+    if ($Hwnd -eq [IntPtr]303) {
+      Assert-True ($WithValues -and $Strict) 'Observer lost strict values binding.'
+      $script:observerWalks++
+      if ($script:observerThrows -eq $script:observerWalks) {throw 'Synthetic unreadable observer'}
+      $observerCopy=$script:observerTree | ConvertTo-Json -Depth 10 -Compress | ConvertFrom-Json
+      if ($script:onObserverWalk) { & $script:onObserverWalk $observerCopy $script:observerWalks }
+      return $observerCopy
+    }
     Assert-True ($Hwnd -eq [IntPtr]101 -and $WithValues -and $Strict) 'Preparation lost exact main, values or strict provider binding.'
   $script:walks++
   if ($script:mode -ceq 'guard-provider-throws' -and $script:walks -eq 2) {throw 'Synthetic unreadable provider'}
@@ -100,6 +110,8 @@ function Walk-BoundTree {
   $copy
 }
 function Get-DirtyStateFast {
+  param([IntPtr]$Hwnd)
+  Assert-True ($Hwnd -ne [IntPtr]303) 'Observer must not claim main dirty state.'
   if ($script:mode -ceq 'dirty-unknown') {return $null}
   if ($script:mode -ceq 'dirty-unknown-after' -and [SW]::Closed) {return $null}
   if ($script:mode -ceq 'dirty-after-close' -and [SW]::Closed) {return $true}
@@ -107,6 +119,8 @@ function Get-DirtyStateFast {
   $script:currentDirty
 }
 function Get-CurrentHeading {
+  param([IntPtr]$Hwnd)
+  Assert-True ($Hwnd -ne [IntPtr]303) 'Observer must not claim main heading.'
   if ($script:mode -ceq 'heading-unknown') {return $null}
   if ($script:mode -ceq 'heading-after-close' -and [SW]::Closed) {return 'Other page'}
   if ($script:mode -ceq 'heading-during-guard' -and $script:walks -eq 2) {return 'Other page'}
@@ -124,6 +138,8 @@ function Reset-Scenario {
   $script:mode='';$script:tick=10;$script:walks=0;$script:windowReads=0;$script:dialogReads=0;$script:epochReads=0;$script:beforeGuard=$null;$script:guardNodeMutation=$null
   $script:geometrySettled=$false;$script:onWalk=$null;$script:stateMutation=$null;$script:epochValue=123
   $script:currentDirty=$false;$script:currentHeading='Synthetic table'
+  $script:observerWalks=0;$script:onObserverWalk=$null;$script:observerThrows=-1;$script:observerTree=$null
+  [SW]::ObserverExists=$true;[SW]::ObserverPid=7;[SW]::ObserverOwner=[IntPtr]101;$AE::ObserverReads=0;$AE::Observer=$null
   [SW]::Calls=0;[SW]::Closed=$false;[SW]::Timeout=$false;[SW]::ThrowDelivery=$false;[SW]::MainExists=$true
   [SW]::ForegroundReads=0;[SW]::OwnerReads=0;[SW]::PidReads=0;[SW]::ExistsReads=0
   [SW]::MainPid=7;[SW]::TipPid=7;[SW]::Foreground=[IntPtr]101;[SW]::Owner=[IntPtr]101;[SW]::OnSend=$null
@@ -444,3 +460,168 @@ $script:stateMutation={
 $result=Assert-Preparation 'Future projected semantic difference is rejected without classifier authorization' $false 0
 Assert-True ($script:walks -eq 2 -and $result.error.EndsWith('[preparation:guard-fingerprint-geometry]')) 'Diagnostic geometry classification became semantic authority.'
 Write-Output 'Table preparation: explicit exact owned nonmodal Tips only; fresh complete state checks, zero-action fast path and one-attempt unknown outcomes verified.'
+
+# Direct actual-helper observer regression cases.
+# No GUI, native controller or real product state is used by these cases.
+function Enable-ResultObserver {
+  $title='Werte-Info: Werte vergleichen - Was w' + [char]0x00e4 + 're wenn'
+  $script:catalog.windows | Add-Member NoteProperty resultComparison ([pscustomobject]@{
+    title=$title;role='nonmodal-result-window';closePolicy='allow-exact-nonmodal-close'
+  })
+  $script:observer=New-Window 303 $title 'known-nonmodal'
+  $script:beforeWindows+= $script:observer
+  $script:afterWindows+= $script:observer
+  $AE::Observer=New-Root 303 'Synthetic.ResultWindow' '8.1' $title
+  $script:observerTree=[pscustomobject]@{
+    stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0}
+    nodes=@(
+      [pscustomobject]@{i=0;p=-1;type='Pane';aid='Synthetic.Result';rid='8.2';name='Comparison';on=$true;x=100;y=100;w=500;h=400},
+      [pscustomobject]@{i=1;p=0;type='Text';aid='Synthetic.Result.Amount';rid='8.3';name='1,00';val='1,00';ro=$true;checked=$null;selected=$false;on=$true;x=110;y=130;w=100;h=25}
+    )
+  }
+}
+function Set-FinalObserverModalReadAction([scriptblock]$Action) {
+  $script:finalObserverModalReadAction=$Action
+  $AE::Observer.pattern | Add-Member ScriptProperty Current {
+    if ($AE::ObserverReads -eq 2) { & $script:finalObserverModalReadAction }
+    [pscustomobject]@{IsModal=$false}
+  } -Force
+}
+
+Reset-Scenario
+Enable-ResultObserver
+$result=Assert-Preparation 'Exact passive result observer is retained' $true 1
+Assert-True ($script:walks -eq 3 -and $script:observerWalks -eq 3 -and $AE::ObserverReads -eq 3) 'Observer requires exactly initial/final/preclose strict state and root bindings.'
+Assert-True ([SW]::ObserverExists -and @($script:afterWindows).Count -eq 2 -and $null -eq $result.PSObject.Properties['observer']) 'Observer was closed or its private authority escaped.'
+
+Reset-Scenario
+Enable-ResultObserver
+$script:beforeWindows=@($script:main,$script:observer)
+$result=Invoke-SSETablePreparation ([IntPtr]101) 7
+Assert-True ($result.ok -and -not $result.prepared -and [SW]::Calls -eq 0 -and $script:walks -eq 0 -and
+  $script:observerWalks -eq 0 -and $AE::ObserverReads -eq 0 -and $script:windowReads -eq 1) 'No-Tips observer changed the fast path.'
+
+Reset-Scenario
+Enable-ResultObserver
+[SW]::Foreground=[IntPtr]202
+[SW]::OnSend={[SW]::Foreground=[IntPtr]101}
+$null=Assert-Preparation 'Foreground Tips closes without touching observer' $true 1
+
+foreach ($case in @(
+  @{name='observer wrong exact title';setup={$script:observer.title='Werte-Info: Vergleich'}},
+  @{name='observer missing policy';setup={$script:catalog.windows.PSObject.Properties.Remove('resultComparison')}},
+  @{name='observer wrong role';setup={$script:catalog.windows.resultComparison.role='nonmodal-tool-window'}},
+  @{name='observer wrong close policy';setup={$script:catalog.windows.resultComparison.closePolicy='other'}},
+  @{name='observer duplicate catalog title';setup={$script:catalog.windows | Add-Member NoteProperty other ([pscustomobject]@{title=$script:observer.title})}},
+  @{name='observer duplicate window';setup={$script:beforeWindows+=New-Window 304 $script:observer.title 'known-nonmodal'}},
+  @{name='observer unknown extra window';setup={$script:beforeWindows+=New-Window 304 'Unknown' 'qt-dialog'}},
+  @{name='observer wrong window class';setup={$script:observer.cls='OtherWindow'}},
+  @{name='observer wrong owner';setup={[SW]::ObserverOwner=[IntPtr]999}},
+  @{name='observer cannot be foreground';setup={[SW]::Foreground=[IntPtr]303}},
+  @{name='observer root foreign PID';setup={$AE::Observer.Current.ProcessId=8}},
+  @{name='observer root wrong HWND';setup={$AE::Observer.Current.NativeWindowHandle=304}},
+  @{name='observer root missing AID';setup={$AE::Observer.Current.AutomationId=''}},
+  @{name='observer root missing RID';setup={$AE::Observer.rid=''}},
+  @{name='observer root wrong title';setup={$AE::Observer.Current.Name='Other comparison'}},
+  @{name='observer root wrong type';setup={$AE::Observer.Current.ControlType=[System.Windows.Automation.ControlType]::Edit}},
+  @{name='observer root disabled';setup={$AE::Observer.Current.IsEnabled=$false}},
+  @{name='observer root unknown enabled';setup={$AE::Observer.Current.IsEnabled=$null}},
+  @{name='observer missing WindowPattern';setup={$AE::Observer.pattern=$null}},
+  @{name='observer modal';setup={$AE::Observer.pattern.Current.IsModal=$true}},
+  @{name='observer unknown modal state';setup={$AE::Observer.pattern.Current.IsModal=$null}},
+  @{name='observer unreadable modal state';setup={$AE::Observer.pattern.Current | Add-Member ScriptProperty IsModal {throw 'Synthetic observer modal failure'} -Force}},
+  @{name='observer incomplete';setup={$script:observerTree.stats.truncated=$true}},
+  @{name='observer unknown completeness';setup={$script:observerTree.stats.PSObject.Properties.Remove('truncated')}},
+  @{name='observer value read error';setup={$script:observerTree.stats.valErr=1}},
+  @{name='observer duplicate index';setup={$script:observerTree.nodes[1].i=0}},
+  @{name='observer missing parent';setup={$script:observerTree.nodes[1].p=99}},
+  @{name='observer provider throws initially';setup={$script:observerThrows=1}},
+  @{name='observer provider throws before close';setup={$script:observerThrows=2}},
+  @{name='observer late RID';setup={$script:beforeGuard={$AE::Observer.rid='8.9'}}},
+  @{name='observer late AID';setup={$script:beforeGuard={$AE::Observer.Current.AutomationId='Other.Result'}}},
+  @{name='observer late modal';setup={$script:beforeGuard={$AE::Observer.pattern.Current.IsModal=$true}}},
+  @{name='observer late owner';setup={$script:beforeGuard={[SW]::ObserverOwner=[IntPtr]999}}},
+  @{name='observer late PID';setup={$script:beforeGuard={[SW]::ObserverPid=8}}},
+  @{name='observer owner changes during final modal read';setup={Set-FinalObserverModalReadAction {[SW]::ObserverOwner=[IntPtr]999}}},
+  @{name='observer PID changes during final modal read';setup={Set-FinalObserverModalReadAction {[SW]::ObserverPid=8}}},
+  @{name='observer disappears during final modal read';setup={Set-FinalObserverModalReadAction {[SW]::ObserverExists=$false}}},
+  @{name='observer geometry changes during final modal read';setup={Set-FinalObserverModalReadAction {$script:observer.h++}}},
+  @{name='observer peer appears during final modal read';setup={Set-FinalObserverModalReadAction {$script:beforeWindows+=New-Window 304 'Unknown' 'qt-dialog'}}},
+  @{name='observer foreground changes during final modal read';setup={Set-FinalObserverModalReadAction {[SW]::Foreground=[IntPtr]303}}},
+  @{name='observer input changes during final modal read';setup={Set-FinalObserverModalReadAction {$script:tick++}}},
+  @{name='observer owner changes during final snapshot';setup={$script:onObserverWalk={param($t,$n) if($n -eq 2){[SW]::ObserverOwner=[IntPtr]999}}}},
+  @{name='observer window changes during final snapshot';setup={$script:onObserverWalk={param($t,$n) if($n -eq 2){$script:observer.w++}}}},
+  @{name='observer RID changes during final snapshot';setup={$script:onObserverWalk={param($t,$n) if($n -eq 2){$AE::Observer.rid='8.99'}}}},
+  @{name='observer becomes modal during final snapshot';setup={$script:onObserverWalk={param($t,$n) if($n -eq 2){$AE::Observer.pattern.Current.IsModal=$true}}}},
+  @{name='Tips root changes during observer snapshot';setup={$script:onObserverWalk={param($t,$n) if($n -eq 2){$AE::Tip.rid='1.99'}}}},
+  @{name='observer disappears during root read';setup={$AE::Observer.pattern | Add-Member ScriptProperty Current {[SW]::ObserverExists=$false;[pscustomobject]@{IsModal=$false}} -Force}},
+  @{name='observer late window geometry';setup={$script:beforeGuard={$script:observer.x++}}},
+  @{name='observer replaced window';setup={$script:beforeGuard={$script:beforeWindows=@($script:main,$script:tip,(New-Window 304 $script:observer.title 'known-nonmodal'))}}}
+)) {
+  Reset-Scenario
+  Enable-ResultObserver
+  & $case.setup
+  $null=Assert-Preparation $case.name $false 0
+}
+
+# Every projected observer field is strict: no geometry settling/retry is
+# inherited from the main-window state, including values and checkbox states.
+foreach ($case in @(
+  @{name='identity';mutate={param($t) $t.nodes[1].rid='8.99'}},
+  @{name='structure';mutate={param($t) $t.nodes[1].aid='Other.Amount'}},
+  @{name='text';mutate={param($t) $t.nodes[1].name='2,00'}},
+  @{name='value';mutate={param($t) $t.nodes[1].val='2,00'}},
+  @{name='readOnly';mutate={param($t) $t.nodes[1].ro=$false}},
+  @{name='checked';mutate={param($t) $t.nodes[1].checked=$true}},
+  @{name='selected';mutate={param($t) $t.nodes[1].selected=$true}},
+  @{name='enabled';mutate={param($t) $t.nodes[1].on=$false}},
+  @{name='geometry';mutate={param($t) $t.nodes[1].h=26}},
+  @{name='completeness';mutate={param($t) $t.stats.truncated=$true}}
+)) {
+  Reset-Scenario
+  Enable-ResultObserver
+  $script:observerMutation=$case.mutate
+  $script:onObserverWalk={param($t,$n) if($n -eq 2){& $script:observerMutation $t}}
+  $null=Assert-Preparation ('Observer '+$case.name+' before close') $false 0
+  Assert-True ($script:observerWalks -eq 2) 'Observer drift authorized another snapshot or a retry.'
+
+  Reset-Scenario
+  Enable-ResultObserver
+  $script:observerMutation=$case.mutate
+  $script:onObserverWalk={param($t,$n) if($n -eq 3){& $script:observerMutation $t}}
+  $null=Assert-Preparation ('Observer '+$case.name+' after close') $false 1 $true
+  Assert-True ($script:observerWalks -eq 3) 'Observer post-close drift caused extra provider work.'
+}
+
+foreach ($case in @(
+  @{name='observer root replaced after close';mutate={$AE::Observer.rid='8.99'}},
+  @{name='observer owner changes after close';mutate={[SW]::ObserverOwner=[IntPtr]999}},
+  @{name='observer PID changes after close';mutate={[SW]::ObserverPid=8}},
+  @{name='observer disappears after close';mutate={[SW]::ObserverExists=$false}},
+  @{name='observer becomes modal after close';mutate={$AE::Observer.pattern.Current.IsModal=$true}},
+  @{name='observer window geometry changes after close';mutate={$script:observer.w++}},
+  @{name='observer removed from inventory after close';mutate={$script:afterWindows=@($script:main)}},
+  @{name='observer unknown new peer after close';mutate={$script:afterWindows+=New-Window 304 'Unknown' 'qt-dialog'}}
+)) {
+  Reset-Scenario
+  Enable-ResultObserver
+  [SW]::OnSend=$case.mutate
+  $null=Assert-Preparation $case.name $false 1 $true
+}
+foreach ($case in @(
+  @{name='observer owner during final post snapshot';mutate={[SW]::ObserverOwner=[IntPtr]999}},
+  @{name='observer RID during final post snapshot';mutate={$AE::Observer.rid='8.99'}},
+  @{name='observer modal during final post snapshot';mutate={$AE::Observer.pattern.Current.IsModal=$true}},
+  @{name='observer inventory during final post snapshot';mutate={$script:observer.x++}},
+  @{name='observer new peer during final post snapshot';mutate={$script:afterWindows+=New-Window 304 'Unknown' 'qt-dialog'}},
+  @{name='observer input during final post snapshot';mutate={$script:tick++}},
+  @{name='observer foreground during final post snapshot';mutate={[SW]::Foreground=[IntPtr]303}}
+)) {
+  Reset-Scenario
+  Enable-ResultObserver
+  $script:lateObserverMutation=$case.mutate
+  $script:onObserverWalk={param($t,$n) if($n -eq 3){& $script:lateObserverMutation}}
+  $null=Assert-Preparation $case.name $false 1 $true
+  Assert-True ($script:observerWalks -eq 3) 'Final observer failure caused provider work or replay.'
+}
+Write-Output 'Table preparation observer: exact passive result peer, strict complete state, unchanged peers and one Tips close verified.'

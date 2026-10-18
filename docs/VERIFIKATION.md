@@ -42,6 +42,11 @@ Fenster, aktive Editoren sowie Änderungen an Prozess, Eigentümer, Eingabe,
 Vordergrund und vollständigem Seitenzustand. Fehler vor Dispatch müssen
 ohne Close enden; fehlende Bestätigung nach Dispatch darf weder Replay noch
 Tabellenmutation auslösen und muss den ungewissen Fokuskontext erhalten.
+Die exakt bekannte zusätzliche Werte-Info benötigt einen eigenen unveränderten
+nichtmodalen Root-, Eigentümer-, Inhalts- und Geometrienachweis. Sie darf kein
+Vordergrundfenster sein. Gegenfälle umfassen doppelte oder falsche Peers,
+späte Änderungen sowie ein nach dem Close verändertes Beobachterfenster;
+entfernt werden darf ausschließlich das Tipps-Fenster.
 `table-preparation-boundary-contract.ps1` prüft die echten Dispatcherpräfixe:
 Vorbereitung nur vor öffentlichem Cursorlesen, erstem nativen `prebind` und
 eigenständigen Mutationen; keine Vorbereitung für Grid, `noKeys: true`,

@@ -187,8 +187,15 @@ nicht aus. Der Cursorpfad auf versteckten Desktops erhält sie ebenfalls nicht.
 Die Vorbereitung benötigt eine ausdrückliche Profilrichtlinie. Erlaubt ist
 nur genau ein bekanntes, aktiviertes, nachweislich nichtmodales Hilfsfenster
 derselben PID mit exaktem Titel und AutomationId, das unmittelbar dem
-gebundenen Hauptfenster gehört. Andere relevante Fenster, unbekannte
-Dialoge oder ein aktiver Tabelleneditor blockieren das Schließen.
+gebundenen Hauptfenster gehört. Zusätzlich darf genau eine katalogisierte
+Werte-Info als passiver Beobachter vorhanden sein. Sie benötigt eine eigene
+frische Bindung von PID, HWND, direktem Eigentümer, Root-Identität und typisiert
+nichtmodalem Zustand. Sie darf nicht im Vordergrund stehen; ihr vollständiger
+Inhalts- und Geometriezustand muss vor und nach dem Close unverändert sein.
+Geschlossen wird ausschließlich das Tipps-Fenster. Der erwartete Fensterbestand
+danach entspricht dem ursprünglichen Bestand ohne genau dieses Fenster.
+Andere relevante Fenster, unbekannte Dialoge oder ein aktiver Tabelleneditor
+blockieren das Schließen.
 Unmittelbar davor werden Fenster-/Prozessidentität, Eigentümer, Eingabe,
 Vordergrund sowie vollständiger Seitenzustand erneut geprüft. Danach müssen
 Hauptfenster, Seite, Feldwerte, Auswahl und Dirty-State unverändert sein;
@@ -205,6 +212,7 @@ unverändert an ihren ursprünglichen Nachweis gebunden. Nach dem Close gilt
 weiterhin die volle Gleichheitsprüfung gegen diesen bestätigten Zustand.
 Weitere Bewegung, ein Providerfehler oder eine andere Zustandsänderung führen
 zum Abbruch; es gibt keine zweite Close-Aktion.
+Die zusätzliche Geometriebestätigung gilt nicht für die beobachtete Werte-Info.
 
 Ein nicht bestätigtes Schließen liefert `table-preparation-failed` und
 `retryable: false`. Nach abgesandtem Close bleiben `outcomeUnknown` und

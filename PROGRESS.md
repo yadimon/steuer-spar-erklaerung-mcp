@@ -20,7 +20,8 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   Für einen abgeschnittenen ursprünglichen Anker wird eine getrennte vollständig
   sichtbare Nr.-Zelle mit eindeutigem Rohzeilen-/Semantik- und Inhaltsnachweis
   gebunden. Ihre RID und echte Grid-Zeile bleiben über den Einzelklick fest;
-  der ursprüngliche Leseanker wird nicht ersetzt. Die reale Abnahme steht aus.
+  der ursprüngliche Leseanker wird nicht ersetzt. Der reale Übergang nach
+  Werte-Info, Hilfe und Update besteht; die gemeinsame Abschlussabnahme läuft.
 - **Nr.-Editor und ESC:** Ein Nummerneditor darf die Navigation nur mit eigenem
   unverändertem ausgewähltem Zellnachweis tragen. ESC-Ausgang und spätere Navigation bleiben getrennt
   diagnostiziert; verlorene Ergebnisse erhalten auch öffentlich ihre Unsicherheit.
@@ -53,6 +54,10 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   unveränderter Seite und Dirty-Lage ist eine zusätzliche passive Bestätigung
   zulässig. Sie muss die neue Geometrie vollständig bestätigen; nach WM_CLOSE
   gilt der bestätigte Zustand ohne erneute Stabilisierung oder Close-Wiederholung.
+  Eine zusätzliche genau katalogisierte Werte-Info darf ausschließlich als
+  nicht im Vordergrund stehender, vollständig unveränderter Beobachter gebunden
+  werden. Nur Tipps werden geschlossen; unbekannte Peers bleiben gesperrt.
+  Die reale Abschlussabnahme dieser Ergänzung steht noch aus.
 - **Cursorleistung:** Beim bereits eigenen fokussierten Edit entfällt ein
   anschließend verworfener Tabellenlauf. Der Hinweis wählt nur den Prüfpfad;
   vollständiger frischer Tabellen-/Auswahl-, RAW-, Grid- und Wertnachweis bleiben.
@@ -94,8 +99,11 @@ Readback. Nach der Werte-Info fand die Reise noch eine passive Schaltfläche
 mit erhaltener Zeilenauswahl; deren ergänzter Nachweis überwindet diese Hürde.
 Der nächste kontrollierte Abbruch zeigte eine vom Provider als sichtbar
 gemeldete Nr.-Zelle oberhalb des Tabelleninhalts. Die getrennte vollständig
-sichtbare Aktivierungszelle muss die vollständige Reise auf dem gemeinsamen
-Endstand noch bestehen. Die große unmittelbare
+sichtbare Aktivierungszelle überwindet diesen Übergang und erhält die Tabelle
+auch nach Hilfe und Update vollständig. Beim späteren Seitenwechsel zeigte
+die Vorbereitung die Kombination Hauptfenster, Werte-Info und Tipps. Der enge
+Beobachternachweis muss die vollständige Reise auf dem gemeinsamen Endstand
+noch bestehen. Die große unmittelbare
 Add-/Delete-Cursorfolge besteht bereits für den vorherigen Stand; sie wird auf
 dem gemeinsamen Endstand erneut geprüft.
 Frühere passive Readbacks ersetzen diese Nachweise nicht.
