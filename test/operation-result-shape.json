@@ -652,6 +652,7 @@
           },
           "uia": {
             "types": [
+              "object:{\"aid\":\"string-other\",\"depth\":\"nonnegative-number\",\"hasKeyboardFocus\":\"boolean\",\"keyboardFocusable\":\"boolean\",\"localizedType\":\"string-other\",\"name\":\"string-other\",\"nativeWindowHandle\":\"nonnegative-number\",\"offscreen\":\"boolean\",\"ownRootAncestry\":\"object\",\"patterns\":\"array-many:string-other\",\"processId\":\"nonnegative-number\",\"rect\":\"object\",\"rid\":\"string-other\",\"texts\":\"array-one:object\",\"type\":\"string-other\"}",
               "object:{\"aid\":\"string-other\",\"depth\":\"nonnegative-number\",\"localizedType\":\"string-other\",\"name\":\"string-other\",\"offscreen\":\"boolean\",\"patterns\":\"array-many:string-other\",\"rect\":\"object\",\"rid\":\"string-other\",\"texts\":\"array-one:object\",\"type\":\"string-other\"}"
             ],
             "labels": [
@@ -2109,6 +2110,7 @@
           },
           "snapshot": {
             "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -3650,6 +3652,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -4116,6 +4119,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -4651,7 +4655,8 @@
           },
           "tippsZusatzinfos": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "worker"
@@ -4785,6 +4790,17 @@
           "2025"
         ],
         "fields": {
+          "bereitsAktiv": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "fokusVerwendet": {
             "types": [
               "boolean"
@@ -4930,7 +4946,8 @@
           },
           "tippsZusatzinfos": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "worker"
@@ -5438,6 +5455,8 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"null\",\"topmostCycles\":\"nonnegative-number\"}",
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -6653,6 +6672,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -7279,6 +7299,17 @@
             "outcomes": [
               "success"
             ]
+          },
+          "weitereInstanzen": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       }
@@ -7689,6 +7720,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -8369,6 +8401,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -8559,6 +8592,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -8892,6 +8926,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -9216,6 +9251,7 @@
           },
           "stats": {
             "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-other\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
             ],
@@ -9540,6 +9576,8 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"null\",\"topmostCycles\":\"nonnegative-number\"}",
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -9584,7 +9622,8 @@
           },
           "pageId": {
             "types": [
-              "null"
+              "null",
+              "string-other"
             ],
             "labels": [
               "worker"
@@ -11830,6 +11869,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -12368,6 +12408,7 @@
           },
           "stats": {
             "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-other\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
             ],
@@ -12536,6 +12577,8 @@
         "fields": {
           "catalog": {
             "types": [
+              "object:{\"checkerStartBindings\":\"array-many:object\",\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"tableComboFocusOut\":\"object\",\"tableHelpDocumentFocusSource\":\"object\",\"tablePositionNameFocusSource\":\"object\",\"tableRegionBindings\":\"array-many:object\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}",
+              "object:{\"checkerStartBindings\":\"array-one:object\",\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}",
               "object:{\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}"
             ],
             "labels": [
@@ -13102,6 +13145,7 @@
           },
           "workerInitializationMs": {
             "types": [
+              "object:{\"assembliesMs\":\"nonnegative-number\",\"dispatcherRegistrationMs\":\"nonnegative-number\",\"dispatcherWarmupMs\":\"nonnegative-number\",\"nativeDllHash\":\"string-hex64\",\"nativeDllHashMatch\":\"boolean\",\"nativeExpectedDllHash\":\"string-hex64\",\"nativeExpectedSourceHash\":\"string-hex64\",\"nativeHashMatch\":\"boolean\",\"nativeInteropMode\":\"string-other\",\"nativeInteropMs\":\"nonnegative-number\",\"nativeSourceHash\":\"string-hex64\",\"staticProfileCacheMs\":\"nonnegative-number\"}",
               "object:{\"assembliesMs\":\"nonnegative-number\",\"nativeDllHash\":\"string-hex64\",\"nativeDllHashMatch\":\"boolean\",\"nativeExpectedDllHash\":\"string-hex64\",\"nativeExpectedSourceHash\":\"string-hex64\",\"nativeHashMatch\":\"boolean\",\"nativeInteropMode\":\"string-other\",\"nativeInteropMs\":\"nonnegative-number\",\"nativeSourceHash\":\"string-hex64\"}"
             ],
             "labels": [
@@ -13442,6 +13486,7 @@
           },
           "stats": {
             "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -13578,6 +13623,7 @@
         "fields": {
           "ausgeschlosseneFenster": {
             "types": [
+              "array-empty",
               "array-one:object"
             ],
             "labels": [
@@ -13589,7 +13635,8 @@
           },
           "headers": {
             "types": [
-              "array-empty"
+              "array-empty",
+              "array-many:string-other"
             ],
             "labels": [
               "worker"
@@ -13655,7 +13702,8 @@
           },
           "rowDetails": {
             "types": [
-              "array-empty"
+              "array-empty",
+              "array-many:object"
             ],
             "labels": [
               "worker"
@@ -13666,7 +13714,8 @@
           },
           "rows": {
             "types": [
-              "array-empty"
+              "array-empty",
+              "array-many:array"
             ],
             "labels": [
               "worker"
@@ -13677,6 +13726,7 @@
           },
           "stats": {
             "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -17376,6 +17426,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -18658,6 +18709,7 @@
           },
           "stats": {
             "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}",
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -19346,12 +19398,15 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"null\",\"topmostCycles\":\"nonnegative-number\"}",
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -19446,6 +19501,17 @@
             ],
             "outcomes": [
               "error"
+            ]
+          },
+          "rowIdentity": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
             ]
           },
           "sumAfter": {
@@ -19577,6 +19643,7 @@
           },
           "zellen": {
             "types": [
+              "array-many:object",
               "array-one:object"
             ],
             "labels": [
@@ -19758,6 +19825,8 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"null\",\"topmostCycles\":\"nonnegative-number\"}",
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -20035,6 +20104,17 @@
           "2025"
         ],
         "fields": {
+          "activationSubmitted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "anzahl": {
             "types": [
               "nonnegative-number"
@@ -20058,9 +20138,79 @@
               "success"
             ]
           },
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "cursorActivation": {
+            "types": [
+              "object:{\"activationSubmitted\":\"boolean\",\"anchorFocusable\":\"null\",\"anchorVerified\":\"boolean\",\"errorRecord\":\"null\",\"escapeSubmitted\":\"boolean\",\"exceptionMessage\":\"null\",\"exceptionType\":\"null\",\"existingCursorProof\":\"null\",\"footerFocus\":\"null\",\"method\":\"string-other\",\"outcomeUnknown\":\"boolean\",\"phase\":\"string-other\",\"physicalInputAttempted\":\"boolean\",\"physicalInputUsed\":\"boolean\",\"reason\":\"string-other\",\"reconciliationRequired\":\"boolean\",\"retryable\":\"boolean\",\"subphase\":\"null\",\"tableFocusable\":\"null\"}",
+              "object:{\"activationSubmitted\":\"boolean\",\"anchorFocusable\":\"null\",\"anchorVerified\":\"boolean\",\"errorRecord\":\"null\",\"escapeSubmitted\":\"boolean\",\"exceptionMessage\":\"null\",\"exceptionType\":\"null\",\"existingCursorProof\":\"null\",\"footerFocus\":\"null\",\"method\":\"string-other\",\"outcomeUnknown\":\"boolean\",\"phase\":\"string-other\",\"physicalInputAttempted\":\"boolean\",\"physicalInputUsed\":\"null\",\"reason\":\"string-other\",\"reconciliationRequired\":\"boolean\",\"retryable\":\"boolean\",\"subphase\":\"null\",\"tableFocusable\":\"null\"}",
+              "object:{\"anchorFocusable\":\"null\",\"anchorVerified\":\"boolean\",\"errorRecord\":\"null\",\"exceptionMessage\":\"null\",\"exceptionType\":\"null\",\"footerFocus\":\"null\",\"method\":\"string-other\",\"phase\":\"string-other\",\"reason\":\"null\",\"subphase\":\"null\",\"tableFocusable\":\"null\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"null\",\"topmostCycles\":\"nonnegative-number\"}",
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "freshRawFocusCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "freshRawFocusMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "freshRawResolvers": {
+            "types": [
+              "object:{\"focus\":\"object\"}"
             ],
             "labels": [
               "worker"
@@ -20072,6 +20222,17 @@
           "hinweis": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "null"
             ],
             "labels": [
               "worker"
@@ -20115,6 +20276,61 @@
             ]
           },
           "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "outcomeUnknown": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "physicalInputAttempted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "physicalInputUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "reconciliationRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "retryable": {
             "types": [
               "boolean"
             ],
@@ -20452,6 +20668,19 @@
             ],
             "outcomes": [
               "error"
+            ]
+          },
+          "focusTelemetry": {
+            "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"null\",\"topmostCycles\":\"nonnegative-number\"}",
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
             ]
           },
           "inputGuard": {
@@ -21275,6 +21504,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -21575,6 +21805,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -21766,6 +21997,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -22662,6 +22894,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -23747,6 +23980,7 @@
           },
           "focusTelemetry": {
             "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}",
               "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
             ],
             "labels": [
