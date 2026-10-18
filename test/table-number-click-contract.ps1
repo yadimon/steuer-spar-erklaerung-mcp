@@ -61,6 +61,7 @@ function Get-SSETableReadUncachedElement {
   $script:resolverCalls++
   if ($Rid -ceq $script:table.rid) {return [pscustomobject]@{ok=$true;element=$script:table}}
   if ($Rid -ceq $script:cell.rid) {return [pscustomobject]@{ok=$true;element=$script:cell}}
+  if ($script:priorElements -and $script:priorElements.ContainsKey($Rid)) {return [pscustomobject]@{ok=$true;element=$script:priorElements[$Rid]}}
   throw 'Unexpected fresh element target.'
 }
 function Get-LiveElement { $script:header }
@@ -104,6 +105,12 @@ function Click-VerifiedPoint {
   if ($script:mode -ceq 'foreground-at-last-hook') {[SW]::Foreground=[IntPtr]999}
   if ($script:mode -ceq 'selection-at-last-hook') {$script:selection.items=@($script:cell)}
   if ($script:mode -ceq 'help-source-at-last-hook') {$AE::FocusedElement=$script:editor}
+  if ($script:mode -ceq 'passive-source-late') {$AE::FocusedElement=$script:editor}
+  if ($script:mode -ceq 'passive-selection-late-empty') {$script:selection.items=@()}
+  if ($script:mode -ceq 'passive-selection-late-added') {$script:selection.items=@($script:cell);$script:item.Current.IsSelected=$true}
+  if ($script:mode -ceq 'passive-selection-late-metadata') {$script:priorElements['1.5'].Current.Name='Changed selected value'}
+  if ($script:mode -ceq 'passive-selection-late-set') {$script:selection.items=@($script:priorElements['1.5'],$script:priorElements['1.7'])}
+  if ($script:mode -ceq 'passive-selection-order') {[array]::Reverse($script:selection.items)}
   if (-not (& $BeforeClickCheck $Hwnd $BeforeClickBinding 120 140)) {throw 'Synthetic last click guard rejected.'}
   $script:clicks++
   $script:tick=([long][Environment]::TickCount -band 4294967295L)
@@ -117,7 +124,7 @@ function Click-VerifiedPoint {
   if ($script:mode -ceq 'source-still-focused') {$AE::FocusedElement=$script:source;$script:table.Current.HasKeyboardFocus=$false}
   if ($script:mode -ceq 'table-unfocused') {$script:table.Current.HasKeyboardFocus=$false}
   if ($script:mode -ceq 'source-after-click') {$script:sourceValue.Current.Value='Changed position'}
-  if ($script:mode -ceq 'help-rematerialized-after-click') {$script:source.rid='2.9';$script:source.Current.IsEnabled=$false}
+  if ($script:mode -cin @('help-rematerialized-after-click','passive-rematerialized-after-click')) {$script:source.rid='2.9';$script:source.Current.IsEnabled=$false}
   if ($script:mode -ceq 'dirty-after-click') {$script:dirty=$true}
   if ($script:mode -ceq 'window-after-click') {$script:windowFingerprint='changed'}
   if ($script:mode -ceq 'dpi-after-click') {[SW]::Dpi=144}
@@ -129,6 +136,7 @@ function Reset-Scenario {
   $script:mode='';$script:clicks=0;$script:clickHelperCalls=0;$script:escapes=0;$script:focusCalls=0;$script:selectCalls=0
   $script:sourceProofCalls=0;$script:numberProofCalls=0;$script:resolverCalls=0;$script:reads=0;$script:waits=@();$script:records=0
   $script:dirty=$false;$script:windowFingerprint='stable';$script:editorClosed=$true
+  $script:priorElements=@{}
   $script:tick=(([long][Environment]::TickCount -band 4294967295L)+4294966296L)%4294967296L
   [SW]::ProcessId=7;[SW]::Dpi=96;[SW]::DoubleClickMs=100;[SW]::Foreground=[IntPtr]111;[SW]::Origin=[int[]]@(0,0)
   $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
@@ -377,3 +385,83 @@ foreach ($case in @('help-exact','help-rematerialized-after-click','help-no-poli
   Assert-True ($script:focusCalls -eq 0 -and $script:selectCalls -eq 0) "$case added another activation action."
 }
 Write-Output 'Number-cell Help source: actual source/transaction, exact own noneditable Help identity and loaded-provider versions, no generic Document authority.'
+
+foreach ($case in @('passive-Button','passive-Table','passive-DataGrid','passive-DataItem','passive-Tree','passive-TreeItem',
+  'passive-empty','passive-selected-target','passive-selection-order','passive-gapped-toggle','passive-limit','passive-duplicate','passive-too-many','passive-mixed-row',
+  'passive-duplicate-column','passive-offscreen','passive-name','passive-bounds','passive-foreign-pid','passive-foreign-table',
+  'passive-wrong-selection-container','passive-untyped-selected','passive-unselected-item','passive-target-inconsistent',
+  'passive-span','passive-missing-node','passive-missing-pattern','passive-selection-late-empty','passive-selection-late-added',
+  'passive-selection-late-metadata','passive-selection-late-set','passive-source-foreign-pid','passive-source-window',
+  'passive-source-metadata','passive-source-unfocused','passive-source-edit','passive-source-custom','passive-source-document',
+  'passive-source-late','passive-rematerialized-after-click')) {
+  $tableAid='Synthetic.Table./.Tab';Reset-Scenario;$script:mode=$case;$script:providerReads=0;$script:helpPolicy=$null
+  $type=$(if ($case -cmatch '^passive-(Table|DataGrid|DataItem|Button|Tree|TreeItem)$') {$Matches[1]} else {'Button'})
+  $sourceNode=[pscustomobject]@{i=4;p=-1;rid='2.1';aid='Synthetic.Results.MoreDetails';type=$type;name='More details';on=$true;x=600;y=100;w=100;h=30}
+  $script:source=New-Element $sourceNode $type;$script:source.Current.HasKeyboardFocus=$true
+  $window=New-Element ([pscustomobject]@{rid='9.1';aid='Synthetic.Main';name='';x=0;y=0;w=900;h=700}) 'Window'
+  $window.Current.NativeWindowHandle=111;$script:source.parent=$window;$AE::FocusedElement=$script:source
+  $script:tree.nodes+=@($sourceNode)
+  $oldNumber=[pscustomobject]@{i=5;p=0;rid='1.5';aid=$tableAid;type='DataItem';name='2';val='2';on=$true;x=100;y=170;w=40;h=30}
+  $oldDate=[pscustomobject]@{i=6;p=0;rid='1.6';aid=$tableAid;type='DataItem';name='02.02';val='02.02';on=$true;x=140;y=170;w=100;h=30}
+  $script:tree.nodes+=@($oldNumber,$oldDate)
+  foreach ($node in @($oldNumber,$oldDate)) {
+    $element=New-Element $node 'DataItem';$element.parent=$script:table
+    $element.patterns.grid=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]1;Column=$(if($node.rid -ceq '1.5'){[int]0}else{[int]1});RowSpan=[int]1;ColumnSpan=[int]1;ContainingGrid=$script:table}}
+    $element.patterns.item=[pscustomobject]@{Current=[pscustomobject]@{IsSelected=$true;SelectionContainer=$script:table}}
+    $script:priorElements[$node.rid]=$element
+  }
+  $script:selection.items=@($script:priorElements['1.5'],$script:priorElements['1.6'])
+  switch ($case) {
+    'passive-empty' {$script:selection.items=@()}
+    'passive-selected-target' {$script:selection.items=@($script:cell);$script:item.Current.IsSelected=$true}
+    'passive-selection-late-added' {$script:selection.items=@()}
+    'passive-duplicate' {$script:selection.items=@($script:priorElements['1.5'],$script:priorElements['1.5'])}
+    {$_ -cin @('passive-limit','passive-too-many')} {
+      $count=$(if ($case -ceq 'passive-limit') {32} else {33});$script:selection.items=@()
+      $script:tree.nodes=@($script:tree.nodes|Where-Object {$_.i -lt 5})
+      foreach ($column in @(0..($count-1))) {
+        $node=[pscustomobject]@{i=5+$column;p=0;rid=('1.'+(100+$column));aid=$tableAid;type='DataItem';name='Synthetic selected';on=$true;x=100+10*$column;y=170;w=10;h=30}
+        $element=New-Element $node 'DataItem';$element.parent=$script:table
+        $element.patterns.grid=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]1;Column=[int]$column;RowSpan=[int]1;ColumnSpan=[int]1;ContainingGrid=$script:table}}
+        $element.patterns.item=[pscustomobject]@{Current=[pscustomobject]@{IsSelected=$true;SelectionContainer=$script:table}}
+        $script:tree.nodes+=@($node);$script:priorElements[$node.rid]=$element;$script:selection.items+=@($element)
+      }
+    }
+    'passive-gapped-toggle' {$script:priorElements['1.6'].patterns.grid.Current.Column=[int]6;$script:priorElements['1.6'].patterns.toggle=[pscustomobject]@{}}
+    'passive-mixed-row' {$script:priorElements['1.6'].patterns.grid.Current.Row=[int]2}
+    'passive-duplicate-column' {$script:priorElements['1.6'].patterns.grid.Current.Column=[int]0}
+    'passive-offscreen' {$script:priorElements['1.5'].Current.IsOffscreen=$true}
+    'passive-name' {$script:priorElements['1.5'].Current.Name='Changed selected value'}
+    'passive-bounds' {$script:priorElements['1.5'].Current.BoundingRectangle.Width=39}
+    'passive-foreign-pid' {$script:priorElements['1.5'].Current.ProcessId=8}
+    'passive-foreign-table' {$script:priorElements['1.5'].patterns.grid.Current.ContainingGrid=$window}
+    'passive-wrong-selection-container' {$script:priorElements['1.5'].patterns.item.Current.SelectionContainer=$window}
+    'passive-untyped-selected' {$script:priorElements['1.5'].patterns.item.Current.IsSelected='true'}
+    'passive-unselected-item' {$script:priorElements['1.5'].patterns.item.Current.IsSelected=$false}
+    'passive-target-inconsistent' {$script:item.Current.IsSelected=$true}
+    'passive-span' {$script:priorElements['1.5'].patterns.grid.Current.RowSpan=[int]2}
+    'passive-missing-node' {$script:tree.nodes=@($script:tree.nodes|Where-Object rid -cne '1.5')}
+    'passive-missing-pattern' {$script:priorElements['1.5'].patterns.Remove('item')}
+    'passive-selection-late-set' {
+      $third=$oldDate.PSObject.Copy();$third.i=7;$third.rid='1.7';$third.x=240;$script:tree.nodes+=@($third)
+      $element=New-Element $third 'DataItem';$element.parent=$script:table
+      $element.patterns.grid=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]1;Column=[int]2;RowSpan=[int]1;ColumnSpan=[int]1;ContainingGrid=$script:table}}
+      $element.patterns.item=[pscustomobject]@{Current=[pscustomobject]@{IsSelected=$true;SelectionContainer=$script:table}}
+      $script:priorElements['1.7']=$element
+    }
+    'passive-source-foreign-pid' {$script:source.Current.ProcessId=8}
+    'passive-source-window' {$window.Current.NativeWindowHandle=222}
+    'passive-source-metadata' {$script:source.Current.Name='Changed source'}
+    'passive-source-unfocused' {$script:source.Current.HasKeyboardFocus=$false}
+    'passive-source-edit' {$sourceNode.type='Edit';$script:source.Current.ControlType=[System.Windows.Automation.ControlType]::Edit}
+    'passive-source-custom' {$sourceNode.type='Custom';$script:source.Current.ControlType=[System.Windows.Automation.ControlType]::Custom}
+    'passive-source-document' {$sourceNode.type='Document';$script:source.Current.ControlType=[System.Windows.Automation.ControlType]::Document}
+  }
+  $positive=$case -cin @('passive-Table','passive-DataGrid','passive-DataItem','passive-Button','passive-Tree','passive-TreeItem',
+    'passive-empty','passive-selected-target','passive-selection-order','passive-gapped-toggle','passive-limit','passive-rematerialized-after-click')
+  $late=$case -cin @('passive-selection-late-empty','passive-selection-late-added','passive-selection-late-metadata','passive-selection-late-set','passive-source-late')
+  $result=Invoke-Scenario $case $positive ([int]$positive) 0 $late
+  Assert-True ($script:clickHelperCalls -eq [int]($positive -or $late) -and $script:providerReads -eq 0) "$case changed the bounded route or inherited the Help-only Qt-version gate."
+  if ($case -ceq 'passive-too-many') {Assert-True ($script:resolverCalls -eq 2) 'Over-limit selection did provider work before enforcing its bound.'}
+}
+Write-Output 'Number-cell passive source: actual unchanged source proof and strict fresh prior selection, revalidated exactly before one click.'

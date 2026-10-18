@@ -52,6 +52,14 @@ function Get-SSETableNumberClickSourceProof {
           -not $position -or -not $position.valuePattern -or $position.expectedValue -isnot [string]) {return $reject}
       return [pscustomobject]@{ok=$true;kind='position-name';source=$source;positionProof=$position}
     }
+    if ($current.ControlType -in @([System.Windows.Automation.ControlType]::Table,[System.Windows.Automation.ControlType]::DataGrid,
+        [System.Windows.Automation.ControlType]::DataItem,[System.Windows.Automation.ControlType]::Button,
+        [System.Windows.Automation.ControlType]::Tree,[System.Windows.Automation.ControlType]::TreeItem)) {
+      $state=Get-SSETableSnapshotInputState $Tree $binding.tableRootAid $binding.tableRootRid
+      if (-not $source.rid -or -not $binding.complete -or -not $binding.editorFree -or -not $state.ok -or -not $state.editorFree -or
+          -not (Test-SSETableFocusedSource $Hwnd $ProcessId $Tree $binding.tableRootAid $binding.tableRootRid -ExpectedSource $source)) {return $reject}
+      return [pscustomobject]@{ok=$true;kind='passive-control';source=$source;positionProof=$null}
+    }
     # This is a product/profile and provider-version contract for this exact
     # QtWebEngine help root. Pattern absence is not a generic readonly proof.
     $policy=(Get-SSEPageObjects).tableHelpDocumentFocusSource
@@ -170,7 +178,52 @@ function Get-SSETableNumberClickCellProof {
       ($RequireUnselected -and ($item.IsSelected -or $selected.Count))) {
     throw 'The fixed first number cell has an unknown row, span or existing selection.'
   }
-  [pscustomobject]@{node=$cell;element=$resolved.element;table=$table.element;row=$grid.Row;selected=@($selected)}
+  [pscustomobject]@{node=$cell;element=$resolved.element;table=$table.element;row=$grid.Row;selected=@($selected);targetSelected=$item.IsSelected}
+}
+
+function Get-SSETableNumberClickPriorSelectionProof {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,$Proof)
+  $binding=$Snapshot.navigationBinding;$selected=@($Proof.selected)
+  if ($selected.Count -gt 32 -or $Proof.targetSelected -isnot [bool]) {throw 'Prior table selection is unbounded or unknown.'}
+  $state=Get-SSETableSnapshotInputState $Tree $binding.tableRootAid $binding.tableRootRid
+  if (-not $state.ok -or -not $state.editorFree -or -not $binding.complete -or -not $binding.editorFree) {throw 'Prior selection needs a complete editor-free table.'}
+  $rids=New-Object 'Collections.Generic.HashSet[string]';$columns=New-Object 'Collections.Generic.HashSet[int]'
+  $row=$null;$rowY=$null;$rowHeight=$null
+  foreach ($item in $selected) {
+    if (-not $item) {throw 'Prior selected element is unavailable.'}
+    $rid=$item.GetRuntimeId() -join '.'
+    if (-not $rid -or -not $rids.Add($rid)) {throw 'Prior selected identities are missing or duplicated.'}
+    $nodes=@($Tree.nodes | Where-Object {$_.rid -ceq $rid -and $_.aid -ceq $binding.tableRootAid -and $_.type -ceq 'DataItem' -and $_.p -eq $state.table.i})
+    if ($nodes.Count -ne 1 -or -not $nodes[0].on -or $nodes[0].w -le 0 -or $nodes[0].h -le 0) {throw 'Prior selected cell is not uniquely visible in the own table.'}
+    $node=$nodes[0]
+    $resolved=Get-SSETableReadUncachedElement $Hwnd $ProcessId $rid $binding.tableRootAid 'DataItem'
+    if (-not $resolved.ok) {throw 'Prior selected cell is not freshly bound.'}
+    $element=$resolved.element;$current=$element.Current;$bounds=$current.BoundingRectangle
+    if ([int]$current.ProcessId -ne $ProcessId -or $current.ControlType -ne [System.Windows.Automation.ControlType]::DataItem -or
+        ($element.GetRuntimeId() -join '.') -cne $rid -or [string]$current.AutomationId -cne $binding.tableRootAid -or
+        $current.IsEnabled -isnot [bool] -or -not $current.IsEnabled -or $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or
+        ([string]$current.Name).Replace("`r",' ').Replace("`n",' ').Replace("`t",' ').Trim() -cne [string]$node.name -or
+        $bounds.X -ne $node.x -or $bounds.Y -ne $node.y -or $bounds.Width -ne $node.w -or $bounds.Height -ne $node.h -or
+        $node.x -lt $state.table.x -or $node.y -lt $state.table.y -or
+        $node.x+$node.w -gt $state.table.x+$state.table.w -or $node.y+$node.h -gt $state.table.y+$state.table.h) {throw 'Prior selected cell metadata or viewport binding changed.'}
+    $gridPattern=$null;$selectionPattern=$null
+    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern,[ref]$gridPattern) -or
+        -not $element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$selectionPattern)) {throw 'Prior selection patterns are unavailable.'}
+    $grid=$gridPattern.Current;$selection=$selectionPattern.Current
+    if ($grid.Row -isnot [int] -or $grid.Row -lt 0 -or $grid.Row -ge 1000 -or
+        $grid.Column -isnot [int] -or $grid.Column -lt 0 -or $grid.Column -ge 100 -or -not $columns.Add($grid.Column) -or
+        $grid.RowSpan -isnot [int] -or $grid.RowSpan -ne 1 -or $grid.ColumnSpan -isnot [int] -or $grid.ColumnSpan -ne 1 -or
+        $selection.IsSelected -isnot [bool] -or -not $selection.IsSelected) {throw 'Prior selection has unknown state, row, column or span.'}
+    foreach ($container in @($grid.ContainingGrid,$selection.SelectionContainer)) {
+      if (-not $container -or [int]$container.Current.ProcessId -ne $ProcessId -or
+          $container.Current.ControlType -notin @([System.Windows.Automation.ControlType]::Table,[System.Windows.Automation.ControlType]::DataGrid) -or
+          ($container.GetRuntimeId() -join '.') -cne $binding.tableRootRid -or [string]$container.Current.AutomationId -cne $binding.tableRootAid) {throw 'Prior selection belongs to another table.'}
+    }
+    if ($null -eq $row) {$row=$grid.Row;$rowY=$node.y;$rowHeight=$node.h}
+    if ($grid.Row -ne $row -or $node.y -ne $rowY -or $node.h -ne $rowHeight) {throw 'Prior selection spans different rows.'}
+  }
+  if ($Proof.targetSelected -ne $rids.Contains([string]$Proof.node.rid)) {throw 'Target selection state disagrees with the prior selected set.'}
+  [pscustomobject]@{row=$row;rids=@($rids | Sort-Object);targetSelected=$Proof.targetSelected} | ConvertTo-Json -Depth 4 -Compress
 }
 
 function Test-SSETableNumberClickDirectPoint {
@@ -226,9 +279,11 @@ function Invoke-SSETableReadNumberCellClick {
     }
     if ($Hwnd -eq [IntPtr]::Zero -or $ProcessId -le 0 -or -not (& $Callbacks.Guard 'before-number-cell-proof')) {throw 'Number-cell activation binding is unavailable.'}
     $sourceProof=Get-SSETableNumberClickSourceProof $Hwnd $ProcessId $Tree $Snapshot
-    if (-not $sourceProof.ok) {throw 'The exact profiled position-name or noneditable help source is unproved.'}
+    if (-not $sourceProof.ok) {throw 'The exact passive, profiled position-name or noneditable help source is unproved.'}
     $positionProof=$sourceProof.positionProof;$source=$sourceProof.source
-    $proof=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -RequireUnselected
+    $allowPriorSelection=$sourceProof.kind -ceq 'passive-control'
+    $proof=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -RequireUnselected:(-not $allowPriorSelection)
+    $priorSelection=$(if ($allowPriorSelection) {Get-SSETableNumberClickPriorSelectionProof $Hwnd $ProcessId $Tree $Snapshot $proof} else {$null})
     $doubleClickMs=[long][SW]::GetDoubleClickTime()
     $input=Get-SSELastInputTick;$dirty=Get-DirtyStateFast $Hwnd
     $windows=Get-SSEInteractionWindowSet $ProcessId $Hwnd
@@ -240,7 +295,7 @@ function Invoke-SSETableReadNumberCellClick {
     }
     $numberClickState=[pscustomobject]@{hwnd=$Hwnd;pid=$ProcessId;snapshot=$Snapshot;tree=$Tree;proof=$proof;input=$input;
       dirty=$dirty;windows=$windows.fingerprint;dpi=$dpi;origin=($origin | ConvertTo-Json -Compress);doubleClickMs=$doubleClickMs;
-      source=$source;sourceKind=$sourceProof.kind;positionProof=$positionProof;callbacks=$Callbacks}
+      source=$source;sourceKind=$sourceProof.kind;positionProof=$positionProof;priorSelection=$priorSelection;callbacks=$Callbacks}
     $context={
       $currentPid=0;$null=[SW]::GetWindowThreadProcessId($numberClickState.hwnd,[ref]$currentPid)
       $currentDirty=Get-DirtyStateFast $numberClickState.hwnd
@@ -249,8 +304,9 @@ function Invoke-SSETableReadNumberCellClick {
         (Get-SSEInteractionWindowSet $numberClickState.pid $numberClickState.hwnd).fingerprint -ceq $numberClickState.windows -and
         [int][SW]::GetDpiForWindow($numberClickState.hwnd) -eq $numberClickState.dpi -and
         (@([SW]::GetPhysicalClientOrigin($numberClickState.hwnd)) | ConvertTo-Json -Compress) -ceq $numberClickState.origin -and
-        ($numberClickState.sourceKind -ceq 'help-document' -or
-          [string]$numberClickState.positionProof.valuePattern.Current.Value -ceq $numberClickState.positionProof.expectedValue))
+        ($numberClickState.sourceKind -cin @('help-document','passive-control') -or
+          ($numberClickState.sourceKind -ceq 'position-name' -and
+            [string]$numberClickState.positionProof.valuePattern.Current.Value -ceq $numberClickState.positionProof.expectedValue)))
     }
     $surfaceCheck={
       param($NumberCell)
@@ -272,7 +328,9 @@ function Invoke-SSETableReadNumberCellClick {
       if (-not $freshSource.ok -or $freshSource.kind -cne $numberClickState.sourceKind -or
           ($freshSource.kind -ceq 'position-name' -and
             $freshSource.positionProof.expectedValue -cne $numberClickState.positionProof.expectedValue)) {return $false}
-      $fresh=Get-SSETableNumberClickCellProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback -RequireUnselected -ExpectedRow $numberClickState.proof.row
+      $allowPriorSelection=$numberClickState.sourceKind -ceq 'passive-control'
+      $fresh=Get-SSETableNumberClickCellProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback -RequireUnselected:(-not $allowPriorSelection) -ExpectedRow $numberClickState.proof.row
+      if ($allowPriorSelection -and (Get-SSETableNumberClickPriorSelectionProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback $fresh) -cne $numberClickState.priorSelection) {return $false}
       if ($fresh.node.rid -cne $numberClickState.proof.node.rid -or
           $X -ne [int]($fresh.node.x+$fresh.node.w/2) -or $Y -ne [int]($fresh.node.y+$fresh.node.h/2)) {return $false}
       # Prove all rectangular cell corners as well as the actual centre. No

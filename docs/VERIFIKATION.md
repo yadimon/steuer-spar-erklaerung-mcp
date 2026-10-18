@@ -72,6 +72,13 @@ Provider-Version, tatsächliche Quellbindung und fehlendes TextPattern müssen
 zusammenpassen. Andere Dokumente, editierbare oder geänderte Quellen, fehlende
 Profilfreigabe und Fehler bleiben gesperrt. Die Zustandsreise muss diesen
 Übergang nach einem Seitenwechsel auch im echten Produkt bestehen.
+Passive eigene Quellen und eine erhaltene Zeilenauswahl werden getrennt
+modelliert. Die direkten Produktionshelfer müssen eine eindeutig gebundene
+Auswahl vor dem Klick unverändert wiedererkennen. Gegenfälle umfassen fremde
+Container, mehrere Zeilen, fehlende oder doppelte Identitäten, unbekannte
+Auswahlzustände und Änderungen unmittelbar vor dem Klick. Der erfolgreiche
+Klick darf die Auswahl und die alte Fokusquelle anschließend ändern; der
+frische vollständige Tabellenabgleich bleibt erforderlich.
 
 `mcp-wrapper-all-tools.mjs` prüft die kompakte Tabellenantwort über tatsächliches
 HTTP und den MCP-Stdio-Adapter mit `incomplete: false`, `incomplete: true` und

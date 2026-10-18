@@ -127,6 +127,16 @@ und dieses bekannte Hilfedokument als Nicht-Editierbarkeitsnachweis verwendet;
 es ist kein allgemeiner UIA-Schreibschutzbeweis. Vor dem vorhandenen Einzelklick
 wird dieselbe Quelle erneut geprüft. Unbekannte Dokumente, editierbare Quellen,
 fehlende Richtlinien und Providerfehler erhalten keine Freigabe.
+Bereits unterstützte passive Quellen (`Table`, `DataGrid`, `DataItem`, `Button`,
+`Tree`, `TreeItem`) benötigen den bestehenden vollständigen Fokusquellennachweis.
+Nur für eine so bewiesene passive Quelle darf eine vorhandene Zeilenauswahl
+gebunden werden: begrenzte eindeutige RIDs, dieselbe Tabelle und Modellzeile,
+unveränderte sichtbare Zellmetadaten, Grid-/SelectionItem-Container und gültige
+Spans. Der Auswahlzustand der Zielzelle muss dazu passen. Die vollständige
+Ausgangsauswahl wird unmittelbar vor dem vorhandenen Einzelklick identisch
+erneut bewiesen; erst der Klick darf sie verändern. Unbekannte, gemischte oder
+nicht sichtbare Auswahl erlaubt keine Aktion. Die Positionsnamen- und
+Hilfedokument-Pfade behalten ihre Voraussetzung einer leeren Auswahl.
 Nach dem eigenen Sprung mit Strg+Home können aktueller Eintrag und Auswahl
 auseinanderliegen. Vor der ersten Abwärtstaste darf der öffentliche
 Standardcursor deshalb die frisch bewiesene unveränderte Nr.-Zelle auf

@@ -36,6 +36,12 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   bestehenden Einzelklick bleiben Voraussetzungen. Die allgemeine
   Dokument-/Editorfreigabe wird dadurch nicht erweitert. Die reale
   Zustandsreise auf dem gemeinsamen Endstand steht noch aus.
+- **Passive Quelle mit erhaltener Auswahl:** Nach der Werte-Info darf der
+  bestehende Nachweis einer eigenen passiven Quelle die einmalige Aktivierung
+  tragen. Eine vorhandene Auswahl benötigt zusätzlich frische sichtbare
+  Zell-, Grid-, Container- und Zeilennachweise sowie eine identische erneute
+  Prüfung vor dem Klick. Unbekannte Auswahl bleibt gesperrt; die bisherigen
+  Positionsnamen- und Hilfedokument-Pfade bleiben unverändert begrenzt.
 - **Tipps-Vorbereitung:** Nur das explizit profilierte, direkt eigene nicht modale
   Fenster vor der ersten Bindung schließen. Inhalte, Identitäten, Eingabe,
   Vordergrund, Prozess, Owner und Fensterbestand bleiben streng gebunden.
@@ -78,10 +84,13 @@ Die unmodifizierte Zustandsreise legt mehrere Zeilen an und bestätigt jede
 unmittelbar per vollständigem Cursorread. Der folgende Abbruch betraf die
 fehlende Vollständigkeitsangabe der kompakten MCP-Tabellenantwort; deren
 Projektion ist gezielt korrigiert. Ein weiterer Abbruch nach dem Seitenwechsel
-zeigte die fehlende Fokusübernahme vom eigenen Hilfe-Dokument. Die gezielte
-Freigabe muss die vollständige Zustandsreise auf dem gemeinsamen Endstand noch
-bestehen. Die große unmittelbare Add-/Delete-Cursorfolge besteht bereits für
-den vorherigen Stand; sie wird auf dem gemeinsamen Endstand erneut geprüft.
+zeigte die fehlende Fokusübernahme vom eigenen Hilfe-Dokument. Diese Freigabe
+überwindet den Seitenwechsel und das folgende Anlegen mit vollständigem
+Readback. Nach der Werte-Info fand die Reise noch eine passive Schaltfläche
+mit erhaltener Zeilenauswahl; der ergänzte Nachweis muss die vollständige Reise
+auf dem gemeinsamen Endstand noch bestehen. Die große unmittelbare
+Add-/Delete-Cursorfolge besteht bereits für den vorherigen Stand; sie wird auf
+dem gemeinsamen Endstand erneut geprüft.
 Frühere passive Readbacks ersetzen diese Nachweise nicht.
 
 Add-/Update-/Delete-Reisen mit nativer Konfiguration, offenem Tipps-Fenster, Nullbetrag und Off→On→Off erhalten alle übrigen Zeilen einschließlich Rohfingerprints.

@@ -113,8 +113,8 @@
     },
     {
       "path": "powershell/table-number-click.ps1",
-      "sha256": "8c3362fdfef0bb23f7c2e60d6f530330eb417e538244f048c6ab2a5868f01ad3",
-      "size": 25821
+      "sha256": "dd48637957909614b4432a35bd291c867e3114c854e88302db55c6db35cad2ee",
+      "size": 31722
     },
     {
       "path": "powershell/table-preparation.ps1",
