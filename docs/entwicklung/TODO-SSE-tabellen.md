@@ -6,6 +6,10 @@ richtet keine automatische Ausführung ein.
 
 ## Cursorlauf und Editorzustand
 
+Abgehakte Implementierungspunkte sind gezielt regressionsgeprüft. Die noch
+offenen vollständigen Produkt-, Producer- und Endpunktabnahmen bleiben eigene
+Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
+
 - [x] Bei einem nativen Positionierungsabbruch den tatsächlichen festen
   Produzenten-Code und begrenzte Nachweisflags bis zur MCP-Antwort erhalten.
   Ein pauschales `cursor-proof-failed` darf Modell-, Auswahl-, Editor-,
@@ -28,41 +32,47 @@ richtet keine automatische Ausführung ein.
   Positionieren ersetzt den vollständigen frischen Zielnachweis nicht.
   Der tatsächliche Helper und die private Fehlerprojektion sind mit
   synthetischen UIA-Gegenfällen geprüft; die reale Fehlerdiagnose steht aus.
-- [ ] Bestehende Zielzeilen über eine private, bestätigte Nr.-Positionierung
+- [x] Bestehende Zielzeilen über eine private, bestätigte Nr.-Positionierung
   erreichen: exakter Modellindex, unverändertes vollständiges Modell,
   originale Eingabe-Epoche und Controller-Lease. CurrentIndex, Auswahl und
   echte Viewport-Sichtbarkeit danach neu beweisen. Keine clicked-Signale,
   Wertschreibzugriffe, freien Tasten oder Wiederholung nach unbekanntem Ausgang.
+  Umsetzung und gezielte Hybrid-Add-/Update-/Delete-Reisen sind belegt;
+  vollständige Producer-/Receipt-Abnahme bleibt getrennt.
 - [ ] Den schrittweisen HOME-/DOWN-Cursorlauf vollständig abnehmen: genau eine
   Taste pro konsumierter Lease, anschließend frische Modell-, CurrentIndex-,
   Selection-, Fenster- und Eingabe-Epochenprüfung. Bereits ausgeführte Tasten
   nach Abbruch niemals wiederholen.
-- [ ] Begrenzte Qt-Verarbeitungszeit nach eigener Taste berücksichtigen; die
-  bestehenden Wartezeiten von 350 ms nach HOME und 160 ms nach DOWN prüfen.
+- [x] Die bestehenden Wartefenster von 350 ms nach HOME und 160 ms nach DOWN
+  vor den frischen Modell-/Auswahlprüfungen beibehalten und regressionsprüfen.
   Die bisherige Eingabe-Epoche danach weiterhin prüfen, keine neue Baseline
   setzen und keinen fehlgeschlagenen Schritt wiederholen.
-- [ ] Nur einen frisch gebundenen, nachweislich unveränderten Nr.-Editor
+  Eine allgemein optimale Wartezeit ist damit nicht belegt.
+- [x] Nur einen frisch gebundenen, nachweislich unveränderten Nr.-Editor
   schließen. Erwartete Modellzeile und Spalte müssen vor FocusOut feststehen;
   Wert, ItemFlags, PID, Root, Geometrie und Editoridentität gemeinsam prüfen.
-- [ ] Veränderte Nr.-Editoren und andere Editoren im Fehlerpfad offen lassen.
+- [x] Veränderte Nr.-Editoren und andere Editoren im Fehlerpfad offen lassen.
   Die Rückgabe des Vordergrunds darf keinen unbekannten Zellwert bestätigen.
   Lease widerrufen und TOPMOST entfernen, ohne diesen Editor zu verlassen.
-- [ ] Fehlende oder fehlerhafte neue Handover-Leases, Nonce-Wiederverwendung und
+- [x] Fehlende oder fehlerhafte neue Handover-Leases, Nonce-Wiederverwendung und
   unbekannte SendWait-Ergebnisse müssen einen wahrheitsgemäßen Teilzustand und
-  eine passive Reconciliation erhalten. Kein Restore mit alter Autorität.
+  die Anforderung passiven Abgleichs erhalten. Kein Restore mit alter Autorität.
+- [ ] Den tatsächlichen passiven Abgleich nach verlorenem SendWait-Ergebnis
+  vollständig am Produkt abnehmen. `reconciliationRequired` allein belegt
+  keinen bereits ausgeführten Abgleich.
 - [ ] Tabellenende nur bestätigen, wenn die letzte native Zeile vollständig
   im tatsächlichen Viewport liegt. Vollständiges Modelllesen allein genügt
   nicht als Nachweis einer bedienbaren Leerzeile.
-- [ ] Den aktuellen Nummernanker über frische GridItem-Zeile, Spalte und
+- [x] Den aktuellen Nummernanker über frische GridItem-Zeile, Spalte und
   ContainingGrid an das native Modell binden. Headergeometrie ersetzt keine
   semantische Zellidentität. Prozess, Root, direkte Tabellenzugehörigkeit,
   Auswahl und vollständige Zeile im gebundenen nativen Viewport mitprüfen;
   geometrische Abweichungen und jeden fehlenden Nachweis eindeutig diagnostizieren.
-- [ ] Native Viewport-Geometrie anhand der frisch gebundenen QObject- und
+- [x] Native Viewport-Geometrie anhand der frisch gebundenen QObject- und
   Accessibility-Bäume prüfen. Bei einer Abweichung einzelne Bounds-, DPI- und
   Ursprungsbedingungen datensparsam berichten; eine Diagnose lockert weder
   Identität noch Eingabe- oder Sichtbarkeitsgrenzen.
-- [ ] Bildschirmrechtecke direkt vom gebundenen Qt-Produzenten übernehmen,
+- [x] Bildschirmrechtecke direkt vom gebundenen Qt-Produzenten übernehmen,
   mit derselben Koordinatenumrechnung wie dessen Accessibility-Rechtecke.
   Windows-DPI beschreibt nicht zwingend den effektiven Qt-Maßstab und darf
   ihn nicht ersetzen. Tabellen- und echte Viewport-Rechtecke in beiden

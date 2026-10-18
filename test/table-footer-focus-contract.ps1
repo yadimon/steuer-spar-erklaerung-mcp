@@ -9,7 +9,7 @@ foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-S
   'Get-SSETableCursorNumberCellProof',
   'Get-SSETableNativePositionNumberAuthority','Get-SSETableNativePositionCheckpointProof','Invoke-SSETableNativePositionPreparation','Test-SSETableCursorPhaseEditorAuthority',
   'Get-SSETableLiveInputState','Test-SSETableReadNumberEditor','Test-SSETableReadKeyboardTarget',
-  'Invoke-SSETableReadAnchorSelection',
+  'Invoke-SSETableReadAnchorSelection','Test-SSETableReadHomeSnapshotSemantics',
   'Get-SSETextSha256','New-SSESnapshotNodeIndex','Get-SSESnapshotParentLineageKey','Get-SSESnapshotPrivateComparisonKey','Compare-SSESnapshotNodes')) {
   $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if ($definition.Count -ne 1) {throw 'Productive helper is absent.'}
@@ -77,8 +77,9 @@ $root=[pscustomobject]@{Current=[pscustomobject]@{ProcessId=7;ControlType=[Syste
 $WLK=[pscustomobject]@{}
 $WLK | Add-Member ScriptMethod GetParent {param($element) $element.parent}
 function Get-SSEPageObjects {[pscustomobject]@{tableComboFocusOut=$policy;tablePositionNameFocusSource=$script:positionPolicy}}
-function Get-CurrentHeading {if($script:positionHeading){$script:positionHeading}else{'Synthetic page'}}
-function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint='stable'}}
+function Get-CurrentHeading {if($script:homeHeading){$script:homeHeading}elseif($script:positionHeading){$script:positionHeading}else{'Synthetic page'}}
+function Get-DirtyStateFast {$script:homeDirty}
+function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint=$(if($script:homeWindow){$script:homeWindow}else{'stable'})}}
 function Test-SSELastInputUnchanged($Expected) {$Expected -eq $script:tick}
 function Walk-BoundTree {
   param($Window,[switch]$WithValues)
@@ -91,6 +92,19 @@ function Get-SSETableReadUncachedElement {
   if ($Type -ceq 'DataItem' -and $script:mode -like 'keyboard-number-*') {
     $script:keyboardNumberRawReads++
     if ($script:mode -ceq 'keyboard-number-stale-raw') {return [pscustomobject]@{ok=$false;element=$null;reason='synthetic-stale-number-anchor'}}
+    if ($script:keyboardNumberRawReads -eq 2) {
+      switch ($script:mode) {
+        'keyboard-number-home-late-value' {$script:numberSource.valuePattern.Current.Value='changed'}
+        'keyboard-number-home-late-readonly' {$script:numberSource.valuePattern.Current.IsReadOnly='false'}
+        'keyboard-number-home-late-source' {$foreign=$script:numberSource.PSObject.Copy();$foreign.rid='30.98';$AE::FocusedElement=$foreign}
+        'keyboard-number-home-late-focus' {$script:numberSource.Current.HasKeyboardFocus=$false}
+        'keyboard-number-home-late-geometry' {$script:numberSource.Current.BoundingRectangle.X++}
+        'keyboard-number-home-late-ancestry' {$script:numberSource.parent=$root}
+        'keyboard-number-home-late-grid-row' {$script:numberAnchorLive.gridItem.Current.Row=[int]1}
+        'keyboard-number-home-late-input' {$script:tick=11}
+        'keyboard-number-home-late-window' {$script:homeWindow='changed'}
+      }
+    }
   }
   if ($Type -ceq 'DataItem' -and $script:currentNumberCells) {
     return [pscustomobject]@{ok=$script:currentNumberCells.ContainsKey($Rid);element=$script:currentNumberCells[$Rid];reason='synthetic-current-cell'}
@@ -570,6 +584,105 @@ foreach ($case in @('keyboard-number-exact','keyboard-number-readonly','keyboard
   if ($safe -match 'Synthetic changed number|12,34|56,78|"name"|"value"|"val"') {throw 'Number keyboard diagnostics exposed field values.'}
 }
 $script:keyboardFocusAfterWalk=$null;$script:keyboardStats=$null
+
+# HOME may move Qt's current index without moving its selected row. The old
+# keyboard proof must reject that real distinction; only the planned, proven
+# first-number-cell Select is allowed to align it. All acceptance helpers here
+# are extracted from the production worker, with no accepted-result doubles.
+foreach ($case in @('home-align','home-offscreen-old-selection','home-already-selected','home-readonly','home-table',
+  'home-arbitrary-editor','home-value','home-grid-row','home-grid-column','home-unselected-unknown','home-foreign-focus',
+  'home-unfocused','home-ancestry','home-incomplete','home-wrong-anchor','home-input','home-dirty','home-untyped-dirty','home-heading',
+  'home-late-value','home-late-readonly','home-late-source','home-late-focus','home-late-geometry','home-late-ancestry','home-late-grid-row','home-late-input','home-late-window',
+  'home-select-throws','home-select-noop','home-semantics-error','home-semantics-short','home-semantics-untyped-ok')) {
+  $script:mode='keyboard-number-'+$case;$script:tick=10;$script:focusCalls=0;$script:selectionCalls=0
+  $script:keyboardValueWrites=0;$script:keyboardToggles=0;$script:keyboardWalks=0;$script:keyboardNumberRawReads=0
+  $script:keyboardFocusAfterWalk=$null;$script:currentNumberCells=$null;$script:homeDirty=$false;$script:homeHeading='Synthetic page';$script:homeWindow=$null
+  $script:homeAttemptObserved=$false
+  [System.Windows.Forms.SendKeys]::Calls=0
+  $numberTable=[pscustomobject]@{i=0;p=-1;type='Table';name='';aid=$numberTableAid;rid='30.1';on=$true;x=100;y=100;w=600;h=160}
+  $headers=@(0..5 | ForEach-Object {[pscustomobject]@{i=1+$_;p=0;type='Header';name=$(if ($_ -eq 0) {'Nr.'} else {'Synthetic header'});
+    aid=$numberTableAid+'.Header'+$_;rid='30.'+(20+$_);on=$true;x=100+100*$_;y=100;w=55;h=24}})
+  $script:keyboardHeaderRids=@($headers.rid)
+  $numberCell=[pscustomobject]@{i=7;p=0;type='DataItem';name='';val='';aid=$numberTableAid;rid='30.10';on=$true;x=100;y=140;w=55;h=24}
+  $oldCell=$numberCell.PSObject.Copy();$oldCell.i=8;$oldCell.rid='30.11';$oldCell.y=188
+  $tree=[pscustomobject]@{nodes=@($numberTable)+$headers+@($numberCell,$oldCell);stats=$stats.PSObject.Copy()}
+  $script:keyboardStats=$stats.PSObject.Copy();$script:keyboardCells=@($numberCell,$oldCell)
+  $script:table=New-Element $numberTable;$script:table.parent=$root
+  $script:numberAnchorLive=New-Element $numberCell;$script:numberAnchorLive.parent=$script:table
+  $script:numberAnchorLive.gridItem=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]0;Column=[int]0;ContainingGrid=$script:table}}
+  $script:numberAnchorLive.selectionItem=[pscustomobject]@{Current=[pscustomobject]@{IsSelected=$false;SelectionContainer=$script:table}}
+  $script:numberAnchorLive.selectionItem | Add-Member ScriptMethod Select {
+    $script:selectionCalls++
+    $script:homeAttemptObserved=$DispatchState.attempted
+    if ($script:mode -ceq 'keyboard-number-home-select-throws') {throw 'Synthetic Select response lost'}
+    if ($script:mode -ceq 'keyboard-number-home-select-noop') {return}
+    $this.Current.IsSelected=$true;$script:keyboardSelected=@($script:numberAnchorLive)
+  }
+  $selectedCurrent=[pscustomobject]@{};$selectedCurrent | Add-Member ScriptMethod GetSelection {@($script:keyboardSelected)}
+  $script:table.selection=[pscustomobject]@{Current=$selectedCurrent};$script:keyboardSelected=@((New-Element $oldCell))
+  $editor=$numberCell.PSObject.Copy();$editor.i=9;$editor.type='Edit';$editor.rid='30.99';$editor.aid=$numberEditorPrefix+'(1).BelegNr'
+  $script:numberSource=New-Element $editor;$script:numberSource.parent=$script:table
+  $script:numberSource.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{Value='';IsReadOnly=$false}}
+  $summaryNode=[pscustomobject]@{type='Edit';name='12,34';rid='30.90';aid='Synthetic.Summary';x=100;y=300;w=90;h=24}
+  $script:keyboardElements=@{'30.1'=$script:table;'30.90'=(New-Element $summaryNode)}
+  foreach ($header in $headers) {$script:keyboardElements[$header.rid]=New-Element $header}
+  $semantic=@(0..5 | ForEach-Object {[pscustomobject]@{type='text';value='';checkboxState=$null;ok=$true;error=$null}})
+  $snapshot=[pscustomobject]@{cursorAnchorIsNumber=$true;ersteZelle=$numberCell;kopf=@($headers.name);zeilen=@(,@('','','','','',''));
+    zeilenMitIdentitaet=@([pscustomobject]@{semanticCells=$semantic});navigationBinding=[pscustomobject]@{
+    complete=$true;editorFree=$true;heading='Synthetic page';tableRootAid=$numberTableAid;tableRootRid='30.1';headers=@($headers);
+    summaryIdentity='Synthetic summary';summaryRid='30.90';summaryAid='Synthetic.Summary';summaryValue='12,34'}}
+  $AE::FocusedElement=$script:numberSource
+  switch ($case) {
+    'home-offscreen-old-selection' {$script:keyboardCells=@($numberCell)}
+    'home-already-selected' {$script:numberAnchorLive.selectionItem.Current.IsSelected=$true;$script:keyboardSelected=@($script:numberAnchorLive)}
+    'home-readonly' {$script:numberSource.valuePattern.Current.IsReadOnly=$true}
+    'home-table' {$AE::FocusedElement=$script:table}
+    'home-arbitrary-editor' {$script:numberSource.Current.AutomationId='Synthetic.OtherEditor'}
+    'home-value' {$script:numberSource.valuePattern.Current.Value='changed'}
+    'home-grid-row' {$script:numberAnchorLive.gridItem.Current.Row=[int]1;$script:numberSource.Current.AutomationId=$numberEditorPrefix+'(2).BelegNr'}
+    'home-grid-column' {$script:numberAnchorLive.gridItem.Current.Column=[int]1}
+    'home-unselected-unknown' {$script:numberAnchorLive.selectionItem.Current.IsSelected='false'}
+    'home-foreign-focus' {$script:numberSource.Current.ProcessId=8}
+    'home-unfocused' {$script:numberSource.Current.HasKeyboardFocus=$false}
+    'home-ancestry' {$script:numberSource.parent=$root}
+    'home-incomplete' {$tree.stats.truncated=$true}
+    'home-wrong-anchor' {$snapshot.ersteZelle=$oldCell}
+  }
+  $evidence=$null;$before=Test-SSETableReadKeyboardTarget ([IntPtr]111) 7 $snapshot ([ref]$evidence) $tree
+  if ($before -ne ($case -in @('home-already-selected','home-table'))) {throw "$case`: the actual keyboard guard changed acceptance of current versus selected row."}
+  if ($script:selectionCalls -ne 0) {throw 'The keyboard proof itself performed Select.'}
+  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Invoke-SSETableReadHomeSelection'},$true))
+  if ($definition.Count -ne 1) {throw 'Planned HOME alignment helper is absent.'}
+  . ([scriptblock]::Create($definition[0].Extent.Text))
+  $script:keyboardWalks=0;$script:keyboardNumberRawReads=0
+  switch ($case) {
+    'home-input' {$script:tick=11}
+    'home-dirty' {$script:homeDirty=$true}
+    'home-untyped-dirty' {$script:homeDirty='False'}
+    'home-heading' {$script:homeHeading='Changed page'}
+    'home-semantics-error' {$semantic[0].ok=$false;$semantic[0].error='Synthetic semantic error'}
+    'home-semantics-short' {$snapshot.zeilenMitIdentitaet[0].semanticCells=@($semantic[0])}
+    'home-semantics-untyped-ok' {$semantic[0].ok='true'}
+  }
+  $outcome=Invoke-SSETableReadHomeSelection ([IntPtr]111) 7 $snapshot $tree 10 'stable' $false
+  $succeeds=$case -in @('home-align','home-offscreen-old-selection','home-already-selected','home-readonly','home-table','home-select-noop')
+  if ($outcome.ok -ne $succeeds) {throw "$case`: HOME source/dispatch proof returned $($outcome | ConvertTo-Json -Compress)"}
+  $attempted=$case -in @('home-align','home-offscreen-old-selection','home-readonly','home-select-throws','home-select-noop')
+  if ($outcome.attempted -ne $attempted -or $script:selectionCalls -ne [int]$attempted) {throw "$case`: Select was replayed, skipped or its attempted state was lost."}
+  if ($script:homeAttemptObserved -ne $attempted) {throw "$case`: Select attempt was recorded after dispatch instead of before it."}
+  if ($case -ceq 'home-already-selected' -and $script:keyboardNumberRawReads -ne 1) {throw 'Already-selected HOME repeated the source proof or attempted a post-action read.'}
+  if ($script:keyboardWalks -ne 0 -or $script:focusCalls -ne 0 -or [System.Windows.Forms.SendKeys]::Calls -ne 0) {throw "$case`: planned alignment read the old selection or submitted unrelated input."}
+  if ($AE::FocusedElement.rid -cne '30.99' -and $case -notin @('home-late-source','home-table')) {throw "$case`: Select changed the current editor identity."}
+  if ($case -in @('home-align','home-offscreen-old-selection','home-readonly')) {
+    $afterEvidence=$null
+    if (-not (Test-SSETableReadKeyboardTarget ([IntPtr]111) 7 $snapshot ([ref]$afterEvidence) $tree)) {throw "$case`: actual complete selected keyboard proof did not accept the aligned row."}
+  }
+  if ($case -ceq 'home-select-noop') {
+    $afterEvidence=$null
+    if (Test-SSETableReadKeyboardTarget ([IntPtr]111) 7 $snapshot ([ref]$afterEvidence) $tree) {throw 'A Select without effect was accepted by the actual keyboard proof.'}
+  }
+}
+$script:keyboardStats=$null;$script:homeHeading=$null;$script:homeDirty=$false;$script:homeWindow=$null
 
 # The actual compiled RawView boundary and worker wrappers are exercised by
 # fresh-raw-resolver-contract.ps1. These tests retain the caller's independent

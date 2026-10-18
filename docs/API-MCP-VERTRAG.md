@@ -118,6 +118,16 @@ Nr-Zelle einmal aktivieren. Erst frischer Fokus-, Auswahl- und Datenabgleich
 erlaubt die Navigation. Ein vorhandener exakt zugehöriger Nummerneditor darf
 einmal per ESC abgeschlossen werden; nach ungewissem Ausgang folgt kein
 alternativer Aktivierungsversuch.
+Nach dem eigenen Sprung mit Strg+Home können aktueller Eintrag und Auswahl
+auseinanderliegen. Vor der ersten Abwärtstaste darf der öffentliche
+Standardcursor deshalb die frisch bewiesene unveränderte Nr.-Zelle auf
+Modellzeile 0 einmal auswählen. Die Berechtigung umfasst die genaue
+Editor-, RAW-Zell-, Grid-, Wert- und Fensterbindung; ein beliebiger aktiver
+Editor genügt nicht. Eine bereits ausgewählte Zelle benötigt keine Aktion.
+Nach einer Auswahl müssen vollständige Rohwerte, Typ- und Checkboxzustände
+unverändert sowie Fokus und Auswahl frisch gebunden sein. Ein Fehler beendet
+den Lauf ohne zweiten Auswahlversuch. Private Cursorphasen, Grid und
+`noKeys: true` behalten ihre bisherigen Wege.
 Während der Navigation darf ein unveränderter ausgewählter Nr.-Editor den
 eigenen vollständigen Fokus-, RAW-Zell-, Wert- und Auswahlnachweis direkt
 durchlaufen. Ein frischer Fokus-Hinweis wählt lediglich diesen Prüfpfad;

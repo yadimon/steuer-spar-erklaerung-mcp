@@ -53,6 +53,19 @@ Nr.-Editorübergänge und das Zusammenwirken mit dem echten Hilfsfenster
 über eine vollständig geprüfte Arbeitskopie mit unverändertem
 unbeteiligtem Datenbestand und bestätigtem Abschluss zu verifizieren.
 
+`table-footer-focus-contract.ps1` bindet die tatsächlichen Worker-Helfer für
+Nummerneditor, Zeilenauswahl und Tastaturziel. Nach dem Sprung zum Anfang
+werden aktueller Eintrag und bisherige Auswahl ausdrücklich als verschiedene
+Zellen modelliert. Nur eine frisch bewiesene unveränderte Nr.-Zelle auf
+Modellzeile 0 darf einmal ausgewählt werden; bereits passende Auswahl,
+veränderte oder fremde Editoren, falsche Gridzeilen, Kontextwechsel und
+ungewisser Aktionsausgang erhalten getrennte Gegenfälle.
+`table-read-public-input-contract.ps1` prüft die echten Dispatcherabschnitte
+und ihre Reihenfolge vor der ersten Abwärtstaste. Die unmodifizierte
+`npm run test:live-state`-Reise fordert zusätzlich Cursorlesen unmittelbar
+nach verifiziertem Anlegen, Ändern und Löschen. Ein passiver Readback allein
+ersetzt diese Zustandsübergänge nicht.
+
 Der optionale native `desktop_start` hat zusätzlich einen realen Win32-Test mit
 einem eigenen synthetischen Prozess. Er prüft Hauptfenster und Startdialog,
 vorhandene Desktops, fremde und beschädigte Marker, Startup-Timeout, frühen

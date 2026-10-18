@@ -7260,12 +7260,20 @@ function Find-SSETableReadViewportPoint {
 }
 
 function Invoke-SSETableReadAnchorSelection {
-  param([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,$InputTick,[string]$WindowFingerprint,$CurrentNumberCell)
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,$InputTick,[string]$WindowFingerprint,$CurrentNumberCell,$HomeAuthority,$DispatchState)
   try {
     $cell=$(if ($CurrentNumberCell) {$CurrentNumberCell} else {$Snapshot.ersteZelle});$binding=$Snapshot.navigationBinding
     if (-not $Snapshot.cursorAnchorIsNumber -or -not $cell -or -not $binding.editorFree) { return $false }
     if ($CurrentNumberCell -and ($cell.type -cne 'DataItem' -or $cell.aid -cne $binding.tableRootAid -or
         $cell.x -ne $Snapshot.ersteZelle.x -or -not $cell.on -or $cell.w -le 0 -or $cell.h -le 0)) {return $false}
+    if ($HomeAuthority) {
+      if (-not $CurrentNumberCell -or -not $DispatchState -or -not $HomeAuthority.proof.ok -or
+          $cell.rid -cne $Snapshot.ersteZelle.rid -or $cell.rid -cne $HomeAuthority.proof.ownedCell.rid -or
+          $HomeAuthority.expectedDirty -isnot [bool]) {return $false}
+      $dirty=Get-DirtyStateFast $Hwnd
+      if ($dirty -isnot [bool] -or $dirty -ne $HomeAuthority.expectedDirty -or
+          [string](Get-CurrentHeading $Hwnd) -cne [string]$binding.heading) {return $false}
+    }
     $resolved=Get-SSETableReadUncachedElement $Hwnd $ProcessId $cell.rid $cell.aid 'DataItem'
     if (-not $resolved.ok) { return $false }
     $selection=$null;$element=$resolved.element
@@ -7278,6 +7286,7 @@ function Invoke-SSETableReadAnchorSelection {
       $gridItem=$null
       if (-not $element.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern,[ref]$gridItem) -or
           $gridItem.Current.Column -ne 0 -or $gridItem.Current.Row -isnot [int] -or $gridItem.Current.Row -lt 0 -or
+          ($HomeAuthority -and $gridItem.Current.Row -ne 0) -or
           ($gridItem.Current.ContainingGrid.GetRuntimeId() -join '.') -cne $binding.tableRootRid -or
           [int]$gridItem.Current.ContainingGrid.Current.ProcessId -ne $ProcessId -or
           [string]$gridItem.Current.ContainingGrid.Current.AutomationId -cne $binding.tableRootAid) {return $false}
@@ -7285,11 +7294,103 @@ function Invoke-SSETableReadAnchorSelection {
       if ($bounds.X -ne $cell.x -or $bounds.Y -ne $cell.y -or $bounds.Width -ne $cell.w -or $bounds.Height -ne $cell.h -or
           ([string]$current.Name).Replace("`r",' ').Replace("`n",' ').Replace("`t",' ').Trim() -cne [string]$cell.name) {return $false}
     }
+    if ($HomeAuthority) {
+      # Select must not commit an arbitrary or changed delegate. Rebind the
+      # exact unchanged Nr. source after the final fresh target/row-0 bind.
+      $focused=$AE::FocusedElement;$source=$HomeAuthority.proof.sourceNode
+      if (-not $focused -or -not $source) {return $false}
+      $focusCurrent=$focused.Current;$focusBounds=$focusCurrent.BoundingRectangle
+      if ($focusCurrent.ControlType -ne [System.Windows.Automation.ControlType]::Edit -or
+          [int]$focusCurrent.ProcessId -ne $ProcessId -or
+          $focusCurrent.HasKeyboardFocus -isnot [bool] -or -not $focusCurrent.HasKeyboardFocus -or
+          $focusCurrent.IsEnabled -isnot [bool] -or -not $focusCurrent.IsEnabled -or
+          $focusCurrent.IsOffscreen -isnot [bool] -or $focusCurrent.IsOffscreen -or
+          ($focused.GetRuntimeId() -join '.') -cne $source.rid -or [string]$focusCurrent.AutomationId -cne $source.aid -or
+          $focusBounds.X -ne $source.x -or $focusBounds.Y -ne $source.y -or
+          $focusBounds.Width -ne $source.w -or $focusBounds.Height -ne $source.h) {return $false}
+      $probe=$focused;$tableBound=$false;$seen=New-Object 'System.Collections.Generic.HashSet[string]'
+      for ($depth=0;$depth -lt 16 -and $probe;$depth++) {
+        $probeRid=$probe.GetRuntimeId() -join '.'
+        if (-not $probeRid -or -not $seen.Add($probeRid) -or [int]$probe.Current.ProcessId -ne $ProcessId -or
+            $probe.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window) {return $false}
+        if ($probeRid -ceq $binding.tableRootRid -and [string]$probe.Current.AutomationId -ceq $binding.tableRootAid -and
+            $probe.Current.ControlType -in @([System.Windows.Automation.ControlType]::Table,[System.Windows.Automation.ControlType]::DataGrid)) {
+          $tableBound=$true;break
+        }
+        $probe=$RAW.GetParent($probe)
+      }
+      $value=$null
+      if (-not $tableBound -or -not $focused.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value) -or
+          $value.Current.IsReadOnly -isnot [bool] -or [string]$value.Current.Value -cne $HomeAuthority.proof.expectedValue) {return $false}
+      $selected=$selection.Current.IsSelected
+      if ($selected -isnot [bool]) {return $false}
+    }
     if ($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick) -or [SW]::GetForegroundWindow() -ne $Hwnd -or
         (Get-SSEInteractionWindowSet $ProcessId $Hwnd).fingerprint -cne $WindowFingerprint) { return $false }
+    if ($HomeAuthority) {
+      if ($selected) {return $true}
+      $DispatchState.attempted=$true
+    }
     $selection.Select()
     $true
   } catch { $false }
+}
+
+function Test-SSETableReadHomeSnapshotSemantics {
+  param($Before,$After)
+  try {
+    $projections=@()
+    foreach ($snapshot in @($Before,$After)) {
+      $rows=@($snapshot.zeilenMitIdentitaet);$raw=@($snapshot.zeilen);$columns=@($snapshot.kopf).Count
+      if ($columns -lt 2 -or $rows.Count -eq 0 -or $rows.Count -ne $raw.Count) {return $false}
+      $projected=New-Object System.Collections.ArrayList
+      for ($row=0;$row -lt $rows.Count;$row++) {
+        $cells=@($rows[$row].semanticCells)
+        if ($cells.Count -ne $columns -or @($raw[$row]).Count -ne $columns) {return $false}
+        foreach ($cell in $cells) {
+          if ($null -eq $cell -or $cell.ok -isnot [bool] -or -not $cell.ok -or $cell.error -or
+              -not [string]$cell.type -or -not $cell.PSObject.Properties['value'] -or
+              -not $cell.PSObject.Properties['checkboxState']) {return $false}
+          $null=$projected.Add([pscustomobject]@{type=$cell.type;value=$cell.value;checkboxState=$cell.checkboxState;ok=$cell.ok;error=$cell.error})
+        }
+      }
+      $projections+=,([pscustomobject]@{rows=$rows.Count;columns=$columns;cells=@($projected)} | ConvertTo-Json -Depth 8 -Compress)
+    }
+    $projections[0] -ceq $projections[1]
+  } catch {$false}
+}
+
+function Invoke-SSETableReadHomeSelection {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,$Tree,$InputTick,[string]$WindowFingerprint,$ExpectedDirty)
+  $result=[pscustomobject]@{ok=$false;attempted=$false;reason='home-number-source-unbound'}
+  try {
+    if (-not $Tree -or -not $Snapshot.cursorAnchorIsNumber -or -not $Snapshot.navigationBinding.complete -or
+        -not $Snapshot.navigationBinding.editorFree -or $ExpectedDirty -isnot [bool]) {return $result}
+    $focused=$AE::FocusedElement
+    if (-not $focused) {return $result}
+    $current=$focused.Current
+    if ($current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) {
+      $result.ok=$true;$result.reason='home-number-editor-not-present';return $result
+    }
+    if ([int]$current.ProcessId -ne $ProcessId -or $current.HasKeyboardFocus -isnot [bool] -or -not $current.HasKeyboardFocus) {return $result}
+    $binding=$Snapshot.navigationBinding;$aid=[string]$binding.tableRootAid;$offset=$aid.LastIndexOf('/.')
+    if ($offset -lt 0) {return $result}
+    $policy=[pscustomobject]@{tableName=$aid.Substring($offset);headers=@($Snapshot.kopf)}
+    $proof=Get-SSETableNumberAnchorFocusProof $Hwnd $ProcessId $Tree $aid $binding.tableRootRid `
+      $Snapshot.ersteZelle $focused $null -NumberPolicy $policy
+    if (-not $proof.ok) {$result.reason=$proof.reason;return $result}
+    if ($proof.row -isnot [int] -or $proof.row -ne 0 -or $proof.ownedCell.rid -cne $Snapshot.ersteZelle.rid) {
+      $result.reason='home-number-first-cell-unbound';return $result
+    }
+    if ($proof.selected) {$result.ok=$true;$result.reason='home-number-already-selected';return $result}
+    if (-not (Test-SSETableReadHomeSnapshotSemantics $Snapshot $Snapshot)) {
+      $result.reason='home-number-semantics-incomplete';return $result
+    }
+    $authority=[pscustomobject]@{proof=$proof;expectedDirty=$ExpectedDirty}
+    $result.ok=[bool](Invoke-SSETableReadAnchorSelection $Hwnd $ProcessId $Snapshot $InputTick $WindowFingerprint $proof.ownedCell $authority $result)
+    $result.reason=$(if ($result.ok) {'home-number-selection-dispatched'} else {'home-number-selection-unproved'})
+    $result
+  } catch {$result.reason='home-number-selection-exception';$result}
 }
 
 function Invoke-SSETableReadInitialFocus {
@@ -7550,8 +7651,11 @@ function Get-SSETableNumberAnchorFocusProof {
       $reject.reason='number-anchor-grid-item-unbound';return $reject
     }
     $selectedItem=$null
-    if (-not $anchorLive.element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$selectedItem) -or
-        $selectedItem.Current.IsSelected -isnot [bool]) {
+    if (-not $anchorLive.element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$selectedItem)) {
+      $reject.reason='number-anchor-current-selection-state-unbound';return $reject
+    }
+    $selected=$selectedItem.Current.IsSelected
+    if ($selected -isnot [bool]) {
       $reject.reason='number-anchor-current-selection-state-unbound';return $reject
     }
     $grid=$gridItem.Current;$container=$grid.ContainingGrid
@@ -7600,7 +7704,7 @@ function Get-SSETableNumberAnchorFocusProof {
       name=([string]$current.Name).Replace("`r",' ').Replace("`n",' ').Replace("`t",' ').Trim();
       x=$bounds.X;y=$bounds.Y;w=$bounds.Width;h=$bounds.Height}
     [pscustomobject]@{ok=$true;reason='exact-grid-number-anchor-with-unchanged-editor';sourceNode=$sourceNode;ownedCell=$Anchor;
-      valuePattern=$valuePattern;expectedValue=$expectedValue}
+      valuePattern=$valuePattern;expectedValue=$expectedValue;row=[int]$grid.Row;selected=$selected}
   } catch {$reject.reason='number-anchor-editor-proof-exception';$reject}
 }
 
@@ -20279,6 +20383,28 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $cursorUnavailable = $true
           } else {
             $navigationState.snapshot=$topSnapshot
+            if (-not $cursorPhase -and -not $gridRequested -and (Arg $a 'noKeys') -ne $true -and
+                $null -ne $latestTableSnapshot.tree -and $topSnapshot.cursorAnchorIsNumber) {
+              $homeSelection=Invoke-SSETableReadHomeSelection $hwnd $targetPid $topSnapshot $latestTableSnapshot.tree `
+                $navigationState.tick $navigationState.windows.fingerprint $dirtyBefore
+              if (-not $homeSelection.ok) {
+                $navigationState.failure=[pscustomobject]@{phase='table-read-home-selection';reason=$homeSelection.reason}
+                throw 'Tabellen-Home hat keinen sicher gebundenen Nr.-Auswahlanker.'
+              }
+              if ($homeSelection.attempted) {
+                $alignedSnapshot=LiesZeilen $hwnd
+                if (-not (Test-SSETableReadSnapshotBinding $topSnapshot $alignedSnapshot -BeforeNavigation) -or
+                    -not (Test-SSETableReadHomeSnapshotSemantics $topSnapshot $alignedSnapshot)) {
+                  $navigationState.failure=[pscustomobject]@{phase='table-read-home-selection-readback';reason='table-content-or-semantics-changed'}
+                  throw 'Nr.-Auswahl hat keinen unveraenderten vollstaendigen Tabellen-Readback.'
+                }
+                $navigationState.snapshot=$alignedSnapshot
+                if (-not (& $readNavigationGuard 'table-read-home-selection-readback' -RequireKeyboard)) {
+                  throw 'Nr.-Auswahl hat keinen vollstaendigen ausgewaehlten Tastaturbeweis.'
+                }
+                $topSnapshot=$alignedSnapshot
+              }
+            }
             $kopf = $topSnapshot.kopf
             & $addSnapshotRows $topSnapshot
             $letzteIdentitaeten = @(& $snapshotIdentities $topSnapshot)
