@@ -52,6 +52,11 @@ function Get-SSETablePreparationRoot {
   [pscustomobject]@{aid=$aid;rid=$rid}
 }
 
+function Get-SSETablePreparationSemanticFingerprint($Nodes) {
+  $semanticNodes=@($Nodes | Select-Object -Property * -ExcludeProperty x,y,w,h)
+  Get-SSETextSha256 ($semanticNodes | ConvertTo-Json -Depth 6 -Compress)
+}
+
 function Get-SSETablePreparationState([IntPtr]$MainHwnd) {
   $tree=Walk-BoundTree $MainHwnd -WithValues -Strict
   $stats=$tree.stats
@@ -91,6 +96,7 @@ function Get-SSETablePreparationState([IntPtr]$MainHwnd) {
   [pscustomobject]@{
     heading=[string]$heading;dirty=$dirty
     fingerprint=(Get-SSETextSha256 ($nodes | ConvertTo-Json -Depth 6 -Compress))
+    semanticFingerprint=(Get-SSETablePreparationSemanticFingerprint $nodes)
     # Private comparison evidence only; callers never emit this state.
     nodes=$nodes
   }
@@ -185,7 +191,22 @@ function Invoke-SSETablePreparation {
       $fresh=Get-SSETablePreparationState $preparationBinding.mainHwnd
       if ($fresh.fingerprint -cne $preparationBinding.state.fingerprint) {
         $preparationDiagnostic.phase='guard-fingerprint-' + (Get-SSETablePreparationDifferenceCategory $preparationBinding.state.nodes $fresh.nodes)
-        return $false
+        # Only passive geometry settling may obtain one more strict snapshot.
+        # The complete non-geometric hash, not the diagnostic category,
+        # authorizes that read. Every projected future property is included.
+        if ($preparationBinding.state.semanticFingerprint -isnot [string] -or
+            $preparationBinding.state.semanticFingerprint -cnotmatch '^[A-F0-9]{64}$' -or
+            $fresh.semanticFingerprint -isnot [string] -or $fresh.semanticFingerprint -cnotmatch '^[A-F0-9]{64}$' -or
+            $fresh.semanticFingerprint -cne $preparationBinding.state.semanticFingerprint -or
+            $fresh.heading -cne $preparationBinding.state.heading -or $fresh.dirty -ne $preparationBinding.state.dirty) { return $false }
+        $preparationDiagnostic.phase='guard-settled-state'
+        $settled=Get-SSETablePreparationState $preparationBinding.mainHwnd
+        $preparationDiagnostic.phase='guard-settled-fingerprint'
+        if ($settled.fingerprint -cne $fresh.fingerprint -or
+            $settled.semanticFingerprint -isnot [string] -or $settled.semanticFingerprint -cnotmatch '^[A-F0-9]{64}$' -or
+            $settled.semanticFingerprint -cne $preparationBinding.state.semanticFingerprint -or
+            $settled.heading -cne $preparationBinding.state.heading -or $settled.dirty -ne $preparationBinding.state.dirty) { return $false }
+        $preparationBinding.state=$settled
       }
       $preparationDiagnostic.phase='guard-heading'
       if ($fresh.heading -cne $preparationBinding.state.heading) { return $false }
@@ -221,8 +242,8 @@ function Invoke-SSETablePreparation {
     }
     $preparationDiagnostic.phase='after-close-state'
     $after=Get-SSETablePreparationState $MainHwnd
-    if ($after.fingerprint -cne $before.fingerprint -or $after.heading -cne $before.heading -or
-        $after.dirty -ne $before.dirty) {
+    if ($after.fingerprint -cne $preparationBinding.state.fingerprint -or $after.heading -cne $preparationBinding.state.heading -or
+        $after.dirty -ne $preparationBinding.state.dirty) {
       throw 'Page, values, dirty state, input or foreground changed while closing the help window.'
     }
     $preparationDiagnostic.phase='after-close-main-root'

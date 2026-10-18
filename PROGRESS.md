@@ -28,11 +28,14 @@ explizite Grid-Lesepfad ersetzt weiterhin keine Cursor- oder Schreibabnahme.
 **Neue Gesamtprüfung:** Paketbau, Veröffentlichungs-Probelauf, saubere
 Testinstallation und Standard-Mega-Reise bestehen. Die Mega-Reise mit nativer
 Konfiguration bricht dagegen vor dem ersten Anhängen in der privaten
-Tipps-Bindungsprüfung ab, noch vor Close oder Tabellenänderung. Der genaue
-Vergleich war nicht sichtbar; ein gezielt geprüfter Diagnosezusatz nennt jetzt
-feste Phasen und Feldklassen. Ursache und erneute Gesamtregression dieses
-Zusatzes stehen noch aus. Die Instanz wurde kontrolliert geschlossen, Daten
-und Konfiguration blieben unverändert.
+Tipps-Bindungsprüfung ab, noch vor Close oder Tabellenänderung. Der
+Diagnosezusatz besteht in der Vollsuite. Er grenzt die Abweichung auf
+Geometrie von Hilfeelementen ein. Die zusätzliche einmalige passive
+Bestätigung eines rein geometrisch veränderten Zustands ist umgesetzt und
+besteht in gezielten Regressionen. Inhalte, Identität und ursprüngliche
+Fenster-/Eingabebindung bleiben streng. Erneute Vollsuite und
+Produkt-Gesamtabnahme dieser Korrektur stehen noch aus. Die Instanz wurde
+kontrolliert geschlossen, Daten und Konfiguration blieben unverändert.
 
 | Bereich | Umsetzung | Verbleibende Grenze |
 | --- | --- | --- |

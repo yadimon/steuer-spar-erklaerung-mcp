@@ -152,6 +152,17 @@ Hauptfenster, Seite, Feldwerte, Auswahl und Dirty-State unverändert sein;
 ein erwarteter Vordergrundübergang vom geschlossenen Hilfsfenster zum
 Hauptfenster wird dabei ausdrücklich gebunden.
 
+Weicht vor dem Close ausschließlich die Geometrie der Seitenknoten ab, darf
+genau eine zusätzliche vollständige passive Lesung den neuen Zustand
+bestätigen. Dafür müssen sämtliche anderen projizierten Felder sowie
+Überschrift und Dirty-State dem ursprünglichen Zustand entsprechen. Die
+zusätzliche Lesung muss den gesamten zweiten Fingerprint exakt bestätigen;
+Fensterinventar, Außenmaße, Eingabe-, Vordergrund- und Prozessbindung bleiben
+unverändert an ihren ursprünglichen Nachweis gebunden. Nach dem Close gilt
+weiterhin die volle Gleichheitsprüfung gegen diesen bestätigten Zustand.
+Weitere Bewegung, ein Providerfehler oder eine andere Zustandsänderung führen
+zum Abbruch; es gibt keine zweite Close-Aktion.
+
 Ein nicht bestätigtes Schließen liefert `table-preparation-failed` und
 `retryable: false`. Nach abgesandtem Close bleiben `outcomeUnknown` und
 `reconciliationRequired` gesetzt, wenn der Abschlussnachweis fehlt. Es folgt

@@ -3,6 +3,12 @@ $root=Split-Path $PSScriptRoot -Parent
 . (Join-Path $root 'powershell\table-combobox.ps1')
 . (Join-Path $root 'powershell\window-close.ps1')
 . (Join-Path $root 'powershell\table-preparation.ps1')
+$script:productionPreparationState=(Get-Command Get-SSETablePreparationState).ScriptBlock
+function Get-SSETablePreparationState([IntPtr]$MainHwnd) {
+  $result=& $script:productionPreparationState $MainHwnd
+  if ($script:stateMutation) { & $script:stateMutation $result $script:walks }
+  $result
+}
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'powershell\sse-worker.ps1'),[ref]$null,[ref]$errors)
 if ($errors.Count) {throw 'Worker source does not parse.'}
@@ -67,7 +73,7 @@ function Get-DialogInventory {
 function Get-SSETablePreparationProcessEpoch {
   $script:epochReads++
   if ($script:mode -ceq 'process-reused' -and $script:epochReads -gt 1) {return 124}
-  123
+  $script:epochValue
 }
 function Get-SSELastInputTick { $script:tick }
 function Test-SSELastInputUnchanged($Expected) { $null -ne $script:tick -and $Expected -eq $script:tick }
@@ -83,6 +89,8 @@ function Walk-BoundTree {
   if ($script:mode -ceq 'peer-during-readback' -and [SW]::Closed) {$script:afterWindows+=New-Window 303 'Unknown' 'qt-dialog'}
   if ($script:mode -ceq 'root-during-readback' -and [SW]::Closed) {$AE::Main.rid='1.9'}
   $copy=$script:tree | ConvertTo-Json -Depth 10 -Compress | ConvertFrom-Json
+  if ($script:geometrySettled -and $script:walks -ge 2) {$copy.nodes[0].h=601}
+  if ($script:onWalk) { & $script:onWalk $copy $script:walks }
   if ($script:walks -eq 2 -and $script:guardNodeMutation) { & $script:guardNodeMutation $copy.nodes[2] }
   if ($script:mode -ceq 'value-before-guard' -and $script:walks -eq 2) {$copy.nodes[2].val='99,00'}
   if ($script:mode -ceq 'value-after-close' -and [SW]::Closed) {$copy.nodes[2].val='99,00'}
@@ -96,13 +104,13 @@ function Get-DirtyStateFast {
   if ($script:mode -ceq 'dirty-unknown-after' -and [SW]::Closed) {return $null}
   if ($script:mode -ceq 'dirty-after-close' -and [SW]::Closed) {return $true}
   if ($script:mode -ceq 'dirty-during-guard' -and $script:walks -eq 2) {return $true}
-  $false
+  $script:currentDirty
 }
 function Get-CurrentHeading {
   if ($script:mode -ceq 'heading-unknown') {return $null}
   if ($script:mode -ceq 'heading-after-close' -and [SW]::Closed) {return 'Other page'}
   if ($script:mode -ceq 'heading-during-guard' -and $script:walks -eq 2) {return 'Other page'}
-  'Synthetic table'
+  $script:currentHeading
 }
 function Set-FinalTipModalReadAction([scriptblock]$Action) {
   $script:finalTipModalReadAction=$Action
@@ -114,6 +122,8 @@ function Set-FinalTipModalReadAction([scriptblock]$Action) {
 function Reset-Scenario {
   $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
   $script:mode='';$script:tick=10;$script:walks=0;$script:windowReads=0;$script:dialogReads=0;$script:epochReads=0;$script:beforeGuard=$null;$script:guardNodeMutation=$null
+  $script:geometrySettled=$false;$script:onWalk=$null;$script:stateMutation=$null;$script:epochValue=123
+  $script:currentDirty=$false;$script:currentHeading='Synthetic table'
   [SW]::Calls=0;[SW]::Closed=$false;[SW]::Timeout=$false;[SW]::ThrowDelivery=$false;[SW]::MainExists=$true
   [SW]::ForegroundReads=0;[SW]::OwnerReads=0;[SW]::PidReads=0;[SW]::ExistsReads=0
   [SW]::MainPid=7;[SW]::TipPid=7;[SW]::Foreground=[IntPtr]101;[SW]::Owner=[IntPtr]101;[SW]::OnSend=$null
@@ -263,19 +273,19 @@ Assert-True ($script:walks -eq 3 -and $AE::MainReads -eq 2 -and $AE::TipReads -e
 # Execute the actual guard for every scalar comparison category. The error
 # carries only a fixed code, even when the differing provider field is private.
 foreach ($case in @(
-  @{category='runtime-id';mutate={param($node) $node.rid='PRIVATE-RUNTIME-ID'}},
-  @{category='structure';mutate={param($node) $node.aid='PRIVATE-AUTOMATION-ID'}},
-  @{category='content';mutate={param($node) $node.val='PRIVATE-CONTENT'}},
-  @{category='selected';mutate={param($node) $node.selected=$true}},
-  @{category='enabled';mutate={param($node) $node.on=$false}},
-  @{category='geometry';mutate={param($node) $node.x=21}}
+  @{category='runtime-id';phase='guard-fingerprint-runtime-id';walks=2;mutate={param($node) $node.rid='PRIVATE-RUNTIME-ID'}},
+  @{category='structure';phase='guard-fingerprint-structure';walks=2;mutate={param($node) $node.aid='PRIVATE-AUTOMATION-ID'}},
+  @{category='content';phase='guard-fingerprint-content';walks=2;mutate={param($node) $node.val='PRIVATE-CONTENT'}},
+  @{category='selected';phase='guard-fingerprint-selected';walks=2;mutate={param($node) $node.selected=$true}},
+  @{category='enabled';phase='guard-fingerprint-enabled';walks=2;mutate={param($node) $node.on=$false}},
+  @{category='geometry';phase='guard-settled-fingerprint';walks=3;mutate={param($node) $node.x=21}}
 )) {
   Reset-Scenario
   $script:guardNodeMutation=$case.mutate
   $result=Assert-Preparation ('Fingerprint category ' + $case.category) $false 0
-  $expected='Help-window close was not verified: Die private Fensterbindung hat sich vor WM_CLOSE geaendert. [preparation:guard-fingerprint-' + $case.category + ']'
+  $expected='Help-window close was not verified: Die private Fensterbindung hat sich vor WM_CLOSE geaendert. [preparation:' + $case.phase + ']'
   Assert-True ($result.error -ceq $expected) 'Mismatch diagnostics were not a fixed value-free category.'
-  Assert-True ($script:walks -eq 2 -and $AE::MainReads -eq 1 -and $AE::TipReads -eq 1 -and
+  Assert-True ($script:walks -eq $case.walks -and $AE::MainReads -eq 1 -and $AE::TipReads -eq 1 -and
     $script:dialogReads -eq 1 -and $script:windowReads -eq 3 -and $script:epochReads -eq 2) 'Fingerprint diagnostics performed additional provider or inventory work.'
   Assert-True ([SW]::ForegroundReads -eq 2 -and [SW]::OwnerReads -eq 1 -and [SW]::PidReads -eq 1 -and [SW]::ExistsReads -eq 1) 'Fingerprint diagnostics performed additional Win32 queries.'
   Assert-True ($null -eq $result.PSObject.Properties['nodes'] -and ($result | ConvertTo-Json -Depth 6 -Compress) -notmatch 'PRIVATE-') 'Private comparison evidence escaped into the public result.'
@@ -329,4 +339,108 @@ Reset-Scenario
 $script:guardNodeMutation={param($node) $node.selected='false'}
 $result=Assert-Preparation 'Untrusted selection scalar remains strictly rejected' $false 0
 Assert-True ($result.error.EndsWith('[preparation:guard-fingerprint-selected]')) 'Unknown scalar type weakened the original hash comparison.'
+
+Reset-Scenario
+$script:geometrySettled=$true
+[SW]::OnSend={
+  Assert-True ($script:walks -eq 3 -and $AE::MainReads -eq 2 -and $AE::TipReads -eq 2 -and
+    $script:windowReads -eq 4 -and $script:epochReads -eq 3) 'Settling did not use exactly one additional strict passive read before the original final proofs.'
+  Assert-True ([SW]::ForegroundReads -eq 3 -and [SW]::OwnerReads -eq 2 -and [SW]::PidReads -eq 3 -and [SW]::ExistsReads -eq 3) 'Settling changed the original final Win32 query counts.'
+}
+$result=Assert-Preparation 'Geometry A-B-B-B accepts the settled post-close baseline' $true 1
+Assert-True ($script:walks -eq 4 -and $AE::MainReads -eq 3 -and $AE::TipReads -eq 2 -and
+  $script:windowReads -eq 8 -and $script:dialogReads -eq 2 -and $script:epochReads -eq 5) 'Stable geometry added queries beyond one passive snapshot.'
+
+foreach ($case in @(
+  @{name='Geometry keeps moving';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$tree.nodes[0].h=602}}},
+  @{name='Geometry reverts to the original';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$tree.nodes[0].h=600}}},
+  @{name='Fresh geometry and heading';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$script:currentHeading='Changed page'}}},
+  @{name='Fresh geometry and dirty';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$script:currentDirty=$true}}},
+  @{name='Fresh geometry and value';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[2].val='Changed private value'}}},
+  @{name='Fresh geometry and read-only';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[2].ro=$false}}},
+  @{name='Fresh geometry and toggle';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[2].checked=$true}}},
+  @{name='Fresh geometry and runtime identity';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[2].rid='Changed.Runtime.Identity'}}},
+  @{name='Fresh geometry and selection';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[2].selected=$true}}},
+  @{name='Fresh geometry and enabled';walks=2;onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[2].on=$false}}},
+  @{name='Settling changes value';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$tree.nodes[2].val='Changed private value'}}},
+  @{name='Settling changes heading';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$script:currentHeading='Changed page'}}},
+  @{name='Settling changes dirty';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$script:currentDirty=$true}}},
+  @{name='Input during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$script:tick++}}},
+  @{name='Process epoch during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$script:epochValue=124}}},
+  @{name='Foreground during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {[SW]::Foreground=[IntPtr]999}}},
+  @{name='Owner during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {[SW]::Owner=[IntPtr]999}}},
+  @{name='Main PID during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {[SW]::MainPid=8}}},
+  @{name='Tip PID during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {[SW]::TipPid=8}}},
+  @{name='Main root during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$AE::Main.rid='Changed.Main.Root'}}},
+  @{name='Tip root during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$AE::Tip.rid='Changed.Tip.Root'}}},
+  @{name='Peer during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$script:beforeWindows+=New-Window 303 'Unknown' 'qt-dialog'}}},
+  @{name='Outer rectangle during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$script:main.w++}}},
+  @{name='Unreadable provider during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {throw 'Synthetic settling provider failure'}}},
+  @{name='Incomplete snapshot during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$tree.stats.depthLimited=$true}}},
+  @{name='Value error during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$tree.stats.valErr=1}}},
+  @{name='Editor during settling';walks=3;onWalk={param($tree,$walk) if ($walk -eq 3) {$tree.nodes[2].type='Edit'}}}
+)) {
+  Reset-Scenario
+  $script:geometrySettled=$true;$script:onWalk=$case.onWalk
+  $null=Assert-Preparation $case.name $false 0
+  Assert-True ($script:walks -eq $case.walks) ($case.name + ': a failed proof caused another snapshot or action.')
+}
+
+Reset-Scenario
+$script:geometrySettled=$true
+$script:tree.nodes+=[pscustomobject]@{i=3;p=0;type='Text';aid='Hidden';rid='2.4';name='Hidden private value';val='Original';on=$true;x=-1;y=-1;w=0;h=0}
+$script:onWalk={param($tree,$walk) if ($walk -eq 2) {$tree.nodes[3].val='Changed'}}
+$null=Assert-Preparation 'Hidden value change cannot authorize geometry settling' $false 0
+Assert-True ($script:walks -eq 2) 'Hidden values were excluded from semantic authorization.'
+
+foreach ($case in @(
+  @{name='Post-close geometry drifts';onWalk={param($tree,$walk) if ($walk -eq 4) {$tree.nodes[0].h=602}}},
+  @{name='Post-close geometry reverts';onWalk={param($tree,$walk) if ($walk -eq 4) {$tree.nodes[0].h=600}}},
+  @{name='Post-close values drift';onWalk={param($tree,$walk) if ($walk -eq 4) {$tree.nodes[2].val='Changed'}}}
+)) {
+  Reset-Scenario
+  $script:geometrySettled=$true;$script:onWalk=$case.onWalk
+  $null=Assert-Preparation $case.name $false 1 $true
+  Assert-True ($script:walks -eq 4) 'Post-close drift caused a replay or another settling read.'
+}
+
+foreach ($case in @(
+  @{name='Missing original semantic proof';walks=2;mutate={param($state,$walk) if ($walk -eq 1) {$state.PSObject.Properties.Remove('semanticFingerprint')}}},
+  @{name='Missing fresh semantic proof';walks=2;mutate={param($state,$walk) if ($walk -eq 2) {$state.PSObject.Properties.Remove('semanticFingerprint')}}},
+  @{name='Both semantic proofs absent';walks=2;mutate={param($state,$walk) $state.PSObject.Properties.Remove('semanticFingerprint')}},
+  @{name='Empty semantic proof';walks=2;mutate={param($state,$walk) $state.semanticFingerprint=''}},
+  @{name='Null semantic proof';walks=2;mutate={param($state,$walk) $state.semanticFingerprint=$null}},
+  @{name='Non-string semantic proof';walks=2;mutate={param($state,$walk) $state.semanticFingerprint=7}},
+  @{name='Malformed semantic proof';walks=2;mutate={param($state,$walk) $state.semanticFingerprint='not-a-sha'}},
+  @{name='Noncanonical semantic proof';walks=2;mutate={param($state,$walk) $state.semanticFingerprint=$state.semanticFingerprint.ToLowerInvariant()}},
+  @{name='Missing settled semantic proof';walks=3;mutate={param($state,$walk) if ($walk -eq 3) {$state.PSObject.Properties.Remove('semanticFingerprint')}}},
+  @{name='Malformed settled semantic proof';walks=3;mutate={param($state,$walk) if ($walk -eq 3) {$state.semanticFingerprint='not-a-sha'}}},
+  @{name='Changed settled semantic proof';walks=3;mutate={param($state,$walk) if ($walk -eq 3) {$state.semanticFingerprint='A'*64}}}
+)) {
+  Reset-Scenario
+  $script:geometrySettled=$true;$script:stateMutation=$case.mutate
+  $null=Assert-Preparation $case.name $false 0
+  Assert-True ($script:walks -eq $case.walks) ($case.name + ': invalid semantic authority triggered another read.')
+}
+
+Reset-Scenario
+$state=Get-SSETablePreparationState ([IntPtr]101)
+$semanticHash=Get-SSETablePreparationSemanticFingerprint $state.nodes
+$state.nodes[0].h++
+Assert-True ((Get-SSETablePreparationSemanticFingerprint $state.nodes) -ceq $semanticHash) 'Semantic fingerprint included geometry.'
+$state.nodes[0] | Add-Member NoteProperty FutureSemanticProperty 'Original'
+$futureHash=Get-SSETablePreparationSemanticFingerprint $state.nodes
+Assert-True ($futureHash -cne $semanticHash) 'A future projected property was omitted from semantic proof.'
+$state.nodes[0].FutureSemanticProperty='Changed'
+Assert-True ((Get-SSETablePreparationSemanticFingerprint $state.nodes) -cne $futureHash) 'A future projected property value was omitted from semantic proof.'
+Reset-Scenario
+$script:geometrySettled=$true
+$script:stateMutation={
+  param($state,$walk)
+  $state.nodes[0] | Add-Member NoteProperty FutureSemanticProperty ([int]($walk -gt 1))
+  $state.fingerprint=Get-SSETextSha256 ($state.nodes | ConvertTo-Json -Depth 6 -Compress)
+  $state.semanticFingerprint=Get-SSETablePreparationSemanticFingerprint $state.nodes
+}
+$result=Assert-Preparation 'Future projected semantic difference is rejected without classifier authorization' $false 0
+Assert-True ($script:walks -eq 2 -and $result.error.EndsWith('[preparation:guard-fingerprint-geometry]')) 'Diagnostic geometry classification became semantic authority.'
 Write-Output 'Table preparation: explicit exact owned nonmodal Tips only; fresh complete state checks, zero-action fast path and one-attempt unknown outcomes verified.'
