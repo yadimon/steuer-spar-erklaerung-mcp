@@ -83,6 +83,11 @@ Die genaue native Identitätsgrenze steht in [NATIVE-QT.md](NATIVE-QT.md).
 
 ## Tabellen ohne Fokuswechsel lesen
 
+Für ein vollständiges UIA-Inventar ohne anschließende Cursorpositionierung
+ist der Gridmodus der direkte Lesepfad. Ein erfolgreicher Gridread ersetzt
+keine Vorbereitung einer Mutation; `table_add`, `table_update` und
+`table_delete` prüfen ihre Bindung und ihren Vorwert jeweils selbst.
+
 `table_read` mit `readMode: "grid"` wählt vor Beginn den reinen UIA-Gridpfad,
 auch wenn die optionale native Qt-Anbindung konfiguriert ist. Er bindet genau
 eine Tabelle über Fenster, Prozess, RuntimeId, AutomationId und Spaltenheader.

@@ -115,17 +115,22 @@ eine Falldatei-Sicherung ersetzt sie nicht.
    Screenshots sind nur ergänzende Evidenz. Für die Frage, was auf der
    sichtbaren Seite steht — welcher Betrag, welche Auswahl —, ist
    `sse_read_page` der billige Weg: eine Zeile je Beschriftung samt Wert.
-   `sse_table_read` erst, wenn es wirklich um die Zeilen einer Buchungstabelle
-   geht; es läuft die ganze Tabelle ab und liefert dabei die Spaltenköpfe und
-   unter `summen` die Beschriftungen aller Kontrollsummen der Seite, aus denen
-   `sumLabel`, `sumOccurrence` und `expectedBefore` einer folgenden Änderung
-   stammen.
+   `sse_table_read` verwenden, wenn es um die Zeilen einer Buchungstabelle
+   geht. Für ein vollständiges UIA-Inventar ohne Fokuswechsel
+   `readMode: "grid"` wählen und `vollstaendig`, `limitReached` sowie
+   `rowDetails` prüfen. Die Rohzeilen enthalten auch leere Eingabeslots.
+   Dieser Modus bewegt keinen Cursor und erlaubt kein `noKeys: false`.
+   Der ausdrücklich gewählte Cursorlauf mit `noKeys: false` prüft dagegen
+   jeden Zeilenschritt und kann bei großen Tabellen deutlich länger dauern.
+   Spaltenköpfe und die unter `summen` gelesenen Kontrollsummen liefern
+   `sumLabel`, `sumOccurrence` und `expectedBefore` einer folgenden Änderung.
 5. **Ändern:** Nur genau eine eng gebundene Änderung oder einen bestätigten
    Batch ausführen. Für Tabellen den frisch gelesenen Vorwert beziehungsweise
    `expectedBefore` verwenden. Wert, Summe, Hash und Dirty-State sofort
-   zurücklesen. Eine Zeile anzuhängen ist unmittelbar nach `sse_table_read`
-   deutlich billiger, weil der Lauf den Cursor bereits ans Tabellenende
-   gezogen hat; ohne vorheriges Lesen holt die Bibliothek das selbst nach. Die
+   zurücklesen. Ein vollständig bestätigter Cursorlauf kann die Vorbereitung
+   eines unmittelbar folgenden Anhängens verkürzen, weil er das Tabellenende
+   erreicht hat. Ein Grid-Inventar gibt diese Zusage nicht. Die Bibliothek
+   prüft die benötigte Position vor jeder Änderung selbst. Die
    Werte in `werte` stehen in Spaltenreihenfolge ab der ersten Spalte —
    führende Spalten wie eine automatische „Nr." gehören als leerer Wert dazu,
    sonst rutscht jeder Wert eine Spalte nach links.
