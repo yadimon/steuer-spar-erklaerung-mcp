@@ -442,6 +442,9 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
   eigenen PC-blinden Kompositionsvertrag. `sse_api_control` ergänzt den
   getrennten API-Lebenszyklusvertrag.
+- Die kompakte Textantwort von `sse_read_table` erhält den vorhandenen
+  Boolean `incomplete` unverändert. Ein fehlendes Flag wird nicht als `false`
+  ergänzt. Sichtbare Zeilen allein belegen keinen vollständigen Baumlauf.
 - Lokale Windows-, UNC-, Datei-URL- und typische POSIX-Pfade werden an der
   MCP-Ausgabegrenze redigiert. Deshalb kann die öffentliche MCP-Antwort nicht
   bytegleich mit einem unredigierten lokalen API-Objekt sein.

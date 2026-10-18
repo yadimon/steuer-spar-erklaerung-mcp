@@ -29449,7 +29449,8 @@ function registerUiTools(registry2) {
       headers: asArray(r.headers),
       rowCount: r.rowCount,
       rows: asArray(r.rows),
-      ausgeschlosseneFenster: asArray(r.ausgeschlosseneFenster)
+      ausgeschlosseneFenster: asArray(r.ausgeschlosseneFenster),
+      incomplete: r.incomplete
     })
   );
   registerShapedApiTool(

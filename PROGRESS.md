@@ -55,6 +55,10 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
 - **Begrenzte Busy-Wiederholung:** Der optionale Client-/CLI-Helfer erlaubt höchstens drei Versuche nur für eine validierte HTTP-409-Ablehnung vor Dispatch. Instanzidentität und gemeinsames Zeitbudget bleiben gebunden. Workerfehler, verlorene Antworten und ungewisse Schreibausgänge werden nicht erneut gesendet.
 - **Verträge:** Produktionsfunktionen und echte Dispatcher-/Finish-Abschnitte werden geprüft.
   Schema-, Ergebnis-, Privacy-, Plugin- und Dokumentationsgates behalten ihre Grenzen; das OpenAPI-Größenlimit wurde nicht angehoben.
+- **Kompakte MCP-Tabellenantwort:** `sse_read_table` erhält die vorhandene
+  Vollständigkeitsangabe `incomplete` auch im JSON-Text. `false`, `true` und
+  fehlende Angabe bleiben unterscheidbar; das vollständige `structuredContent`
+  bleibt unverändert.
 
 ## Reale Abdeckung und ihre Reichweite
 
@@ -62,12 +66,13 @@ Kleine und große gespeicherte Standard-Ausgangsfixtures stimmen vollständig mi
 Tabellenende, sichtbare letzte Geschäftszeile, unverändertes Grid und unveränderte Falldaten sind geprüft.
 Die jüngste kleine Regression bestätigt zusätzlich die tatsächliche ESC-Route samt Metadaten.
 
-Der anschließende vollständige Live-Lauf fand einen weiteren Übergangsfehler:
-Cursorlesen direkt nach verifiziertem Anlegen verlor nach HOME den Zusammenhang
-zwischen aktueller Nr.-Zelle und bisheriger Auswahl. Daten und Summe stimmten;
-der Cursor stoppte vor der nächsten Taste. Die gezielte neue Korrektur muss die
-unmodifizierte Zustandsreise und die große unmittelbare Add-/Delete-Cursorfolge
-noch bestehen. Frühere passive Readbacks ersetzen diesen Nachweis nicht.
+Die korrigierte Auswahl nach HOME überwindet den ursprünglichen Übergangsfehler:
+Die unmodifizierte Zustandsreise legt mehrere Zeilen an und bestätigt jede
+unmittelbar per vollständigem Cursorread. Der folgende Abbruch betraf die
+fehlende Vollständigkeitsangabe der kompakten MCP-Tabellenantwort; deren
+Projektion ist gezielt korrigiert. Die vollständige Zustandsreise und die große
+unmittelbare Add-/Delete-Cursorfolge müssen auf dem gemeinsamen Endstand noch
+bestehen. Frühere passive Readbacks ersetzen diesen Nachweis nicht.
 
 Add-/Update-/Delete-Reisen mit nativer Konfiguration, offenem Tipps-Fenster, Nullbetrag und Off→On→Off erhalten alle übrigen Zeilen einschließlich Rohfingerprints.
 Tabellenänderungen bleiben hybrid: native Modell-/Positionierungsnachweise ergänzen den Worker-Schreibpfad; ein direkter Qt-DLL-Schreibhandler wird nicht behauptet.

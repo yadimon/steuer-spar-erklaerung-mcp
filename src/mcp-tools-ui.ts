@@ -371,6 +371,7 @@ export function registerUiTools(registry: McpRegistry): void {
       rowCount: r.rowCount,
       rows: asArray(r.rows),
       ausgeschlosseneFenster: asArray(r.ausgeschlosseneFenster),
+      incomplete: r.incomplete,
     }),
   );
 

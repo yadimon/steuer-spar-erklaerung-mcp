@@ -293,6 +293,33 @@ try {
     "Auch die lesbare MCP-Textantwort muss die abgeschnittene Liste kenntlich machen",
   );
 
+  const visibleTable = {
+    headers: ["Bezeichnung", "Betrag", "N"], rowCount: 1,
+    rows: [["Synthetic row", "11,11", ""]], ausgeschlosseneFenster: [],
+  };
+  const visibleDetails = [{ rowIndex: 0, typedValues: ["Synthetic row", "11,11", false],
+    checkboxStates: [null, null, "Off"], cellTypes: ["text", "text", "boolean"],
+    semanticsComplete: true, semanticReadErrors: [] }];
+  for (const fixture of [
+    { label: "complete", fields: { incomplete: false }, truncated: false },
+    { label: "truncated", fields: { incomplete: true }, truncated: true },
+    { label: "unreported", fields: {}, truncated: false },
+  ]) {
+    const expected = { ok: true, ...visibleTable, rowDetails: visibleDetails,
+      stats: { n: 20, err: 0, truncated: fixture.truncated }, note: "Visible rows only", ...fixture.fields };
+    forcedResult = structuredClone(expected);
+    const start = calls.length;
+    const result = await client.callTool({ name: "sse_read_table", arguments: { hwnd: 77 } });
+    assert.notEqual(result.isError, true, `${fixture.label}: visible table result failed.`);
+    const compact = JSON.parse(result.content.filter(entry => entry.type === "text").map(entry => entry.text).join("\n"));
+    assert.deepEqual(compact, { ...visibleTable, ...fixture.fields },
+      `${fixture.label}: compact table output lost or invented the incompleteness observation.`);
+    assert.deepEqual(result.structuredContent, expected,
+      `${fixture.label}: canonical table output lost statistics or typed row details.`);
+    assert.deepEqual(calls.slice(start), [{ operation: "read_table", args: { hwnd: 77 } }],
+      `${fixture.label}: visible table projection changed the API operation or repeated its read.`);
+  }
+
   forcedResult = {
     ok: true,
     clicked: "Weiter",
