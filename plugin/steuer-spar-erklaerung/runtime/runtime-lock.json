@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "9e6a1ad665ff3714dea0c830a79ce8378ca71b8a1aa8eaa9744d03816157d1cc",
-      "size": 1162527
+      "sha256": "df3391981937f2941551f3ebcb1be0d74d10ac2bbeffa7117f9da47e80f0d18e",
+      "size": 1163129
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "a30660b42549de0a1662942679f2a3d37bbff4bf1d4708ccf5bd31f7a492399d",
-      "size": 1197628
+      "sha256": "2dd40f1e93af0f02b05363fad32a90ad2f7207922196451596ea1eabc866c5c7",
+      "size": 1197645
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -113,8 +113,8 @@
     },
     {
       "path": "powershell/table-number-click.ps1",
-      "sha256": "caf19d80189d7168d0d41c9310b1b0b066872a2b8cbccb90c67dba88e68eeb6e",
-      "size": 20243
+      "sha256": "8c3362fdfef0bb23f7c2e60d6f530330eb417e538244f048c6ab2a5868f01ad3",
+      "size": 25821
     },
     {
       "path": "powershell/table-preparation.ps1",
@@ -158,8 +158,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "e3ce5babd7c17e852bd2aa2334b65eac7f7eaf67dbd2a84f5c5a50aeff27c447",
-      "size": 142126
+      "sha256": "ea60fb5606e53af73b7bf3b01734cf992bde20307fc350c4de6a8652ddca5842",
+      "size": 142517
     },
     {
       "path": "profiles/2025/profile.json",

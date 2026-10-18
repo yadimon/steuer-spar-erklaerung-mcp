@@ -118,6 +118,15 @@ Nr-Zelle einmal aktivieren. Erst frischer Fokus-, Auswahl- und Datenabgleich
 erlaubt die Navigation. Ein vorhandener exakt zugehöriger Nummerneditor darf
 einmal per ESC abgeschlossen werden; nach ungewissem Ausgang folgt kein
 alternativer Aktivierungsversuch.
+Als Ausgangspunkt ist zusätzlich das ausdrücklich profilierte eigene
+Hilfe-Root-Dokument zulässig. Dafür müssen die geladenen Qt-Provider zur
+verifizierten Version passen, die Tabelle vollständig editorfrei und die
+Fokus-, Prozess-, RAW-Fenster- und Snapshot-Identität frisch gebunden sein.
+Das fehlende TextPattern wird ausschließlich für diesen QtWebEngine-Provider
+und dieses bekannte Hilfedokument als Nicht-Editierbarkeitsnachweis verwendet;
+es ist kein allgemeiner UIA-Schreibschutzbeweis. Vor dem vorhandenen Einzelklick
+wird dieselbe Quelle erneut geprüft. Unbekannte Dokumente, editierbare Quellen,
+fehlende Richtlinien und Providerfehler erhalten keine Freigabe.
 Nach dem eigenen Sprung mit Strg+Home können aktueller Eintrag und Auswahl
 auseinanderliegen. Vor der ersten Abwärtstaste darf der öffentliche
 Standardcursor deshalb die frisch bewiesene unveränderte Nr.-Zelle auf

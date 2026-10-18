@@ -8,6 +8,96 @@ function Test-SSETableNumberClickInterval($LastInput,[long]$Now,[long]$DoubleCli
   [bool]($age -gt $DoubleClickMs)
 }
 
+function Get-SSETableNumberClickProviderModules([int]$ProcessId) {
+  $process=[Diagnostics.Process]::GetProcessById($ProcessId)
+  try {
+    foreach ($module in @($process.Modules)) {
+      if ($module.ModuleName -in @('Qt6Core.dll','Qt6WebEngineCore.dll','qwindows.dll')) {
+        $version=$module.FileVersionInfo
+        [pscustomobject]@{name=[string]$module.ModuleName;major=$version.FileMajorPart;minor=$version.FileMinorPart;
+          build=$version.FileBuildPart;revision=$version.FilePrivatePart}
+      }
+    }
+  } finally {$process.Dispose()}
+}
+
+function Test-SSETableNumberClickProviderVersion($Modules,[string]$ExpectedVersion) {
+  if ($ExpectedVersion -cne '6.9.2') {return $false}
+  foreach ($name in @('Qt6Core.dll','Qt6WebEngineCore.dll','qwindows.dll')) {
+    $matches=@($Modules | Where-Object {$_.name -ieq $name})
+    if ($matches.Count -ne 1) {return $false}
+    $version=$matches[0]
+    if ($version.major -isnot [int] -or $version.minor -isnot [int] -or
+        $version.build -isnot [int] -or $version.revision -isnot [int] -or
+        $version.major -ne 6 -or $version.minor -ne 9 -or $version.build -ne 2 -or $version.revision -ne 0) {return $false}
+  }
+  $true
+}
+
+function Get-SSETableNumberClickSourceProof {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,$ExpectedSource)
+  $reject=[pscustomobject]@{ok=$false;kind=$null;source=$null;positionProof=$null}
+  try {
+    $focused=$AE::FocusedElement
+    if (-not $focused) {return $reject}
+    $current=$focused.Current
+    $source=[pscustomobject]@{rid=($focused.GetRuntimeId() -join '.');aid=[string]$current.AutomationId;type=$current.ControlType}
+    if ($ExpectedSource -and ($source.rid -cne $ExpectedSource.rid -or $source.aid -cne $ExpectedSource.aid -or
+        $source.type -ne $ExpectedSource.type)) {return $reject}
+    $binding=$Snapshot.navigationBinding
+    if ($current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) {
+      $position=$null
+      if (-not (Test-SSETableFocusedSource $Hwnd $ProcessId $Tree $binding.tableRootAid $binding.tableRootRid `
+          -ExpectedSource $source -PositionNameProof ([ref]$position) -AllowPositionNameSource) -or
+          -not $position -or -not $position.valuePattern -or $position.expectedValue -isnot [string]) {return $reject}
+      return [pscustomobject]@{ok=$true;kind='position-name';source=$source;positionProof=$position}
+    }
+    # This is a product/profile and provider-version contract for this exact
+    # QtWebEngine help root. Pattern absence is not a generic readonly proof.
+    $policy=(Get-SSEPageObjects).tableHelpDocumentFocusSource
+    $suffix='.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE.LibrarySplitterSSE.LibraryGroupWidgetSSE.QWidget.ExpandingButton.HelpWidgetSSE.HelpWidgetSSE.QObject'
+    if ($current.ControlType -ne [System.Windows.Automation.ControlType]::Document -or -not $policy -or
+        $policy.id -cne 'library_help_document' -or $policy.controlType -cne 'Document' -or $policy.automationIdSuffix -cne $suffix -or
+        $policy.policy -cne 'passive-non-editable-help-document-only' -or $policy.providerQtVersion -cne '6.9.2') {return $reject}
+    $aid=[string]$binding.tableRootAid;$marker='.centralWidget.';$offset=$aid.IndexOf($marker,[StringComparison]::Ordinal)
+    if ($offset -le 0 -or $aid.IndexOf($marker,$offset+$marker.Length,[StringComparison]::Ordinal) -ge 0) {return $reject}
+    $prefix=$aid.Substring(0,$offset)
+    if ($source.aid -cne ($prefix+$suffix) -or -not $source.rid -or -not $binding.complete -or -not $binding.editorFree) {return $reject}
+    $state=Get-SSETableSnapshotInputState $Tree $binding.tableRootAid $binding.tableRootRid
+    $nodes=@($Tree.nodes | Where-Object {$_.aid -ceq $source.aid})
+    if (-not $state.ok -or -not $state.editorFree -or $nodes.Count -ne 1 -or
+        @($Tree.nodes | Where-Object {$_.rid -ceq $source.rid}).Count -ne 1 -or
+        $nodes[0].rid -cne $source.rid -or $nodes[0].type -cne 'Document' -or [string]$nodes[0].name -cne '' -or
+        -not $nodes[0].on -or $nodes[0].w -le 0 -or $nodes[0].h -le 0) {return $reject}
+    $modules=@(Get-SSETableNumberClickProviderModules $ProcessId)
+    if (-not (Test-SSETableNumberClickProviderVersion $modules $policy.providerQtVersion)) {return $reject}
+    # Module discovery precedes the final live source/ancestry/pattern bind.
+    $focused=$AE::FocusedElement
+    if (-not $focused) {return $reject}
+    $current=$focused.Current;$bounds=$current.BoundingRectangle;$node=$nodes[0]
+    if ([int]$current.ProcessId -ne $ProcessId -or $current.ControlType -ne [System.Windows.Automation.ControlType]::Document -or
+        ($focused.GetRuntimeId() -join '.') -cne $source.rid -or [string]$current.AutomationId -cne $source.aid -or
+        $current.HasKeyboardFocus -isnot [bool] -or -not $current.HasKeyboardFocus -or
+        $current.IsEnabled -isnot [bool] -or -not $current.IsEnabled -or
+        $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or [string]$current.Name -cne '' -or
+        [Math]::Truncate($bounds.X) -ne $node.x -or [Math]::Truncate($bounds.Y) -ne $node.y -or
+        [Math]::Truncate($bounds.Width) -ne $node.w -or [Math]::Truncate($bounds.Height) -ne $node.h) {return $reject}
+    $probe=$focused;$bound=$false;$seen=New-Object 'Collections.Generic.HashSet[string]'
+    for ($depth=0;$depth -lt 32 -and $probe;$depth++) {
+      $rid=$probe.GetRuntimeId() -join '.'
+      if (-not $rid -or -not $seen.Add($rid) -or [int]$probe.Current.ProcessId -ne $ProcessId) {return $reject}
+      if ($probe.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window) {
+        $bound=[bool]([int64]$probe.Current.NativeWindowHandle -eq [int64]$Hwnd -and [string]$probe.Current.AutomationId -ceq $prefix)
+        break
+      }
+      $probe=$RAW.GetParent($probe)
+    }
+    $text=$null
+    if (-not $bound -or $focused.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$text)) {return $reject}
+    [pscustomobject]@{ok=$true;kind='help-document';source=$source;positionProof=$null}
+  } catch {$reject}
+}
+
 function Get-SSETableNumberClickCellProof {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,[switch]$RequireUnselected,[int]$ExpectedRow=-1)
   $binding=$Snapshot.navigationBinding
@@ -135,15 +225,9 @@ function Invoke-SSETableReadNumberCellClick {
       if (-not $Callbacks -or $Callbacks[$name] -isnot [scriptblock]) {throw 'Number-cell activation callbacks are incomplete.'}
     }
     if ($Hwnd -eq [IntPtr]::Zero -or $ProcessId -le 0 -or -not (& $Callbacks.Guard 'before-number-cell-proof')) {throw 'Number-cell activation binding is unavailable.'}
-    $positionProof=$null
-    if (-not (Test-SSETableFocusedSource $Hwnd $ProcessId $Tree $Snapshot.navigationBinding.tableRootAid `
-        $Snapshot.navigationBinding.tableRootRid -PositionNameProof ([ref]$positionProof) -AllowPositionNameSource) -or
-        -not $positionProof -or -not $positionProof.valuePattern -or $positionProof.expectedValue -isnot [string]) {
-      throw 'Only the exact unchanged profiled position-name source permits this activation.'
-    }
-    $focused=$AE::FocusedElement
-    if (-not $focused -or $focused.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) {throw 'Number-cell activation source is not the profiled Edit.'}
-    $source=[pscustomobject]@{rid=($focused.GetRuntimeId() -join '.');aid=[string]$focused.Current.AutomationId;type=$focused.Current.ControlType}
+    $sourceProof=Get-SSETableNumberClickSourceProof $Hwnd $ProcessId $Tree $Snapshot
+    if (-not $sourceProof.ok) {throw 'The exact profiled position-name or noneditable help source is unproved.'}
+    $positionProof=$sourceProof.positionProof;$source=$sourceProof.source
     $proof=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -RequireUnselected
     $doubleClickMs=[long][SW]::GetDoubleClickTime()
     $input=Get-SSELastInputTick;$dirty=Get-DirtyStateFast $Hwnd
@@ -156,7 +240,7 @@ function Invoke-SSETableReadNumberCellClick {
     }
     $numberClickState=[pscustomobject]@{hwnd=$Hwnd;pid=$ProcessId;snapshot=$Snapshot;tree=$Tree;proof=$proof;input=$input;
       dirty=$dirty;windows=$windows.fingerprint;dpi=$dpi;origin=($origin | ConvertTo-Json -Compress);doubleClickMs=$doubleClickMs;
-      source=$source;positionProof=$positionProof;callbacks=$Callbacks}
+      source=$source;sourceKind=$sourceProof.kind;positionProof=$positionProof;callbacks=$Callbacks}
     $context={
       $currentPid=0;$null=[SW]::GetWindowThreadProcessId($numberClickState.hwnd,[ref]$currentPid)
       $currentDirty=Get-DirtyStateFast $numberClickState.hwnd
@@ -165,7 +249,8 @@ function Invoke-SSETableReadNumberCellClick {
         (Get-SSEInteractionWindowSet $numberClickState.pid $numberClickState.hwnd).fingerprint -ceq $numberClickState.windows -and
         [int][SW]::GetDpiForWindow($numberClickState.hwnd) -eq $numberClickState.dpi -and
         (@([SW]::GetPhysicalClientOrigin($numberClickState.hwnd)) | ConvertTo-Json -Compress) -ceq $numberClickState.origin -and
-        [string]$numberClickState.positionProof.valuePattern.Current.Value -ceq $numberClickState.positionProof.expectedValue)
+        ($numberClickState.sourceKind -ceq 'help-document' -or
+          [string]$numberClickState.positionProof.valuePattern.Current.Value -ceq $numberClickState.positionProof.expectedValue))
     }
     $surfaceCheck={
       param($NumberCell)
@@ -183,10 +268,10 @@ function Invoke-SSETableReadNumberCellClick {
       $freshTree=& $numberClickState.callbacks.ReadTree
       if (-not (Test-SSETableReadSnapshotBinding $numberClickState.snapshot $readback -BeforeNavigation) -or
           -not (& $numberClickState.callbacks.Guard 'before-number-cell-click')) {return $false}
-      $freshPosition=$null
-      if (-not (Test-SSETableFocusedSource $numberClickState.hwnd $numberClickState.pid $freshTree $readback.navigationBinding.tableRootAid `
-          $readback.navigationBinding.tableRootRid -ExpectedSource $numberClickState.source -PositionNameProof ([ref]$freshPosition) -AllowPositionNameSource) -or
-          -not $freshPosition -or $freshPosition.expectedValue -cne $numberClickState.positionProof.expectedValue) {return $false}
+      $freshSource=Get-SSETableNumberClickSourceProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback $numberClickState.source
+      if (-not $freshSource.ok -or $freshSource.kind -cne $numberClickState.sourceKind -or
+          ($freshSource.kind -ceq 'position-name' -and
+            $freshSource.positionProof.expectedValue -cne $numberClickState.positionProof.expectedValue)) {return $false}
       $fresh=Get-SSETableNumberClickCellProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback -RequireUnselected -ExpectedRow $numberClickState.proof.row
       if ($fresh.node.rid -cne $numberClickState.proof.node.rid -or
           $X -ne [int]($fresh.node.x+$fresh.node.w/2) -or $Y -ne [int]($fresh.node.y+$fresh.node.h/2)) {return $false}

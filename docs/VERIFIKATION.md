@@ -66,6 +66,13 @@ und ihre Reihenfolge vor der ersten Abwärtstaste. Die unmodifizierte
 nach verifiziertem Anlegen, Ändern und Löschen. Ein passiver Readback allein
 ersetzt diese Zustandsübergänge nicht.
 
+`table-number-click-contract.ps1` prüft außerdem den ausdrücklich profilierten
+Hilfe-Root als Ausgangspunkt derselben einmaligen Nr.-Zellenaktivierung.
+Provider-Version, tatsächliche Quellbindung und fehlendes TextPattern müssen
+zusammenpassen. Andere Dokumente, editierbare oder geänderte Quellen, fehlende
+Profilfreigabe und Fehler bleiben gesperrt. Die Zustandsreise muss diesen
+Übergang nach einem Seitenwechsel auch im echten Produkt bestehen.
+
 `mcp-wrapper-all-tools.mjs` prüft die kompakte Tabellenantwort über tatsächliches
 HTTP und den MCP-Stdio-Adapter mit `incomplete: false`, `incomplete: true` und
 fehlendem Flag. Das vollständige `structuredContent` bleibt erhalten; eine

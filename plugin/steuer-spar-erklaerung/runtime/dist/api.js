@@ -4783,6 +4783,15 @@ var init_product_profiles = __esm({
         headers: external_exports.tuple([external_exports.literal("Nr."), external_exports.literal("Datum"), external_exports.literal("Bezeichnung"), external_exports.literal("Betrag"), external_exports.literal("N"), external_exports.literal("Netto")]),
         policy: external_exports.literal("unchanged-position-name-only")
       }).strict().optional(),
+      tableHelpDocumentFocusSource: external_exports.object({
+        id: external_exports.literal("library_help_document"),
+        controlType: external_exports.literal("Document"),
+        automationIdSuffix: external_exports.literal(
+          ".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE.LibrarySplitterSSE.LibraryGroupWidgetSSE.QWidget.ExpandingButton.HelpWidgetSSE.HelpWidgetSSE.QObject"
+        ),
+        policy: external_exports.literal("passive-non-editable-help-document-only"),
+        providerQtVersion: external_exports.literal("6.9.2")
+      }).strict().optional(),
       pages: external_exports.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein.")
     }).passthrough().superRefine((catalog, context) => {
       const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);

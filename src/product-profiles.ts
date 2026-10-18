@@ -206,6 +206,14 @@ const pageObjectsCompatibilitySchema = z.object({
     headers: z.tuple([z.literal("Nr."), z.literal("Datum"), z.literal("Bezeichnung"), z.literal("Betrag"), z.literal("N"), z.literal("Netto")]),
     policy: z.literal("unchanged-position-name-only"),
   }).strict().optional(),
+  tableHelpDocumentFocusSource: z.object({
+    id: z.literal("library_help_document"), controlType: z.literal("Document"),
+    automationIdSuffix: z.literal(
+      ".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE.LibrarySplitterSSE.LibraryGroupWidgetSSE.QWidget.ExpandingButton.HelpWidgetSSE.HelpWidgetSSE.QObject",
+    ),
+    policy: z.literal("passive-non-editable-help-document-only"),
+    providerQtVersion: z.literal("6.9.2"),
+  }).strict().optional(),
   pages: z.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein."),
 }).passthrough().superRefine((catalog, context) => {
   const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);

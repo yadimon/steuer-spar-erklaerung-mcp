@@ -46,6 +46,13 @@
     "headers": ["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "Netto"],
     "policy": "unchanged-position-name-only"
   },
+  "tableHelpDocumentFocusSource": {
+    "id": "library_help_document",
+    "controlType": "Document",
+    "automationIdSuffix": ".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE.LibrarySplitterSSE.LibraryGroupWidgetSSE.QWidget.ExpandingButton.HelpWidgetSSE.HelpWidgetSSE.QObject",
+    "policy": "passive-non-editable-help-document-only",
+    "providerQtVersion": "6.9.2"
+  },
   "tableRegionBindings": [
     {
       "id": "vehicle_costs_with_input_tax",

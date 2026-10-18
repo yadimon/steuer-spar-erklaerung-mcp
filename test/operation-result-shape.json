@@ -12456,7 +12456,7 @@
         "fields": {
           "catalog": {
             "types": [
-              "object:{\"checkerStartBindings\":\"array-many:object\",\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"tableComboFocusOut\":\"object\",\"tablePositionNameFocusSource\":\"object\",\"tableRegionBindings\":\"array-many:object\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}",
+              "object:{\"checkerStartBindings\":\"array-many:object\",\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"tableComboFocusOut\":\"object\",\"tableHelpDocumentFocusSource\":\"object\",\"tablePositionNameFocusSource\":\"object\",\"tableRegionBindings\":\"array-many:object\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}",
               "object:{\"checkerStartBindings\":\"array-one:object\",\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}"
             ],
             "labels": [

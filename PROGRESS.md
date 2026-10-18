@@ -29,6 +29,13 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   benötigt keine Aktion; nach einer Auswahl folgen vollständiger unveränderter
   Roh-/Typ-/Checkbox-Readback und frischer Fokus-/Auswahlnachweis vor DOWN.
   Die reale Abschlussabnahme dieser Korrektur steht noch aus.
+- **Fokus nach Seitenwechsel:** Die Nr.-Aktivierung erhält einen eigenen
+  ausdrücklich profilierten Ausgangspunkt für das nicht editierbare
+  Hilfe-Root-Dokument. Geladene Provider-Version, vollständige editorfreie
+  Tabelle, genaue Quell-/Fensteridentität und erneute Prüfung vor dem
+  bestehenden Einzelklick bleiben Voraussetzungen. Die allgemeine
+  Dokument-/Editorfreigabe wird dadurch nicht erweitert. Die reale
+  Zustandsreise auf dem gemeinsamen Endstand steht noch aus.
 - **Tipps-Vorbereitung:** Nur das explizit profilierte, direkt eigene nicht modale
   Fenster vor der ersten Bindung schließen. Inhalte, Identitäten, Eingabe,
   Vordergrund, Prozess, Owner und Fensterbestand bleiben streng gebunden.
@@ -70,9 +77,12 @@ Die korrigierte Auswahl nach HOME überwindet den ursprünglichen Übergangsfehl
 Die unmodifizierte Zustandsreise legt mehrere Zeilen an und bestätigt jede
 unmittelbar per vollständigem Cursorread. Der folgende Abbruch betraf die
 fehlende Vollständigkeitsangabe der kompakten MCP-Tabellenantwort; deren
-Projektion ist gezielt korrigiert. Die vollständige Zustandsreise und die große
-unmittelbare Add-/Delete-Cursorfolge müssen auf dem gemeinsamen Endstand noch
-bestehen. Frühere passive Readbacks ersetzen diesen Nachweis nicht.
+Projektion ist gezielt korrigiert. Ein weiterer Abbruch nach dem Seitenwechsel
+zeigte die fehlende Fokusübernahme vom eigenen Hilfe-Dokument. Die gezielte
+Freigabe muss die vollständige Zustandsreise auf dem gemeinsamen Endstand noch
+bestehen. Die große unmittelbare Add-/Delete-Cursorfolge besteht bereits für
+den vorherigen Stand; sie wird auf dem gemeinsamen Endstand erneut geprüft.
+Frühere passive Readbacks ersetzen diese Nachweise nicht.
 
 Add-/Update-/Delete-Reisen mit nativer Konfiguration, offenem Tipps-Fenster, Nullbetrag und Off→On→Off erhalten alle übrigen Zeilen einschließlich Rohfingerprints.
 Tabellenänderungen bleiben hybrid: native Modell-/Positionierungsnachweise ergänzen den Worker-Schreibpfad; ein direkter Qt-DLL-Schreibhandler wird nicht behauptet.

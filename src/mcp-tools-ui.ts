@@ -123,8 +123,8 @@ export function registerUiTools(registry: McpRegistry): void {
     {
       title: "Tabellenzeile anlegen",
       description:
-        "Legt eine neue Tabellenzeile als gepruefte Transaktion an. Exakte Seite sowie Seitensumme vor und " +
-        "nach der Aktion sind Pflicht. Die freie Zielzeile wird geometrisch an genau diese Summenzeile und " +
+        "Legt eine neue Tabellenzeile als gepruefte Transaktion an. Exakte Seite und Seitensumme vor der Aktion sind Pflicht; " +
+        "expectedAfter ist optional. Die freie Zielzeile wird geometrisch an genau diese Summenzeile und " +
         "die davorliegende Summengrenze gebunden; auf Seiten mit mehreren Tabellen kann daher nicht die " +
         "Leerzeile eines anderen Abschnitts gewaehlt werden. Profilierte ComboBoxen binden Seite, Summenregion und Spalte. " +
         "Auch als UIA-DataItem wird nur per InvokePattern und exakt popupgebundenem SelectionItem gewaehlt. " +

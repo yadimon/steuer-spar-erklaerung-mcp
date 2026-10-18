@@ -60,23 +60,27 @@ UStVA-Änderung.
      sichtbare Zeile oder Optionsliste, stoppe und lies den Teilstand frisch;
      lege deshalb keine zusätzliche Position oder Tabelle an und wiederhole
      einen fehlgeschlagenen Schreibaufruf nicht blind.
-     Ist eine bereits begonnene Zeile außerhalb der sichtbaren Ansicht,
+     Für eine vollständige Inventur ohne Positionierung verwende ausdrücklich
+     `readMode: "grid"`. Beachte Rohzeilen einschließlich Eingabeslots,
+     `rowDetails` und die Vollständigkeitsflags; dieser Modus bewegt die Ansicht
+     nicht. Ist eine bereits begonnene Zeile außerhalb der sichtbaren Ansicht,
      fordere `sse_table_read` ausdrücklich mit `noKeys: false`, gebundenem
      HWND und frisch gelesenem `sumLabel`/`sumOccurrence` an. Dieser Weg
      erwirbt den Tabellenfokus und prüft Eingabe-Epoche, Seite, Summe und
-     Tabellenidentität vor jeder Taste. Ein aktiver Zell-Editor oder
-     ComboBox-Delegate stoppt diesen Leser bereits vor der Fokusübernahme;
-     der Leser schließt oder bestätigt ihn nicht. Die Cursoraktivierung
-     verwendet nur gebundene Auswahl und Tabellenfokus, keinen Zellklick.
-     In einer vollständig gebundenen Tabelle mit `Nr.`-Spalte wird direkt
-     ihre frisch gebundene Nummernzelle einmal semantisch fokussiert. Vor
-     jeder Cursortaste bleiben Editorfreiheit und tatsächlicher Auswahlfokus
-     erforderlich; `cursorActivation` beschreibt den technischen Nachweis.
+     Tabellenidentität vor jeder Taste. Nur ein frisch bewiesener unveränderter
+     eigener Nr.-Editor darf einmal per ESC verlassen werden; andere aktive
+     Zell-Editoren oder ComboBox-Delegates stoppen den Leser. Er verwendet
+     bewiesenen Tabellenfokus oder eine vorab festgelegte, genau gebundene
+     Nr.-Zellenaktivierung. Vor jeder Cursortaste bleiben Editorfreiheit und
+     tatsächlicher Auswahlfokus erforderlich; `cursorActivation` beschreibt
+     den technischen Nachweis. Ein ungewisser Ausgang erlaubt keinen zweiten
+     Aktivierungsversuch.
      Ein erfolgreicher vollständiger Lauf
      lässt die letzte Zeile sichtbar. Lies danach den Snapshot und die ganze
      Tabelle frisch; ergänze ausschließlich die eindeutig belegte Teilzeile
-     mit `sse_table_update`. Standard-/`noKeys: true`-Lesungen verwenden das
-     native Modell ohne Fokuswechsel und verändern die Ansicht nicht.
+     mit `sse_table_update`. Die gewöhnliche UIA-Lesung mit `noKeys: true` zeigt
+     nur den Sichtbestand. Ein nativ gelesener Modellbestand setzt das
+     entsprechend konfigurierte und verifizierte Backend voraus.
    - Seitensummen der Vorsteuerseite tragen den gewählten Zeitraum im Label
      („… »2. Vierteljahr«“) und sind dann gefiltert: `sumLabel` vor jedem
      `sse_table_add`/`sse_table_delete` frisch aus `sse_read_page` nehmen.

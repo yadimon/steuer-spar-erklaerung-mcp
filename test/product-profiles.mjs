@@ -30,6 +30,13 @@ const firstPage = profile.pageObjectsCatalog.pages["est.sonstige_werbungskosten_
 assert.deepEqual(profile.pageObjectsCatalog.checkerStartBindings.map(binding => ({
   types: binding.documentTypes, pattern: binding.pattern,
 })), [{ types: ["ESt"], pattern: "Invoke" }, { types: ["Gew", "GewErfass"], pattern: "Invoke" }]);
+const helpDocumentPolicy = {
+  id: "library_help_document", controlType: "Document",
+  automationIdSuffix: ".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE.LibrarySplitterSSE.LibraryGroupWidgetSSE.QWidget.ExpandingButton.HelpWidgetSSE.HelpWidgetSSE.QObject",
+  policy: "passive-non-editable-help-document-only", providerQtVersion: "6.9.2",
+};
+assert.deepEqual(profile.pageObjectsCatalog.tableHelpDocumentFocusSource, helpDocumentPolicy,
+  "Only the exact profiled non-editable help document may authorize its cursor source route.");
 assert.equal(firstPage.headingPrefix, "Sonstige Werbungskosten/Fahrten",
   "Die personengebundene ESt-Seite muss dynamische Ueberschrift-Suffixe akzeptieren.");
 // Die Stammdatenseiten eines neu angelegten Folgejahr-Falls sind katalogisiert,
@@ -123,6 +130,8 @@ for (const unsupportedMode of ["KonsUst", "KonsUSt", "zulage", "NVBescheinigung"
     `Nicht direkt startbarer SSE-Modus ${unsupportedMode} darf nicht veroeffentlicht werden.`);
 }
 const profile2024 = loadProductProfile("2024");
+assert.equal(Object.hasOwn(profile2024.pageObjectsCatalog, "tableHelpDocumentFocusSource"), false,
+  "The experimental profile must not inherit the help-document source policy.");
 assert.equal(profile2024.status, "experimental");
 assert.equal(profile2024.operationAccess, "verification-only");
 assert.equal(isProductProfileReleased(profile2024), false);
@@ -251,6 +260,42 @@ try {
   }
 } finally {
   rmSync(navigationCatalogRoot, { recursive: true, force: true });
+}
+
+const helpDocumentRoot = mkdtempSync(join(tmpdir(), "sse-product-help-document-"));
+try {
+  const copiedProfile = join(helpDocumentRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  const pageObjectsPath = join(copiedProfile, "page-objects.json");
+  const pageObjects = JSON.parse(readFileSync(pageObjectsPath, "utf8"));
+  delete pageObjects.tableHelpDocumentFocusSource;
+  writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+  assert.equal(Object.hasOwn(loadProductProfile("2025", helpDocumentRoot).pageObjectsCatalog,
+    "tableHelpDocumentFocusSource"), false, "An absent optional source policy must remain absent.");
+  const missingFields = Object.keys(helpDocumentPolicy).map(key => {
+    const policy = { ...helpDocumentPolicy };
+    delete policy[key];
+    return policy;
+  });
+  for (const invalidPolicy of [
+    null, [], true, "library_help_document", {},
+    ...missingFields,
+    { ...helpDocumentPolicy, id: "other_document" },
+    { ...helpDocumentPolicy, controlType: "Edit" },
+    { ...helpDocumentPolicy, automationIdSuffix: ".HelpWidgetSSE.QObject" },
+    { ...helpDocumentPolicy, policy: "allow-any-document" },
+    { ...helpDocumentPolicy, providerQtVersion: "6.9.2.0" },
+    { ...helpDocumentPolicy, providerQtVersion: "6.9.3" },
+    { ...helpDocumentPolicy, providerQtVersion: 692 },
+    { ...helpDocumentPolicy, readOnly: true },
+  ]) {
+    pageObjects.tableHelpDocumentFocusSource = invalidPolicy;
+    writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+    assert.throws(() => loadProductProfile("2025", helpDocumentRoot), /tableHelpDocumentFocusSource/u,
+      "Malformed or broader help-document policies must fail closed.");
+  }
+} finally {
+  rmSync(helpDocumentRoot, { recursive: true, force: true });
 }
 
 const caseCollisionRoot = mkdtempSync(join(tmpdir(), "sse-product-case-collision-"));

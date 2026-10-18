@@ -20,13 +20,16 @@ namespace System.Windows.Automation {
  public sealed class ControlType {
   public string ProgrammaticName;private ControlType(string name){ProgrammaticName="ControlType."+name;}
   public static readonly ControlType Table=new ControlType("Table"),DataGrid=new ControlType("DataGrid"),DataItem=new ControlType("DataItem"),
-   Header=new ControlType("Header"),Edit=new ControlType("Edit"),ComboBox=new ControlType("ComboBox"),Custom=new ControlType("Custom");
+   Header=new ControlType("Header"),Edit=new ControlType("Edit"),ComboBox=new ControlType("ComboBox"),Custom=new ControlType("Custom"),
+   Document=new ControlType("Document"),Window=new ControlType("Window"),Button=new ControlType("Button"),Tree=new ControlType("Tree"),TreeItem=new ControlType("TreeItem");
  }
  public static class GridItemPattern {public static object Pattern="grid";}
  public static class SelectionItemPattern {public static object Pattern="item";}
  public static class SelectionPattern {public static object Pattern="selection";}
  public static class TogglePattern {public static object Pattern="toggle";}
  public static class ExpandCollapsePattern {public static object Pattern="expand";}
+ public static class TextPattern {public static object Pattern="text";}
+ public static class ValuePattern {public static object Pattern="value";}
  public static class AutomationElement {
   public static object FocusedElement,PointResult;
   public static int PointCalls;
@@ -39,12 +42,14 @@ $AE=[System.Windows.Automation.AutomationElement]
 $tableAid='Synthetic.Table./.Tab'
 function New-Element($Node,[string]$Type) {
   $controlType=[System.Windows.Automation.ControlType]::Table.GetType().GetField($Type).GetValue($null)
-  $element=[pscustomobject]@{rid=$Node.rid;patterns=@{};Current=[pscustomobject]@{
+  $element=[pscustomobject]@{rid=$Node.rid;parent=$null;patterns=@{};Current=[pscustomobject]@{
     ProcessId=7;AutomationId=$Node.aid;ControlType=$controlType;Name=[string]$Node.name;IsEnabled=$true;IsOffscreen=$false;HasKeyboardFocus=$false
+    NativeWindowHandle=0
     BoundingRectangle=[pscustomobject]@{X=$Node.x;Y=$Node.y;Width=$Node.w;Height=$Node.h}
   }}
   $element | Add-Member ScriptMethod GetRuntimeId { $this.rid -split '\.' }
   $element | Add-Member ScriptMethod TryGetCurrentPattern {param($Pattern,$Result)
+    if ($Pattern -ceq 'text' -and $script:mode -ceq 'help-pattern-throws') {throw 'Synthetic unavailable text pattern'}
     if ($this.patterns.ContainsKey([string]$Pattern)) {$Result.Value=$this.patterns[[string]$Pattern];return $true}
     $false
   }
@@ -98,6 +103,7 @@ function Click-VerifiedPoint {
     $ForegroundAttempts -eq 1 -and $ExpectedRuntimeId -ceq '1.3' -and $null -ne $BeforeClickBinding -and $ThrowOnFailure) 'Click lost exact cell/foreground/one-attempt or throwing-result authority.'
   if ($script:mode -ceq 'foreground-at-last-hook') {[SW]::Foreground=[IntPtr]999}
   if ($script:mode -ceq 'selection-at-last-hook') {$script:selection.items=@($script:cell)}
+  if ($script:mode -ceq 'help-source-at-last-hook') {$AE::FocusedElement=$script:editor}
   if (-not (& $BeforeClickCheck $Hwnd $BeforeClickBinding 120 140)) {throw 'Synthetic last click guard rejected.'}
   $script:clicks++
   $script:tick=([long][Environment]::TickCount -band 4294967295L)
@@ -111,6 +117,7 @@ function Click-VerifiedPoint {
   if ($script:mode -ceq 'source-still-focused') {$AE::FocusedElement=$script:source;$script:table.Current.HasKeyboardFocus=$false}
   if ($script:mode -ceq 'table-unfocused') {$script:table.Current.HasKeyboardFocus=$false}
   if ($script:mode -ceq 'source-after-click') {$script:sourceValue.Current.Value='Changed position'}
+  if ($script:mode -ceq 'help-rematerialized-after-click') {$script:source.rid='2.9';$script:source.Current.IsEnabled=$false}
   if ($script:mode -ceq 'dirty-after-click') {$script:dirty=$true}
   if ($script:mode -ceq 'window-after-click') {$script:windowFingerprint='changed'}
   if ($script:mode -ceq 'dpi-after-click') {[SW]::Dpi=144}
@@ -287,3 +294,86 @@ foreach ($scenarioMode in @('editor-stays','table-unfocused-after-escape')) {
   Assert-True ($script:clickHelperCalls -eq 1 -and $script:numberProofCalls -eq 1) "$scenarioMode retried click or Escape."
 }
 Write-Output 'Number-cell activation: exact profiled source, unselected fresh Grid cell, full direct surface, wrap-safe input age, one click/optional one proven Escape and actual table focus verified.'
+
+# The accepted Help source uses the actual production module and the actual
+# worker source proof. Only provider boundaries are synthetic; no successful
+# source/identity/version classifier is replaced by a test double.
+$workerSource=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
+$workerErrors=$null;$workerAst=[Management.Automation.Language.Parser]::ParseInput($workerSource,[ref]$null,[ref]$workerErrors)
+if ($workerErrors.Count) {throw 'Worker source must parse.'}
+$definition=@($workerAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSETableFocusedSource'},$true))
+if ($definition.Count -ne 1) {throw 'The actual worker source proof must be unique.'}
+. ([scriptblock]::Create($definition[0].Extent.Text))
+$RAW=[pscustomobject]@{};$RAW | Add-Member ScriptMethod GetParent {param($Element) $Element.parent}
+$WLK=$RAW
+function Get-CurrentHeading {$script:snapshot.navigationBinding.heading}
+function Get-SSEPageObjects {[pscustomobject]@{tableHelpDocumentFocusSource=$script:helpPolicy}}
+function Get-SSETableNumberClickProviderModules {
+  param([int]$ProcessId)
+  Assert-True ($ProcessId -eq 7) 'Provider discovery escaped the bound process.'
+  $script:providerReads++
+  if ($script:mode -ceq 'help-provider-throws') {throw 'Synthetic inaccessible modules'}
+  $records=@('Qt6Core.dll','Qt6WebEngineCore.dll','qwindows.dll' | ForEach-Object {
+    [pscustomobject]@{name=$_;major=[int]6;minor=[int]9;build=[int]2;revision=[int]0}
+  })
+  if ($script:mode -ceq 'help-provider-unknown' -or ($script:mode -ceq 'help-provider-late' -and $script:providerReads -gt 1)) {$records[2].build=[int]3}
+  if ($script:mode -ceq 'help-provider-missing') {$records=@($records[0],$records[1])}
+  if ($script:mode -ceq 'help-provider-duplicate') {$records+=@($records[2])}
+  if ($script:mode -ceq 'help-provider-untyped') {$records[2].major='6'}
+  $records
+}
+$validProviderRecords=@('QT6CORE.DLL','qt6webenginecore.dll','QWINDOWS.DLL' | ForEach-Object {
+  [pscustomobject]@{name=$_;major=[int]6;minor=[int]9;build=[int]2;revision=[int]0}
+})
+Assert-True (Test-SSETableNumberClickProviderVersion $validProviderRecords '6.9.2') 'Windows module-name case changed the exact provider version proof.'
+Assert-True (-not (Test-SSETableNumberClickProviderVersion $validProviderRecords '6.9.20')) 'A version prefix was treated as an exact supported version.'
+$duplicateProvider=@($validProviderRecords)+@($validProviderRecords[0].PSObject.Copy());$duplicateProvider[3].name='Qt6Core.dll'
+Assert-True (-not (Test-SSETableNumberClickProviderVersion $duplicateProvider '6.9.2')) 'A differently cased duplicate loaded module was accepted.'
+$revisionProvider=@($validProviderRecords | ForEach-Object {$_.PSObject.Copy()});$revisionProvider[0].revision=[int]1
+Assert-True (-not (Test-SSETableNumberClickProviderVersion $revisionProvider '6.9.2')) 'A different provider revision was accepted.'
+$buildProvider=@($validProviderRecords | ForEach-Object {$_.PSObject.Copy()});$buildProvider[0].build=[int]20
+Assert-True (-not (Test-SSETableNumberClickProviderVersion $buildProvider '6.9.2')) 'A numeric build prefix was accepted.'
+$unknownProvider=@($validProviderRecords | ForEach-Object {$_.PSObject.Copy()});$unknownProvider[0].revision=$null
+Assert-True (-not (Test-SSETableNumberClickProviderVersion $unknownProvider '6.9.2')) 'An unknown provider revision was accepted.'
+$untypedProvider=@($validProviderRecords | ForEach-Object {$_.PSObject.Copy()});$untypedProvider[0].revision='0'
+Assert-True (-not (Test-SSETableNumberClickProviderVersion $untypedProvider '6.9.2')) 'A string provider revision was coerced into proof.'
+foreach ($case in @('help-exact','help-rematerialized-after-click','help-no-policy','help-wrong-policy','help-provider-unknown','help-provider-missing',
+  'help-provider-duplicate','help-provider-untyped','help-provider-throws','help-editable','help-pattern-throws','help-other-document',
+  'help-wrong-root','help-duplicate','help-foreign-pid','help-foreign-window','help-unfocused','help-bounds',
+  'help-active-table-editor','help-arbitrary-edit','help-source-at-last-hook','help-provider-late')) {
+  $tableAid='Synthetic.Main.centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogUI./.Bank.Tab'
+  Reset-Scenario;$script:mode=$case;$script:providerReads=0
+  $script:helpPolicy=[pscustomobject]@{id='library_help_document';controlType='Document';
+    automationIdSuffix='.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE.LibrarySplitterSSE.LibraryGroupWidgetSSE.QWidget.ExpandingButton.HelpWidgetSSE.HelpWidgetSSE.QObject';
+    policy='passive-non-editable-help-document-only';providerQtVersion='6.9.2'}
+  $sourceNode=[pscustomobject]@{i=4;p=-1;rid='2.1';aid=('Synthetic.Main'+$script:helpPolicy.automationIdSuffix);type='Document';name='';on=$true;x=600;y=100;w=150;h=200}
+  $script:tree.nodes+=@($sourceNode)
+  $script:source=New-Element $sourceNode 'Document';$script:source.Current.HasKeyboardFocus=$true
+  # Qt offers ValuePattern even for this noneditable web root. Its false
+  # IsReadOnly must neither authorize an arbitrary document nor reject the
+  # separately proven, explicitly profiled noneditable Help source.
+  $script:source.patterns.value=[pscustomobject]@{Current=[pscustomobject]@{Value='';IsReadOnly=$false}}
+  $window=New-Element ([pscustomobject]@{rid='9.1';aid='Synthetic.Main';name='';x=0;y=0;w=900;h=700}) 'Window'
+  $window.Current.NativeWindowHandle=111;$script:source.parent=$window
+  $AE::FocusedElement=$script:source
+  switch ($case) {
+    'help-no-policy' {$script:helpPolicy=$null}
+    'help-wrong-policy' {$script:helpPolicy.policy='any-document'}
+    'help-editable' {$script:source.patterns.text=[pscustomobject]@{}}
+    'help-other-document' {$sourceNode.aid+='Other';$script:source.Current.AutomationId=$sourceNode.aid}
+    'help-wrong-root' {$window.Current.AutomationId='Another.Main'}
+    'help-duplicate' {$duplicate=$sourceNode.PSObject.Copy();$duplicate.rid='2.2';$script:tree.nodes+=@($duplicate)}
+    'help-foreign-pid' {$script:source.Current.ProcessId=8}
+    'help-foreign-window' {$window.Current.NativeWindowHandle=222}
+    'help-unfocused' {$script:source.Current.HasKeyboardFocus=$false}
+    'help-bounds' {$script:source.Current.BoundingRectangle.Width=149}
+    'help-active-table-editor' {$active=$script:cellNode.PSObject.Copy();$active.i=5;$active.type='Edit';$active.aid=$tableAid+'.(1).Betrag';$script:tree.nodes+=@($active)}
+    'help-arbitrary-edit' {$sourceNode.type='Edit';$script:source.Current.ControlType=[System.Windows.Automation.ControlType]::Edit}
+  }
+  $late=$case -cin @('help-source-at-last-hook','help-provider-late')
+  $expected=$case -cin @('help-exact','help-rematerialized-after-click')
+  $result=Invoke-Scenario $case $expected ([int]$expected) 0 $late
+  Assert-True ($script:clickHelperCalls -eq [int]($expected -or $late)) "$case bypassed or replayed the single submission boundary."
+  Assert-True ($script:focusCalls -eq 0 -and $script:selectCalls -eq 0) "$case added another activation action."
+}
+Write-Output 'Number-cell Help source: actual source/transaction, exact own noneditable Help identity and loaded-provider versions, no generic Document authority.'
