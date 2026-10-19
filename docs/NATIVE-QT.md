@@ -488,6 +488,38 @@ auch die synchronen Anwendungscallbacks. Der ältere Wert `lookupMs` enthält
 auf dem Aktionspfad weiterhin den anschließenden Eingriff; er ist keine
 exklusive Lookupdauer.
 
+Der private `replace-edit-text`-Pfad trennt lesende Vorbereitung und ersten
+Eingriff durch einen atomaren Permit. Eine noch wartende Anfrage oder laufende
+Vorbereitung kann innerhalb der unveränderten GUI-Frist abgebrochen werden.
+Gewinnt der Abbruch, darf derselbe Callback später weder Auswahl noch Text
+oder Commit ändern. Der ursprüngliche Callback behält seine Controller-Sperre
+bis zum vollständigen Ende; eine verschachtelte Anfrage erhält `busy`, ohne
+den äußeren Session-, Mutations- oder Permit-Kontext zu löschen.
+
+Ein bestätigter Abbruch meldet `GUI_QUEUE_TIMEOUT` beziehungsweise
+`GUI_PREPARATION_CANCELLED`, `mutationAttempted: false`, `outcomeUnknown: false`
+und die privaten Belege `preMutationCancellationProtocol: 1` sowie
+`dispatchCancellation: "queued"` oder `"preparing"`. Er erzeugt keine
+Mutationsquittung. Das belegt ausschließlich den ausgebliebenen angeforderten
+Eingriff; gelesene Provider und Schriftcaches können bereits initialisiert
+sein. Hat der Permit gewonnen, bleibt eine Zeitüberschreitung unbekannt und
+sperrt weitere Änderungen wie bisher. Keine dieser Antworten löst eine
+automatische Wiederholung aus.
+
+Für normale unmaskierte `QLineEdit`-Felder bereitet ein lokales `QTextLayout`
+die gewünschte Anzeigezeichenfolge mit einer Kopie der tatsächlichen Schrift
+auf demselben GUI-Thread vor. Feld, Fokus, Validator und Signale bleiben dabei
+unberührt. Die Vorbereitung verwendet automatische Schreibrichtung; eine
+intern erzwungene Richtung des echten Feldes kann weitere Shapingarbeit
+erfordern. Es wird keine vollständige Layoutäquivalenz behauptet. Danach werden ursprünglicher Wert, exaktes Ziel, Session und
+Fensterbindung frisch geprüft, bevor der Permit beansprucht wird. Die
+bisherige Insert-/Validierungs-/Commitfolge bleibt erhalten. Diese Aufteilung
+soll teure Schriftinitialisierung in die abbrechbare Phase verschieben; sie
+beweist weder eine allgemeine Latenzgrenze noch die Ursache jedes früheren
+Unicode-Ausreißers. `prepare.before`, `prepare.after` und `permit.claimed`
+trennen diese Abschnitte im begrenzten Trace; `permit.refused` kennzeichnet
+den verweigerten Einstieg.
+
 ## Natives Paket selbst bauen
 
 Die C++-Quellen und der Paketbau liegen unter [native/qt](../native/qt/CMakeLists.txt).

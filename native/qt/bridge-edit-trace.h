@@ -11,7 +11,8 @@
 // may copy an immutable published prefix while the GUI is still executing.
 enum class NativeEditPhase {
     GuiEnter, ControllerAcquired, RootBefore, RootAfter, ActionEnter,
-    LookupBefore, LookupAfter, EditEnter, SelectAllBefore, SelectAllAfter,
+    LookupBefore, LookupAfter, EditEnter, PrepareBefore, PrepareAfter, PermitClaimed, PermitRefused,
+    SelectAllBefore, SelectAllAfter,
     InsertBefore, InsertAfter, CommitBefore, CommitAfter, GuiComplete
 };
 
@@ -25,6 +26,10 @@ static const char *nativeEditPhaseName(NativeEditPhase phase) noexcept {
     case NativeEditPhase::LookupBefore: return "lookup.before";
     case NativeEditPhase::LookupAfter: return "lookup.after";
     case NativeEditPhase::EditEnter: return "edit.enter";
+    case NativeEditPhase::PrepareBefore: return "prepare.before";
+    case NativeEditPhase::PrepareAfter: return "prepare.after";
+    case NativeEditPhase::PermitClaimed: return "permit.claimed";
+    case NativeEditPhase::PermitRefused: return "permit.refused";
     case NativeEditPhase::SelectAllBefore: return "selectAll.before";
     case NativeEditPhase::SelectAllAfter: return "selectAll.after";
     case NativeEditPhase::InsertBefore: return "insert.before";

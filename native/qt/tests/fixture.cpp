@@ -16,6 +16,7 @@
 #include <QtWidgets/QDateEdit>
 #include <QtWidgets/QTextEdit>
 #include <QtWidgets/QGridLayout>
+#include <QtWidgets/QAccessibleWidget>
 #include <QtGui/QStandardItemModel>
 #include <QtGui/QAccessible>
 #include <QtGui/QIntValidator>
@@ -30,6 +31,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -183,6 +185,74 @@ public:
     ~FixtureAccessibilityObserver() override { QAccessible::removeActivationObserver(this); }
     void accessibilityActiveChanged(bool) override { ++changes; }
 };
+// Created only by the dedicated cancellation fixture's setup command. The
+// original cold Unicode field and the other fixtures retain Qt's normal peer.
+class PreparationProbeLineEdit : public QLineEdit {
+    Q_OBJECT
+    FixtureTraceJournal &journal_;
+    bool nameArmed_ = false, nameArmUsed_ = false;
+public:
+    unsigned int nameReadsStarted = 0, nameReadsCompleted = 0;
+    unsigned int selectionChanges = 0, cursorChanges = 0, textEdits = 0, textChanges = 0, commits = 0;
+    QString model = QStringLiteral("Uncommitted preparation model"), pending;
+    explicit PreparationProbeLineEdit(QWidget *parent, FixtureTraceJournal &journal)
+        : QLineEdit(QStringLiteral("Preparation ASCII sentinel"), parent), journal_(journal) {
+        setObjectName("syntheticPreparationField"); setAccessibleName("Preparation probe");
+        QObject::connect(this, &QLineEdit::selectionChanged, this, [this] { ++selectionChanges; });
+        QObject::connect(this, &QLineEdit::cursorPositionChanged, this, [this](int, int) { ++cursorChanges; });
+        QObject::connect(this, &QLineEdit::textChanged, this, [this](const QString &) { ++textChanges; });
+        QObject::connect(this, &QLineEdit::textEdited, this, [this](const QString &value) { ++textEdits; pending = value; });
+        QObject::connect(this, &QLineEdit::editingFinished, this, [this] { ++commits; model = pending; });
+    }
+    void establishBaseline() {
+        setFocus(Qt::OtherFocusReason); setSelection(3, 5);
+        selectionChanges = cursorChanges = textEdits = textChanges = commits = 0;
+    }
+    bool armNameRead() {
+        if (nameArmUsed_) return false;
+        nameArmed_ = nameArmUsed_ = true; return true;
+    }
+    void readName() {
+        if (!nameArmed_) return;
+        nameArmed_ = false; ++nameReadsStarted;
+        journal_.mark("preparationName.enter", 2600);
+        QThread::msleep(2600);
+        ++nameReadsCompleted; journal_.mark("preparationName.leave", 2600);
+    }
+    nlohmann::json observedState() const {
+        const auto text = [](const QString &value) { return value.toUtf8().toStdString(); };
+        const auto *focus = QApplication::focusWidget();
+        return {{"text", text(QLineEdit::text())}, {"model", text(model)}, {"pending", text(pending)},
+            {"cursorPosition", cursorPosition()}, {"selectionStart", selectionStart()}, {"selectionLength", selectedText().size()},
+            {"selectedText", text(selectedText())}, {"hasFocus", hasFocus()},
+            {"focusObject", focus ? text(focus->objectName()) : std::string()},
+            {"focusAddress", std::to_string(reinterpret_cast<std::uintptr_t>(focus))},
+            {"nameReadsStarted", nameReadsStarted}, {"nameReadsCompleted", nameReadsCompleted},
+            {"signals", {{"selectionChanged", selectionChanges}, {"cursorPositionChanged", cursorChanges},
+                {"textEdited", textEdits}, {"textChanged", textChanges}, {"editingFinished", commits}}}};
+    }
+};
+class PreparationProbeAccessible : public QAccessibleWidget {
+    PreparationProbeLineEdit *probe_;
+public:
+    explicit PreparationProbeAccessible(PreparationProbeLineEdit *probe)
+        : QAccessibleWidget(probe, QAccessible::EditableText), probe_(probe) {}
+    QString text(QAccessible::Text type) const override {
+        if (type == QAccessible::Name) probe_->readName();
+        if (type == QAccessible::Value) return probe_->QLineEdit::text();
+        return QAccessibleWidget::text(type);
+    }
+    QAccessible::State state() const override {
+        auto result = QAccessibleWidget::state();
+        result.editable = !probe_->isReadOnly(); result.readOnly = probe_->isReadOnly();
+        result.passwordEdit = probe_->echoMode() != QLineEdit::Normal;
+        return result;
+    }
+};
+static QAccessibleInterface *preparationProbeFactory(const QString &, QObject *object) {
+    if (auto *probe = qobject_cast<PreparationProbeLineEdit *>(object)) return new PreparationProbeAccessible(probe);
+    return nullptr;
+}
 struct PassiveReadCounters {
     unsigned int generation = 0, replacements = 0, modelReads = 0;
     unsigned int slowReadStarted = 0, slowReadCompleted = 0, slowReadArms = 0, stalls = 0, events = 0;
@@ -341,6 +411,7 @@ int main(int argc, char **argv) {
     HANDLE controller = nullptr;
     HWND untitled = nullptr;
     QDialog *tool = nullptr, *duplicateTool = nullptr, *navigationTool = nullptr, *optionTool = nullptr;
+    QPointer<PreparationProbeLineEdit> preparationProbe;
     PassiveReadCounters passiveCounters;
     QPointer<QWidget> passivePage;
     QPointer<DialogUITable> passiveTable;
@@ -392,6 +463,19 @@ int main(int argc, char **argv) {
                 else if (command == "mask-field") { field->setInputMask("99;_"); field->setText("10"); }
                 else if (command == "slow-field-commit") *commitDelayMs = 1600;
                 else if (command == "timeout-field-commit") *commitDelayMs = 2600;
+                else if (command == "preparation-probe-setup") {
+                    if (preparationProbe) { std::cout << "preparation-probe-refused" << std::endl; return; }
+                    QAccessible::installFactory(preparationProbeFactory);
+                    preparationProbe = new PreparationProbeLineEdit(panel, journal);
+                    layout->insertWidget(0, preparationProbe); preparationProbe->show(); preparationProbe->establishBaseline();
+                }
+                else if (command == "preparation-probe-state") {
+                    if (!preparationProbe) { std::cout << "preparation-probe-refused" << std::endl; return; }
+                    std::cout << preparationProbe->observedState().dump() << std::endl; return;
+                }
+                else if (command == "preparation-probe-arm") {
+                    if (!preparationProbe || !preparationProbe->armNameRead()) { std::cout << "preparation-probe-refused" << std::endl; return; }
+                }
                 else if (command == "date-commit-count") { std::cout << date->property("syntheticCommitCount").toInt() << std::endl; return; }
                 else if (command == "accessibility-status") rateModel->setText(QAccessible::isActive() ? "active" : "inactive");
                 else if (command == "reset-accessibility-status") rateModel->setText("Unactivated");

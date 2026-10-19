@@ -10,7 +10,7 @@ export const sourceFiles = [
   "bridge-window-context.h", "bridge-windows.h", "bridge-table-snapshot.h", "bridge-table-focus.h", "bridge-table-focus-policy.h", "bridge-discovery.h", "bridge-image.h",
   "bridge-table-position.h", "bridge-table-position-policy.h", "bridge-table-summary-policy.h", "bridge-table-model-read.h",
   "bridge-interactive-session.h", "bridge-accessibility.h", "bridge-accessible-types.h", "bridge-accessible-options.h", "bridge-desktop-marker.h", "bridge-desktop-launch.h", "bridge-desktop-start.h",
-  "bridge-desktop-stop.h", "bridge-stop-policy.h", "bridge-stop-uia.h", "bridge-edit-actions.h", "bridge-edit-trace.h", "bridge-table-edit-actions.h", "bridge-navigation-actions.h",
+  "bridge-desktop-stop.h", "bridge-stop-policy.h", "bridge-stop-uia.h", "bridge-edit-actions.h", "bridge-edit-trace.h", "bridge-dispatch-fence.h", "bridge-table-edit-actions.h", "bridge-navigation-actions.h",
   "bridge-broker.h", "bridge-pipe-peer.h", "bridge-desktop-status.h", "compatibility.json", "scripts/generate-config.mjs", "scripts/package.mjs",
   "third_party/nlohmann/json.hpp", "third_party/nlohmann/LICENSE.MIT", "third_party/nlohmann/UPSTREAM.json", "THIRD_PARTY.md",
   "../../profiles/2025/profile.json",

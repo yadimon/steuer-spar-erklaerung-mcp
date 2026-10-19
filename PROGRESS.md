@@ -2,8 +2,25 @@
 
 ## Arbeitsstand und Ziel
 
-`main` enthält den zuvor geprüften Stabilisierungsstand. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
-Die vorgesehenen Offline-, Live-, Mega-, nativen, Last- und Paketprüfungen sind abgeschlossen. Die erneute native Mega-Reise besteht ebenfalls; ein früherer kontrollierter Abbruch bleibt in seiner Ursache ungeklärt. Eine Freigabe für Produktivinstallation oder Veröffentlichung wird daraus nicht vorweggenommen.
+Der integrierte Ausgangsstand und die aktuelle Nacharbeit haben getrennte
+Nachweise. Frühere erfolgreiche Prüfungen gelten ausschließlich für ihren
+damaligen Quellstand und Ausführungspfad. Die aktuelle Nacharbeit ist noch nicht
+abgeschlossen; insbesondere ersetzen passive native Modelllesungen keine
+expliziten Cursorfolgen. Produktivinstallation und Veröffentlichung bleiben
+getrennte Schritte.
+
+| Aktuelle Nacharbeit | Nachweis / offen |
+| --- | --- |
+| Native No-op-Freigabe, nummerierte Pfadwahl, Navigationskontext, passive Auswahl, HOME-Reihenfolge und leerer Cursor nach Seitenrückkehr | tatsächliche positive und negative Executor-/Worker-Verträge bestehen |
+| Vollständige Offline-Suite und Doku-/Runtime-Abgleich des zuletzt abgeschlossenen Tabellenstands | bestanden |
+| Native Add → passiver Readback → Update → expliziter Cursor → Seitenwechsel/Rückkehr → zweiter Cursor | drei unabhängige reale Folgen mit vollständigen Inventaren und Cleanup bestanden |
+| Vollständige native Zustandsreise mit explizitem Cursorlesen | bestanden: sechs Anlagen, Änderung/Rücknahme, sechs Löschungen, Seitenwechsel, Werte-Info/Hilfe, vollständige Inventare, Dateiintegrität und Cleanup |
+| Atomarer Abbruch vor dem ersten nativen Texteingriff und lokale Schriftvorbereitung | Implementierung und neue Regressionen in Arbeit; noch keine Abnahme |
+| Abschließende native, reale und Paketprüfungen nach der Texteingriffskorrektur | offen |
+
+Ein erneuter Unicode-Ausreißer ist erhalten. Ein späterer erfolgreicher Lauf
+hebt ihn nicht auf. Die Korrektur muss zwischen sicherem Abbruch vor der ersten
+Änderung und unbekanntem Ausgang nach deren Beginn unterscheiden.
 
 Ziel sind komfortable Low-Level-Operationen und überprüfte höhere Abläufe: Identität und Ausgangszustand lesen, Aktion gezielt ausführen, Ergebnis frisch lesen und prüfen.
 Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt weder blindes Wiederholen noch einen alternativen Eingriff.
@@ -65,8 +82,12 @@ dabei ausschließlich ohne Aktion an die native Positionierung übergeben werden
 Spätere Fehler behalten den Nachweis der bereits erfolgten Positionierung.
 Tatsächliche Executor-/Worker-Verträge scheitern vorher und bestehen danach.
 Die vollständige Offline-Suite einschließlich Abdeckungs-, Ergebnis- und
-Dokumentationsbilanzen besteht ebenfalls. Der reale Rückkehrtest, die weitere
-native Zustandsreise und die abschließenden Paketprüfungen stehen noch aus.
+Dokumentationsbilanzen besteht ebenfalls. Der reale Rückkehrtest besteht in
+drei unabhängigen Prozessen mit vollständigen Inventaren vor und nach der
+Rückkehr. Ebenso besteht die vollständige native Zustandsreise einschließlich
+weiterer Anlage, Änderung/Rücknahme, Löschungen, Rückbau, Werte-Info und Hilfe.
+Quellstand, Runtime und Falldateien bleiben unverändert. Die neue native
+Texteingriffskorrektur und abschließende Paketprüfungen benötigen eigene Gates.
 
 Eine zusätzliche Start-Race der nativen Test-Fixture ist reproduziert: Der
 Dateipfad kann bereits existieren, bevor sein JSON vollständig geschrieben ist.
@@ -81,7 +102,15 @@ Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal
 Ein passiver Abgleich bestätigt den späteren einmaligen Commit; der fehlgeschlagene
 Aufruf bleibt fehlgeschlagen und wird nicht wiederholt. Accessibility-Zustellung
 und Font-/Layout-Initialisierung werden getrennt untersucht. Keine dieser
-Ursachen ist bereits bewiesen oder behoben.
+Ursachen ist bereits abschließend bewiesen oder behoben. Der nächste begrenzte
+Schritt bereitet die Schrift über ein lokales Textlayout vor und verlangt
+unmittelbar vor der ersten Änderung einen atomaren Permit. Nur ein gewonnener
+Abbruch vor diesem Permit darf eine spätere Änderung sicher ausschließen.
+Eine bereits begonnene Änderung bleibt unbekannt und wird nicht wiederholt.
+Verschachtelte GUI-Aufträge müssen den äußeren Session- und Permit-Kontext
+erhalten. Die neue echte Fixture soll nach einem erzwungenen langsamen Read
+unveränderte Feld-, Auswahl-, Fokus-, Signal- und Modellzustände sowie eine
+weiterhin nutzbare Sitzung prüfen. Bis zur Abnahme bleibt dies offene Arbeit.
 
 ## Umgesetzt und belegt
 
@@ -208,7 +237,9 @@ Bereits bestandene Prüfungen früherer Quellstände ersetzen diese Abschlussgat
 Die abschließende Diagnoseänderung ist zusätzlich durch die normale vollständige
 Offline-Suite und eine eigene native Mega-Reise geprüft. Die Standardbedienungs-
 und Transportpfade der übrigen Funktionsnachweise sind unverändert.
-Der Stabilisierungsbranch ist nach `main` integriert. Produktivinstallation und Veröffentlichung bleiben getrennte Schritte.
+Der frühere Ausgangsstand ist integriert. Die aktuelle Nacharbeit benötigt vor
+ihrer Integration ihre oben ausdrücklich offenen Abschlussgates.
+Produktivinstallation und Veröffentlichung bleiben getrennte Schritte.
 Es wurden keine Veröffentlichung, kein Push und keine Produktivinstallation vorgenommen.
 
 ## Grenzen und nächste Entscheidungen

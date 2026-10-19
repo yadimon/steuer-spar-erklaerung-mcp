@@ -828,6 +828,70 @@ try {
     } finally { await validationSession.close(); }
   }
   report.checks.push("Intermediate validators and incomplete input masks refuse model commits; spin-box editingFinished reaches the model once");
+  // Only this fresh fixture creates the probe. Its one-shot accessible Name
+  // delay happens after exact lookup and before any edit mutation permit.
+  const preparationFixture = await fixture();
+  assert.equal(await preparationFixture.command("preparation-probe-setup"), "preparation-probe-setup");
+  const preparationSession = await startQtNativeBroker({ package: nativePackage, expectedImage: executable,
+    timeoutMs: 5000, target: preparationFixture.info });
+  try {
+    const before = await readQtNativeSnapshot(preparationSession.client, { maxNodes: 5000 }, 5000);
+    const targets = before.nodes.filter(node => node.aid.endsWith(".syntheticPreparationField"));
+    assert.equal(targets.length, 1); const target = targets[0];
+    const baseline = JSON.parse(await preparationFixture.command("preparation-probe-state"));
+    assert.equal(baseline.text, "Preparation ASCII sentinel"); assert.equal(target.val, baseline.text);
+    assert.equal(baseline.selectionStart, 3); assert.equal(baseline.selectionLength, 5);
+    assert.equal(baseline.selectedText, baseline.text.slice(3, 8));
+    assert.equal(baseline.nameReadsStarted, 0); assert.equal(baseline.nameReadsCompleted, 0);
+    assert.equal(await preparationFixture.command("preparation-probe-arm"), "preparation-probe-arm");
+    const cancelled = await preparationSession.client.requestAcknowledged("accessibility_action", {
+      expectedRootHwnd: preparationFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+      action: "replace-edit-text", expectedValue: baseline.text, value: literal,
+    }, 5000);
+    const phases = inspectNativeEditPhases(cancelled.result, { complete: false, activePhase: "lookup.after" });
+    report.preMutationCancellation = { response: cancelled, phases, baseline };
+    assert.equal(cancelled.result.ok, false); assert.equal(cancelled.result.code, "GUI_PREPARATION_CANCELLED");
+    assert.equal(cancelled.result.preMutationCancellationProtocol, 1);
+    assert.equal(cancelled.result.dispatchCancellation, "preparing");
+    assert.equal(cancelled.result.mutationAttempted, false); assert.equal(cancelled.result.outcomeUnknown, false);
+    assert.equal(Object.hasOwn(cancelled.result, "mutationReceipt"), false);
+    assert.equal(cancelled.receiptAcknowledged, false); assert.equal(cancelled.mutationAckMs, 0);
+    assert.equal(phases.valid, true, JSON.stringify(phases));
+    // This queued receiver drains the original callback; it neither replays nor
+    // acknowledges an edit. The returned timeout trace remains an immutable prefix.
+    report.preMutationCancellation.drained = JSON.parse(await preparationFixture.command("trace-clock-probe"));
+    const drained = JSON.parse(await preparationFixture.command("preparation-probe-state"));
+    report.preMutationCancellation.afterDrain = drained;
+    assert.deepEqual(drained, { ...baseline, nameReadsStarted: 1, nameReadsCompleted: 1 },
+      "Cancelled read-only preparation must leave text, model, cursor, selection, focus and all five signal counts unchanged.");
+    const afterDrain = await readQtNativeSnapshot(preparationSession.client, { maxNodes: 5000 }, 5000);
+    assert.deepEqual(afterDrain.nodes, before.nodes, "Cancellation must leave the complete fixture snapshot unchanged.");
+    const cancelledPing = (await preparationSession.client.request("ping", {}, 5000)).result;
+    assert.equal(cancelledPing.ok, true); assert.equal(cancelledPing.recoveryRequired, false);
+    assert.equal(cancelledPing.mutationAcknowledgmentRequired, false);
+    report.preMutationCancellation.pingAfterDrain = cancelledPing;
+    // A distinct fresh request is submitted once after proven cancellation.
+    const completed = await preparationSession.client.requestAcknowledged("accessibility_action", {
+      expectedRootHwnd: preparationFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+      action: "replace-edit-text", expectedValue: baseline.text, value: literal,
+    }, 5000);
+    report.preMutationCancellation.freshEdit = completed;
+    assert.equal(completed.result.ok, true, JSON.stringify(completed.result));
+    assert.equal(completed.receiptAcknowledged, true);
+    assert.equal(inspectNativeEditPhases(completed.result, { complete: true, successfulLineEdit: true }).valid, true);
+    const committed = JSON.parse(await preparationFixture.command("preparation-probe-state"));
+    report.preMutationCancellation.afterFreshEdit = committed;
+    assert.equal(committed.text, literal); assert.equal(committed.pending, literal); assert.equal(committed.model, literal);
+    assert.equal(committed.nameReadsStarted, 1); assert.equal(committed.nameReadsCompleted, 1);
+    for (const signal of ["textEdited", "textChanged", "editingFinished"])
+      assert.equal(committed.signals[signal] - baseline.signals[signal], 1, signal + " must occur exactly once.");
+    const final = await readQtNativeSnapshot(preparationSession.client, { maxNodes: 5000 }, 5000);
+    assert.equal(final.nodes.find(node => node.aid === target.aid).val, literal);
+    const finalPing = (await preparationSession.client.request("ping", {}, 5000)).result;
+    assert.equal(finalPing.ok, true); assert.equal(finalPing.recoveryRequired, false);
+    assert.equal(finalPing.mutationAcknowledgmentRequired, false);
+  } finally { await preparationSession.close(); }
+  report.checks.push("A dedicated post-lookup Name delay is cancelled before mutation; draining preserves the complete field, selection, focus, model and five signal counters, then one fresh Unicode edit commits without recovery");
   const slowFixture = await fixture();
   await slowFixture.command("slow-field-commit");
   const slowSession = await startQtNativeBroker({ package: nativePackage, expectedImage: executable,
@@ -872,9 +936,22 @@ try {
     assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticCommittedModel")).val, "Unknown timed commit");
     assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticEditedCount")).val, "1",
       "The original unknown edit must be submitted once; passive reconciliation must never replay it.");
+    const blocked = await timeoutSession.client.requestAcknowledged("accessibility_action", {
+      expectedRootHwnd: timeoutFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+      action: "replace-edit-text", expectedValue: "Unknown timed commit", value: "Blocked after unknown commit",
+    }, 5000);
+    report.nativeEditTimeout.blockedFreshEdit = blocked;
+    assert.equal(blocked.result.ok, false); assert.equal(blocked.result.code, "RECOVERY_REQUIRED");
+    assert.equal(blocked.result.mutationAttempted, false); assert.equal(blocked.receiptAcknowledged, false);
+    assert.equal(Object.hasOwn(blocked.result, "mutationReceipt"), false);
+    const blockedPing = (await timeoutSession.client.request("ping", {}, 5000)).result;
+    assert.equal(blockedPing.ok, true); assert.equal(blockedPing.recoveryRequired, true);
+    const afterBlocked = await readQtNativeSnapshot(timeoutSession.client, { maxNodes: 5000 }, 5000);
+    assert.deepEqual(afterBlocked.nodes, after.nodes, "The recovery gate must not replay or change the original unknown edit.");
     report.nativeEditTimeout.reconciledOnceWithoutReplay = true;
   } finally { await timeoutSession.close(); }
   report.checks.push("A separate unknown edit timeout preserves a bounded immutable native phase prefix; one passive read reconciles its eventual model effect without replay");
+  assert.equal(fixtures.length, 7, "The preparation probe must use its own seventh fixture.");
   await stopRuntime(); assert.equal(first.child.exitCode, null);
   report.checks.push("API shutdown ends every native helper while the target application remains alive");
   report.ok = true;

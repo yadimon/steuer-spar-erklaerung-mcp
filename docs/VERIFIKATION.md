@@ -188,6 +188,18 @@ Nachweisstufen. Die öffentliche Qt-Brücke führt begrenzte, quittierte
 Belegmutationen und Navigation aus. Allgemeine Feld-/Tabellenmutationen und
 Speichern behalten ihre bestehenden Transaktionswege.
 
+Der atomare Texteingriffs-Permit hat eigene native Zustands- und
+Verschachtelungsverträge: Abbruch vor Permit verhindert jeden späteren Einstieg,
+Permit vor Abbruch behält den unbekannten Ausgang. Eine zusätzliche frische
+Qt-Fixture verzögert einen tatsächlich gelesenen Accessible-Namen vor der
+ersten Auswahl. Nach bestätigtem Abbruch und Drain müssen Text, Modell,
+Auswahl, Cursor, Fokus und Signalzähler unverändert bleiben; anschließend muss
+ein frischer quittierter Edit genau einmal im Modell ankommen. Die ursprüngliche
+erste Unicode-Insertion und die Zeitgrenzen bleiben erhalten. Eine absichtlich
+zu langsame Anwendungskommitierung bleibt dagegen unbekannt; ein späterer
+Schreibversuch muss gesperrt sein. Ein erfolgreicher späterer Lauf klärt einen
+früheren sporadischen Timeout nicht automatisch.
+
 Für `snapshot` vergleicht der native Test alle Knoten mit einem unabhängig
 gestarteten Windows-UIA-Client, einschließlich nativer Kindfenster, Runtime-IDs,
 Eltern, Typen, Geometrie und Werten. Passwortwerte werden ausdrücklich nicht

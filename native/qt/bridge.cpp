@@ -41,6 +41,7 @@ static_assert(sizeof(BridgeBuildIdentity) == BRIDGE_BUILD_ID_SIZE);
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 #include "bridge-edit-trace.h"
+#include "bridge-dispatch-fence.h"
 static std::atomic<bool> started{false};
 static std::mutex startMutex;
 static std::atomic<int> activeGuiRequests{0};
@@ -77,6 +78,7 @@ static bool isMutation(const std::string &op) {
 }
 static thread_local const NativeSession *guiSession = nullptr;
 static thread_local bool mutationStarted = false;
+static thread_local NativeDispatchFence *currentNativeDispatchFence = nullptr;
 static std::string utf8(const QString &s) { return s.toUtf8().toStdString(); }
 static double elapsed(Clock::time_point t) {
     return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
@@ -88,6 +90,30 @@ static Json noMutationError(const char* code, const std::string &message) {
     auto result = error(code, message);
     result["mutationAttempted"] = false; result["outcomeUnknown"] = false;
     return result;
+}
+static Json dispatchCancellationResult(NativeDispatchFence::Cancellation cancellation, bool protocol) {
+    if (cancellation == NativeDispatchFence::Cancellation::None)
+        return noMutationError("ACTION_DISPATCH_FAILED", "No atomic pre-mutation cancellation was proven");
+    const bool preparing = cancellation == NativeDispatchFence::Cancellation::Preparing;
+    auto result = noMutationError(preparing ? "GUI_PREPARATION_CANCELLED" : "GUI_QUEUE_TIMEOUT",
+        preparing ? "Read-only edit preparation was cancelled before its mutation permit"
+                  : "Operation cancelled before GUI dispatch");
+    if (protocol) {
+        result["preMutationCancellationProtocol"] = 1;
+        result["dispatchCancellation"] = preparing ? "preparing" : "queued";
+    }
+    return result;
+}
+static Json requireEditMutationPermit() {
+    if (claimNativeEditMutation(currentNativeDispatchFence, mutationStarted)) {
+        markNativeEdit(NativeEditPhase::PermitClaimed);
+        return nullptr;
+    }
+    markNativeEdit(NativeEditPhase::PermitRefused);
+    if (currentNativeDispatchFence
+        && currentNativeDispatchFence->provenCancellation() == NativeDispatchFence::Cancellation::Preparing)
+        return dispatchCancellationResult(NativeDispatchFence::Cancellation::Preparing, true);
+    return noMutationError("ACTION_DISPATCH_FAILED", "The exact edit has no available pre-mutation permit");
 }
 static std::uint64_t objectId(QObject *object) {
     auto found = ids.find(object);
@@ -378,31 +404,31 @@ static Json executeWithController(const Json &request) {
 }
 
 struct Pending {
-    // The request is cancelled before dispatch if the GUI thread misses its deadline.
-    enum State { Queued, Running, Done, Cancelled };
-    std::atomic<State> state{Queued};
+    NativeDispatchFence fence;
     std::mutex mutex;
     std::condition_variable changed;
     Json result;
     std::unique_ptr<NativeEditTrace> editTrace;
+    explicit Pending(bool fencedEdit) noexcept : fence(fencedEdit) {}
 };
 static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &session) {
     auto *app = QCoreApplication::instance();
     if (!app || QCoreApplication::closingDown()) return noMutationError("NO_QT_APPLICATION", "Qt application is unavailable");
     if (!ownerAlive(session)) return {{"ok", false}, {"code", "SESSION_OWNER_GONE"}, {"mutationAttempted", false}};
-    auto pending = std::make_shared<Pending>();
-    if (request.value("op", std::string()) == "accessibility_action" && request.contains("action")
-        && request.at("action").is_string() && request.at("action").get<std::string>() == "replace-edit-text")
+    const bool fencedEdit = request.value("op", std::string()) == "accessibility_action" && request.contains("action")
+        && request.at("action").is_string() && request.at("action").get<std::string>() == "replace-edit-text";
+    auto pending = std::make_shared<Pending>(fencedEdit);
+    if (fencedEdit)
         pending->editTrace = std::make_unique<NativeEditTrace>();
     const auto begin = Clock::now();
     ++activeGuiRequests;
     const bool queued = QMetaObject::invokeMethod(app, [pending, request, session] {
-        struct Finished { ~Finished() { guiSession = nullptr; --activeGuiRequests; } } finished;
-        auto expected = Pending::Queued;
-        if (!pending->state.compare_exchange_strong(expected, Pending::Running)) return;
-        guiSession = session.get();
+        struct Finished { ~Finished() { --activeGuiRequests; } } finished;
+        if (!pending->fence.beginDispatch()) return;
         Json result;
         {
+            NativeGuiContextScope context(guiSession, mutationStarted, currentNativeDispatchFence,
+                session.get(), pending->fence.requiresPermit() ? &pending->fence : nullptr);
             NativeEditTraceScope trace(pending->editTrace.get());
             try {
                 if (!ownerAlive(session)) result = {{"ok", false}, {"code", "SESSION_OWNER_GONE"}, {"mutationAttempted", false}};
@@ -415,7 +441,7 @@ static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &
                 if (result["mutationAttempted"] == true) recoveryRequired = true;
             }
         }
-        { std::lock_guard<std::mutex> lock(pending->mutex); pending->result = std::move(result); pending->state = Pending::Done; }
+        { std::lock_guard<std::mutex> lock(pending->mutex); pending->result = std::move(result); pending->fence.complete(); }
         pending->changed.notify_one();
     }, Qt::QueuedConnection);
     if (!queued) { --activeGuiRequests; return noMutationError("GUI_DISPATCH_FAILED", "Could not queue the Qt operation"); }
@@ -424,12 +450,16 @@ static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &
     // Keep a transport margin inside the 2500 ms pipe-frame bound. Lookup
     // budgets leave room for typed application commit slots on the GUI thread.
     const auto deadlineMs = 2000;
-    if (!pending->changed.wait_for(lock, std::chrono::milliseconds(deadlineMs), [&] { return pending->state == Pending::Done; })) {
-        auto expected = Pending::Queued;
-        const bool cancelled = pending->state.compare_exchange_strong(expected, Pending::Cancelled);
-        auto result = error(cancelled ? "GUI_QUEUE_TIMEOUT" : "GUI_OPERATION_TIMEOUT", cancelled ? "Operation cancelled before GUI dispatch" : "Operation is still executing on the GUI thread; verify its outcome before retry");
-        result["outcomeUnknown"] = !cancelled;
-        result["mutationAttempted"] = !cancelled && isMutation(operation);
+    if (!pending->changed.wait_for(lock, std::chrono::milliseconds(deadlineMs), [&] { return pending->fence.state() == NativeDispatchFence::State::Done; })) {
+        const auto cancellation = pending->fence.cancelBeforeMutation();
+        Json result;
+        if (cancellation != NativeDispatchFence::Cancellation::None)
+            result = dispatchCancellationResult(cancellation, pending->fence.requiresPermit());
+        else {
+            result = error("GUI_OPERATION_TIMEOUT", "Operation is still executing on the GUI thread; verify its outcome before retry");
+            result["outcomeUnknown"] = true;
+            result["mutationAttempted"] = isMutation(operation);
+        }
         if (pending->editTrace) result["nativeEditTrace"] = pending->editTrace->snapshot();
         return result;
     }
