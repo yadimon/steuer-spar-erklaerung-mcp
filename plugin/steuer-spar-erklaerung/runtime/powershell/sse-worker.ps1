@@ -8537,7 +8537,7 @@ function Test-SSETableCursorPhaseEditorAuthority {
 function Invoke-SSETableNativeCursorStep {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Initial,$Plan,$Binding,$ReadSnapshot,$ReadTree,$Guard,$Checkpoint,
     $SendKey,$GetInputTick,$OwnInput,$PublishLease,$MakeBinding)
-  $steps=0;$keyCompleted=$false;$phase='step-resume-proof';$footer=$null;$resumeProof=$null
+  $steps=0;$keyCompleted=$false;$phase='step-resume-proof';$footer=$null;$resumeProof=$null;$postKeyProof=$null
   try {
     if (-not (Test-SSETableNativeCursorStepPlan $Plan.step $Plan.lease) -or
         $Plan.binding.inputEpoch -ne $Binding.inputEpoch -or
@@ -8596,11 +8596,18 @@ function Invoke-SSETableNativeCursorStep {
       $after=$afterClosure
     }
     $phase='step-current-grid-proof'
+    # HOME can leave the old selection outside the new visible tree. Only an
+    # own-key, model-bound Nr. delegate supplies current-cell authority here;
+    # keep the fresh root/editor proof before its one planned alignment.
     $currentSelection=Get-SSETableLiveInputState $Hwnd $ProcessId $after.navigationBinding.tableRootAid `
-      $after.navigationBinding.tableRootRid -RequireSelection
+      $after.navigationBinding.tableRootRid -RequireSelection:($null -eq $currentCell)
+    $postKeyProof=[pscustomobject]@{liveInputOk=[bool]$currentSelection.ok;reason=[string]$currentSelection.reason;
+      editorClosed=[bool]$currentSelection.editorClosed;selectedCount=[int]$currentSelection.selectedCount;numberCell=$null}
     if (-not $currentSelection.ok) {throw 'Aktuelle Auswahl nach eigener Taste ist nicht frisch gebunden.'}
     $current=Get-SSETableCursorNumberCellProof $Hwnd $ProcessId (& $ReadTree) $after $currentCell `
       $Plan.step.numberModel ([int]$Plan.step.expectedRow) -SelectedRids $currentSelection.selectedRids -NumberPolicy $Plan.step.numberPolicy -ViewportBounds $viewport
+    $postKeyProof.numberCell=[pscustomobject]@{ok=[bool]$current.ok;reason=[string]$current.reason;row=$current.row;column=$current.column;
+      rowFullyContained=[bool]$current.rowFullyContained}
     if (-not $current.ok -or -not (& $Guard 'step-before-current-selection') -or
         -not (Invoke-SSETableReadAnchorSelection $Hwnd $ProcessId $after $tick $Binding.windowFingerprint $current.cell)) {
       throw 'Frischer aktueller Nummernanker ist nicht sicher gebunden.'
@@ -8623,6 +8630,7 @@ function Invoke-SSETableNativeCursorStep {
         key=$Plan.step.key;modelFingerprint=$Plan.step.modelFingerprint;row=$current.row;column=0;rowFullyContained=$current.rowFullyContained}}
   } catch {
     $diagnostic=Get-SSETableExceptionDiagnostic $_ $phase
+    if ($postKeyProof) {$diagnostic | Add-Member NoteProperty postKeyProof $postKeyProof}
     [pscustomobject]@{ok=$false;kind='cursor-proof-failed';phase=$phase;error='Privater einzelner Cursorschritt verlor seinen Nachweis; nicht wiederholen.';
       cursorActivation=$diagnostic;cursorResumeProof=$resumeProof;footerFocus=$(if ($footer) {[pscustomobject]@{ok=$footer.ok;reason=$footer.reason;phase=$footer.phase;
         sourceReason=$footer.sourceReason;sourceEvidence=$footer.sourceEvidence;focusAttempted=$footer.focusAttempted}} else {$null});

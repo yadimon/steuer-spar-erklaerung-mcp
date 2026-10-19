@@ -36,6 +36,20 @@ function Get-SSETableReadViewportBounds {
 }
 function Get-SSETableLiveInputState {
   param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
+  if ($script:mode -like 'home-retained-*') {
+    $script:liveSelectionRequests+=@([bool]$RequireSelection)
+    $afterKey=$script:keys.Count -eq 1
+    $beforeAlignment=$afterKey -and $script:selectCalls -eq 0
+    $reason='exact-table-without-editor';$ok=$true;$closed=$true
+    if ($afterKey -and $script:mode -ceq 'home-retained-root-unbound') {$ok=$false;$reason='live-table-unbound'}
+    elseif ($afterKey -and $script:mode -ceq 'home-retained-editor-active') {$ok=$false;$closed=$false;$reason='active-table-editor'}
+    elseif ($beforeAlignment -and $RequireSelection) {$ok=$false;$reason='selected-table-cursor-unbound'}
+    elseif ($script:selectCalls -gt 0 -and $script:mode -ceq 'home-retained-post-selection-lost') {$ok=$false;$reason='selected-table-cursor-unbound'}
+    $selected=$(if ($RequireSelection) {@('Synthetic.row.'+$(if ($beforeAlignment) {6} else {$script:currentRow}))} else {@()})
+    return [pscustomobject]@{ok=$ok;selectedRids=$selected;selectedCount=$selected.Count;reason=$reason;
+      editorClosed=$closed;focusedType='DataItem';keyboardEvidence=[pscustomobject]@{focusedSource=[pscustomobject]@{
+        type='DataItem';processId=7;hasKeyboardFocus=$true};directCellCount=1}}
+  }
   $selected=@('Synthetic.row.'+$script:currentRow)
   if ($script:mode -eq 'selection-count') {$selected=@()}
   if ($script:mode -eq 'stale-selection-rids') {$selected=@('Synthetic.rematerialized.'+$script:currentRow)}
@@ -48,10 +62,14 @@ function Get-SSETableCursorNumberCellProof {
   param($Window,$ProcessId,$Tree,$Snapshot,$Cell,$NumberModel,$ExpectedRow,[switch]$RequireSelected,$SelectedRids,$NumberPolicy,
     $ViewportBounds,[switch]$RequireContained)
   if (-not $ViewportBounds) {throw 'Current native number proof lost its real viewport.'}
+  if ($script:mode -like 'home-retained-*') {$script:numberSelectionRequests+=@([bool]$RequireSelected)}
   $contained=$script:mode -ne 'initial-row-clipped' -and ($script:mode -ne 'clipped-row' -or $script:keys.Count -eq 0)
-  [pscustomobject]@{ok=[bool]($script:currentRow -eq $ExpectedRow -and $script:mode -ne 'number-cell-lost' -and (-not $RequireContained -or $contained));
+  $postKeyNumberLost=$script:keys.Count -gt 0 -and $script:mode -cin @('home-retained-wrong-grid','home-retained-model-changed')
+  [pscustomobject]@{ok=[bool]($script:currentRow -eq $ExpectedRow -and $script:mode -ne 'number-cell-lost' -and -not $postKeyNumberLost -and (-not $RequireContained -or $contained));
     reason=$(if ($script:currentRow -ne $ExpectedRow) {'current-number-cell-grid-unbound'} elseif ($script:mode -eq 'number-cell-lost') {
-      'current-number-cell-not-fresh'} elseif ($RequireContained -and -not $contained) {'current-number-row-outside-native-viewport'} else {'exact-current-grid-number-cell'});
+      'current-number-cell-not-fresh'} elseif ($postKeyNumberLost) {$(if ($script:mode -ceq 'home-retained-wrong-grid') {
+        'current-number-cell-grid-unbound'} else {'current-number-cell-prior-native-value-unbound'})}
+      elseif ($RequireContained -and -not $contained) {'current-number-row-outside-native-viewport'} else {'exact-current-grid-number-cell'});
     row=$script:currentRow;column=0;cell=[pscustomobject]@{rid='Synthetic.row.'+$script:currentRow};
     rowFullyContained=$contained}
 }
@@ -59,22 +77,24 @@ function Invoke-SSETableFooterFocus {
   param($Window,$ProcessId,$Tree,$TableAid,$TableRid,$Heading,$Tick,$Fingerprint,$OwnedCell,$NumberAnchor,$NumberModel,
     [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$NumberPolicy)
   $script:footerCalls++
-  if (-not $RequireNumberEditor -or $NumberModel.Count -ne 3 -or $ExpectedNumberRow -ne $script:step.expectedRow) {
+  if (-not $RequireNumberEditor -or $NumberModel.Count -ne $script:step.numberModel.Count -or $ExpectedNumberRow -ne $script:step.expectedRow) {
     throw 'Own-key editor closure lost exact prior native target/value authority.'
   }
   $safe=$script:mode -notin @('mutated-number','non-number-editor','wrong-target-row','footer-noop')
   if ($safe) {$script:focusCalls++;$AE::FocusedElement=[pscustomobject]@{Current=[pscustomobject]@{ControlType='Button'}}}
   [pscustomobject]@{ok=$safe;reason='synthetic-exact-unchanged-number';phase='before-focus';sourceReason=$null;
-    sourceEvidence=$null;focusAttempted=$safe;currentNumberCell=[pscustomobject]@{rid='Synthetic.row.'+$script:currentRow}}
+    sourceEvidence=$null;focusAttempted=$safe;currentNumberCell=$(if ($script:mode -ceq 'home-retained-no-current') {$null}
+      else {[pscustomobject]@{rid='Synthetic.row.'+$script:currentRow}})}
 }
 function Invoke-SSETableReadAnchorSelection {$script:selectCalls++;$script:mode -ne 'selection-noop'}
 $readSnapshot={
   $script:reads++
   $result=$initial.PSObject.Copy();$result.navigationBinding=$initial.navigationBinding.PSObject.Copy()
   $result.navigationBinding.contentSignature='after-own-key'
-  if ($script:mode -eq 'foreign-epoch' -and $script:reads -eq 1) {$script:tick++}
+  if ($script:mode -cin @('foreign-epoch','home-retained-foreign-epoch') -and $script:reads -eq 1) {$script:tick++}
   if ($script:mode -eq 'summary-changed') {$result.navigationBinding.summaryValue='31,00'}
   if ($script:mode -eq 'closure-changed-model' -and $script:reads -ge 2) {$result.navigationBinding.contentSignature='mutated'}
+  if ($script:mode -ceq 'home-retained-post-snapshot-changed' -and $script:reads -eq 3) {$result.navigationBinding.contentSignature='mutated'}
   $result
 }
 $guard={param($Phase,[switch]$RequireKeyboard) $script:tick -eq $script:ownTick -and $script:mode -ne 'before-key-guard'}
@@ -85,7 +105,7 @@ $send={
   if ($script:mode -eq 'send-outcome-unknown') {throw 'Synthetic SendWait failed.'}
   $script:tick++;$script:currentRow=$script:step.expectedRow
   if ($script:mode -eq 'wrong-target-row') {$script:currentRow++}
-  $AE::FocusedElement=[pscustomobject]@{Current=[pscustomobject]@{ControlType=$(if ($script:mode -eq 'no-delegate') {'DataItem'} else {'Edit'})}}
+  $AE::FocusedElement=[pscustomobject]@{Current=[pscustomobject]@{ControlType=$(if ($script:mode -cin @('no-delegate','home-retained-no-delegate')) {'DataItem'} else {'Edit'})}}
 }
 $ownInput={param($Tick) $script:ownTick=$Tick}
 function Start-Sleep {
@@ -100,19 +120,26 @@ $publish={
   [pscustomobject]@{nonce='00000000-0000-0000-0000-000000000004';inputEpoch=$Tick}
 }
 $makeBinding={param($Snapshot,$Tick) [pscustomobject]@{inputEpoch=$Tick;snapshot=$Snapshot}}
-foreach ($case in @('home-delegate','down-delegate','no-delegate','clipped-row','before-key-guard','live-selection-lost','number-cell-lost',
+foreach ($case in @('home-retained-offscreen','home-retained-root-unbound','home-retained-editor-active','home-retained-wrong-grid',
+  'home-retained-model-changed','home-retained-foreign-epoch','home-retained-no-current','home-retained-no-delegate','home-retained-post-selection-lost',
+  'home-retained-post-snapshot-changed','home-delegate','down-delegate','no-delegate','clipped-row','before-key-guard','live-selection-lost','number-cell-lost',
   'stale-selection-rids','native-current-row-mismatch','foreign-before-key','initial-row-clipped','viewport-unbound','bad-viewport-schema',
   'missing-native-viewport','wrong-coordinate-space',
   'mutated-number','non-number-editor','wrong-target-row','footer-noop','foreign-epoch','summary-changed','closure-changed-model',
   'selection-noop','publication-failed','send-outcome-unknown','nonce-mismatch','bad-sequence','bad-native-flags','foreign-during-settle')) {
   $script:mode=$case;$script:keys=@();$script:reads=0;$script:footerCalls=0;$script:focusCalls=0;$script:selectCalls=0;$script:publications=0
   $script:tick=10;$script:ownTick=10;$script:currentRow=1;$script:pauses=@()
+  $script:liveSelectionRequests=@();$script:numberSelectionRequests=@()
   $script:step=[pscustomobject]@{transactionNonce='00000000-0000-0000-0000-000000000001';stepNonce='00000000-0000-0000-0000-000000000002';
     parentLeaseNonce='00000000-0000-0000-0000-000000000003';sequence=[int]0;key='home';modelFingerprint=('a'*64);
     currentIndex=@([int]1,[int]0);expectedRow=[int]0;geometry=[pscustomobject]@{coordinateSpace='qt-native-screen';
       tableRect=@([int]0,[int]0,[int]600,[int]200);viewportRect=@([int]0,[int]24,[int]600,[int]176);
       nativeTableRect=@([int]100,[int]200,[int]600,[int]200);nativeViewportRect=@([int]100,[int]224,[int]600,[int]176)};
     numberModel=@(0..2 | ForEach-Object {[pscustomobject]@{display='';edit='';flags=[int]35}})}
+  if ($case -like 'home-retained-*') {
+    $script:currentRow=6;$script:step.currentIndex[0]=[int]6
+    $script:step.numberModel=@(0..6 | ForEach-Object {[pscustomobject]@{display='';edit='';flags=[int]35}})
+  }
   if ($case -eq 'down-delegate') {$script:step.sequence=[int]1;$script:step.key='down';$script:step.expectedRow=[int]2}
   if ($case -eq 'nonce-mismatch') {$script:step.parentLeaseNonce='00000000-0000-0000-0000-000000000009'}
   if ($case -eq 'bad-sequence') {$script:step.sequence=[int]1}
@@ -123,11 +150,11 @@ foreach ($case in @('home-delegate','down-delegate','no-delegate','clipped-row',
   if ($case -eq 'missing-native-viewport') {$script:step.geometry.PSObject.Properties.Remove('nativeViewportRect')}
   if ($case -eq 'wrong-coordinate-space') {$script:step.geometry.coordinateSpace='qt-logical-screen'}
   $plan=[pscustomobject]@{binding=$binding;step=$script:step;lease=[pscustomobject]@{nonce='00000000-0000-0000-0000-000000000003'};
-    selectedRids=@('Synthetic.row.1')}
+    selectedRids=@('Synthetic.row.'+$script:currentRow)}
   $AE::FocusedElement=[pscustomobject]@{Current=[pscustomobject]@{ControlType='DataItem'}}
   $result=Invoke-SSETableNativeCursorStep ([IntPtr]111) 7 $initial $plan $binding $readSnapshot {$null} $guard $checkpoint `
     $send {$script:tick} $ownInput $publish $makeBinding
-  $success=$case -in @('home-delegate','down-delegate','no-delegate','clipped-row')
+  $success=$case -in @('home-retained-offscreen','home-delegate','down-delegate','no-delegate','clipped-row')
   if ($result.ok -ne $success) {throw "$case`: productive one-key helper result mismatch: $($result | ConvertTo-Json -Depth 6 -Compress)"}
   $noKey=$case -in @('before-key-guard','live-selection-lost','number-cell-lost','nonce-mismatch','bad-sequence','bad-native-flags',
     'stale-selection-rids','native-current-row-mismatch','foreign-before-key','initial-row-clipped','viewport-unbound','bad-viewport-schema',
@@ -168,6 +195,40 @@ foreach ($case in @('home-delegate','down-delegate','no-delegate','clipped-row',
   if ($case -eq 'clipped-row' -and $result.cursorStep.rowFullyContained) {throw 'Clipped model row was promoted to a contained viewport row.'}
   if ($case -eq 'send-outcome-unknown' -and ($null -ne $result.physicalInputUsed -or
       -not $result.physicalInputAttempted -or -not $result.outcomeUnknown)) {throw 'Unknown SendWait outcome was reported as completed input.'}
+  if ($case -like 'home-retained-*') {
+    if (($script:keys -join '|') -cne '^{HOME}' -or $script:selectCalls -gt 1 -or $script:footerCalls -gt 1) {
+      throw "$case`: retained-selection alignment replayed HOME, focus or Select."
+    }
+    $preSelectionFailure=$case -cin @('home-retained-root-unbound','home-retained-editor-active','home-retained-wrong-grid',
+      'home-retained-model-changed','home-retained-foreign-epoch','home-retained-no-current','home-retained-no-delegate')
+    if ($script:selectCalls -ne [int](-not $preSelectionFailure) -or
+        $script:publications -ne [int]$success) {throw "$case`: unbound current Nr./root/editor/model/epoch authorized selection or publication."}
+    if ($success -and (($script:liveSelectionRequests -join '|') -cne 'True|False|True' -or
+        ($script:numberSelectionRequests -join '|') -cne 'True|False|True' -or $result.cursorStep.row -ne 0)) {
+      throw 'Own HOME alignment omitted the fresh root/editor proof or final required selection/current-Nr. proof.'
+    }
+    if ($case -ceq 'home-retained-no-delegate' -and (($script:liveSelectionRequests -join '|') -cne 'True|True' -or
+        $script:footerCalls -ne 0)) {throw 'Missing Nr. source weakened the original required-selection proof.'}
+    if (-not $success -and (-not $result.outcomeUnknown -or -not $result.physicalInputUsed -or
+        $result.steps -ne 1 -or $result.retryable -ne $false)) {throw 'Rejected own HOME lost its one-key unknown/no-replay evidence.'}
+    if ($case -cin @('home-retained-root-unbound','home-retained-editor-active','home-retained-wrong-grid','home-retained-model-changed')) {
+      $post=$result.cursorActivation.postKeyProof
+      if (-not $post -or $post.liveInputOk -ne (-not ($case -cin @('home-retained-root-unbound','home-retained-editor-active'))) -or
+          $post.editorClosed -ne ($case -cne 'home-retained-editor-active') -or $post.selectedCount -ne 0) {
+        throw "$case`: actual post-key live-input rejection was discarded or mislabeled as the pre-HOME row6 proof."
+      }
+      if ($case -cin @('home-retained-root-unbound','home-retained-editor-active') -and $null -ne $post.numberCell) {
+        throw 'A short-circuited post-key number proof reused the pre-HOME number result.'
+      }
+      if ($case -cin @('home-retained-wrong-grid','home-retained-model-changed') -and
+          ($post.numberCell.ok -or $post.numberCell.row -ne 0 -or $post.numberCell.column -ne 0)) {
+        throw 'A rejected post-key model/Grid proof lost the actual observed row0.'
+      }
+      if (($post | ConvertTo-Json -Depth 6 -Compress) -match 'Synthetic.row|selectedRids|numberModel|inputEpoch|nonce|display|edit"|windowTitle') {
+        throw 'Post-key proof diagnostics exposed private row/lease/model authority.'
+      }
+    }
+  }
 }
 $initial | Add-Member NoteProperty kopf @('Nr.','Datum','Text')
 foreach ($case in @('valid','wrong-row','initial-row-clipped','live-selection-lost','selection-count','viewport-unbound','viewport-exception','bad-policy','bad-flags','extra-field')) {

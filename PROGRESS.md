@@ -46,8 +46,15 @@ Eine bereits erlaubte passive Footerquelle besitzt keine aktuelle Nr.-Zelle.
 Die Übernahme erhält jetzt ihre frisch geprüfte bestehende Auswahl, ohne eine
 Ersatzzeile auszuwählen. Fehlende oder fremde Auswahl bleibt gesperrt; der
 native Spaltennachweis vor jeder Taste bleibt Pflicht. Tatsächliche Worker-
-Verträge und die begrenzte Fehlerdiagnose bestehen. Vollsuite und weitere
-reale Abnahme stehen aus.
+Verträge und die begrenzte Fehlerdiagnose bestehen. Vier aufeinanderfolgende
+Add-/Cursorfolgen bestehen danach. Eine weitere Folge nach dem Scrollen belegt
+eine falsch geordnete HOME-Prüfung: Vor der geplanten Ausrichtung wird bereits
+die alte Auswahl verlangt. Nur ein positiv nachgewiesener eigener Nr.-Editor
+erlaubt nun die Ausrichtung nach frischem Wurzel-/Editor-/Modellnachweis;
+anschließend bleibt der vollständige Auswahl-/Zellnachweis Pflicht. Der
+tatsächliche Worker-Vertrag reproduziert den Fehler und besteht mit der
+Korrektur einschließlich negativer Bindungsfälle. Vollsuite und weitere reale
+Abnahme stehen aus.
 
 Die Verzögerung beim ersten nativen Unicode-Schreiben ist erneut reproduziert:
 Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal.
