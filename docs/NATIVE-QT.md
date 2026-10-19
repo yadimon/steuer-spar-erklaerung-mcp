@@ -275,7 +275,11 @@ Der gebundene Index wird über das vorhandene Qt-Signal `gotoModelIndex` geöffn
 eine bloße Auswahl oder ein physischer Mausklick ist dafür nicht erforderlich.
 Die globale Suche bindet Feldvorwert, Suchschaltfläche und die Titelspalte des
 Ergebnisses. Der bestehende Formularpfad berücksichtigt Rückwärtsverlauf,
-Wiederholungen, Überschreiten, Stillstand und Prüferdialoge. Jeder Weg verlangt
+Wiederholungen, Überschreiten, Stillstand und Prüferdialoge. Bei nummerierten
+Einträgen bindet die Zyklushistorie zusätzlich die vollständige zuletzt gelesene
+Eintragsüberschrift; gleiche Detailseiten verschiedener Einträge sind dadurch
+unterscheidbar. Frühere Übergänge bleiben auch nach einem Kontextwechsel
+gespeichert. Jeder Weg verlangt
 einen vollständigen frischen Inhaltsbeweis einschließlich aller Pflichtfelder
 und profilierten Tabellen-/Summenprüfungen. Eine bereits sichtbare, aber
 unvollständige Zielseite beendet weitere Navigation. Unbestätigte Aktionen werden

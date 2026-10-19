@@ -31,7 +31,16 @@ Ein seitentitelabhängiger Pfad konnte den durch HOME geöffneten Nr.-Editor
 nicht korrekt nachweisen. Nummerierte Tabellen wählen nun anhand ihrer
 Struktur den vorhandenen Modell-Schrittweg; widersprüchliche Bindungen scheitern
 vor jeder Aktion. Neue positive und negative Verträge bestehen nach der
-Korrektur. Die erneute reale Abnahme steht noch aus.
+Korrektur. Drei unabhängige reale Folgen einschließlich explizitem Cursor und
+vollständigem Inventar bestehen nun; ebenso die anschließende native Mega-Reise.
+
+Die weitere native Zustandsreise hat bei ihrer Vorlagenpositionierung einen
+falschen Navigationszyklus zwischen Unterseiten verschiedener Wirtschaftsgüter
+belegt. Der native Formularpfad übernimmt nun den vollständigen nummerierten
+Eintragskontext des Standardpfads. Wiederholte Detailüberschriften verschiedener
+Einträge bleiben unterscheidbar; echte Zyklen einschließlich der Rückkehr zu
+einem früheren Eintrag bleiben gesperrt. Die neuen Verträge scheitern vorher
+und bestehen mit der Korrektur. Vollsuite und erneute reale Abnahme stehen aus.
 
 Die Verzögerung beim ersten nativen Unicode-Schreiben ist erneut reproduziert:
 Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal.

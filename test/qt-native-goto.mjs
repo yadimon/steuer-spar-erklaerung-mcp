@@ -102,7 +102,7 @@ try {
 
 function fixture(options = {}) {
   let current = options.start ?? "Start page", searchOpen = false, term = "", reads = 0, targetReads = 0, incompleteNativeReads = 0;
-  let pendingReadObserved = false;
+  let pendingReadObserved = false, pageGeneration = 0;
   const actions = [], route = [...(options.landings ?? ["Target page"])];
   const nodes = () => {
     const { nodes: value, add } = builder();
@@ -126,6 +126,7 @@ function fixture(options = {}) {
         if (!options.noHit) add("DataItem", "Target page", "main.DialogSearchResultsTableView", table, { x: 80, y: 200 });
       }
     }
+    if (options.rematerializePages) value.forEach(node => { node.rid = `42.42.4.${pageGeneration * 1000 + node.i + 1}`; });
     return value;
   };
   const inventory = () => ({ ok: true, windows: options.warning ? [{ hwnd: 84, order: 0, pid: 7, title: "Die Prüfung hat ergeben...",
@@ -160,7 +161,7 @@ function fixture(options = {}) {
       else if (args.action === "activate-navigation-item" || args.action === "activate-table-cell") current = options.noActivation ? current : options.activationHeading ?? "Target page";
       else if (target.aid.endsWith("searchButton")) searchOpen = true;
       else if (target.name === "Suche schließen") searchOpen = false;
-      else { assert(["Weiter", "Zurück"].includes(target.name)); current = route.shift() ?? current; }
+      else { assert(["Weiter", "Zurück"].includes(target.name)); current = route.shift() ?? current; pageGeneration++; }
       if (options.lostAcknowledgment) throw new QtNativeAcknowledgmentError("Acknowledgment lost", "native-ack",
         { ok: true, mutationAttempted: true });
       return { durationMs: 1, receiptAcknowledged: true, mutationAckMs: 1, result: { ok: true, mutationAttempted: true } };
@@ -216,6 +217,51 @@ assert.deepEqual(rebuilding.actions.map(action => action.action), ["replace-edit
 const linear = fixture({ landings: ["Intermediate page", "Target page"] });
 assert.equal((await linear.run({ useSearch: false, maxSteps: 2 })).erreicht, true);
 assert.deepEqual(linear.actions.map(action => action.expectedName), ["Weiter", "Weiter"]);
+// Numbered assets legitimately repeat the same detail-form transition. The
+// last complete numbered heading is stable context; transient runtime IDs are not.
+const assetDetails = ["Weitere Kosten zur Anschaffung", "Einlage oder Ausscheiden des Wirtschaftsguts"];
+const assets = fixture({ start: "1. Synthetic desk", rematerializePages: true,
+  landings: [...assetDetails, "Investitionsabzugsbetrag oder Sonderabschreibung", "Änderung der Restnutzungsdauer",
+    "2. Synthetic chair", ...assetDetails, "Target page"] });
+const assetsResult = await assets.run({ useSearch: false, maxSteps: 8 });
+assert.equal(assetsResult.ok, true, "Different numbered assets must not turn their shared detail forms into a cycle.");
+assert.equal(assetsResult.erreicht, true); assert.equal(assetsResult.schritte, 8);
+assert.deepEqual(assets.actions.map(action => action.expectedName), Array(8).fill("Weiter"));
+const sameOrdinal = fixture({ start: "1. Synthetic desk",
+  landings: [...assetDetails, "1. Synthetic chair", ...assetDetails, "Target page"] });
+const sameOrdinalResult = await sameOrdinal.run({ useSearch: false, maxSteps: 6 });
+assert.equal(sameOrdinalResult.ok, true, "Entry context must retain the full heading, not only its ordinal.");
+assert.equal(sameOrdinal.actions.length, 6);
+for (const start of ["Start page", "1. Synthetic desk"]) {
+  const cycle = fixture({ start, rematerializePages: true,
+    landings: [...assetDetails, ...assetDetails, "Target page"] });
+  const result = await cycle.run({ useSearch: false, maxSteps: 5 });
+  assert.equal(result.ok, false); assert.equal(result.kind, "no-progress");
+  assert.match(result.error, /directed navigation transition repeated/);
+  assert.equal(result.phase, "paging"); assert.equal(result.schritte, 4);
+  assert.equal(result.outcomeUnknown, true); assert.equal(result.mutationAttempted, true);
+  assert.equal(cycle.actions.length, 4, "A real cycle must stop before another action, even when all runtime IDs change.");
+}
+const previousAsset = fixture({ start: "1. Synthetic desk",
+  landings: [...assetDetails, "2. Synthetic chair", ...assetDetails, "1. Synthetic desk", ...assetDetails, "Target page"] });
+const previousAssetResult = await previousAsset.run({ useSearch: false, maxSteps: 9 });
+assert.equal(previousAssetResult.kind, "no-progress");
+assert.equal(previousAssetResult.schritte, 7); assert.equal(previousAsset.actions.length, 7,
+  "Changing entry context must not erase transitions already seen in an earlier asset.");
+// A different entry context permits genuine progress, never repeated presses
+// on one unchanged page. Keep this boundary independent of wall-clock delays.
+const stationaryPerformance = globalThis.performance;
+let stationaryClock = 0;
+globalThis.performance = { now: () => (stationaryClock += 1000) };
+let stationaryResult, stationary;
+try {
+  stationary = fixture({ start: "Unmoving page", landings: [], timeoutMs: 300_000, rematerializePages: true });
+  stationaryResult = await stationary.run({ useSearch: false, maxSteps: 10 });
+} finally { globalThis.performance = stationaryPerformance; }
+assert.equal(stationaryResult.kind, "no-progress");
+assert.match(stationaryResult.error, /Five bounded paging attempts/);
+assert.equal(stationaryResult.schritte, 5); assert.equal(stationary.actions.length, 5);
+assert.equal(stationaryResult.outcomeUnknown, true);
 const noHit = fixture({ noHit: true });
 assert.equal((await noHit.run({ maxSteps: 1 })).erreicht, true);
 assert.equal(noHit.actions.filter(action => action.action === "activate-table-cell").length, 0);

@@ -183,6 +183,7 @@ export async function executeQtNativeGoto(
     }
     const order = pagingOrder(activeProfile.taxYear), route = gotoRoute(order, start ?? "", target, args.direction, args.maxSteps);
     let position = route.startIndex, stagnant = 0, consumed = 0;
+    let entryContext = /^[1-9][0-9]*\. .+/u.test(start ?? "") ? start! : "";
     const transitions = new Set<string>(); visited.push(start ?? "");
     while (consumed < route.budget) {
       phase = "paging";
@@ -193,6 +194,8 @@ export async function executeQtNativeGoto(
         if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
       }
       const previous: string | null = lastHeading;
+      // Detail-form headings repeat across entries; retain the full numbered entry heading.
+      if (/^[1-9][0-9]*\. .+/u.test(previous ?? "")) entryContext = previous!;
       const next = button(snapshot, route.direction);
       if (!next) {
         const opposite = button(snapshot, route.direction === "Weiter" ? "Zurück" : "Weiter");
@@ -220,7 +223,7 @@ export async function executeQtNativeGoto(
           throw new GotoError("A validation warning blocks navigation; no repeated paging action dispatched.", "warning-dialog");
         if (++stagnant >= 5) throw new GotoError("Five bounded paging attempts produced no page change.", "no-progress");
       } else {
-        const transition = `${previous ?? ""}\u001f${lastHeading ?? ""}`;
+        const transition = `${entryContext}\u001f${previous ?? ""}\u001f${lastHeading ?? ""}`;
         if (transitions.has(transition)) throw new GotoError("The directed navigation transition repeated; the form path is cycling.", "no-progress");
         transitions.add(transition);
         const landing = gotoLanding(route, order, position, lastHeading ?? "");
