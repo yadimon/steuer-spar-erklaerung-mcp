@@ -56,6 +56,14 @@ tatsächliche Worker-Vertrag reproduziert den Fehler und besteht mit der
 Korrektur einschließlich negativer Bindungsfälle. Vollsuite und weitere reale
 Abnahme stehen aus.
 
+Eine zusätzliche Start-Race der nativen Test-Fixture ist reproduziert: Der
+Dateipfad kann bereits existieren, bevor sein JSON vollständig geschrieben ist.
+Die Bereitschaftslesung wartet jetzt innerhalb derselben Frist auf vollständige
+Bytes. Prozessende, andere I/O-Fehler und Größenüberschreitung brechen weiterhin
+ab; Identitätsprüfungen bleiben Pflicht. Der neue reale Dateivertrag scheitert
+vorher und besteht nach der Korrektur. Dies ist keine Wiederholung einer
+Produktaktion und erklärt den separaten Unicode-Timeout nicht.
+
 Die Verzögerung beim ersten nativen Unicode-Schreiben ist erneut reproduziert:
 Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal.
 Ein passiver Abgleich bestätigt den späteren einmaligen Commit; der fehlgeschlagene

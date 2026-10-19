@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -22,6 +22,7 @@ import { executeQtNativeGetValue } from "../dist/qt-native-values.js";
 import { testPassiveModelWorkload, testPassiveGuiTimeouts } from "./qt-native-passive-workload.mjs";
 import { firstEditTraceCoverage } from "./qt-native-edit-trace-coverage.mjs";
 import { inspectNativeEditPhases } from "./qt-native-edit-phases.mjs";
+import { readNativeFixtureReady } from "./native-fixture-ready.mjs";
 
 assert.equal(process.argv.length, 7, "Run this test through qt-native-desktop.ps1 or CTest.");
 const [packageConfig, executable, qtBin] = process.argv.slice(2, 5).map(path => resolve(path));
@@ -123,10 +124,9 @@ async function fixture() {
       const waiting = item.pending.shift(); if (waiting) { clearTimeout(waiting.timer); waiting.resolve(line); }
     }
   });
-  const deadline = Date.now() + 10_000;
-  while (!existsSync(infoPath) && Date.now() < deadline && child.exitCode === null) await delay(20);
-  assert(existsSync(infoPath), "Owned fixture did not become ready: " + item.diagnostic);
-  item.info = JSON.parse(readFileSync(infoPath, "utf8"));
+  item.info = await readNativeFixtureReady(infoPath, {
+    isRunning: () => child.exitCode === null, diagnostic: () => item.diagnostic,
+  });
   assert.equal(item.info.pid, child.pid); assert.equal(item.info.desktop, desktop);
   assert.notEqual(item.info.inputDesktop, desktop); assert.equal(item.info.visible, true);
   item.command = command => new Promise((resolveLine, reject) => {
