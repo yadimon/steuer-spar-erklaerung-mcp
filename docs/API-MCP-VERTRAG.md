@@ -3,6 +3,7 @@
 ## Inhalt
 
 - [Rollen](#rollen)
+- [Werkzeugwahl: Hauptweg, Fallback und Diagnose](#werkzeugwahl-hauptweg-fallback-und-diagnose)
 - [Feldwerte mit explizitem Namensraum lesen](#feldwerte-mit-explizitem-namensraum-lesen)
 - [Tabellen ohne Fokuswechsel lesen](#tabellen-ohne-fokuswechsel-lesen)
 - [Bekanntes Hilfsfenster vor Tabellenbindung schließen](#bekanntes-hilfsfenster-vor-tabellenbindung-schließen)
@@ -49,6 +50,33 @@ Die normativen Laufzeitquellen sind:
 
 Handgepflegte Operationszahlen in Prosa sind nicht normativ.
 
+## Werkzeugwahl: Hauptweg, Fallback und Diagnose
+
+Der MCP-Katalog und der Skill unterscheiden bevorzugte strukturierte Wege,
+Kompatibilitäts-/UI-Fallbacks und Diagnose. Die Gruppierung beschreibt die
+Werkzeugwahl; sie entfernt keine bestehende Operation und startet keinen
+automatischen Methoden- oder Backendwechsel.
+
+| Gruppe | Auswahlregel |
+| --- | --- |
+| Hauptweg | Passende Fachoperation zuerst: Seiten-/Tabellenleser, gebundene Feldänderung, `table_add`/`table_update`/`table_delete`, profilierte Navigation und UStVA-Werkzeuge. `snapshot`, `find` und `get_value` bleiben geeignete Leser für gezielte Zustands- und Identitätsprüfungen. |
+| Kompatibilität/UI-Fallback | `read_table` für einen ausdrücklich benötigten Sichtbestand, `table_read` mit ausdrücklich gewähltem `noKeys: false` sowie generische Klick-, Baum-, Scroll- und Menüwege nur bei fehlendem geeignetem Hauptweg oder frisch belegtem UIA-Positionierungsbedarf. `set_value` bleibt auf das globale steuerneutrale Suchfeld begrenzt. |
+| Diagnose | `screenshot`, `snapshot_compare` und `accessibility_probe` gezielt zur Fehlersuche; keine Schreibbestätigung allein aus einem Bild oder einer Diagnose ableiten. |
+
+Ein generisches Werkzeug ist nicht pauschal veraltet: Die exakt gebundene
+RadioButton-Auswahl über `click` mit `pattern: "select"` bleibt beispielsweise
+der unterstützte Weg, wenn keine passende Fachoperation existiert. Die
+jeweiligen Sicherheits- und Ergebnisverträge gelten in jeder Gruppe.
+
+Ein Fehler ist kein Anlass, weitere Methoden durchzuprobieren.
+Mehrdeutigkeit, veraltete Zielbindung, Hashabweichung, unerwarteter Dialog,
+Fremdeingabe, Recovery-Zustand, Transportfehler, ungewisser Mutationsausgang
+oder fehlgeschlagener Readback verlangen Stopp und Zustandsklärung. Ein neuer
+Versuch braucht frische passende Nachweise. RuntimeIds dürfen nicht entfernt
+und Selektornamensräume nicht gewechselt werden, um einen Fehler zu umgehen.
+Die ausdrücklich dokumentierten internen API-Kompatibilitätspfade bleiben
+auf ihre jeweiligen Voraussetzungen begrenzt.
+
 ## Feldwerte mit explizitem Namensraum lesen
 
 `get_value` beziehungsweise `sse_get_value` akzeptiert optional
@@ -83,10 +111,30 @@ Die genaue native Identitätsgrenze steht in [NATIVE-QT.md](NATIVE-QT.md).
 
 ## Tabellen ohne Fokuswechsel lesen
 
-Für ein vollständiges UIA-Inventar ohne anschließende Cursorpositionierung
-ist der Gridmodus der direkte Lesepfad. Ein erfolgreicher Gridread ersetzt
-keine Vorbereitung einer Mutation; `table_add`, `table_update` und
-`table_delete` prüfen ihre Bindung und ihren Vorwert jeweils selbst.
+Der bevorzugte MCP-Lesepfad ist `sse_table_read` ohne aktive
+Cursorbewegung. Bei fehlendem `noKeys` ergänzt nur der MCP-Adapter
+`noKeys: true`; eine ausdrückliche Angabe von `false` bleibt erhalten. Die
+Defaults der direkten HTTP-API und CLI ändern sich dadurch nicht.
+
+Mit konfiguriertem und verifiziertem Qt-Backend liest `table_read` im
+Standardlesemodus mit `noKeys: true` das Modell passiv. Ohne dieses Backend
+liefert gewöhnliches UIA damit nur sichtbare Zeilen. Für ein vollständiges
+passives UIA-Inventar ist ausdrücklich `readMode: "grid"` zu wählen.
+`vollstaendig`, `limitReached` und die Zeilenidentität sind in jedem Fall zu
+prüfen; sichtbare Zeilen allein beweisen keinen vollständigen Bestand.
+
+Im nativen Änderungsweg benötigen `table_add`, `table_update` und
+`table_delete` keinen vorherigen vollständigen Cursorlauf; sie prüfen ihre
+Bindung und ihren Vorwert selbst und positionieren die gebundene Zielzeile
+direkt. Ein passiver Modell- oder Gridread erteilt keine Schreibberechtigung.
+
+Im nichtnativen UIA-Pfad verlangt `table_update` eine bereits sichtbare
+Zielzeile und führt keinen eigenen Suchlauf aus. Ein vollständiger Gridread
+beweist die Daten, aber keine Sichtbarkeit oder Materialisierung der
+Schreibzelle. `table_add` besitzt seinen eigenen einmaligen bewachten
+Suchlauf, `table_delete` seine begrenzte HOME-/DOWN-Navigation; diese internen
+Positionierungen ändern sich nicht. Ziel und Sichtbarkeit sind vor einer
+bewusst gewählten UIA-Vorbereitung frisch zu lesen.
 
 `table_read` mit `readMode: "grid"` wählt vor Beginn den reinen UIA-Gridpfad,
 auch wenn die optionale native Qt-Anbindung konfiguriert ist. Er bindet genau
@@ -111,8 +159,23 @@ einschließlich leerer Eingabeslots und Nullbeträge; `gridRead.rowFilter` ist
 werden weder gescrollt noch fokussiert. `rowDetails` erhält boolesche
 Checkboxwerte einschließlich des unbestimmten Zustands. `vollstaendig` und
 `limitReached` beschreiben die vollständige Enumeration dieser Gridzeilen.
-Der bestehende explizite Cursorlauf über `noKeys: false` bleibt ein eigener
-Vertrag mit Fokus- und Eingabeprüfungen.
+
+### Ausdrücklicher Cursorlauf für Kompatibilität und Diagnose
+
+Der bestehende aktive Cursorlauf über `noKeys: false` bleibt ein eigener
+Vertrag mit Fokus- und Eingabeprüfungen. Er ist nur ausdrücklich für einen
+fehlenden vollständigen passiven Lesepfad, eine frisch bewiesene nötige
+UIA-Positionierung/Materialisierung oder eine gezielte GUI-Diagnose zu wählen.
+Die Positionsausnahme gilt auch, wenn ein Gridread vollständig ist. Ein
+vollständiger Cursorlauf zeigt das Tabellenende und positioniert keine
+beliebige Zielzeile; er eignet sich nur, wenn genau diese Endposition benötigt
+wird. Andere Zielzeilen brauchen einen passenden gebundenen Weg und frischen
+Zielnachweis. Der Lauf ist kein automatischer Fallback nach einem Fehler und
+gehört nicht vor native Tabellenänderungen. Nach ungewissem Mutationsausgang
+keine blinde Wiederholung oder vorbereitende Positionierung starten.
+Er prüft jeden Zeilenschritt und kann deutlich länger dauern als ein passiver
+Modellread.
+
 Bei nummerierten Tabellen kann er eine vorab festgelegte, genau gebundene
 Nr-Zelle einmal aktivieren. Erst frischer Fokus-, Auswahl- und Datenabgleich
 erlaubt die Navigation. Ein vorhandener exakt zugehöriger Nummerneditor darf
@@ -469,6 +532,10 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
 - MCP validiert unbekannte, falsch typisierte und zu große Argumente vor dem
   API-Aufruf. Nennt eine Meldung einen unbekannten Feldnamen, listet sie die
   erlaubten Namen der Operation gleich mit.
+- `sse_table_read` setzt ein fehlendes `noKeys` auf `true`, damit ein normaler
+  MCP-Read keine aktive Cursorfolge startet. Ein ausdrückliches `false`
+  bleibt die Kompatibilitäts-/Diagnosewahl; die direkte API übernimmt diesen
+  Adapterdefault nicht. Das ist keine Backend-Fallbackregel.
 - Fehlertexte des Arbeitsprozesses nennen **MCP-Werkzeugnamen** (`sse_…`), auch
   wenn der Aufruf über die API oder die CLI kam. Ein Werkzeugname trägt dort
   teils mehr Information als der Operationsname: `sse_change_field` und
@@ -826,15 +893,16 @@ den Wert `null`. Nicht beobachtete Zellen bleiben `unknown` und werden in
 `semanticReadErrors` ausgewiesen; leerer Anzeigetext beweist keine ausgeschaltete
 Checkbox. `semanticsComplete` beschreibt nur die ausgegebenen Zellen, nicht
 die Vollständigkeit einer virtualisierten Tabelle. Sichtbares Lesen ersetzt
-weiterhin keinen Tabellenlauf mit Endbeweis. Steuerbeträge werden aus diesen
-Checkbox-Zuständen nicht abgeleitet.
+keinen vollständigen Modell- oder Gridbestand mit Endbeweis. Steuerbeträge
+werden aus diesen Checkbox-Zuständen nicht abgeleitet.
 
 Ein fehlender Cursor- oder Zeilenidentitätsnachweis bei `table_read` liefert
 `ok=false` mit `kind=cursor-unavailable` oder `kind=row-identity-unavailable`.
 Bereits eindeutig beobachtete Zeilen, `rowDetails`, Summen und die
 Aktivierungsdiagnose bleiben erhalten. Auch bei `noKeys=true` ist ein Bestand
-mit nicht identifizierbaren Zeilen ein Fehler; die Meldung bezeichnet dann
-ausdrücklich den sichtbaren Teilbestand. Das gilt auch, wenn eine mehrdeutige
+mit nicht identifizierbaren Zeilen ein Fehler; im gewöhnlichen UIA-Pfad
+bezeichnet die Meldung dann ausdrücklich den sichtbaren Teilbestand. Das gilt
+auch, wenn eine mehrdeutige
 Tabelle nur passiv gelesen wurde. Dagegen bleibt eine Abfrage, die nur
 das angeforderte `maxRows`-Limit erreicht, erfolgreich mit `vollstaendig=false`
 und `stopKind=max-rows`. Ein gleichzeitig fehlender Nachweis hat Vorrang vor

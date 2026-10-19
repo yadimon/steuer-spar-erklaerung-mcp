@@ -149,9 +149,9 @@ Der Server meldet 104 Werkzeuge.
 
 ### `sse_accessibility_probe`
 
-**Qt-Accessibility eines Elements untersuchen**
+**[Diagnose] Qt-Accessibility eines Elements untersuchen**
 
-Rein lesende Tiefenpruefung fuer ein exakt adressiertes UI-Element.
+[Diagnose] Nur bei einer konkreten strukturellen Lesefrage; sse_get_value, sse_read_page oder sse_find zuerst verwenden.
 
 Operation: `accessibility_probe` (lesend).
 
@@ -285,17 +285,17 @@ Operation: `checker_run` (zustandsaendernd, drift-gesperrt).
 
 ### `sse_click`
 
-**Element ausloesen**
+**[Fallback] Element ausloesen**
 
-Loest ein Bedienelement ueber UI Automation aus - NICHT ueber Bildschirmkoordinaten.
+[Fallback] Spezialwerkzeuge bevorzugen; nur fuer sonst nicht abgedeckte Controls frisch gebunden verwenden.
 
 Operation: `click` (destruktiv, drift-gesperrt).
 
 ### `sse_click_point`
 
-**Element wirklich anklicken**
+**[Fallback] Element wirklich anklicken**
 
-Echter, PID- und Root-verifizierter Mausklick, fail-closed auf TreeItems des Navigationsbaums, eng benannte Erfassen-/Bearbeiten-Hyperlinks sowie den intern fingerprintgebundenen read-only Prueferpfad begrenzt.
+[Fallback] Nur bei belegter Luecke spezialisierter Navigation oder Aktivierung verwenden; sse_goto beziehungsweise sse_click bevorzugen.
 
 Operation: `click_point` (destruktiv, drift-gesperrt).
 
@@ -477,17 +477,17 @@ Operation: `make_working_copy` (zustandsaendernd).
 
 ### `sse_menu`
 
-**Menue oeffnen und lesen**
+**[Fallback] Menue oeffnen und lesen**
 
-Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?).
+[Fallback] Nur wenn keine passende Spezialoperation existiert, etwa fuer einen sonst nicht abgedeckten Menuebefehl.
 
 Operation: `menu` (zustandsaendernd).
 
 ### `sse_menu_click`
 
-**Menueeintrag ausloesen**
+**[Fallback] Menueeintrag ausloesen**
 
-Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus.
+[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback.
 
 Operation: `menu_click` (destruktiv, drift-gesperrt).
 
@@ -573,9 +573,9 @@ Operation: `read_page` (lesend).
 
 ### `sse_read_table`
 
-**Tabelle lesen**
+**[Fallback] Sichtbaren Tabellenausschnitt lesen**
 
-Liest die Eingabetabelle der aktuellen Seite (z.
+[Fallback] Kompatible sichtbare Teilansicht; fuer einen Tabellenbestand sse_table_read bevorzugen.
 
 Operation: `read_table` (lesend).
 
@@ -693,33 +693,33 @@ Operation: `save_as` (destruktiv, drift-gesperrt).
 
 ### `sse_screenshot`
 
-**Bildschirmfoto**
+**[Diagnose] Bildschirmfoto**
 
-Fotografiert das Fenster (PrintWindow).
+[Diagnose] Nur fuer eine konkrete Darstellungsfrage oder einen Diagnoseauftrag; strukturierte Lesungen zuerst verwenden.
 
 Operation: `screenshot` (zustandsaendernd).
 
 ### `sse_scroll`
 
-**Scrollen**
+**[Fallback] Scrollen**
 
-Rollt den Inhalt.
+[Fallback] Nur bei konkret benoetigter manueller Sichtbarkeit; vollstaendige passive Tabellenlesung und Spezialnavigation bevorzugen.
 
 Operation: `scroll` (zustandsaendernd).
 
 ### `sse_scroll_page`
 
-**Inhaltsbereich rollen**
+**[Fallback] Inhaltsbereich rollen**
 
-Rollt den Inhaltsbereich der Seite (nicht Tabellen - dafuer sse_table_read).
+[Fallback] Nur bei konkret benoetigter manueller Seitensicht; strukturierte Lesung oder sse_read_full bevorzugen.
 
 Operation: `scroll_page` (zustandsaendernd).
 
 ### `sse_set_value`
 
-**Globales Suchfeld transaktional setzen**
+**[Fallback] Globales Suchfeld transaktional setzen**
 
-Kompatibler Low-Level-Name fuer genau das bekannte, steuerneutrale globale SSE-Suchfeld.
+[Fallback] Kompatibilitaetszugang nur fuer gezielte Suchfeldbedienung; fuer Seitennavigation sse_goto bevorzugen.
 
 Operation: `set_value` (zustandsaendernd, drift-gesperrt).
 
@@ -733,9 +733,9 @@ Operation: `snapshot` (lesend).
 
 ### `sse_snapshot_compare`
 
-**Bulk-Snapshot gegen sicheren Altpfad vergleichen**
+**[Diagnose] Bulk-Snapshot gegen sicheren Altpfad vergleichen**
 
-Read-only A/B-Diagnose: liest denselben SSE-Zustand einmal mit dem zyklusgeschuetzten TreeWalker und einmal mit dem schnellen UIA-Bulk-Cache.
+[Diagnose] Nur zur gezielten Untersuchung einer Provider-/Darstellungsgrenze, nicht als routinemaessiger Readback.
 
 Operation: `snapshot_compare` (lesend).
 
@@ -765,9 +765,9 @@ Operation: `table_delete` (destruktiv, drift-gesperrt).
 
 ### `sse_table_read`
 
-**Tabelle vollstaendig lesen**
+**Tabellenbestand passiv lesen**
 
-Liest die gebundene Eingabetabelle.
+Bevorzugter Tabellenleser.
 
 Operation: `table_read` (zustandsaendernd).
 
@@ -797,17 +797,17 @@ Operation: `toggle` (destruktiv, drift-gesperrt).
 
 ### `sse_tree_scroll`
 
-**Navigationsbaum kontrolliert rollen**
+**[Fallback] Navigationsbaum kontrolliert rollen**
 
-Rollt den virtualisierten Qt-Navigationsbaum nach oben oder unten, ohne einen Knoten zu aktivieren.
+[Fallback] Nur bei konkret fehlender spezialisierter Navigation; zuerst sse_goto verwenden.
 
 Operation: `tree_scroll` (zustandsaendernd).
 
 ### `sse_tree_top`
 
-**Navigationsbaum nach oben rollen**
+**[Fallback] Navigationsbaum nach oben rollen**
 
-Rollt den virtualisierten Qt-Navigationsbaum per sicher positioniertem Mausrad an den Anfang.
+[Fallback] Nur bei konkret benoetigter manueller Baumnavigation; zuerst sse_goto verwenden.
 
 Operation: `tree_top` (zustandsaendernd).
 
@@ -986,6 +986,32 @@ Der MCP-Server gibt Clients diese Anweisung mit:
 > Diese Tools steuern eine lokal installierte SteuerSparErklaerung unter Windows.
 > Als ersten fachlichen Tool-Aufruf sse_preflight verwenden und
 > dessen Blocker befolgen. Nur bei ready=true danach mit sse_instances den Arbeitsfall binden.
+>
+> Werkzeugwahl: Standard vor Fallback vor Diagnose:
+> - Strukturierte Lesungen und verifizierte Spezialtransaktionen bevorzugen:
+>   sse_page_state, sse_read_page, sse_get_value, sse_goto, sse_change_known_field,
+>   sse_change_field, sse_fill_fields, Tabellen-, Checkbox-, Dropdown- und Fachwerkzeuge.
+>   sse_snapshot und sse_find bleiben normale lesende Entdeckung fuer unbekannte Controls.
+> - sse_table_read setzt bei fehlendem noKeys im MCP noKeys:true: native Modelllesung
+>   bevorzugen. Standard-UIA liefert damit nur sichtbare Zeilen; fuer den vollstaendigen
+>   passiven UIA-Bestand readMode:'grid' ausdruecklich waehlen. Vollstaendigkeit beachten.
+>   noKeys:false ist ein langsamer expliziter Kompatibilitaets-/Diagnosemodus, nur bei
+>   belegter fehlender passiver Vollstaendigkeit, nachweislich benoetigter UIA-Schreibposition
+>   oder gezielter GUI-Diagnose einsetzen. Ein voller Lauf zeigt nur das Tabellenende,
+>   nicht eine beliebige Zielzeile; vor dem Schreiben Ziel und Vorwerte frisch pruefen.
+>   Nicht vor Tabellenmutationen pauschal alle Zeilen mit dem Cursor durchlaufen.
+> - [Fallback]-Werkzeuge nur selten nutzen, wenn eine konkret benoetigte Faehigkeit
+>   durch kein passendes Spezialwerkzeug abgedeckt ist. Frische Bindung und Readback
+>   bleiben Pflicht. sse_click pattern='select' ist die unterstuetzte RadioButton-
+>   Transaktion; sse_set_value bleibt ausschliesslich das globale Suchfeld.
+>   sse_read_table ist nur eine sichtbare Teilansicht, kein vollstaendiges Inventar.
+> - [Diagnose]-Werkzeuge nur fuer eine konkrete Untersuchung oder einen Diagnoseauftrag.
+> - Ein Fehler ist keine Erlaubnis fuer einen anderen Schreibweg: bei outcomeUnknown,
+>   ungeklaerter mutationAttempted, Recovery, Transport-/Readbackfehlern, Interferenz,
+>   veralteter Bindung, Hash-/Dialog- oder Guardablehnung stoppen und lesend abgleichen.
+>   Kein blinder Wiederholungsversuch und kein automatischer Backendwechsel.
+>   Selektoren, RID oder selectorNamespace nicht zur Umgehung einer Ablehnung austauschen.
+>   sse_capabilities beschreibt die Gruppen und ihre erlaubten Einsatzbedingungen.
 >
 > Harte Grenzen, auch auf ausdruecklichen Wunsch:
 > - Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.

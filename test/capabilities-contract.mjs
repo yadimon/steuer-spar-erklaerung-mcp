@@ -205,6 +205,27 @@ for (const operation of fallbackOperations) {
 for (const required of ["snapshot", "find", "accessibility_probe", "click", "toggle", "combo_select", "dialog_answer"]) {
   assert(fallbackOperations.includes(required), `Generischer Fallback '${required}' fehlt.`);
 }
+const passiveTableStage = result.fallbackStages.find((stage) => stage.intent === "Standard: Passiver Tabellenbestand");
+assert.deepEqual(passiveTableStage.operations, ["table_read"]);
+assert.match(passiveTableStage.rule, /noKeys:true/u);
+assert.match(passiveTableStage.rule, /readMode:'grid'/u);
+assert.match(passiveTableStage.rule, /nur sichtbare Zeilen/u);
+assert.match(passiveTableStage.rule, /kein automatischer Backendwechsel/u);
+const activeTableStage = result.fallbackStages.find((stage) => stage.intent === "Fallback: Aktiver Tabellenlauf und Diagnose");
+assert.deepEqual(activeTableStage.operations, ["table_read"]);
+assert.match(activeTableStage.rule, /Im MCP waehlt nur ausdrueckliches noKeys:false/u);
+assert.match(activeTableStage.rule, /ausdruecklich anfordern/u);
+assert.match(activeTableStage.rule, /UIA-Schreibposition/u);
+assert.match(activeTableStage.rule, /nicht eine beliebige Zielzeile/u);
+const transactionStage = result.fallbackStages.find((stage) => stage.intent === "Standard: Verifizierte Transaktion");
+for (const operation of ["table_add", "table_update", "table_delete", "toggle", "combo_select", "tracked_set_value"]) {
+  assert(transactionStage.operations.includes(operation));
+}
+assert(!transactionStage.operations.includes("click_point"));
+const genericStage = result.fallbackStages.find((stage) => stage.intent === "Fallback: Gebundene generische UI-Interaktion");
+assert.match(genericStage.rule, /RadioButton-Transaktion/u);
+assert.match(genericStage.rule, /outcomeUnknown/u);
+assert.match(genericStage.rule, /lesend abgleichen/u);
 
 const worker = readFileSync(new URL("../powershell/sse-worker.ps1", import.meta.url), "utf8");
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));

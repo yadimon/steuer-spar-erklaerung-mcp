@@ -12,8 +12,10 @@ export function registerInteractionTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_click",
     {
-      title: "Element ausloesen",
+      title: "[Fallback] Element ausloesen",
       description:
+        "[Fallback] Spezialwerkzeuge bevorzugen; nur fuer sonst nicht abgedeckte Controls frisch gebunden verwenden. " +
+        "pattern='select' bleibt die regulaere unterstuetzte RadioButton-Transaktion. " +
         "Loest ein Bedienelement ueber UI Automation aus - NICHT ueber Bildschirmkoordinaten. " +
         "Das Fenster muss dafuer NICHT im Vordergrund sein. " +
         "pattern='expand' und pattern='collapse' aendern ausschliesslich den Expandierungszustand eines Baumeintrags; " +
@@ -63,8 +65,9 @@ export function registerInteractionTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_click_point",
     {
-      title: "Element wirklich anklicken",
+      title: "[Fallback] Element wirklich anklicken",
       description:
+        "[Fallback] Nur bei belegter Luecke spezialisierter Navigation oder Aktivierung verwenden; sse_goto beziehungsweise sse_click bevorzugen. " +
         "Echter, PID- und Root-verifizierter Mausklick, fail-closed auf TreeItems des Navigationsbaums, eng benannte " +
         "Erfassen-/Bearbeiten-Hyperlinks sowie den intern fingerprintgebundenen read-only Prueferpfad begrenzt. " +
         "Bei TreeItems wird labelnah statt in die oft leere " +
@@ -93,8 +96,9 @@ export function registerInteractionTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_set_value",
     {
-      title: "Globales Suchfeld transaktional setzen",
+      title: "[Fallback] Globales Suchfeld transaktional setzen",
       description:
+        "[Fallback] Kompatibilitaetszugang nur fuer gezielte Suchfeldbedienung; fuer Seitennavigation sse_goto bevorzugen. " +
         "Kompatibler Low-Level-Name fuer genau das bekannte, steuerneutrale globale SSE-Suchfeld. " +
         "Steuerdaten-, Formular- und Tabellenfelder sind hier fail-closed gesperrt und muessen ueber " +
         "sse_change_known_field, sse_change_field, sse_table_add, sse_table_update oder sse_combo_select laufen. " +
@@ -259,8 +263,9 @@ export function registerInteractionTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_scroll",
     {
-      title: "Scrollen",
+      title: "[Fallback] Scrollen",
       description:
+        "[Fallback] Nur bei konkret benoetigter manueller Sichtbarkeit; vollstaendige passive Tabellenlesung und Spezialnavigation bevorzugen. " +
         "Rollt den Inhalt. mode='intoview' holt ein benanntes Element in den sichtbaren Bereich " +
         "(bevorzugt, braucht keinen Fokus). mode='percent' setzt die Position eines scrollbaren " +
         "Containers. mode='list' zeigt nur, was ueberhaupt scrollbar ist.",

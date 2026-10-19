@@ -35,8 +35,9 @@ export function registerAnalysisTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_scroll_page",
     {
-      title: "Inhaltsbereich rollen",
+      title: "[Fallback] Inhaltsbereich rollen",
       description:
+        "[Fallback] Nur bei konkret benoetigter manueller Seitensicht; strukturierte Lesung oder sse_read_full bevorzugen. " +
         "Rollt den Inhaltsbereich der Seite (nicht Tabellen - dafuer sse_table_read). " +
         "mode='info' meldet nur Position und sichtbaren Anteil, 'percent' setzt die Position (vPercent), " +
         "'amount' rollt seitenweise (direction up/down). Danach sse_page erneut aufrufen - erst dann " +

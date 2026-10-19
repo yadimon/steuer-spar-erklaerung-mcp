@@ -19,8 +19,9 @@ export function registerUiTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_tree_top",
     {
-      title: "Navigationsbaum nach oben rollen",
+      title: "[Fallback] Navigationsbaum nach oben rollen",
       description:
+        "[Fallback] Nur bei konkret benoetigter manueller Baumnavigation; zuerst sse_goto verwenden. " +
         "Rollt den virtualisierten Qt-Navigationsbaum per sicher positioniertem Mausrad an den Anfang. " +
         "Noetig, weil der Baum kein UIA-ScrollPattern anbietet und weiter oben liegende Knoten sonst nicht " +
         "adressierbar sind. Aktiviert keinen Knoten und aendert keine Steuerdaten. Holt das Fenster kurz nach vorn.",
@@ -30,8 +31,9 @@ export function registerUiTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_tree_scroll",
     {
-      title: "Navigationsbaum kontrolliert rollen",
+      title: "[Fallback] Navigationsbaum kontrolliert rollen",
       description:
+        "[Fallback] Nur bei konkret fehlender spezialisierter Navigation; zuerst sse_goto verwenden. " +
         "Rollt den virtualisierten Qt-Navigationsbaum nach oben oder unten, ohne einen Knoten zu aktivieren. " +
         "Noetig fuer weiter unten liegende Bereiche, die nach sse_tree_top noch nicht im UIA-Baum existieren. " +
         "Der Mausradpunkt wird gegen SSE-PID und exaktes Hauptfenster-Root verifiziert; danach mit sse_click_point den exakt gelesenen " +
@@ -75,21 +77,26 @@ export function registerUiTools(registry: McpRegistry): void {
       ),
   );
 
-  registerShapedApiTool(
+  registerStrictTool(
     "sse_table_read",
     {
-      title: "Tabelle vollstaendig lesen",
+      title: "Tabellenbestand passiv lesen",
       description:
-        "Liest die gebundene Eingabetabelle. Der native Qt-Zugriff liest normalerweise das Modell; " +
-        "Standard-UIA liefert mit noKeys:true nur sichtbare Zeilen und kann sonst einen Cursorlauf starten. readMode:'grid' liest explizit " +
+        "Bevorzugter Tabellenleser. MCP setzt ohne ausdrueckliche Auswahl noKeys:true und startet keinen impliziten Cursorlauf. " +
+        "Native Qt-Anbindung liest damit das vollstaendige begrenzte Modell; Standard-UIA nur sichtbare Zeilen. readMode:'grid' liest explizit " +
         "alle bereitgestellten UIA-Gridzeilen ohne Fokus, Scrollen oder Eingabe, einschliesslich leerer " +
         "Eingabeslots. Zwei gleiche Beobachtungen sind kein atomarer Snapshot oder Schreibnachweis. " +
-        "noKeys:false fordert getrennt den geschuetzten Cursorlauf an und macht die letzte Zeile sichtbar; " +
+        "Nur bei fehlender vollstaendiger passiver Lesefaehigkeit, nachweislich benoetigter UIA-Schreibposition oder gezielter Diagnose noKeys:false ausdruecklich waehlen: " +
+        "dieser langsame geschuetzte Kompatibilitaetsmodus macht die letzte Zeile sichtbar; " +
         "er kann das Fenster nach vorn holen und ist nicht mit readMode:'grid' kombinierbar. " +
+        "Der volle Lauf zeigt das Tabellenende, nicht eine beliebige Zielzeile; Ziel und Vorwerte vor dem Schreiben frisch pruefen. " +
         "sumLabel und sumOccurrence binden Seiten mit mehreren Tabellen an eine eindeutige Summenregion. " +
-        "vollstaendig und limitReached beachten; Summe und alle benoetigten Werte gegenpruefen.",
+        "vollstaendig und limitReached beachten; Summe und alle benoetigten Werte gegenpruefen. " +
+        "Kein Cursor-Vorlauf fuer native sse_table_add, sse_table_update oder sse_table_delete noetig.",
+      inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_table_read.shape,
+      outputSchema: apiResultOutputSchema("table_read"),
     },
-    (r) => ({
+    async (a) => run("table_read", { ...a, noKeys: a.noKeys ?? true }, (r) => ({
       kopf: asArray(r.kopf),
       anzahl: r.anzahl,
       vollstaendig: r.vollstaendig,
@@ -114,8 +121,7 @@ export function registerUiTools(registry: McpRegistry): void {
       // angeben kann - auf einer Seite mit mehreren Tabellen auch nicht,
       // welche Vorkommensnummer die eigene ist.
       summen: asArray(r.summen),
-    }),
-    { timeoutMs: 300_000 },
+    }), 300_000),
   );
 
   registerApiTool(
@@ -188,8 +194,9 @@ export function registerUiTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_menu",
     {
-      title: "Menue oeffnen und lesen",
+      title: "[Fallback] Menue oeffnen und lesen",
       description:
+        "[Fallback] Nur wenn keine passende Spezialoperation existiert, etwa fuer einen sonst nicht abgedeckten Menuebefehl. " +
         "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). " +
         "Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und " +
         "Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); " +
@@ -207,8 +214,9 @@ export function registerUiTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_menu_click",
     {
-      title: "Menueeintrag ausloesen",
+      title: "[Fallback] Menueeintrag ausloesen",
       description:
+        "[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback. " +
         "Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer " +
         "Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder " +
         "Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; " +
@@ -284,11 +292,12 @@ export function registerUiTools(registry: McpRegistry): void {
   registerStrictTool(
     "sse_screenshot",
     {
-      title: "Bildschirmfoto",
+      title: "[Diagnose] Bildschirmfoto",
       description:
+        "[Diagnose] Nur fuer eine konkrete Darstellungsfrage oder einen Diagnoseauftrag; strukturierte Lesungen zuerst verwenden. " +
         "Fotografiert das Fenster (PrintWindow). Funktioniert auch, wenn das Fenster NICHT im Vordergrund " +
-        "ist, und ist das zuverlaessigste Werkzeug ueberhaupt. Bei jedem Zweifel ueber den Programmzustand " +
-        "zuerst hierher greifen.",
+        "ist. Ergaenzt eine gezielte visuelle Untersuchung; bestaetigt weder einen vollstaendigen " +
+        "Datenbestand noch den Erfolg einer Aenderung.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_screenshot.shape,
       outputSchema: apiResultOutputSchema("screenshot"),
     },
@@ -360,11 +369,11 @@ export function registerUiTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_read_table",
     {
-      title: "Tabelle lesen",
+      title: "[Fallback] Sichtbaren Tabellenausschnitt lesen",
       description:
-        "Liest die Eingabetabelle der aktuellen Seite (z. B. Einnahmenliste) als Kopfzeile und Datenzeilen. " +
-        "ACHTUNG: nur die sichtbaren Zeilen. Sind mehr Zeilen vorhanden als angezeigt, vorher sse_scroll " +
-        "benutzen und erneut lesen.",
+        "[Fallback] Kompatible sichtbare Teilansicht; fuer einen Tabellenbestand sse_table_read bevorzugen. " +
+        "Liest Kopfzeile und gerade sichtbare Datenzeilen. Kein vollstaendiges Inventar; incomplete beachten. " +
+        "Fuer vollstaendige native Modelllesung sse_table_read, ohne native Anbindung readMode:'grid' verwenden.",
     },
     (r) => ({
       headers: asArray(r.headers),
@@ -391,8 +400,9 @@ export function registerUiTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_snapshot_compare",
     {
-      title: "Bulk-Snapshot gegen sicheren Altpfad vergleichen",
+      title: "[Diagnose] Bulk-Snapshot gegen sicheren Altpfad vergleichen",
       description:
+        "[Diagnose] Nur zur gezielten Untersuchung einer Provider-/Darstellungsgrenze, nicht als routinemaessiger Readback. " +
         "Read-only A/B-Diagnose: liest denselben SSE-Zustand einmal mit dem zyklusgeschuetzten TreeWalker " +
         "und einmal mit dem schnellen UIA-Bulk-Cache. Vergleicht Struktur und Feldwerte, gibt aber keine " +
         "privaten Namen oder Werte aus. Dient zur sicheren Freigabe neuer Seiten/Qt-Zustaende.",
@@ -403,8 +413,9 @@ export function registerUiTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_accessibility_probe",
     {
-      title: "Qt-Accessibility eines Elements untersuchen",
+      title: "[Diagnose] Qt-Accessibility eines Elements untersuchen",
       description:
+        "[Diagnose] Nur bei einer konkreten strukturellen Lesefrage; sse_get_value, sse_read_page oder sse_find zuerst verwenden. " +
         "Rein lesende Tiefenpruefung fuer ein exakt adressiertes UI-Element. Untersucht UIA-Muster, " +
         "RawView-Nachfahren und ueberlappende MSAA-Knoten. Damit laesst sich belegen, ob ein Qt-Inhalt " +
         "strukturiert lesbar ist oder OCR als Rueckfall noetig bleibt. Bei Mehrdeutigkeit rid aus " +
@@ -442,7 +453,8 @@ export function registerUiTools(registry: McpRegistry): void {
         "Liest den Inhalt genau eines Eingabefeldes samt Schreibschutz-Kennzeichen. " +
         "Mehrdeutige Selektoren werden abgewiesen; fuer unbeschriftete Felder aid oder rid verwenden. " +
         "selectorNamespace:uia benutzt den UIA-Feldresolver auch mit Qt-Konfiguration; qt-object liest " +
-        "einen beobachteten QObject-Namen oder eine frische qt:-Referenz. Ohne Namensraum bleibt das bisherige Routing erhalten. " +
+        "einen beobachteten QObject-Namen oder eine frische qt:-Referenz. Namensraum explizit passend zur beobachteten Identitaet angeben; " +
+        "ohne Namensraum bleibt nur das kompatible bisherige Routing erhalten. Nach Ablehnung nicht den Namensraum oder RID zum Erzwingen eines Treffers wechseln. " +
         "Bei einer Beschriftung zeigt aufgeloestUeber die Feldzuordnung. QObject-Referenzen sind keine UIA-Schreibidentitaeten.",
     },
   );

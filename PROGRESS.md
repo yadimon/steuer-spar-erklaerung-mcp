@@ -28,6 +28,11 @@ keine erneute Prüfung eines danach geänderten Ausführungspfads.
 
 ## Umgesetzt
 
+- **Werkzeugwahl:** strukturierte Hauptwege, seltene gebundene UI-Fallbacks
+  und gezielte Diagnose sind in API-Planung, MCP-Katalog und Skill getrennt.
+  MCP setzt fehlendes `noKeys` auf `true`; ein aktiver Cursorlauf braucht dort
+  ausdrueckliches `false`. Direkte API-Defaults bleiben kompatibel. Fehler und
+  unbekannte Schreibausgaenge starten keinen alternativen Methoden-/Backendweg.
 - **Lebenszyklus:** eindeutige Eigentümerschaft, Schutz fremder Instanzen,
   begrenztes Beenden und unabhängige Cleanup-Schritte. Wrapper erhalten
   Primärfehler und Child-Exit-Code auch bei zusätzlichem Cleanup-Fehler.

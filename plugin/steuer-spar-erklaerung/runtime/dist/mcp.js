@@ -27671,8 +27671,8 @@ function registerAnalysisTools(registry2) {
   registerApiTool(
     "sse_scroll_page",
     {
-      title: "Inhaltsbereich rollen",
-      description: "Rollt den Inhaltsbereich der Seite (nicht Tabellen - dafuer sse_table_read). mode='info' meldet nur Position und sichtbaren Anteil, 'percent' setzt die Position (vPercent), 'amount' rollt seitenweise (direction up/down). Danach sse_page erneut aufrufen - erst dann stehen die neu sichtbaren Felder im Baum. Fuer den Normalfall ist sse_read_full bequemer."
+      title: "[Fallback] Inhaltsbereich rollen",
+      description: "[Fallback] Nur bei konkret benoetigter manueller Seitensicht; strukturierte Lesung oder sse_read_full bevorzugen. Rollt den Inhaltsbereich der Seite (nicht Tabellen - dafuer sse_table_read). mode='info' meldet nur Position und sichtbaren Anteil, 'percent' setzt die Position (vPercent), 'amount' rollt seitenweise (direction up/down). Danach sse_page erneut aufrufen - erst dann stehen die neu sichtbaren Felder im Baum. Fuer den Normalfall ist sse_read_full bequemer."
     }
   );
   registerShapedApiTool(
@@ -28620,8 +28620,8 @@ function registerInteractionTools(registry2) {
   registerShapedApiTool(
     "sse_click",
     {
-      title: "Element ausloesen",
-      description: "Loest ein Bedienelement ueber UI Automation aus - NICHT ueber Bildschirmkoordinaten. Das Fenster muss dafuer NICHT im Vordergrund sein. pattern='expand' und pattern='collapse' aendern ausschliesslich den Expandierungszustand eines Baumeintrags; sie sind keine Seitennavigation. Mit expectedPageAfter liest das Werkzeug bei jeder navigierenden Schaltflaeche die Seitenueberschrift vor und nach der Aktion selbst zurueck und meldet einen wirkungslosen Klick statt Scheinerfolg. Meldet eine Qt-Aktion ein wirkungsloses InvokePattern, ist nur bei unveraenderter Ausgangsseite, Dialogfreiheit, erneut vorhandenem InvokePattern und eindeutiger frischer Elementbindung ein PID-/Root-verifizierter Mausklick-Fallback erlaubt. Direkte Toggle-Pattern sind hier gesperrt: Checkboxen ausschliesslich mit sse_toggle; Dropdowns mit sse_combo_select. pattern='select' ist nur fuer genau einen per AutomationId gebundenen RadioButton auf dem sichtbaren Desktop zulaessig, aktiviert ihn PID-/Root-verifiziert physisch und verifiziert den exklusiven Vor-/Nachzustand der ganzen Gruppe. Lokale Loesch-/Import-/Uebernahme-/Zuruecksetzbefehle verlangen einen bewussten Readback und acknowledgeDestructive=true; Teilstrings muessen genau einen Kandidaten ergeben. GESPERRT sind alle Wege, die Daten ans Finanzamt schicken koennten (ELSTER, 'Anmeldungen versenden', 'Jahreserklaerungen abschliessen', 'Senden' ...). Diese Sperre ist Absicht und wird nicht umgangen."
+      title: "[Fallback] Element ausloesen",
+      description: "[Fallback] Spezialwerkzeuge bevorzugen; nur fuer sonst nicht abgedeckte Controls frisch gebunden verwenden. pattern='select' bleibt die regulaere unterstuetzte RadioButton-Transaktion. Loest ein Bedienelement ueber UI Automation aus - NICHT ueber Bildschirmkoordinaten. Das Fenster muss dafuer NICHT im Vordergrund sein. pattern='expand' und pattern='collapse' aendern ausschliesslich den Expandierungszustand eines Baumeintrags; sie sind keine Seitennavigation. Mit expectedPageAfter liest das Werkzeug bei jeder navigierenden Schaltflaeche die Seitenueberschrift vor und nach der Aktion selbst zurueck und meldet einen wirkungslosen Klick statt Scheinerfolg. Meldet eine Qt-Aktion ein wirkungsloses InvokePattern, ist nur bei unveraenderter Ausgangsseite, Dialogfreiheit, erneut vorhandenem InvokePattern und eindeutiger frischer Elementbindung ein PID-/Root-verifizierter Mausklick-Fallback erlaubt. Direkte Toggle-Pattern sind hier gesperrt: Checkboxen ausschliesslich mit sse_toggle; Dropdowns mit sse_combo_select. pattern='select' ist nur fuer genau einen per AutomationId gebundenen RadioButton auf dem sichtbaren Desktop zulaessig, aktiviert ihn PID-/Root-verifiziert physisch und verifiziert den exklusiven Vor-/Nachzustand der ganzen Gruppe. Lokale Loesch-/Import-/Uebernahme-/Zuruecksetzbefehle verlangen einen bewussten Readback und acknowledgeDestructive=true; Teilstrings muessen genau einen Kandidaten ergeben. GESPERRT sind alle Wege, die Daten ans Finanzamt schicken koennten (ELSTER, 'Anmeldungen versenden', 'Jahreserklaerungen abschliessen', 'Senden' ...). Diese Sperre ist Absicht und wird nicht umgangen."
     },
     (r) => ({
       clicked: r.clicked,
@@ -28647,8 +28647,8 @@ function registerInteractionTools(registry2) {
   registerShapedApiTool(
     "sse_click_point",
     {
-      title: "Element wirklich anklicken",
-      description: "Echter, PID- und Root-verifizierter Mausklick, fail-closed auf TreeItems des Navigationsbaums, eng benannte Erfassen-/Bearbeiten-Hyperlinks sowie den intern fingerprintgebundenen read-only Prueferpfad begrenzt. Bei TreeItems wird labelnah statt in die oft leere Zeilenmitte geklickt. Checkboxen, Radios, Dropdowns, Tabellenzellen und Dialogknöpfe sind gesperrt und muessen ueber ihre zustands-, summen- oder fingerprintgebundenen Spezialwerkzeuge laufen. Die Koordinaten stammen aus dem Element selbst, nicht aus einem Bildschirmfoto; vor dem Klick wird geprueft, dass dort wirklich ein Fenster des Programms liegt, sonst wird abgebrochen. Der Klick braucht ausserdem den tatsaechlichen Vordergrund des gebundenen SSE-Fensters; verweigert Windows ihn, bricht das Werkzeug vor jedem Mausinput ab. Fuer Schaltflaechen ist sse_click vorzuziehen."
+      title: "[Fallback] Element wirklich anklicken",
+      description: "[Fallback] Nur bei belegter Luecke spezialisierter Navigation oder Aktivierung verwenden; sse_goto beziehungsweise sse_click bevorzugen. Echter, PID- und Root-verifizierter Mausklick, fail-closed auf TreeItems des Navigationsbaums, eng benannte Erfassen-/Bearbeiten-Hyperlinks sowie den intern fingerprintgebundenen read-only Prueferpfad begrenzt. Bei TreeItems wird labelnah statt in die oft leere Zeilenmitte geklickt. Checkboxen, Radios, Dropdowns, Tabellenzellen und Dialogknöpfe sind gesperrt und muessen ueber ihre zustands-, summen- oder fingerprintgebundenen Spezialwerkzeuge laufen. Die Koordinaten stammen aus dem Element selbst, nicht aus einem Bildschirmfoto; vor dem Klick wird geprueft, dass dort wirklich ein Fenster des Programms liegt, sonst wird abgebrochen. Der Klick braucht ausserdem den tatsaechlichen Vordergrund des gebundenen SSE-Fensters; verweigert Windows ihn, bricht das Werkzeug vor jedem Mausinput ab. Fuer Schaltflaechen ist sse_click vorzuziehen."
     },
     (r) => ({
       clicked: r.clicked,
@@ -28667,8 +28667,8 @@ function registerInteractionTools(registry2) {
   registerApiTool(
     "sse_set_value",
     {
-      title: "Globales Suchfeld transaktional setzen",
-      description: "Kompatibler Low-Level-Name fuer genau das bekannte, steuerneutrale globale SSE-Suchfeld. Steuerdaten-, Formular- und Tabellenfelder sind hier fail-closed gesperrt und muessen ueber sse_change_known_field, sse_change_field, sse_table_add, sse_table_update oder sse_combo_select laufen. Das Suchfeld wird strukturell ueber seinen beschrifteten Container gebunden; die uebergebene rid muss frisch sein und zum aktuell gebundenen Suchfeld passen. Vorwert, erwarteter Nachwert, Fensterlage, Dialoge und fremde Benutzereingabe werden in einem Worker geprueft; bei Interferenz erfolgt kein blinder Rollback."
+      title: "[Fallback] Globales Suchfeld transaktional setzen",
+      description: "[Fallback] Kompatibilitaetszugang nur fuer gezielte Suchfeldbedienung; fuer Seitennavigation sse_goto bevorzugen. Kompatibler Low-Level-Name fuer genau das bekannte, steuerneutrale globale SSE-Suchfeld. Steuerdaten-, Formular- und Tabellenfelder sind hier fail-closed gesperrt und muessen ueber sse_change_known_field, sse_change_field, sse_table_add, sse_table_update oder sse_combo_select laufen. Das Suchfeld wird strukturell ueber seinen beschrifteten Container gebunden; die uebergebene rid muss frisch sein und zum aktuell gebundenen Suchfeld passen. Vorwert, erwarteter Nachwert, Fensterlage, Dialoge und fremde Benutzereingabe werden in einem Worker geprueft; bei Interferenz erfolgt kein blinder Rollback."
     }
   );
   registerApiTool(
@@ -28765,8 +28765,8 @@ function registerInteractionTools(registry2) {
   registerApiTool(
     "sse_scroll",
     {
-      title: "Scrollen",
-      description: "Rollt den Inhalt. mode='intoview' holt ein benanntes Element in den sichtbaren Bereich (bevorzugt, braucht keinen Fokus). mode='percent' setzt die Position eines scrollbaren Containers. mode='list' zeigt nur, was ueberhaupt scrollbar ist."
+      title: "[Fallback] Scrollen",
+      description: "[Fallback] Nur bei konkret benoetigter manueller Sichtbarkeit; vollstaendige passive Tabellenlesung und Spezialnavigation bevorzugen. Rollt den Inhalt. mode='intoview' holt ein benanntes Element in den sichtbaren Bereich (bevorzugt, braucht keinen Fokus). mode='percent' setzt die Position eines scrollbaren Containers. mode='list' zeigt nur, was ueberhaupt scrollbar ist."
     }
   );
 }
@@ -29223,15 +29223,15 @@ function registerUiTools(registry2) {
   registerApiTool(
     "sse_tree_top",
     {
-      title: "Navigationsbaum nach oben rollen",
-      description: "Rollt den virtualisierten Qt-Navigationsbaum per sicher positioniertem Mausrad an den Anfang. Noetig, weil der Baum kein UIA-ScrollPattern anbietet und weiter oben liegende Knoten sonst nicht adressierbar sind. Aktiviert keinen Knoten und aendert keine Steuerdaten. Holt das Fenster kurz nach vorn."
+      title: "[Fallback] Navigationsbaum nach oben rollen",
+      description: "[Fallback] Nur bei konkret benoetigter manueller Baumnavigation; zuerst sse_goto verwenden. Rollt den virtualisierten Qt-Navigationsbaum per sicher positioniertem Mausrad an den Anfang. Noetig, weil der Baum kein UIA-ScrollPattern anbietet und weiter oben liegende Knoten sonst nicht adressierbar sind. Aktiviert keinen Knoten und aendert keine Steuerdaten. Holt das Fenster kurz nach vorn."
     }
   );
   registerApiTool(
     "sse_tree_scroll",
     {
-      title: "Navigationsbaum kontrolliert rollen",
-      description: "Rollt den virtualisierten Qt-Navigationsbaum nach oben oder unten, ohne einen Knoten zu aktivieren. Noetig fuer weiter unten liegende Bereiche, die nach sse_tree_top noch nicht im UIA-Baum existieren. Der Mausradpunkt wird gegen SSE-PID und exaktes Hauptfenster-Root verifiziert; danach mit sse_click_point den exakt gelesenen TreeItem anklicken. Holt das Fenster kurz nach vorn."
+      title: "[Fallback] Navigationsbaum kontrolliert rollen",
+      description: "[Fallback] Nur bei konkret fehlender spezialisierter Navigation; zuerst sse_goto verwenden. Rollt den virtualisierten Qt-Navigationsbaum nach oben oder unten, ohne einen Knoten zu aktivieren. Noetig fuer weiter unten liegende Bereiche, die nach sse_tree_top noch nicht im UIA-Baum existieren. Der Mausradpunkt wird gegen SSE-PID und exaktes Hauptfenster-Root verifiziert; danach mit sse_click_point den exakt gelesenen TreeItem anklicken. Holt das Fenster kurz nach vorn."
     }
   );
   registerStrictTool(
@@ -29260,13 +29260,15 @@ function registerUiTools(registry2) {
       3e5
     )
   );
-  registerShapedApiTool(
+  registerStrictTool(
     "sse_table_read",
     {
-      title: "Tabelle vollstaendig lesen",
-      description: "Liest die gebundene Eingabetabelle. Der native Qt-Zugriff liest normalerweise das Modell; Standard-UIA liefert mit noKeys:true nur sichtbare Zeilen und kann sonst einen Cursorlauf starten. readMode:'grid' liest explizit alle bereitgestellten UIA-Gridzeilen ohne Fokus, Scrollen oder Eingabe, einschliesslich leerer Eingabeslots. Zwei gleiche Beobachtungen sind kein atomarer Snapshot oder Schreibnachweis. noKeys:false fordert getrennt den geschuetzten Cursorlauf an und macht die letzte Zeile sichtbar; er kann das Fenster nach vorn holen und ist nicht mit readMode:'grid' kombinierbar. sumLabel und sumOccurrence binden Seiten mit mehreren Tabellen an eine eindeutige Summenregion. vollstaendig und limitReached beachten; Summe und alle benoetigten Werte gegenpruefen."
+      title: "Tabellenbestand passiv lesen",
+      description: "Bevorzugter Tabellenleser. MCP setzt ohne ausdrueckliche Auswahl noKeys:true und startet keinen impliziten Cursorlauf. Native Qt-Anbindung liest damit das vollstaendige begrenzte Modell; Standard-UIA nur sichtbare Zeilen. readMode:'grid' liest explizit alle bereitgestellten UIA-Gridzeilen ohne Fokus, Scrollen oder Eingabe, einschliesslich leerer Eingabeslots. Zwei gleiche Beobachtungen sind kein atomarer Snapshot oder Schreibnachweis. Nur bei fehlender vollstaendiger passiver Lesefaehigkeit, nachweislich benoetigter UIA-Schreibposition oder gezielter Diagnose noKeys:false ausdruecklich waehlen: dieser langsame geschuetzte Kompatibilitaetsmodus macht die letzte Zeile sichtbar; er kann das Fenster nach vorn holen und ist nicht mit readMode:'grid' kombinierbar. Der volle Lauf zeigt das Tabellenende, nicht eine beliebige Zielzeile; Ziel und Vorwerte vor dem Schreiben frisch pruefen. sumLabel und sumOccurrence binden Seiten mit mehreren Tabellen an eine eindeutige Summenregion. vollstaendig und limitReached beachten; Summe und alle benoetigten Werte gegenpruefen. Kein Cursor-Vorlauf fuer native sse_table_add, sse_table_update oder sse_table_delete noetig.",
+      inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_table_read.shape,
+      outputSchema: apiResultOutputSchema("table_read")
     },
-    (r) => ({
+    async (a) => run("table_read", { ...a, noKeys: a.noKeys ?? true }, (r) => ({
       kopf: asArray(r.kopf),
       anzahl: r.anzahl,
       vollstaendig: r.vollstaendig,
@@ -29291,8 +29293,7 @@ function registerUiTools(registry2) {
       // angeben kann - auf einer Seite mit mehreren Tabellen auch nicht,
       // welche Vorkommensnummer die eigene ist.
       summen: asArray(r.summen)
-    }),
-    { timeoutMs: 3e5 }
+    }), 3e5)
   );
   registerApiTool(
     "sse_table_add",
@@ -29321,8 +29322,8 @@ function registerUiTools(registry2) {
   registerShapedApiTool(
     "sse_menu",
     {
-      title: "Menue oeffnen und lesen",
-      description: "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
+      title: "[Fallback] Menue oeffnen und lesen",
+      description: "[Fallback] Nur wenn keine passende Spezialoperation existiert, etwa fuer einen sonst nicht abgedeckten Menuebefehl. Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
     },
     (r) => ({
       menue: r.menue,
@@ -29335,8 +29336,8 @@ function registerUiTools(registry2) {
   registerApiTool(
     "sse_menu_click",
     {
-      title: "Menueeintrag ausloesen",
-      description: "Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; Vorher-/Nachher-Dirty-State wird immer gemeldet."
+      title: "[Fallback] Menueeintrag ausloesen",
+      description: "[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback. Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; Vorher-/Nachher-Dirty-State wird immer gemeldet."
     }
   );
   registerApiTool(
@@ -29386,8 +29387,8 @@ function registerUiTools(registry2) {
   registerStrictTool(
     "sse_screenshot",
     {
-      title: "Bildschirmfoto",
-      description: "Fotografiert das Fenster (PrintWindow). Funktioniert auch, wenn das Fenster NICHT im Vordergrund ist, und ist das zuverlaessigste Werkzeug ueberhaupt. Bei jedem Zweifel ueber den Programmzustand zuerst hierher greifen.",
+      title: "[Diagnose] Bildschirmfoto",
+      description: "[Diagnose] Nur fuer eine konkrete Darstellungsfrage oder einen Diagnoseauftrag; strukturierte Lesungen zuerst verwenden. Fotografiert das Fenster (PrintWindow). Funktioniert auch, wenn das Fenster NICHT im Vordergrund ist. Ergaenzt eine gezielte visuelle Untersuchung; bestaetigt weder einen vollstaendigen Datenbestand noch den Erfolg einer Aenderung.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_screenshot.shape,
       outputSchema: apiResultOutputSchema("screenshot")
     },
@@ -29442,8 +29443,8 @@ function registerUiTools(registry2) {
   registerShapedApiTool(
     "sse_read_table",
     {
-      title: "Tabelle lesen",
-      description: "Liest die Eingabetabelle der aktuellen Seite (z. B. Einnahmenliste) als Kopfzeile und Datenzeilen. ACHTUNG: nur die sichtbaren Zeilen. Sind mehr Zeilen vorhanden als angezeigt, vorher sse_scroll benutzen und erneut lesen."
+      title: "[Fallback] Sichtbaren Tabellenausschnitt lesen",
+      description: "[Fallback] Kompatible sichtbare Teilansicht; fuer einen Tabellenbestand sse_table_read bevorzugen. Liest Kopfzeile und gerade sichtbare Datenzeilen. Kein vollstaendiges Inventar; incomplete beachten. Fuer vollstaendige native Modelllesung sse_table_read, ohne native Anbindung readMode:'grid' verwenden."
     },
     (r) => ({
       headers: asArray(r.headers),
@@ -29464,16 +29465,16 @@ function registerUiTools(registry2) {
   registerApiTool(
     "sse_snapshot_compare",
     {
-      title: "Bulk-Snapshot gegen sicheren Altpfad vergleichen",
-      description: "Read-only A/B-Diagnose: liest denselben SSE-Zustand einmal mit dem zyklusgeschuetzten TreeWalker und einmal mit dem schnellen UIA-Bulk-Cache. Vergleicht Struktur und Feldwerte, gibt aber keine privaten Namen oder Werte aus. Dient zur sicheren Freigabe neuer Seiten/Qt-Zustaende."
+      title: "[Diagnose] Bulk-Snapshot gegen sicheren Altpfad vergleichen",
+      description: "[Diagnose] Nur zur gezielten Untersuchung einer Provider-/Darstellungsgrenze, nicht als routinemaessiger Readback. Read-only A/B-Diagnose: liest denselben SSE-Zustand einmal mit dem zyklusgeschuetzten TreeWalker und einmal mit dem schnellen UIA-Bulk-Cache. Vergleicht Struktur und Feldwerte, gibt aber keine privaten Namen oder Werte aus. Dient zur sicheren Freigabe neuer Seiten/Qt-Zustaende."
     },
     { timeoutMs: 12e4 }
   );
   registerShapedApiTool(
     "sse_accessibility_probe",
     {
-      title: "Qt-Accessibility eines Elements untersuchen",
-      description: "Rein lesende Tiefenpruefung fuer ein exakt adressiertes UI-Element. Untersucht UIA-Muster, RawView-Nachfahren und ueberlappende MSAA-Knoten. Damit laesst sich belegen, ob ein Qt-Inhalt strukturiert lesbar ist oder OCR als Rueckfall noetig bleibt. Bei Mehrdeutigkeit rid aus sse_snapshot verwenden."
+      title: "[Diagnose] Qt-Accessibility eines Elements untersuchen",
+      description: "[Diagnose] Nur bei einer konkreten strukturellen Lesefrage; sse_get_value, sse_read_page oder sse_find zuerst verwenden. Rein lesende Tiefenpruefung fuer ein exakt adressiertes UI-Element. Untersucht UIA-Muster, RawView-Nachfahren und ueberlappende MSAA-Knoten. Damit laesst sich belegen, ob ein Qt-Inhalt strukturiert lesbar ist oder OCR als Rueckfall noetig bleibt. Bei Mehrdeutigkeit rid aus sse_snapshot verwenden."
     },
     (r) => ({
       hwnd: r.hwnd,
@@ -29498,7 +29499,7 @@ function registerUiTools(registry2) {
     "sse_get_value",
     {
       title: "Feldwert lesen",
-      description: "Liest den Inhalt genau eines Eingabefeldes samt Schreibschutz-Kennzeichen. Mehrdeutige Selektoren werden abgewiesen; fuer unbeschriftete Felder aid oder rid verwenden. selectorNamespace:uia benutzt den UIA-Feldresolver auch mit Qt-Konfiguration; qt-object liest einen beobachteten QObject-Namen oder eine frische qt:-Referenz. Ohne Namensraum bleibt das bisherige Routing erhalten. Bei einer Beschriftung zeigt aufgeloestUeber die Feldzuordnung. QObject-Referenzen sind keine UIA-Schreibidentitaeten."
+      description: "Liest den Inhalt genau eines Eingabefeldes samt Schreibschutz-Kennzeichen. Mehrdeutige Selektoren werden abgewiesen; fuer unbeschriftete Felder aid oder rid verwenden. selectorNamespace:uia benutzt den UIA-Feldresolver auch mit Qt-Konfiguration; qt-object liest einen beobachteten QObject-Namen oder eine frische qt:-Referenz. Namensraum explizit passend zur beobachteten Identitaet angeben; ohne Namensraum bleibt nur das kompatible bisherige Routing erhalten. Nach Ablehnung nicht den Namensraum oder RID zum Erzwingen eines Treffers wechseln. Bei einer Beschriftung zeigt aufgeloestUeber die Feldzuordnung. QObject-Referenzen sind keine UIA-Schreibidentitaeten."
     }
   );
 }
@@ -29592,6 +29593,32 @@ var MCP_CONDUCT_INSTRUCTIONS = [
   "Diese Tools steuern eine lokal installierte SteuerSparErklaerung unter Windows.",
   "Als ersten fachlichen Tool-Aufruf sse_preflight verwenden und",
   "dessen Blocker befolgen. Nur bei ready=true danach mit sse_instances den Arbeitsfall binden.",
+  "",
+  "Werkzeugwahl: Standard vor Fallback vor Diagnose:",
+  "- Strukturierte Lesungen und verifizierte Spezialtransaktionen bevorzugen:",
+  "  sse_page_state, sse_read_page, sse_get_value, sse_goto, sse_change_known_field,",
+  "  sse_change_field, sse_fill_fields, Tabellen-, Checkbox-, Dropdown- und Fachwerkzeuge.",
+  "  sse_snapshot und sse_find bleiben normale lesende Entdeckung fuer unbekannte Controls.",
+  "- sse_table_read setzt bei fehlendem noKeys im MCP noKeys:true: native Modelllesung",
+  "  bevorzugen. Standard-UIA liefert damit nur sichtbare Zeilen; fuer den vollstaendigen",
+  "  passiven UIA-Bestand readMode:'grid' ausdruecklich waehlen. Vollstaendigkeit beachten.",
+  "  noKeys:false ist ein langsamer expliziter Kompatibilitaets-/Diagnosemodus, nur bei",
+  "  belegter fehlender passiver Vollstaendigkeit, nachweislich benoetigter UIA-Schreibposition",
+  "  oder gezielter GUI-Diagnose einsetzen. Ein voller Lauf zeigt nur das Tabellenende,",
+  "  nicht eine beliebige Zielzeile; vor dem Schreiben Ziel und Vorwerte frisch pruefen.",
+  "  Nicht vor Tabellenmutationen pauschal alle Zeilen mit dem Cursor durchlaufen.",
+  "- [Fallback]-Werkzeuge nur selten nutzen, wenn eine konkret benoetigte Faehigkeit",
+  "  durch kein passendes Spezialwerkzeug abgedeckt ist. Frische Bindung und Readback",
+  "  bleiben Pflicht. sse_click pattern='select' ist die unterstuetzte RadioButton-",
+  "  Transaktion; sse_set_value bleibt ausschliesslich das globale Suchfeld.",
+  "  sse_read_table ist nur eine sichtbare Teilansicht, kein vollstaendiges Inventar.",
+  "- [Diagnose]-Werkzeuge nur fuer eine konkrete Untersuchung oder einen Diagnoseauftrag.",
+  "- Ein Fehler ist keine Erlaubnis fuer einen anderen Schreibweg: bei outcomeUnknown,",
+  "  ungeklaerter mutationAttempted, Recovery, Transport-/Readbackfehlern, Interferenz,",
+  "  veralteter Bindung, Hash-/Dialog- oder Guardablehnung stoppen und lesend abgleichen.",
+  "  Kein blinder Wiederholungsversuch und kein automatischer Backendwechsel.",
+  "  Selektoren, RID oder selectorNamespace nicht zur Umgehung einer Ablehnung austauschen.",
+  "  sse_capabilities beschreibt die Gruppen und ihre erlaubten Einsatzbedingungen.",
   "",
   "Harte Grenzen, auch auf ausdruecklichen Wunsch:",
   "- Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.",

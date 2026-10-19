@@ -265,6 +265,72 @@ try {
   assert.equal(calls.length, expectedInitialApiCalls,
     `Direkte und komponierte MCP-Aufrufe erzeugten unerwartet ${calls.length} API-Aufrufe.`);
 
+  // Exercise the real MCP boundary: omission must never select an implicit
+  // active cursor, while an explicit compatibility request stays available.
+  for (const fixture of [
+    { args: { hwnd: 77, maxRows: 7 }, expected: { hwnd: 77, maxRows: 7, noKeys: true } },
+    { args: { noKeys: true }, expected: { noKeys: true } },
+    { args: { noKeys: false }, expected: { noKeys: false } },
+    { args: { readMode: "grid" }, expected: { readMode: "grid", noKeys: true } },
+  ]) {
+    const before = calls.length;
+    const result = await client.callTool({ name: "sse_table_read", arguments: fixture.args });
+    assert.notEqual(result.isError, true);
+    assert.deepEqual(calls.slice(before), [{ operation: "table_read", args: fixture.expected }],
+      "MCP table reads must default to passive without replacing explicit modes or adding fallback calls.");
+  }
+  const beforeInvalidCursor = calls.length;
+  const invalidCursor = await client.callTool({ name: "sse_table_read", arguments: { readMode: "grid", noKeys: false } });
+  // The synthetic peer accepts every payload. The real API owns the existing
+  // incompatible-mode guard; MCP must not silently repair an explicit choice.
+  assert.notEqual(invalidCursor.isError, true);
+  assert.deepEqual(calls.slice(beforeInvalidCursor), [{ operation: "table_read", args: { readMode: "grid", noKeys: false } }]);
+
+  const fallbackNames = ["sse_click", "sse_click_point", "sse_tree_top", "sse_tree_scroll",
+    "sse_scroll", "sse_scroll_page", "sse_menu", "sse_menu_click", "sse_read_table", "sse_set_value"];
+  for (const name of fallbackNames) {
+    const tool = catalog.tools.find((entry) => entry.name === name);
+    assert.match(tool.title, /^\[Fallback\]/u, `${name} needs a visible fallback group.`);
+    assert.match(tool.description, /^\[Fallback\]/u, `${name} needs agent-visible fallback guidance.`);
+  }
+  for (const name of ["sse_snapshot_compare", "sse_accessibility_probe", "sse_screenshot"]) {
+    const tool = catalog.tools.find((entry) => entry.name === name);
+    assert.match(tool.title, /^\[Diagnose\]/u);
+    assert.match(tool.description, /^\[Diagnose\]/u);
+  }
+  const screenshotDescription = catalog.tools.find((tool) => tool.name === "sse_screenshot").description;
+  assert(!/zuverlaessigste Werkzeug|Bei jedem Zweifel|zuerst hierher/u.test(screenshotDescription),
+    "Diagnostic screenshot guidance must not override the preferred structured read path.");
+  for (const name of ["sse_table_read", "sse_table_add", "sse_table_update", "sse_table_delete",
+    "sse_find", "sse_get_value", "sse_snapshot", "sse_toggle", "sse_combo_select"]) {
+    assert(!/^\[(Fallback|Diagnose)\]/u.test(catalog.tools.find((entry) => entry.name === name).title),
+      `${name} must remain a normal structured transaction or useful discovery tool.`);
+  }
+  const routing = client.getInstructions() ?? "";
+  assert.match(routing, /Werkzeugwahl/u);
+  assert.match(routing, /noKeys:true/u);
+  assert.match(routing, /readMode:'grid'/u);
+  assert.match(routing, /outcomeUnknown/u);
+  assert.match(routing, /kein automatischer Backendwechsel/u);
+  assert.match(routing, /nachweislich benoetigter UIA-Schreibposition/u);
+  assert.match(routing, /nicht eine beliebige Zielzeile/u);
+
+  const tableUpdateTool = catalog.tools.find((entry) => entry.name === "sse_table_update");
+  const updateArgs = sampleJsonSchema(tableUpdateTool.inputSchema, tableUpdateTool.name);
+  for (const failure of [
+    { ok: false, kind: "timeout", error: "Synthetic pending write timeout", mutationAttempted: true, outcomeUnknown: true, reconciliationRequired: true, retryable: false },
+    { ok: false, kind: "stale-window", error: "Synthetic stale target", mutationAttempted: false, outcomeUnknown: false, retryable: false },
+  ]) {
+    const before = calls.length;
+    forcedResult = failure;
+    const result = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent.kind, failure.kind, JSON.stringify(result.structuredContent));
+    assert.equal(result.structuredContent.outcomeUnknown, failure.outcomeUnknown, JSON.stringify(result.structuredContent));
+    assert.deepEqual(calls.slice(before).map((call) => call.operation), ["table_update"],
+      "Fallback guidance must not replay a failed write through another tool/backend.");
+  }
+
   const desktopPeers = [{ pid: 102, hwnd: 43, title: "Synthetic additional instance" }];
   forcedResult = { ok: true, aktiv: true, desktop: "Synthetic", pid: 101, sseLaeuft: true,
     desktopErreichbar: true, markeVeraltet: false, fenster: [], weitereInstanzen: desktopPeers };

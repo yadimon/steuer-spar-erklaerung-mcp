@@ -60,27 +60,37 @@ UStVA-Änderung.
      sichtbare Zeile oder Optionsliste, stoppe und lies den Teilstand frisch;
      lege deshalb keine zusätzliche Position oder Tabelle an und wiederhole
      einen fehlgeschlagenen Schreibaufruf nicht blind.
-     Für eine vollständige Inventur ohne Positionierung verwende ausdrücklich
-     `readMode: "grid"`. Beachte Rohzeilen einschließlich Eingabeslots,
-     `rowDetails` und die Vollständigkeitsflags; dieser Modus bewegt die Ansicht
-     nicht. Ist eine bereits begonnene Zeile außerhalb der sichtbaren Ansicht,
-     fordere `sse_table_read` ausdrücklich mit `noKeys: false`, gebundenem
-     HWND und frisch gelesenem `sumLabel`/`sumOccurrence` an. Dieser Weg
-     erwirbt den Tabellenfokus und prüft Eingabe-Epoche, Seite, Summe und
-     Tabellenidentität vor jeder Taste. Nur ein frisch bewiesener unveränderter
-     eigener Nr.-Editor darf einmal per ESC verlassen werden; andere aktive
-     Zell-Editoren oder ComboBox-Delegates stoppen den Leser. Er verwendet
-     bewiesenen Tabellenfokus oder eine vorab festgelegte, genau gebundene
-     Nr.-Zellenaktivierung. Vor jeder Cursortaste bleiben Editorfreiheit und
-     tatsächlicher Auswahlfokus erforderlich; `cursorActivation` beschreibt
-     den technischen Nachweis. Ein ungewisser Ausgang erlaubt keinen zweiten
-     Aktivierungsversuch.
-     Ein erfolgreicher vollständiger Lauf
-     lässt die letzte Zeile sichtbar. Lies danach den Snapshot und die ganze
-     Tabelle frisch; ergänze ausschließlich die eindeutig belegte Teilzeile
-     mit `sse_table_update`. Die gewöhnliche UIA-Lesung mit `noKeys: true` zeigt
-     nur den Sichtbestand. Ein nativ gelesener Modellbestand setzt das
-     entsprechend konfigurierte und verifizierte Backend voraus.
+     Für eine vollständige Inventur mit verifiziertem Qt-Backend verwende
+     den passiven Modellread über `sse_table_read` mit `noKeys: true`; MCP
+     ergänzt diesen Wert auch bei fehlender Angabe. Ohne dieses Backend
+     zeigt gewöhnliches UIA damit nur den Sichtbestand. Für dessen
+     vollständige passive Inventur wähle vorab `readMode: "grid"`. Beachte
+     Rohzeilen einschließlich Eingabeslots, `rowDetails` und die
+     Vollständigkeitsflags. Diese Lesepfade bewegen die Ansicht nicht.
+     Eine bereits begonnene, offscreen liegende Zeile braucht im nativen
+     Änderungsweg keinen vorherigen vollständigen Cursorlauf:
+     `sse_table_update` bindet und positioniert die eindeutig nachgewiesene
+     Zielzeile selbst. Lies vorher und nachher Tabelle, Seitensumme und
+     Teilzeile frisch; ändere ausschließlich den belegten Vorwert.
+     Im nichtnativen UIA-Pfad braucht `sse_table_update` dagegen eine bereits
+     sichtbare Zielzeile; ein vollständiger Gridread beweist nur die Daten,
+     keine Sichtbarkeit oder Materialisierung. Lies Ziel und Sichtbarkeit
+     frisch, bevor du eine notwendige gebundene UIA-Vorbereitung wählst.
+     `sse_table_add` besitzt seinen eigenen einmaligen bewachten Suchlauf,
+     `sse_table_delete` seine begrenzte HOME-/DOWN-Navigation.
+     `sse_table_read` mit `noKeys: false` nur ausdrücklich für fehlende
+     vollständige passive Lesepfade, bewiesen nötige UIA-Positionierung oder
+     gezielte GUI-Diagnose wählen. Der Positionsbedarf darf auch bei einem
+     vollständigen Gridread vorliegen. Ein voller Cursorlauf zeigt das
+     Tabellenende, keine beliebige Zielzeile; nutze ihn nur, wenn genau diese
+     Endposition frisch als nötig belegt ist. Für andere Zielzeilen ist ein
+     passender gebundener Weg erforderlich; ohne Zielnachweis stoppen.
+     Nach ungewissem Mutationsausgang weder neu positionieren noch blind
+     wiederholen. Alle Fokus-, Editor-, Eingabe-, Seiten- und
+     Tabellenprüfungen des API-Vertrags bleiben Pflicht; beachte zusätzlich
+     [ui-fallback.md](ui-fallback.md). Es gibt keinen
+     automatischen Methodenwechsel nach einem Fehler und keinen erneuten
+     Aktivierungsversuch bei ungewissem Ausgang.
    - Seitensummen der Vorsteuerseite tragen den gewählten Zeitraum im Label
      („… »2. Vierteljahr«“) und sind dann gefiltert: `sumLabel` vor jedem
      `sse_table_add`/`sse_table_delete` frisch aus `sse_read_page` nehmen.

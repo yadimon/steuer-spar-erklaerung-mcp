@@ -32,14 +32,11 @@ seine Bindungen erneut.
 ## First run
 
 Ist Fall oder Belegumfang noch unklar, lies
-[references/first-run.md](references/first-run.md). Der kurze Wizard:
-
-1. behält den ursprünglichen Auftrag;
-2. stellt höchstens eine Frage pro Nachricht;
-3. lässt einen bereits eindeutig geöffneten Fall gewinnen;
-4. bestätigt andernfalls Fall und vollständige Belegquellen;
-5. zeigt einen sicheren Plan und setzt nach Bestätigung den ursprünglichen
-   Auftrag fort.
+[references/first-run.md](references/first-run.md). Der kurze Wizard behält
+den ursprünglichen Auftrag, stellt höchstens eine Frage pro Nachricht und
+lässt einen eindeutig geöffneten Fall gewinnen. Andernfalls bestätigt er Fall
+und vollständige Belegquellen. Nach Bestätigung des sicheren Plans setzt er
+den ursprünglichen Auftrag fort.
 
 Bereits beantwortete Fragen nicht erneut stellen. Der First run darf keine
 Installerbefehle als Standardaktion ausführen, keine Clientkonfiguration
@@ -86,6 +83,23 @@ Datenbanksicherung nach
 [references/belegmanager-backup.md](references/belegmanager-backup.md) Pflicht;
 eine Falldatei-Sicherung ersetzt sie nicht.
 
+## Werkzeugwahl: Hauptweg, Fallback, Diagnose
+
+Bevorzuge strukturierte Leser wie `sse_read_page` und `sse_table_read` sowie
+Feld-, Tabellen-, Navigations- und UStVA-Spezialoperationen. `sse_snapshot`,
+`sse_find` und `sse_get_value` bleiben nützliche Leser für gezielte Nachweise.
+
+Kompatibilitäts-/UI-Fallbacks nur bei fehlendem Hauptweg oder bewiesenem
+UIA-Positionierungsbedarf: sichtbares `sse_read_table`, aktiver Tabellenlauf und
+generische Klick-, Baum-, Scroll- oder Menüwege. Grund benennen und
+[ui-fallback.md](references/ui-fallback.md) beachten. Die exakt gebundene
+RadioButton-Auswahl mit `sse_click pattern=select` bleibt unterstützt.
+
+`sse_screenshot`, `sse_snapshot_compare` und `sse_accessibility_probe` gezielt
+zur Diagnose verwenden; sie ersetzen keinen strukturierten Readback. Bei
+Fehlern stoppen und Zustand klären; kein automatischer Methoden-/Backendwechsel
+und keine Lockerung durch Weglassen der RuntimeId oder Namensraumwechsel.
+
 ## Wiederverwendbarer Ablauf
 
 1. **Binden:** Nach `sse_preflight` mit `sse_instances` den einen eindeutig
@@ -107,8 +121,7 @@ eine Falldatei-Sicherung ersetzt sie nicht.
 3. **Sichern:** Vor `sse_collect`, `sse_goto`, `sse_subpages`, navigierendem
    `sse_click_point`, Programm-Prüfer oder Mutation den unveränderten
    Dateistand genau einmal nach `backups:` sichern. Der vollständige
-   Sitzungsvertrag steht in
-   [references/case-session.md](references/case-session.md).
+   Sitzungsvertrag steht in [case-session.md](references/case-session.md).
 4. **Lesen:** Verfügbare Werkzeuge und Grenzen aus `sse_capabilities`, der
    API-Selbstbeschreibung und dem installierten API-Vertrag ableiten. Belege
    nur aus bestätigten Quellen inventarisieren. Ergebnisse strukturiert lesen;
@@ -116,31 +129,34 @@ eine Falldatei-Sicherung ersetzt sie nicht.
    sichtbaren Seite steht — welcher Betrag, welche Auswahl —, ist
    `sse_read_page` der billige Weg: eine Zeile je Beschriftung samt Wert.
    `sse_table_read` verwenden, wenn es um die Zeilen einer Buchungstabelle
-   geht. Für ein vollständiges UIA-Inventar ohne Fokuswechsel
-   `readMode: "grid"` wählen und `vollstaendig`, `limitReached` sowie
-   `rowDetails` prüfen. Die Rohzeilen enthalten auch leere Eingabeslots.
-   Dieser Modus bewegt keinen Cursor und erlaubt kein `noKeys: false`.
-   Der ausdrücklich gewählte Cursorlauf mit `noKeys: false` prüft dagegen
-   jeden Zeilenschritt und kann bei großen Tabellen deutlich länger dauern.
+   geht. MCP ergänzt bei fehlendem `noKeys` den Wert `true`; eine ausdrückliche
+   Angabe bleibt erhalten. Mit verifiziertem Qt-Backend liest dieser Hauptweg
+   das Modell passiv. Im gewöhnlichen UIA-Pfad ist `noKeys: true` nur der
+   sichtbare Teilbestand. Für dessen vollständiges Inventar vor dem Aufruf
+   ausdrücklich `readMode: "grid"` wählen. `vollstaendig`, `limitReached` und
+   `rowDetails` prüfen; die Rohzeilen enthalten auch leere Eingabeslots. Der
+   Gridmodus bewegt keinen Cursor und erlaubt kein `noKeys: false`.
+   Den aktiven Cursorlauf mit `noKeys: false` nur für fehlende passive Lesepfade,
+   bewiesen nötige UIA-Positionierung oder GUI-Diagnose wählen. Ein voller
+   Lauf zeigt das Tabellenende, keine beliebige Zielzeile. Kein Durchprobieren.
    Spaltenköpfe und die unter `summen` gelesenen Kontrollsummen liefern
    `sumLabel`, `sumOccurrence` und `expectedBefore` einer folgenden Änderung.
 5. **Ändern:** Nur genau eine eng gebundene Änderung oder einen bestätigten
    Batch ausführen. Für Tabellen den frisch gelesenen Vorwert beziehungsweise
    `expectedBefore` verwenden. Wert, Summe, Hash und Dirty-State sofort
-   zurücklesen. Ein vollständig bestätigter Cursorlauf kann die Vorbereitung
-   eines unmittelbar folgenden Anhängens verkürzen, weil er das Tabellenende
-   erreicht hat. Ein Grid-Inventar gibt diese Zusage nicht. Die Bibliothek
-   prüft die benötigte Position vor jeder Änderung selbst. Die
-   Werte in `werte` stehen in Spaltenreihenfolge ab der ersten Spalte —
-   führende Spalten wie eine automatische „Nr." gehören als leerer Wert dazu,
+   zurücklesen. Native Tabellenänderungen positionieren die gebundene Zielzeile
+   selbst; kein vorheriger voller Cursorlauf. UIA-Update braucht eine frisch
+   bewiesene sichtbare Zielzeile; ein vollständiger Gridread macht sie nicht
+   sichtbar. Interne Add-/Delete-Positionierung bleibt unverändert. Ein Inventar ist keine
+   Mutationsfreigabe. Die Werte in `werte` stehen in Spaltenreihenfolge ab der
+   ersten Spalte — führende Spalten wie eine automatische „Nr." gehören leer dazu,
    sonst rutscht jeder Wert eine Spalte nach links.
 6. **Prüfen:** Nach einer vollständigen Bearbeitung den Programm-Prüfer mit
    `sse_checker_run` starten und mit `sse_checker_results` lesen. Die Fallart
    bestimmt den profilierten Startweg; im Einkommensteuerfall muss die
    Prüfseite geöffnet sein. Einzelne Meldungen über ihren exakt gelesenen Namen
    mit `sse_checker_open` öffnen und mit Fundstelle und Vorschlag auflisten.
-   Erscheint beim Navigieren
-   der automatische Hinweis „Die Prüfung hat ergeben …“, mit
+   Erscheint beim Navigieren der automatische Hinweis „Die Prüfung hat ergeben …“, mit
    `sse_warning_popup_read` lesen und nur fingerprintgebunden über
    `sse_dialog_answer` („Jetzt ignorieren“ oder „Als gelesen markieren“)
    beantworten; den Navigationsklick nicht wiederholen, sondern
@@ -161,8 +177,7 @@ still den Transport wechseln.
 
 Lies nur die Referenz, die der aktuelle Auftrag tatsächlich braucht:
 
-- [first-run.md](references/first-run.md) — Fall oder Belegumfang ist noch
-  nicht eindeutig bestätigt;
+- [first-run.md](references/first-run.md) — Fall oder Belegumfang noch unbestätigt;
 - [case-session.md](references/case-session.md) — jede dirty-fähige Navigation,
   Mutation, Sicherung, Arbeitskopie oder Speicherung;
 - [ustva.md](references/ustva.md) — nur bei UStVA, Gewinn-Erfassung oder dem
@@ -173,8 +188,8 @@ Lies nur die Referenz, die der aktuelle Auftrag tatsächlich braucht:
   oder ein Reverse-Charge-Beleg eingetragen wird;
 - [steuerquellen.md](references/steuerquellen.md) — betragsrelevante oder
   strittige steuerfachliche Begründung;
-- [ui-fallback.md](references/ui-fallback.md) — nur wenn für ein benötigtes
-  Control keine Spezialoperation existiert;
+- [ui-fallback.md](references/ui-fallback.md) — fehlender Hauptweg,
+  belegter UIA-Positionierungsbedarf oder gezielte Kompatibilitätsdiagnose;
 - [belegmanager-backup.md](references/belegmanager-backup.md) — nur für eine
   in einem späteren Release ausdrücklich freigegebene BelegManager-Mutation.
 

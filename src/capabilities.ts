@@ -37,19 +37,55 @@ type FallbackStage = {
 
 const fallbackStages = [
   {
-    intent: "Schneller strukturierter Zustand",
-    operations: ["known_page_state", "page", "ui_state"],
-    rule: "Katalogisierte Seite bevorzugen; bei unbekannter Seite auf den generischen Snapshot wechseln.",
+    intent: "Standard: Strukturierter Zustand",
+    operations: ["known_page_state", "page", "read_page", "ui_state", "get_value"],
+    rule: "Katalogisierte und gezielte Lesungen bevorzugen; fuer get_value den beobachteten selectorNamespace explizit angeben. " +
+      "Unbekannte Controls lesend entdecken, statt einen Namensraum nach einer Ablehnung zu wechseln.",
+  },
+  {
+    intent: "Standard: Passiver Tabellenbestand",
+    operations: ["table_read"],
+    rule: "Native Modelllesung ohne Cursor bevorzugen. MCP setzt bei fehlendem noKeys explizit noKeys:true; " +
+      "Standard-UIA liefert damit nur sichtbare Zeilen, fuer ein vollstaendiges passives UIA-Inventar readMode:'grid' waehlen. " +
+      "Vollstaendigkeit und Limits pruefen; kein automatischer Backendwechsel nach einem Fehler. Direkte API-Defaults bleiben unveraendert.",
+  },
+  {
+    intent: "Standard: Verifizierte Transaktion",
+    operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
+    rule: "Passendes Spezialwerkzeug mit frischem Vorwert und Readback verwenden. Native Tabellenmutationen positionieren ihr Ziel selbst; " +
+      "keinen vollen Cursorlauf zur Schreibvorbereitung anfordern. Interne gebundene Positionierung bleibt Teil der Transaktion.",
   },
   {
     intent: "Unbekannte Controls entdecken",
-    operations: ["snapshot", "find", "positions", "accessibility_probe"],
+    operations: ["snapshot", "find", "positions"],
     rule: "Erst lesen; AutomationId oder RuntimeId aus demselben frischen Zustand uebernehmen.",
   },
   {
-    intent: "Eindeutig interagieren",
-    operations: ["click", "click_point", "toggle", "combo_options", "combo_select", "tracked_set_value"],
-    rule: "Spezialtransaktion fuer Checkbox, Dropdown und Schreibfeld; generischen Klick nur mit eindeutiger Bindung und Nachbedingung.",
+    intent: "Fallback: Gebundene generische UI-Interaktion",
+    operations: ["click", "click_point", "tree_top", "tree_scroll", "scroll", "scroll_page", "menu", "menu_click"],
+    rule: "Selten und nur bei konkret fehlender passender Spezialoperation verwenden; frische eindeutige Bindung und Nachbedingung bleiben Pflicht. " +
+      "click pattern='select' bleibt die unterstuetzte RadioButton-Transaktion. Kein Fallback nach Guard-, Dialog-, Hash-, Interferenz-, " +
+      "Transport- oder Readbackfehler; bei outcomeUnknown, ungeklaerter Mutation oder Recovery stoppen und lesend abgleichen.",
+  },
+  {
+    intent: "Fallback: Kompatible Teilansicht und Suche",
+    operations: ["read_table", "set_value"],
+    rule: "read_table nur fuer eine bewusst sichtbare Teilansicht, nicht als vollstaendiges Inventar; table_read bevorzugen. " +
+      "set_value ist ausschliesslich das gebundene globale Suchfeld, keine allgemeine Alternative zu verifizierten Feld- oder Tabellenmutationen.",
+  },
+  {
+    intent: "Fallback: Aktiver Tabellenlauf und Diagnose",
+    operations: ["table_read"],
+    rule: "Im MCP waehlt nur ausdrueckliches noKeys:false diesen langsamen aktiven Kompatibilitaets-/Diagnosemodus; direkte API-Defaults bleiben kompatibel. " +
+      "Nur bei belegter fehlender vollstaendiger passiver Lesefaehigkeit, nachweislich benoetigter UIA-Schreibposition oder gezielter GUI-Diagnose ausdruecklich anfordern. " +
+      "Der volle Lauf zeigt das Tabellenende, nicht eine beliebige Zielzeile; vor dem Schreiben Ziel und Vorwerte frisch pruefen. " +
+      "Kein automatischer Fallback und keine Vorbereitungspflicht fuer native Tabellenmutationen.",
+  },
+  {
+    intent: "Diagnose: Darstellung untersuchen",
+    operations: ["snapshot_compare", "accessibility_probe", "screenshot"],
+    rule: "Nur zur gezielten Untersuchung einer konkreten Darstellungs-/Providergrenze oder auf ausdruecklichen Diagnoseauftrag verwenden. " +
+      "Strukturierte Lesungen zuerst; Diagnose erteilt keine Berechtigung fuer einen anderen Schreibweg.",
   },
   {
     intent: "Dialog sicher fortsetzen",
