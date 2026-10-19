@@ -87,6 +87,7 @@ export class Client {
       case "sse_launch": return result({ pid: 27182, instance: { pid: 27182, hwnd: 31415 } });
       case "sse_page": return result({ ueberschrift: page });
       case "sse_table_read": {
+        assert.equal(args.noKeys, false, "State journey must explicitly request its guarded cursor path, including native configuration.");
         let observed = structuredClone(rows);
         if (mode === "changed-after-navigation" && navigatedAway && page === tableHeading) observed[0][1] += " changed";
         if (mode === "lost-offscreen-row" && navigatedAway && page === tableHeading) observed.pop();

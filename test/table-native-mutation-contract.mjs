@@ -65,7 +65,7 @@ function nativeGeometry(op, model, binding) {
 }
 
 async function run(options = {}) {
-  const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], releases = [], preparations = [];
+  const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], releases = [], releasePhases = [], preparations = [];
   const targetColumn = options.hiddenColumnBeforeTarget ? 3 : 2;
   const activeHeaders = options.category ? ["Nr.", "Datum", "Bezeichnung", "Kategorie", "%", "Netto"] : headers;
   if (options.category) {
@@ -116,8 +116,13 @@ async function run(options = {}) {
       if (options.positionAckThrows) throw new QtNativeAcknowledgmentError("Do not project raw transport messages", "native-mutation-receipt",
         { id: 4, ok: true, positioned: true, mutationAttempted: true, mutationReceipt: "987654321", physicalInputUsed: false,
           inputTick: 123, numberEditorPending: false, binding: copy(model.cursorFocusBinding) });
-      if (options.positionRejects) return { result: { ok: false, mutationAttempted: false, ...(options.nativePayload ?? {}) },
-        receiptAcknowledged: options.rejectedReceiptAcknowledged === true };
+      if (options.positionRejects) {
+        const result = { ok: false, mutationAttempted: false, outcomeUnknown: false, controllerBound: true,
+          code: "editor-open", error: "The currently focused widget is not a proven owned passive focus source",
+          ...(options.nativePayload ?? {}) };
+        if (options.missingNativeEvidence) delete result[options.missingNativeEvidence];
+        return { result, receiptAcknowledged: options.rejectedReceiptAcknowledged === true };
+      }
       model.cursorFocusBinding.currentIndex = [options.wrongPosition ? positionRow - 1 : positionRow, 0];
       model.cursorFocusBinding.selectedIndexes = [[positionRow, options.wrongSelection ? 1 : 0]];
       if (options.positionUnknown) return { result: { ok: false, mutationAttempted: true, outcomeUnknown: true,
@@ -186,13 +191,20 @@ async function run(options = {}) {
       assert.deepEqual(plan.numberPolicy, { tableName: model.table.name, headers: activeHeaders });
       if (options.acquireFocusFails) return { ok: false, kind: "cursor-proof-failed", outcomeUnknown: false,
         cursorActivation: { footerFocus: { focusAttempted: true } } };
-      return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected(),
-        activationSubmitted: options.acquireFocusSubmitted === true };
+      const acquired = { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected(),
+        activationSubmitted: options.acquireFocusSubmitted === true, physicalInputUsed: false, steps: 0 };
+      if (options.missingAcquireEvidence) delete acquired[options.missingAcquireEvidence];
+      if (options.acquireEvidence) Object.assign(acquired, options.acquireEvidence);
+      return acquired;
     }
-    if (plan.phase === "native-release") {
-      releases.push(plan.lease.nonce);
+    if (["native-release", "native-revoke-noop"].includes(plan.phase)) {
+      releases.push(plan.lease.nonce); releasePhases.push(plan.phase);
       if (options.releaseThrows) throw new Error("PRIVATE_RELEASE_ERROR");
       if (options.releaseReply) return copy(options.releaseReply);
+      if (plan.phase === "native-revoke-noop") return { ok: true, cursorLeaseRevoked: true, focusTelemetry: {
+        releasedByEmit: true, foregroundRestored: false, cursorRestored: false,
+        restoreSkippedReason: "cursor-source-not-proven-editor-free", foreground: { afterRestoreHwnd: 111 },
+      } };
       return { ok: true, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } };
     }
     if (plan.phase === "checkpoint") return { ok: true, cursorCheckpoint: true };
@@ -255,7 +267,7 @@ async function run(options = {}) {
   const result = options.publicRead || options.appendSeek
     ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, undefined, options.appendSeek === true)
     : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, options.timeoutMs ?? 30000, undefined, catalog);
-  return { result, keys, positions, mutations, focuses, probes, releases, preparations };
+  return { result, keys, positions, mutations, focuses, probes, releases, releasePhases, preparations };
 }
 for (const operation of ["table_update", "table_delete"]) {
   const result = await run({ operation });
@@ -519,14 +531,17 @@ assert.equal(cleanNativeRejection.result.activationSubmitted, false);
 assert.equal(cleanNativeRejection.result.reconciliationRequired, false);
 assert.equal(cleanNativeRejection.mutations.length, 0);
 assert.equal(cleanNativeRejection.positions.length, 1);
-assert.equal(cleanNativeRejection.releases.length, 1, "Proven no-op must release its existing passive lease.");
+assert.equal(cleanNativeRejection.releases.length, 1, "Proven no-op must revoke its existing lease without restoring focus.");
+assert.deepEqual(cleanNativeRejection.releasePhases, ["native-revoke-noop"]);
+assert.equal(cleanNativeRejection.focuses.length, 0); assert.deepEqual(cleanNativeRejection.keys, []);
 assert.deepEqual(cleanNativeRejection.result.cursorActivation.nativeRelease,
   { attempted: true, workerOk: true, leaseReleased: true, releasedByEmit: true, threw: false });
 for (const reply of [
-  { ok: false, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } },
-  { ok: true, cursorLeaseReleased: false, focusTelemetry: { releasedByEmit: true } },
-  { ok: true, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: false } },
-  { ok: true, cursorLeaseReleased: true },
+  { ok: false, cursorLeaseRevoked: true, focusTelemetry: { releasedByEmit: true } },
+  { ok: true, cursorLeaseRevoked: false, focusTelemetry: { releasedByEmit: true } },
+  { ok: true, cursorLeaseRevoked: true, focusTelemetry: { releasedByEmit: false } },
+  { ok: true, cursorLeaseRevoked: true },
+  { ok: true, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } },
 ]) {
   const rejected = await run({ positionRejects: true, releaseReply: { ...reply, privateError: "PRIVATE_RELEASE_ERROR" } });
   assert.equal(rejected.result.outcomeUnknown, false);
@@ -535,10 +550,29 @@ for (const reply of [
   assert.equal(rejected.result.reconciliationRequired, true);
   assert.equal(rejected.result.mutationStarted, null);
   assert.deepEqual(rejected.result.cursorActivation.nativeRelease, { attempted: true, workerOk: reply.ok,
-    leaseReleased: reply.cursorLeaseReleased, releasedByEmit: reply.focusTelemetry?.releasedByEmit ?? null, threw: false });
+    leaseReleased: reply.cursorLeaseRevoked ?? null, releasedByEmit: reply.focusTelemetry?.releasedByEmit ?? null, threw: false });
   assert.equal(rejected.positions.length, 1); assert.equal(rejected.focuses.length, 0);
   assert.equal(rejected.mutations.length, 0); assert.equal(rejected.releases.length, 1); assert.deepEqual(rejected.keys, []);
   assert(!JSON.stringify(rejected.result).includes("PRIVATE_RELEASE_ERROR"));
+}
+const preservedRevoke = { ok: true, cursorLeaseRevoked: true, focusTelemetry: {
+  releasedByEmit: true, foregroundRestored: false, cursorRestored: false,
+  restoreSkippedReason: "cursor-source-not-proven-editor-free", foreground: { afterRestoreHwnd: 111 },
+} };
+for (const change of [{ foregroundRestored: true }, { cursorRestored: true },
+  { restoreSkippedReason: "already-restored" }, { foreground: { afterRestoreHwnd: 222 } }]) {
+  const reply = copy(preservedRevoke); Object.assign(reply.focusTelemetry, change);
+  const rejected = await run({ positionRejects: true, releaseReply: reply });
+  assert.equal(rejected.result.ok, false); assert.equal(rejected.result.outcomeUnknown, true,
+    "An unexpected restoration can commit an editor and must not retain a known no-op outcome.");
+  assert.equal(rejected.result.cleanupRequired, true); assert.equal(rejected.result.reconciliationRequired, true);
+  assert.equal(rejected.mutations.length, 0); assert.deepEqual(rejected.keys, []);
+}
+for (const field of ["foregroundRestored", "cursorRestored", "restoreSkippedReason", "foreground"]) {
+  const reply = copy(preservedRevoke); delete reply.focusTelemetry[field];
+  const rejected = await run({ positionRejects: true, releaseReply: reply });
+  assert.equal(rejected.result.ok, false); assert.equal(rejected.result.cleanupRequired, true);
+  assert.equal(rejected.result.reconciliationRequired, true, "Missing preserve proof cannot become a clean release.");
 }
 const releaseThrew = await run({ positionRejects: true, releaseThrows: true });
 assert.equal(releaseThrew.result.outcomeUnknown, false);
@@ -552,7 +586,14 @@ assert.deepEqual(nativeUnknown.result.cursorActivation.nativeRelease,
   { attempted: false, workerOk: null, leaseReleased: null, releasedByEmit: null, threw: false });
 const commonBridgePreflight = readFileSync("native/qt/bridge.cpp", "utf8");
 assert.match(commonBridgePreflight,
-  /error\("window-obstructed", "The bound window is disabled or blocked by a modal dialog"\)/u);
+  /return noMutationError\("window-obstructed", "The bound window is disabled or blocked by a modal dialog"\)/u);
+const noMutationProducer = commonBridgePreflight.match(
+  /static Json noMutationError\([^)]*\)\s*\{(?<body>[\s\S]*?)^\}/mu);
+assert(noMutationProducer, "The actual no-mutation producer must remain identifiable.");
+assert.match(noMutationProducer.groups.body, /result\["mutationAttempted"\]\s*=\s*false\s*;/u,
+  "The producer must explicitly acknowledge that no mutation was attempted.");
+assert.match(noMutationProducer.groups.body, /result\["outcomeUnknown"\]\s*=\s*false\s*;/u,
+  "A completed no-mutation rejection must explicitly acknowledge its known outcome.");
 const commonBlocked = await run({ positionRejects: true, nativePayload: {
   code: "window-obstructed", error: "The bound window is disabled or blocked by a modal dialog",
   outcomeUnknown: false, physicalInputUsed: false, nonce: "PRIVATE_NONCE", values: ["PRIVATE_VALUE"],
@@ -562,6 +603,7 @@ assert.equal(commonBlocked.result.cursorActivation.nativePosition.reason, "windo
 assert.equal(commonBlocked.result.activationSubmitted, false); assert.equal(commonBlocked.result.outcomeUnknown, false);
 assert.equal(commonBlocked.result.mutationStarted, false);
 assert.equal(commonBlocked.positions.length, 1); assert.equal(commonBlocked.releases.length, 1);
+assert.deepEqual(commonBlocked.releasePhases, ["native-revoke-noop"]);
 assert.equal(commonBlocked.focuses.length, 0); assert.equal(commonBlocked.mutations.length, 0); assert.deepEqual(commonBlocked.keys, []);
 assert(!JSON.stringify(commonBlocked.result).includes("PRIVATE_"));
 const changedCommonText = await run({ positionRejects: true, nativePayload: {
@@ -578,8 +620,39 @@ for (const options of [
 ]) {
   const rejected = await run(options);
   assert.equal(rejected.result.outcomeUnknown, true, "Earlier/uncertain/receipted actions cannot become a no-op.");
+  assert.equal(rejected.releasePhases.includes("native-revoke-noop"), false,
+    "Prior actions, unknown results and receipts cannot authorize no-op revocation.");
   assert.equal(rejected.mutations.length, 0);
   assert.equal(rejected.positions.length, 1);
+}
+
+// Contradictory success/action evidence must not authorize a no-op revocation.
+for (const missingNativeEvidence of ["outcomeUnknown", "controllerBound", "code"]) {
+  const rejected = await run({ positionRejects: true, missingNativeEvidence });
+  assert.equal(rejected.releasePhases.includes("native-revoke-noop"), false);
+}
+for (const code of ["GUI_OPERATION_TIMEOUT", "GUI_QUEUE_TIMEOUT", "GUI_DISPATCH_FAILED", "SESSION_OWNER_GONE",
+  "SESSION_RELEASING", "RECOVERY_REQUIRED", "MUTATION_ACK_REQUIRED", "busy", "worker-isolation-lost", "unrecognized"]) {
+  const rejected = await run({ positionRejects: true, nativePayload: { code } });
+  assert.equal(rejected.result.ok, false); assert.equal(rejected.releasePhases.includes("native-revoke-noop"), false,
+    "A global recovery/session/controller or unrecognized outcome is not a clean current-table rejection.");
+}
+for (const missingAcquireEvidence of ["activationSubmitted", "physicalInputUsed", "steps"]) {
+  const rejected = await run({ positionRejects: true, missingAcquireEvidence });
+  assert.equal(rejected.result.ok, false);
+  assert.equal(rejected.releasePhases.includes("native-revoke-noop"), false,
+    "Absent acquire evidence cannot be manufactured as a proven no-action handover.");
+}
+for (const acquireEvidence of [{ activationSubmitted: null }, { activationSubmitted: "false" },
+  { physicalInputUsed: null }, { physicalInputUsed: true }, { steps: null }, { steps: 1 }]) {
+  const rejected = await run({ positionRejects: true, acquireEvidence });
+  assert.equal(rejected.result.ok, false); assert.equal(rejected.releasePhases.includes("native-revoke-noop"), false);
+}
+for (const nativePayload of [{ positioned: true }, { numberEditorPending: true }, { physicalInputUsed: true }]) {
+  const rejected = await run({ positionRejects: true, nativePayload });
+  assert.equal(rejected.result.ok, false); assert.equal(rejected.positions.length, 1);
+  assert.equal(rejected.releasePhases.includes("native-revoke-noop"), false);
+  assert.equal(rejected.mutations.length, 0); assert.deepEqual(rejected.keys, []);
 }
 
 for (const options of [{ focusNoop: true }, { clipped: true }, { probeFails: true }, { noPositionProtocol: true },

@@ -102,7 +102,7 @@ try {
   let erwartetesInventar;
   /** Liest die Tabelle und haelt sie gegen das vollstaendige Modell. */
   async function pruefeModell(schritt, erwarteteMarker, erwarteteSumme) {
-    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, noKeys: false, hwnd });
     const zellen = gelesen.zeilen.flat().map((zelle) => String(zelle ?? ""));
     const gefunden = ALLE_MARKER.filter((betrag) => zellen.includes(betrag));
     // Summe und Zeilenzahl gehoeren in dieselbe Meldung: stimmt die Summe und
@@ -137,7 +137,7 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
     return gelesen;
   }
 
-  const start = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+  const start = await call("sse_table_read", { sumLabel, sumOccurrence, noKeys: false, hwnd });
   erwartetesInventar = stateJourneyInventory(start, "Ausgangszustand");
   const startSumme = start.summe;
   let cents = parseCents(startSumme);
@@ -153,7 +153,7 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
   assert(spalten.includes("Bezeichnung"), "Die Tabelle braucht eindeutige synthetische Zeilenbezeichnungen.");
 
   async function mutationsReadback(mutation, schritt) {
-    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, noKeys: false, hwnd });
     const inventar = stateJourneyInventory(gelesen, schritt);
     assertStateMutation(erwartetesInventar, inventar, mutation, amountColumn, schritt);
     assert.equal(gelesen.summe, formatCents(cents), `${schritt}: falsche Nachher-Summe.`);
@@ -176,7 +176,7 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
   }
 
   async function zeileLoeschen(betrag, schritt) {
-    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, noKeys: false, hwnd });
     const spaltenIndex = gelesen.kopf.indexOf(amountColumn);
     assertStateRowsUnchanged(erwartetesInventar, stateJourneyInventory(gelesen, schritt), schritt);
     const zeilen = gelesen.zeilen.filter(zeile => zeile[spaltenIndex] === betrag);
@@ -203,7 +203,7 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
 
   /** Aendert den Betrag einer vorhandenen Zeile und fuehrt das Modell nach. */
   async function zeileAendern(vonBetrag, nachBetrag, schritt) {
-    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, noKeys: false, hwnd });
     const spaltenIndex = gelesen.kopf.indexOf(amountColumn);
     assertStateRowsUnchanged(erwartetesInventar, stateJourneyInventory(gelesen, schritt), schritt);
     const zeilen = gelesen.zeilen.filter(zeile => zeile[spaltenIndex] === vonBetrag);
@@ -280,7 +280,7 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
   for (const betrag of [...MARKER.slice(0, 5)].reverse()) {
     await zeileLoeschen(betrag, `Rueckbau ${betrag}`);
   }
-  const ende = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+  const ende = await call("sse_table_read", { sumLabel, sumOccurrence, noKeys: false, hwnd });
   assertStateRowsUnchanged(stateJourneyInventory(start, "Ausgangszustand"),
     stateJourneyInventory(ende, "Rueckbau"), "Rueckbau");
   assert.equal(ende.summe, startSumme,

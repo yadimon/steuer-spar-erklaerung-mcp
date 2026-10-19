@@ -655,6 +655,7 @@ try {
   });
   assert.equal(wrongRoot.result.ok, false); assert.equal(wrongRoot.result.code, "stale-window");
   assert.equal(wrongRoot.result.mutationAttempted, false); assert.equal(wrongRoot.receiptAcknowledged, false);
+  assert.equal(wrongRoot.result.outcomeUnknown, false, "The actual no-mutation producer must explicitly acknowledge its known outcome.");
   assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, literal);
   assert.equal((await read("get_value", { aid: "syntheticEditedCount" })).value, "1");
   const staleEdit = await editAction(lineTarget, "replace-edit-text", { expectedValue: "Changed by table action", value: "Do not write" });

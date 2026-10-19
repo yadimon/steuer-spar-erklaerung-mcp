@@ -17988,6 +17988,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
   let binding = initial, lease, unknownAuthority = false, nativeQuiescent = true;
   const issuedNonces = /* @__PURE__ */ new Set();
   let submitted = false, positioned = false, stage = "native-position-preproof", result;
+  let acquisitionNoActionProved = false, provenInitialNoop = false;
   let nativeDiagnostic;
   const nativeRelease = {
     attempted: false,
@@ -18030,7 +18031,10 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     }
     nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch, reply.result, reply.receiptAcknowledged);
     nativeQuiescent = reply.result.outcomeUnknown !== true && typeof reply.result.mutationAttempted === "boolean" && (!reply.result.mutationAttempted || reply.receiptAcknowledged);
-    if (!priorSubmitted && !positioned && op === "table_position_number" && reply.result.ok === false && reply.result.mutationAttempted === false && reply.result.outcomeUnknown !== true && !Object.hasOwn(reply.result, "mutationReceipt") && reply.receiptAcknowledged === false) submitted = false;
+    if (!priorSubmitted && !positioned && op === "table_position_number" && reply.result.ok === false && reply.result.mutationAttempted === false && reply.result.outcomeUnknown !== true && !Object.hasOwn(reply.result, "mutationReceipt") && reply.receiptAcknowledged === false) {
+      submitted = false;
+      provenInitialNoop = acquisitionNoActionProved && reply.result.outcomeUnknown === false && reply.result.controllerBound === true && typeof reply.result.code === "string" && nativeNoopRejectionCodes.has(reply.result.code) && reply.result.positioned !== true && reply.result.numberEditorPending !== true && reply.result.physicalInputUsed !== true;
+    }
     if (reply.result.ok !== true || reply.result[op === "table_position_number" ? "positioned" : "focused"] !== true || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean" || reply.result.mutationAttempted && !reply.receiptAcknowledged) rejectProof("native-position-acknowledgment");
     if (op === "table_position_number" && typeof reply.result.numberEditorPending !== "boolean") rejectProof("native-position-editor-inventory");
     if (reply.result.numberEditorPending === true) nativeQuiescent = false;
@@ -18065,6 +18069,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     if (!sameContext(binding, fresh) || lease.rootHwnd !== binding.hwnd || lease.targetPid !== binding.pid || lease.inputEpoch !== binding.inputEpoch || fresh.inputEpoch !== binding.inputEpoch) rejectProof("native-position-acquire-context");
     binding = fresh;
     unknownAuthority = false;
+    acquisitionNoActionProved = acquired.ok === true && acquired.activationSubmitted === false && acquired.physicalInputUsed === false && acquired.steps === 0;
     let model = await verify(), focus = nativeFocusBinding(model, binding);
     stage = "native-position-dispatch";
     const positionReply = await acknowledged("table_position_number", focus, { targetRow }), afterPosition = positionReply.focus;
@@ -18173,12 +18178,19 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     if (lease && nativeQuiescent) {
       nativeRelease.attempted = true;
       try {
-        const released = await release("native-release", binding, { lease });
+        const released = await release(provenInitialNoop ? "native-revoke-noop" : "native-release", binding, { lease });
         const telemetry = released.focusTelemetry;
-        unknownAuthority = released.ok !== true || released.cursorLeaseReleased !== true || !telemetry || typeof telemetry !== "object" || telemetry.releasedByEmit !== true;
+        const marker = provenInitialNoop ? released.cursorLeaseRevoked : released.cursorLeaseReleased;
+        const details = telemetry && typeof telemetry === "object" ? telemetry : void 0;
+        const foreground = details?.foreground && typeof details.foreground === "object" ? details.foreground : void 0;
+        const preserved = details?.foregroundRestored === false && details?.cursorRestored === false && details?.restoreSkippedReason === "cursor-source-not-proven-editor-free" && foreground?.afterRestoreHwnd === binding.hwnd;
+        unknownAuthority = released.ok !== true || marker !== true || details?.releasedByEmit !== true || provenInitialNoop && (!preserved || released.cursorLeaseReleased === true);
+        if (provenInitialNoop && (details?.foregroundRestored === true || details?.cursorRestored === true || typeof details?.restoreSkippedReason === "string" && details.restoreSkippedReason !== "cursor-source-not-proven-editor-free" || typeof foreground?.afterRestoreHwnd === "number" && foreground.afterRestoreHwnd !== binding.hwnd)) {
+          result = { ...result, outcomeUnknown: true, cleanupRequired: true, reconciliationRequired: true };
+        }
         try {
           nativeRelease.workerOk = typeof released.ok === "boolean" ? released.ok : null;
-          nativeRelease.leaseReleased = typeof released.cursorLeaseReleased === "boolean" ? released.cursorLeaseReleased : null;
+          nativeRelease.leaseReleased = typeof marker === "boolean" ? marker : null;
           const releasedByEmit = telemetry && typeof telemetry === "object" ? telemetry.releasedByEmit : void 0;
           nativeRelease.releasedByEmit = typeof releasedByEmit === "boolean" ? releasedByEmit : null;
         } catch {
@@ -18194,7 +18206,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     cursorActivation: { ...result.cursorActivation, nativeRelease }
   } : {}, ...unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {} };
 }
-var nativeCodes, nativeReasons, nativeTransportKinds, checkpointReasons, checkpointProofReasons;
+var nativeCodes, nativeReasons, nativeTransportKinds, nativeNoopRejectionCodes, checkpointReasons, checkpointProofReasons;
 var init_table_cursor_position = __esm({
   "src/table-cursor-position.ts"() {
     "use strict";
@@ -18268,6 +18280,14 @@ var init_table_cursor_position = __esm({
       "native-request-size",
       "native-queue-full",
       "aborted"
+    ]);
+    nativeNoopRejectionCodes = /* @__PURE__ */ new Set([
+      "INVALID_POSITION_TARGET",
+      "window-obstructed",
+      "precondition-failed",
+      "stale-window",
+      "stale",
+      "editor-open"
     ]);
     checkpointReasons = /* @__PURE__ */ new Set([
       "phase-precondition",

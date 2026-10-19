@@ -19607,9 +19607,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       elseif ($cursorPhase -ceq 'native-step') { $allowedPlanFields+=@('binding','lease','selectedRids','step') }
       elseif ($cursorPhase -cin @('native-position-checkpoint','native-position-prepare')) { $allowedPlanFields+=@('binding','lease','position') }
       elseif ($cursorPhase -ceq 'mutation-target') { $allowedPlanFields+=@('binding','target','targetRid') }
-      elseif ($cursorPhase -ceq 'native-release') { $allowedPlanFields+=@('binding','lease') }
+      elseif ($cursorPhase -cin @('native-release','native-revoke-noop')) { $allowedPlanFields+=@('binding','lease') }
       elseif ($cursorPhase -cin @('checkpoint','mutation-checkpoint')) { $allowedPlanFields+=@('binding') }
-      if ($cursorPlan.schemaVersion -ne 1 -or $cursorPhase -cnotin @('prebind','activate','resume','checkpoint','native-acquire','native-position-acquire','native-step','native-release','mutation-target','mutation-checkpoint','native-position-checkpoint','native-position-prepare') -or
+      if ($cursorPlan.schemaVersion -ne 1 -or $cursorPhase -cnotin @('prebind','activate','resume','checkpoint','native-acquire','native-position-acquire','native-step','native-release','native-revoke-noop','mutation-target','mutation-checkpoint','native-position-checkpoint','native-position-prepare') -or
           @($cursorPlan.PSObject.Properties.Name | Where-Object { $_ -cnotin $allowedPlanFields }).Count -or
           (Arg $a 'noKeys') -ne $false -or -not $sumLabel) { Fail 'Privater Tabellenlaufplan ist nicht exakt gebunden.' 'bad-args' }
     }
@@ -19990,7 +19990,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $script:DESKTOP_NAME -or (Test-SSEWindowIsLockScreen ([SW]::GetForegroundWindow())))) {
         Fail 'Privater einzelner Cursorschritt ist nicht exakt gebunden; keine Eingabe.' 'bad-args'
       }
-      if ($cursorPhase -cin @('native-release','native-step') -or ($cursorPhase -ceq 'resume' -and $cursorPlan.lease)) {
+      if ($cursorPhase -cin @('native-release','native-revoke-noop','native-step') -or ($cursorPhase -ceq 'resume' -and $cursorPlan.lease)) {
         # Import only after all passive page/model/editor/window/epoch proofs.
         # This never reacquires a changed foreground or resets the input epoch.
         if ($cursorPhase -ceq 'native-release' -and
@@ -19998,8 +19998,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $erst.navigationBinding.tableRootAid $erst.navigationBinding.tableRootRid)) {
           Fail 'Unbekannter aktiver Fokus darf durch die private Rueckgabe nicht beendet werden.' 'interference'
         }
+        if ($cursorPhase -ceq 'native-revoke-noop') {$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true}
         if (-not (Import-SSETableCursorLease $hwnd ([int]$main.pid) $inherited.inputEpoch $cursorPlan.lease)) {
           Fail 'Private Fokus-Rueckgabe ist nicht mehr exakt gebunden; keine Fokusaktion.' 'interference'
+        }
+        # A proven first native no-op relinquishes this exact lease without
+        # leaving the current source. Ordinary release still proves FocusOut.
+        if ($cursorPhase -ceq 'native-revoke-noop') {
+          Emit ([pscustomobject]@{ok=$true;cursorLeaseRevoked=$true;physicalInputUsed=$false;steps=0})
         }
         if ($cursorPhase -ceq 'native-step') {$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true}
         if ($cursorPhase -ceq 'native-release') {

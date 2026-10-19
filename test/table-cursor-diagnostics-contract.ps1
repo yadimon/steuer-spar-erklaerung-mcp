@@ -123,6 +123,11 @@ foreach($case in @('position-empty-selection','position-document-source','positi
   Invoke-SyntheticCursorAcquire
   $success=$case -cin @('position-empty-selection','position-document-source','position-missing-source')
   if($script:emitted.ok -ne $success) {throw "$case`: position-only passive lease proof mismatch."}
+  if($success -and ($script:emitted.activationSubmitted -isnot [bool] -or
+      $script:emitted.physicalInputUsed -isnot [bool] -or $script:emitted.physicalInputUsed -or
+      $script:emitted.steps -ne 0)) {throw 'Acquire no-action evidence was missing, inferred, mistyped or physically submitted.'}
+  if($case -cin @('position-document-source','position-missing-source') -and
+      $script:emitted.activationSubmitted -cne $false) {throw 'Unattempted source delegation omitted its explicit no-action acknowledgment.'}
   if($script:anchorCalls -ne 0 -or $script:footerCalls -ne 1) {throw "$case`: position acquisition selected an anchor or retried focus."}
   if($script:emitted.physicalInputUsed -or $script:emitted.steps -ne 0) {throw 'Position acquisition issued input before the broker target action.'}
   if($success -and @($script:emitted.selectedRids).Count) {throw 'An empty Qt selection was replaced by guessed UIA cell authority.'}

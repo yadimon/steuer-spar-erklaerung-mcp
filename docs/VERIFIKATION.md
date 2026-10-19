@@ -250,6 +250,39 @@ oder Soak beweist keine vollständige native Qt-Reise. Ein abgebrochener
 Mega-Lauf mit erfolgreicher Bereinigung bleibt ein fehlgeschlagener Lauf und
 ist keine Gesamtzeit-Baseline.
 
+### Zustandsübergänge getrennt prüfen
+
+`npm run test:live-state` fordert den geschützten Cursor ausdrücklich mit
+`noKeys: false` an, auch bei nativer Konfiguration. Die Mega-Reise behält ihren
+getrennten passiven Modell-Readback mit `noKeys: true`.
+
+`test:live-native-add-update` prüft unmittelbar `table_add` → passives
+`table_read` → `table_update` mit der von Add gelieferten Zellidentität.
+Zwischen diesen Aufrufen bereitet kein weiterer Fokus- oder Cursoraufruf den
+Zustand vor. Jeder Durchlauf verwendet eine neue Herstellerfallkopie und einen
+frischen Produktprozess. Vollständige Werte, Zelltypen, Checkboxzustände und
+unveränderte andere Zeilen werden geprüft. Eine fehlgeschlagene Mutation wird
+nicht wiederholt; die erste Abweichung beendet die Serie.
+
+Nach einem kompatiblen nativen Build, ohne vorhandene SSE-Instanz und in einer
+unbenutzten entsperrten Windows-Sitzung:
+
+```powershell
+$nativePackage = (Get-Content -Raw -LiteralPath artifacts/qt-native/native-package.json | ConvertFrom-Json).qtNativeRuntime
+$env:SSE_TEST_NATIVE_PACKAGE = $nativePackage.directory
+$env:SSE_TEST_NATIVE_MANIFEST_SHA256 = $nativePackage.manifestSha256
+$env:SSE_TEST_API_PREWARM = '1'
+$env:SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE = '1'
+$env:SSE_NATIVE_ADD_UPDATE_REPORT = Join-Path ([IO.Path]::GetTempPath()) ('sse-native-transition-' + [guid]::NewGuid().ToString('N') + '.json')
+npm run test:live-native-add-update -- --cycles=3
+```
+
+Bericht und `.calls.jsonl` bleiben außerhalb des Repositorys. Nach dem Lauf die
+gesetzten Testvariablen aus der Sitzung entfernen. Alle GUI-/Controller-Läufe
+bleiben seriell. Der vollständige native Mega-Lauf bleibt ein eigener Nachweis;
+eine erfolgreiche Wiederholung beweist keine Reparatur einer früheren
+sporadischen Ablehnung. Diese Live-Prüfung bleibt ausdrücklich opt-in.
+
 `test:privacy` prüft Arbeitsbaum, nicht ignorierte neue Textdateien und die
 Git-Historie aller Referenzen auf private Daten und verbotene Pfade. Die eng
 geprüfte Ausnahme für eine unveränderte Herstellerbibliothek bindet Pfad und

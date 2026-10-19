@@ -38,6 +38,16 @@ unbekannte Ausgänge oder nicht bestätigte Mutationsbelege bleiben dagegen
 abgleichpflichtig. Auch eine bekannte Ablehnung löst keinen automatischen
 Schreibversuch aus.
 
+Nach einer ausdrücklich bestätigten ersten lokalen No-op-Ablehnung kann die
+private Transaktion ihre reservierte Fokushoheit beenden, ohne den aktuellen
+Fokus oder Cursor wiederherzustellen. Dafür müssen auch die Übernahme ohne
+vorherige Aktion, die unveränderte Bindung und der tatsächlich ausgelassene
+Fokuswechsel bestätigt sein. Eine gewöhnliche Rückgabe, die den früheren
+Vordergrund wiederherstellen kann, behält ihren eigenen Quellfokusnachweis.
+Fehlende Freigabenachweise bleiben bereinigungs- und abgleichpflichtig; eine
+unerwartete Fokuswiederherstellung erhält zusätzlich einen unbekannten Ausgang.
+Die ursprüngliche Ablehnung bleibt in jedem Fall ein Fehler.
+
 Die native Fixture prüft wiederholte Modell-/Seitenwechsel vor der ersten
 Accessibility-Aktivierung sowie kontrollierte GUI-Blockaden vor und während
 eines Modellreads. Ein vor Dispatch abgesagter Callback darf später nicht

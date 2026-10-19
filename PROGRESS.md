@@ -2,11 +2,38 @@
 
 ## Arbeitsstand und Ziel
 
-`main` enthält den geprüften Stabilisierungsstand. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
+`main` enthält den zuvor geprüften Stabilisierungsstand. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
 Die vorgesehenen Offline-, Live-, Mega-, nativen, Last- und Paketprüfungen sind abgeschlossen. Die erneute native Mega-Reise besteht ebenfalls; ein früherer kontrollierter Abbruch bleibt in seiner Ursache ungeklärt. Eine Freigabe für Produktivinstallation oder Veröffentlichung wird daraus nicht vorweggenommen.
 
 Ziel sind komfortable Low-Level-Operationen und überprüfte höhere Abläufe: Identität und Ausgangszustand lesen, Aktion gezielt ausführen, Ergebnis frisch lesen und prüfen.
 Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt weder blindes Wiederholen noch einen alternativen Eingriff.
+
+## Aktuelle Nacharbeit
+
+Die private native Positionierung erhält einen eng begrenzten Abschluss nach
+einer bestätigten ersten lokalen Ablehnung ohne Aktion. Explizite native
+No-op-Metadaten, eine nachgewiesene Übernahme ohne Eingabe und unveränderte
+Fenster-/Modell-/Eingabe-/Lease-Bindungen sind Voraussetzungen. Der Abschluss
+behält den aktuellen Fokus und Cursor; normale Wiederherstellung behält ihren
+eigenen Quellfokusnachweis. Eine unerwartete Wiederherstellung bleibt unbekannt.
+Die ursprüngliche Positionierungsablehnung wird nicht als Erfolg umgedeutet.
+
+Die neuen tatsächlichen Transaktions- und Worker-Lease-Verträge scheitern am
+vorherigen Verhalten und bestehen mit der Änderung. Die vollständige
+Offline-Suite besteht ebenfalls. Runtime, Plugin und natives Paket sind neu
+gebaut; die zugehörige reale native Abnahme und Paketprüfung stehen noch aus.
+
+Die Zustandsreise fordert den Cursor nun in beiden Backends ausdrücklich mit
+`noKeys: false` an. Eine zusätzliche opt-in Regression erhält die direkte Folge
+Add, passiver Readback, Update mit derselben Zellidentität und prüft danach
+vollständige Inventare. Ihre reale Abnahme steht noch aus.
+
+Die Verzögerung beim ersten nativen Unicode-Schreiben ist erneut reproduziert:
+Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal.
+Ein passiver Abgleich bestätigt den späteren einmaligen Commit; der fehlgeschlagene
+Aufruf bleibt fehlgeschlagen und wird nicht wiederholt. Accessibility-Zustellung
+und Font-/Layout-Initialisierung werden getrennt untersucht. Keine dieser
+Ursachen ist bereits bewiesen oder behoben.
 
 ## Umgesetzt und belegt
 
@@ -112,6 +139,10 @@ Der kanonische produktfreie HTTP/MCP-Soak besteht seine Transport-, Last-,
 Abbruch-, Neustart- und Bereinigungsprüfungen. Das belegt keine GUI-Latenz.
 
 ## Abschlussprüfungen und Restarbeit
+
+Diese Tabelle beschreibt die abgeschlossene Abnahme des integrierten
+Ausgangsstands. Die oben genannte Nacharbeit benötigt ihre eigenen noch offenen
+nativen, Live- und Paketnachweise.
 
 | Prüfbereich | Status |
 | --- | --- |

@@ -44,6 +44,10 @@ const nativeReasons = new Map([
 ]);
 const nativeTransportKinds = new Set(["unrecognized", "native-mutation-receipt", "native-timeout", "native-connection", "native-protocol",
   "native-closed", "native-transaction-busy", "native-request", "native-request-size", "native-queue-full", "aborted"]);
+// Completed, current-request pre-action rejections only. A global recovery,
+// draining session or competing controller is not a clean table no-op.
+const nativeNoopRejectionCodes = new Set(["INVALID_POSITION_TARGET", "window-obstructed", "precondition-failed",
+  "stale-window", "stale", "editor-open"]);
 const checkpointReasons = new Set(["phase-precondition", "inherited-context", "target-proof", "desktop", "inputEpoch",
   "foreground", "windowSet", "dirtyState", "lease-import", "lease-publication"]);
 const checkpointProofReasons = new Set(["native-position-checkpoint-plan", "native-position-checkpoint-viewport", "native-position-checkpoint-live-input",
@@ -107,6 +111,9 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
   let binding = initial, lease: CursorLease | undefined, unknownAuthority = false, nativeQuiescent = true;
   const issuedNonces = new Set<string>();
   let submitted = false, positioned = false, stage = "native-position-preproof", result: WorkerResult;
+  // A no-op rejection can revoke the handed-over lease without moving focus.
+  // This is never authority to restore the caller across an unproven editor.
+  let acquisitionNoActionProved = false, provenInitialNoop = false;
   let nativeDiagnostic: ReturnType<typeof nativePositionDiagnostic> | undefined;
   const nativeRelease: { attempted: boolean; workerOk: boolean | null; leaseReleased: boolean | null;
     releasedByEmit: boolean | null; threw: boolean } = {
@@ -140,7 +147,13 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
     // reply, a receipt, or any earlier footer/position action stays unknown.
     if (!priorSubmitted && !positioned && op === "table_position_number" && reply.result.ok === false
       && reply.result.mutationAttempted === false && reply.result.outcomeUnknown !== true
-      && !Object.hasOwn(reply.result, "mutationReceipt") && reply.receiptAcknowledged === false) submitted = false;
+      && !Object.hasOwn(reply.result, "mutationReceipt") && reply.receiptAcknowledged === false) {
+      submitted = false;
+      provenInitialNoop = acquisitionNoActionProved && reply.result.outcomeUnknown === false
+        && reply.result.controllerBound === true && typeof reply.result.code === "string"
+        && nativeNoopRejectionCodes.has(reply.result.code) && reply.result.positioned !== true
+        && reply.result.numberEditorPending !== true && reply.result.physicalInputUsed !== true;
+    }
     if (reply.result.ok !== true || reply.result[op === "table_position_number" ? "positioned" : "focused"] !== true
       || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch
       || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean"
@@ -173,6 +186,11 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
     if (!sameContext(binding, fresh) || lease.rootHwnd !== binding.hwnd || lease.targetPid !== binding.pid
       || lease.inputEpoch !== binding.inputEpoch || fresh.inputEpoch !== binding.inputEpoch) rejectProof("native-position-acquire-context");
     binding = fresh; unknownAuthority = false;
+    // The successful acquire producer explicitly emits these three no-action
+    // fields even when it reuses existing table focus without a footer call.
+    // Missing, mistyped or contradictory evidence is not no-op authority.
+    acquisitionNoActionProved = acquired.ok === true && acquired.activationSubmitted === false
+      && acquired.physicalInputUsed === false && acquired.steps === 0;
     let model = await verify(), focus = nativeFocusBinding(model, binding);
     stage = "native-position-dispatch";
     const positionReply = await acknowledged("table_position_number", focus, { targetRow }), afterPosition = positionReply.focus;
@@ -242,13 +260,25 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
     if (lease && nativeQuiescent) {
       nativeRelease.attempted = true;
       try {
-        const released = await release("native-release", binding, { lease });
+        const released = await release(provenInitialNoop ? "native-revoke-noop" : "native-release", binding, { lease });
         const telemetry = released.focusTelemetry;
-        unknownAuthority = released.ok !== true || released.cursorLeaseReleased !== true || !telemetry
-          || typeof telemetry !== "object" || (telemetry as Record<string, unknown>).releasedByEmit !== true;
+        const marker = provenInitialNoop ? released.cursorLeaseRevoked : released.cursorLeaseReleased;
+        const details = telemetry && typeof telemetry === "object" ? telemetry as Record<string, unknown> : undefined;
+        const foreground = details?.foreground && typeof details.foreground === "object"
+          ? details.foreground as Record<string, unknown> : undefined;
+        const preserved = details?.foregroundRestored === false && details?.cursorRestored === false
+          && details?.restoreSkippedReason === "cursor-source-not-proven-editor-free"
+          && foreground?.afterRestoreHwnd === binding.hwnd;
+        unknownAuthority = released.ok !== true || marker !== true || details?.releasedByEmit !== true
+          || (provenInitialNoop && (!preserved || released.cursorLeaseReleased === true));
+        if (provenInitialNoop && (details?.foregroundRestored === true || details?.cursorRestored === true
+          || (typeof details?.restoreSkippedReason === "string" && details.restoreSkippedReason !== "cursor-source-not-proven-editor-free")
+          || (typeof foreground?.afterRestoreHwnd === "number" && foreground.afterRestoreHwnd !== binding.hwnd))) {
+          result = { ...result!, outcomeUnknown: true, cleanupRequired: true, reconciliationRequired: true };
+        }
         try {
           nativeRelease.workerOk = typeof released.ok === "boolean" ? released.ok : null;
-          nativeRelease.leaseReleased = typeof released.cursorLeaseReleased === "boolean" ? released.cursorLeaseReleased : null;
+          nativeRelease.leaseReleased = typeof marker === "boolean" ? marker : null;
           const releasedByEmit = telemetry && typeof telemetry === "object"
             ? (telemetry as Record<string, unknown>).releasedByEmit : undefined;
           nativeRelease.releasedByEmit = typeof releasedByEmit === "boolean" ? releasedByEmit : null;

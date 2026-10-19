@@ -85,7 +85,9 @@ static Json error(const char* code, const std::string &message) {
     return {{"ok", false}, {"code", code}, {"error", message}};
 }
 static Json noMutationError(const char* code, const std::string &message) {
-    auto result = error(code, message); result["mutationAttempted"] = false; return result;
+    auto result = error(code, message);
+    result["mutationAttempted"] = false; result["outcomeUnknown"] = false;
+    return result;
 }
 static std::uint64_t objectId(QObject *object) {
     auto found = ids.find(object);
@@ -222,9 +224,7 @@ static Json execute(const Json &request) {
     }
     if (isMutation(op) && (op == "accessibility_action" ? accessibilityActionObstructed(root, request)
         : (!root->isEnabled() || QApplication::activeModalWidget()))) {
-        auto blocked = error("window-obstructed", "The bound window is disabled or blocked by a modal dialog");
-        blocked["mutationAttempted"] = false;
-        return blocked;
+        return noMutationError("window-obstructed", "The bound window is disabled or blocked by a modal dialog");
     }
     Json result;
     if (op == "ping") {
