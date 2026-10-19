@@ -17777,11 +17777,22 @@ async function executeNativeSteppedCursor(client, phase, args, initial, before, 
     return after;
   };
   try {
-    nativeFocusBinding(before, binding);
+    const beforeFocus = nativeFocusBinding(before, binding);
     const geometry = await bindNativeViewport(client, binding, before, remaining, signal);
     currentPhase = "native-acquire";
     const acquired = await phase("native-acquire", binding, { numberPolicy: policy, numberModel });
-    if (!acquired.ok) return { ...publicCursorResult(acquired), retryable: false };
+    if (!acquired.ok) return {
+      ...publicCursorResult(acquired),
+      retryable: false,
+      // This is the existing pre-acquire model observation, not a focus readback.
+      nativeCursorFocusEvidence: {
+        currentIndex: [...beforeFocus.currentIndex],
+        selectedIndexCount: beforeFocus.selectedIndexes.length,
+        selectedIndexes: beforeFocus.selectedIndexes.slice(0, 32).map((index) => [...index]),
+        selectedIndexesTruncated: beforeFocus.selectedIndexes.length > 32,
+        focusActionVerified: false
+      }
+    };
     submitted = acquired.activationSubmitted === true;
     cleanupRequired = true;
     heldLease = leaseSchema.parse(acquired.cursorLease);

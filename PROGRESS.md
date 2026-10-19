@@ -40,7 +40,14 @@ belegt. Der native Formularpfad übernimmt nun den vollständigen nummerierten
 Eintragskontext des Standardpfads. Wiederholte Detailüberschriften verschiedener
 Einträge bleiben unterscheidbar; echte Zyklen einschließlich der Rückkehr zu
 einem früheren Eintrag bleiben gesperrt. Die neuen Verträge scheitern vorher
-und bestehen mit der Korrektur. Vollsuite und erneute reale Abnahme stehen aus.
+und bestehen mit der Korrektur. Die reale Vorlagenpositionierung erreicht nun
+die Zielseite. Im anschließenden Ablauf wurde ein zweiter Übergangsfehler belegt:
+Eine bereits erlaubte passive Footerquelle besitzt keine aktuelle Nr.-Zelle.
+Die Übernahme erhält jetzt ihre frisch geprüfte bestehende Auswahl, ohne eine
+Ersatzzeile auszuwählen. Fehlende oder fremde Auswahl bleibt gesperrt; der
+native Spaltennachweis vor jeder Taste bleibt Pflicht. Tatsächliche Worker-
+Verträge und die begrenzte Fehlerdiagnose bestehen. Vollsuite und weitere
+reale Abnahme stehen aus.
 
 Die Verzögerung beim ersten nativen Unicode-Schreiben ist erneut reproduziert:
 Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal.

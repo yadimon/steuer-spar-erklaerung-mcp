@@ -20244,15 +20244,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $navigationState.snapshot=$afterFooter
               if ($cursorPhase -ceq 'native-acquire') {
                 $cursorActivation.subphase='native-semantic-selection-proof'
-                if (-not $footer.currentNumberCell -or -not (& $readNavigationGuard 'native-before-semantic-selection') -or
-                    -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterFooter `
-                      $navigationState.tick $navigationState.windows.fingerprint $footer.currentNumberCell)) {
-                  throw 'Native Fokusvorbereitung konnte ihre reine Ankerwahl nicht beweisen.'
+                $passiveSelectionSource=[bool]($afterFooter.navigationBinding.editorFree -is [bool] -and
+                  $afterFooter.navigationBinding.editorFree -and $footer.sourceEvidence.focusedSource.type -cin @(
+                    'Table','DataGrid','DataItem','Button','Tree','TreeItem'))
+                if (-not $footer.currentNumberCell -and -not $passiveSelectionSource) {
+                  throw 'Native Fokusvorbereitung hat weder eine gebundene Nr.-Zelle noch eine bewiesene passive Fokusquelle.'
                 }
-                $cursorActivation.subphase='native-semantic-selection-table-readback'
-                $afterSelection=LiesZeilen $hwnd
-                if (-not (Test-SSETableReadSnapshotBinding $erst $afterSelection -BeforeNavigation)) {throw 'Ankerwahl aenderte Tabelleninhalt.'}
-                $navigationState.snapshot=$afterSelection
+                if (-not (& $readNavigationGuard 'native-before-semantic-selection')) {
+                  throw 'Native Fokusvorbereitung verlor ihren Navigationsnachweis vor der Ankerwahl.'
+                }
+                if ($footer.currentNumberCell) {
+                  if (-not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterFooter `
+                      $navigationState.tick $navigationState.windows.fingerprint $footer.currentNumberCell)) {
+                    throw 'Native Fokusvorbereitung konnte ihre reine Ankerwahl nicht beweisen.'
+                  }
+                  $cursorActivation.subphase='native-semantic-selection-table-readback'
+                  $afterSelection=LiesZeilen $hwnd
+                  if (-not (Test-SSETableReadSnapshotBinding $erst $afterSelection -BeforeNavigation)) {throw 'Ankerwahl aenderte Tabelleninhalt.'}
+                  $navigationState.snapshot=$afterSelection
+                }
+                # Passive focus retains only the existing selection proved below.
+                # Never substitute the first cell for absent current-Nr. authority.
               }
             }
           }

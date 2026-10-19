@@ -23,6 +23,13 @@ if (-not $activationTry -or $activationTry.CatchClauses.Count -ne 1) {throw 'Pro
 function Get-SSETableLiveInputState {
   param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
   $script:cursorReads++
+  if ($script:mode -like 'passive-*') {
+    $script:cursorRequests+=@([pscustomobject]@{keyboard=[bool]$RequireKeyboard;selection=[bool]$RequireSelection})
+    $valid=$script:cursorReads -gt 1 -and $script:mode -cnotin @(
+      'passive-missing-selection','passive-foreign-selection','passive-ambiguous-selection','passive-editor-active')
+    return [pscustomobject]@{ok=$valid;selectedRids=$(if ($valid) {@('10.2')} else {@()});
+      reason='selected-table-cursor-unbound';editorClosed=$valid;selectedCount=[int]$valid}
+  }
   if ($cursorPhase -ceq 'native-position-acquire') {
     return [pscustomobject]@{ok=[bool](-not $RequireSelection -and $script:cursorReads -gt 1 -and $script:mode -ne 'position-passive-proof');selectedRids=@()}
   }
@@ -34,6 +41,19 @@ function Invoke-SSETableFooterFocus {
   param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$ExpectedPage,$InputBaseline,$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,$NumberPolicy,[switch]$AllowPositionNameSource)
   if([bool]$AllowPositionNameSource -ne ($cursorPhase -ceq 'native-position-acquire')) {throw 'Position-name permission was omitted or granted to another cursor phase.'}
   $script:footerCalls++
+  if ($script:mode -like 'passive-*') {
+    $type=switch ($script:mode) {
+      'passive-edit-source' {'Edit';break}
+      'passive-document-source' {'Document';break}
+      'passive-unknown-source' {'';break}
+      default {'Button'}
+    }
+    return [pscustomobject]@{ok=[bool]($script:mode -cne 'passive-footer-rejected');phase='after-focus';
+      reason='exact-profiled-footer-focus';focusAttempted=[bool]($script:mode -cne 'passive-footer-rejected');
+      sourceReason=$null;uncachedReason=$null;exceptionType=$null;exceptionMessage=$null;errorRecord=$null;
+      sourceEvidence=[pscustomobject]@{focusedSource=[pscustomobject]@{type=$type};exactMatchCount=1;runtimeIdMatchCount=1};
+      currentNumberCell=$null}
+  }
   if ($script:mode -cin @('position-document-source','position-missing-source')) {
     return [pscustomobject]@{ok=$false;phase='source-binding';reason='footer-source-focus-unbound';focusAttempted=$false;
       sourceReason=$(if ($script:mode -ceq 'position-document-source') {'source-control-type-unbound'} else {'source-live-focus-unbound'})}
@@ -46,7 +66,7 @@ function LiesZeilen {$focusedSnapshot}
 function Test-SSETableReadSnapshotBinding {
   param($Before,$After,[switch]$BeforeNavigation)
   $script:snapshotProofs++
-  -not (($script:mode -eq 'footer-snapshot' -and $script:snapshotProofs -eq 1) -or
+  -not (($script:mode -cin @('footer-snapshot','passive-snapshot') -and $script:snapshotProofs -eq 1) -or
         ($script:mode -eq 'selection-snapshot' -and $script:snapshotProofs -eq 2))
 }
 function Invoke-SSETableReadAnchorSelection {
@@ -57,14 +77,62 @@ function Invoke-SSETableReadAnchorSelection {
 function Set-SSEForegroundLeaseInputCheckpoint {$script:leaseCheckpoints++}
 function Publish-SSETableCursorLeaseHandover {
   $script:leasePublications++
-  if ($script:mode -eq 'lease-publication') {return $null}
+  if ($script:mode -cin @('lease-publication','passive-lease-publication')) {return $null}
   [pscustomobject]@{synthetic=$true}
 }
 function Emit {param($Payload) $script:emitted=$Payload}
 $cursorPhase='native-acquire';$hwnd=[IntPtr]111;$targetPid=7
-$focusedSnapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRootAid='Synthetic.Table';tableRootRid='10.1';heading='Synthetic'}}
+$focusedSnapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRootAid='Synthetic.Table';tableRootRid='10.1';heading='Synthetic';editorFree=$true}}
 $erst=$focusedSnapshot;$latestTableSnapshot=[pscustomobject]@{tree=$null}
 $makeCursorBinding={param($Snapshot,$Tick) [pscustomobject]@{synthetic=$true;inputEpoch=$Tick}}
+# Real after-Add state: a positively proved passive footer owns keyboard focus,
+# while the table retains a valid selection. No Nr. source exists to Select.
+# Exercise the actual dispatcher branch; callback doubles model only each proof
+# boundary, never replace the branch with a successful acquire result.
+foreach ($case in @('passive-button','passive-missing-selection','passive-foreign-selection','passive-ambiguous-selection',
+  'passive-editor-active','passive-edit-source','passive-document-source','passive-unknown-source','passive-footer-rejected',
+  'passive-snapshot','passive-guard','passive-handover-guard','passive-lease-checkpoint','passive-lease-publication')) {
+  $script:mode=$case;$script:cursorReads=0;$script:cursorRequests=@();$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
+  $script:leaseCheckpoints=0;$script:leasePublications=0;$script:emitted=$null;$script:guardPhases=@()
+  $physicalUsed=$false;$viewportClickSubmitted=$false
+  $cursorActivation=[pscustomobject]@{method='none';phase='not-started';reason=$null;exceptionType=$null;
+    tableFocusable=$null;anchorFocusable=$null;anchorVerified=$false;subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$null}
+  $navigationState=[pscustomobject]@{phase='fresh-focus-readback';snapshot=$focusedSnapshot;tick=10;
+    windows=[pscustomobject]@{fingerprint='Synthetic.Stable'}}
+  $readNavigationGuard={param($Phase)
+    $navigationState.phase=$Phase;$script:guardPhases+=@($Phase)
+    -not (($script:mode -ceq 'passive-guard' -and $Phase -ceq 'native-before-semantic-selection') -or
+      ($script:mode -ceq 'passive-handover-guard' -and $Phase -ceq 'native-lease-handover'))
+  }
+  $readFocusCheckpoint={param($Phase) $navigationState.phase=$Phase;$script:mode -cne 'passive-lease-checkpoint'}
+  Invoke-SyntheticCursorAcquire
+  $success=$case -ceq 'passive-button'
+  if (-not $script:emitted -or $script:emitted.ok -ne $success) {throw "$case`: passive existing selection was not preserved or rejected at its real boundary."}
+  if ($script:footerCalls -ne 1 -or $script:anchorCalls -ne 0 -or $script:snapshotProofs -gt 1) {
+    throw "$case`: passive acquisition selected a default first cell, replayed focus or fabricated a selection snapshot."
+  }
+  if ($script:emitted.steps -ne 0 -or $script:emitted.physicalInputUsed -or $script:emitted.physicalInputAttempted) {
+    throw "$case`: passive acquisition issued cursor input."
+  }
+  if ($success) {
+    if ($script:cursorReads -ne 2 -or -not $script:cursorRequests[1].selection -or $script:cursorRequests[1].keyboard -or
+        $script:snapshotProofs -ne 1 -or $script:leaseCheckpoints -ne 1 -or $script:leasePublications -ne 1 -or
+        ($script:emitted.selectedRids -join '|') -cne '10.2' -or
+        ($script:guardPhases -join '|') -cne 'native-before-semantic-selection|native-lease-handover') {
+      throw 'Passive acquire skipped a fresh selected-table, snapshot, navigation, epoch or publication proof.'
+    }
+  } else {
+    if ($script:emitted.retryable -ne $false -or
+        $script:emitted.outcomeUnknown -ne ($case -cne 'passive-footer-rejected') -or
+        ($script:leasePublications -gt 0 -and $case -cne 'passive-lease-publication')) {
+      throw "$case`: rejected passive acquire published authority, retried or lost its focus uncertainty."
+    }
+    if ($case -cin @('passive-missing-selection','passive-foreign-selection','passive-ambiguous-selection','passive-editor-active') -and
+        ($script:cursorReads -ne 2 -or -not $script:cursorRequests[1].selection)) {
+      throw "$case`: invalid selection did not reach the existing required-selection proof."
+    }
+  }
+}
 foreach ($case in @('existing-focus','selected-after-footer','footer-proof','footer-snapshot','selection-guard','anchor-proof',
                     'selection-snapshot','selected-proof','lease-checkpoint','lease-publication','position-document-source','position-missing-source')) {
   $script:mode=$case;$script:cursorReads=0;$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
@@ -104,6 +172,9 @@ foreach ($case in @('existing-focus','selected-after-footer','footer-proof','foo
         $cursorActivation.footerFocus.focusAttempted -ne (-not $unattempted)) {throw "$case`: nested footer proof was lost."}
   }
   if ($case -eq 'selection-guard' -and $script:anchorCalls -ne 0) {throw 'A failed guard still invoked the anchor selection.'}
+  if ($case -eq 'selected-after-footer' -and ($script:anchorCalls -ne 1 -or $script:snapshotProofs -ne 2)) {
+    throw 'A positively bound Nr. source no longer receives exactly one selection and its fresh readback.'
+  }
   if ($unattempted -and ($script:snapshotProofs -ne 0 -or $script:leasePublications -ne 0)) {
     throw 'Ordinary cursor read followed an unavailable source with a snapshot, selection or lease delegation.'
   }

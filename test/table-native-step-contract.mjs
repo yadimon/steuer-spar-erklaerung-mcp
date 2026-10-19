@@ -49,8 +49,9 @@ async function run(options = {}) {
   options.initialize?.(model, binding);
   let selected = [`Synthetic.cell.${model.cursorFocusBinding.currentIndex[0]}`];
   options.binding?.(binding);
-  const phases = [], keys = [], focuses = [], releases = [], leases = [], consumed = new Set();
+  const phases = [], keys = [], focuses = [], releases = [], leases = [], requests = [], consumed = new Set();
   const client = { binding: { hwnd: 111, pid: 7 }, request: async (op, args) => {
+    requests.push(op);
     if (op === "ping") return { result: { ok: true, pid: 7, hwnd: 111, recoveryRequired: false,
       mutationAcknowledgmentRequired: false, capabilities: { tableFocusOnlyProtocol: 1 } } };
     if (["objects", "accessibility_snapshot"].includes(op)) {
@@ -119,7 +120,7 @@ async function run(options = {}) {
     options.step?.(stepped, keys.length, model); return stepped;
   };
   const result = await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000);
-  return { result, phases, keys, focuses, releases, leases };
+  return { result, phases, keys, focuses, releases, leases, requests };
 }
 const success = await run();
 assert.equal(success.result.ok, true); assert.equal(success.result.vollstaendig, true);
@@ -131,6 +132,43 @@ for (const field of ["cursorBinding", "cursorLease", "cursorStep", "selectedRids
   assert.equal(Object.hasOwn(success.result, field), false);
 }
 assert.equal(JSON.stringify(success.result).includes("SyntheticCaller"), false);
+assert.equal(Object.hasOwn(success.result, "nativeCursorFocusEvidence"), false, "Successful result shape must remain unchanged.");
+// A failed acquire must retain only the already observed native cursor indices,
+// not claim that this pre-acquire observation is a completed focus action.
+for (const manySelected of [false, true]) {
+  let expectedFocus;
+  const stopped = await run({ initialize: model => {
+    if (manySelected) {
+      model.rows = 5; model.readRows = 5;
+      model.values.push(copy(model.values[0]), copy(model.values[0]));
+      model.rowFingerprints.push("4".repeat(64), "5".repeat(64));
+    }
+    model.cursorFocusBinding.currentIndex = [2, 3];
+    model.cursorFocusBinding.selectedIndexes = manySelected
+      ? Array.from({ length: 40 }, (_, index) => [Math.floor(index / 8), index % 8]) : [[2, 3]];
+    expectedFocus = copy(model.cursorFocusBinding);
+  }, acquire: result => {
+    result.ok = false; result.kind = "cursor-proof-failed"; result.error = "Synthetic acquire rejected";
+    result.steps = 0; result.activationSubmitted = true; result.physicalInputAttempted = false;
+    result.physicalInputUsed = false; result.outcomeUnknown = true;
+    result.cursorActivation = { subphase: "native-semantic-selection-proof" };
+  } });
+  assert.equal(stopped.result.ok, false); assert.equal(stopped.result.error, "Synthetic acquire rejected");
+  assert.equal(stopped.result.cursorActivation.subphase, "native-semantic-selection-proof");
+  assert.equal(stopped.result.activationSubmitted, true); assert.equal(stopped.result.outcomeUnknown, true);
+  assert.deepEqual(stopped.result.nativeCursorFocusEvidence, {
+    currentIndex: [2, 3], selectedIndexCount: expectedFocus.selectedIndexes.length,
+    selectedIndexes: expectedFocus.selectedIndexes.slice(0, 32), selectedIndexesTruncated: manySelected, focusActionVerified: false,
+  }, "Acquire failure must preserve the existing pre-acquire observation, including non-Nr columns.");
+  assert.deepEqual(stopped.phases, ["prebind", "native-acquire"]);
+  assert.deepEqual(stopped.requests, ["table_snapshot", "ping", "accessibility_snapshot", "objects"], "Diagnostics must add no native read.");
+  assert.deepEqual(stopped.keys, []); assert.deepEqual(stopped.focuses, []); assert.deepEqual(stopped.releases, []);
+  for (const field of ["cursorBinding", "cursorLease", "selectedRids", "numberModel", "numberPolicy"]) {
+    assert.equal(Object.hasOwn(stopped.result, field), false, "Acquire failure leaked private cursor authority.");
+  }
+  assert.deepEqual(Object.keys(stopped.result.nativeCursorFocusEvidence).sort(),
+    ["currentIndex", "selectedIndexCount", "selectedIndexes", "selectedIndexesTruncated", "focusActionVerified"].sort());
+}
 // A native Add/Update leaves the current Nr. at the changed row. A following
 // guarded read must not enter legacy resume, whose HOME can open an Nr. editor
 // without the model-backed closure and selection proof before the first DOWN.

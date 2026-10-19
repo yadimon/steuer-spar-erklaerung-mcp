@@ -30,6 +30,13 @@ UIA-/Modellbindung vor jeder Aktion. Widersprüchliche Header, ungeeignete
 Nr.-Zellrollen oder eine ausgeblendete Nr.-Spalte erlauben keinen Wechsel zum
 allgemeinen Fokusweg. Die Auswahl hängt nicht vom Seitentitel ab.
 
+Eine bestätigte passive Fokusquelle darf ihre bereits vorhandene, frisch
+bewiesene Tabellenauswahl behalten. Ohne gebundene aktuelle Nr.-Zelle wird keine
+erste Zeile ersatzweise ausgewählt. Tabellen-, Editor-, Auswahl-, Fenster- und
+Eingabenachweise sowie die native Nr.-Spaltenprüfung vor einer Taste bleiben
+Pflicht. Fehler bei der Übernahme enthalten gegebenenfalls die begrenzte native
+Auswahlbeobachtung von vor der Übernahme; sie ist kein nachträglicher Readback.
+
 Bei der nativen Zielpositionierung kann ein noch nicht versuchter UIA-Fokusweg
 seine Quelle an die native Prüfung übergeben, wenn UIA keinen aktuellen Fokus
 oder nur einen nicht unterstützten Quelltyp meldet. Fenster-, Eingabe-,
