@@ -264,6 +264,13 @@ frischen Produktprozess. Vollständige Werte, Zelltypen, Checkboxzustände und
 unveränderte andere Zeilen werden geprüft. Eine fehlgeschlagene Mutation wird
 nicht wiederholt; die erste Abweichung beendet die Serie.
 
+Nach dem Update prüft jeder Durchlauf einen geschützten Cursorlauf, wechselt
+auf die zum Dokument passende profilierte Jahreserklärungsseite und zurück
+und prüft erneut den geschützten Cursor. Passive vollständige Modellabgleiche
+vor und nach diesem zweiten Cursor vergleichen Werte, Typen, Checkboxzustände,
+Summe und Zeilenfingerprints. Der Seitenwechsel liegt nach der unmittelbaren
+Add-/Read-/Update-Folge; die Reise speichert keine Änderungen.
+
 Nach einem kompatiblen nativen Build, ohne vorhandene SSE-Instanz und in einer
 unbenutzten entsperrten Windows-Sitzung:
 

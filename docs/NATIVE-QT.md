@@ -30,9 +30,16 @@ UIA-/Modellbindung vor jeder Aktion. Widersprüchliche Header, ungeeignete
 Nr.-Zellrollen oder eine ausgeblendete Nr.-Spalte erlauben keinen Wechsel zum
 allgemeinen Fokusweg. Die Auswahl hängt nicht vom Seitentitel ab.
 
+Ein nach Seitenrückkehr exakt leerer nativer Cursor (`[-1,-1]`, keine Auswahl)
+verlangt zusätzlich das Zielpositionierungsprotokoll. Der Einstieg plant dann
+einmalig die vorhandene modellgebundene Positionierung auf die erste nicht
+ausgeblendete Nr.-Zeile. Erst nach vollständigem frischem Modell-, Kontext- und
+Auswahlnachweis folgt der normale Schrittweg. Eine Ablehnung führt zu keinem
+alternativen Eingriff; spätere Fehler behalten den früheren Aktionsnachweis.
+
 Eine bestätigte passive Fokusquelle darf ihre bereits vorhandene, frisch
-bewiesene Tabellenauswahl behalten. Ohne gebundene aktuelle Nr.-Zelle wird keine
-erste Zeile ersatzweise ausgewählt. Tabellen-, Editor-, Auswahl-, Fenster- und
+bewiesene Tabellenauswahl behalten. Diese Übernahme wählt ohne gebundene aktuelle
+Nr.-Zelle keine Ersatzzeile aus. Tabellen-, Editor-, Auswahl-, Fenster- und
 Eingabenachweise sowie die native Nr.-Spaltenprüfung vor einer Taste bleiben
 Pflicht. Fehler bei der Übernahme enthalten gegebenenfalls die begrenzte native
 Auswahlbeobachtung von vor der Übernahme; sie ist kein nachträglicher Readback.
@@ -43,6 +50,9 @@ oder nur einen nicht unterstützten Quelltyp meldet. Fenster-, Eingabe-,
 Tabellen- und Editorprüfungen bleiben dabei Pflicht; die native Brücke prüft
 ihren tatsächlichen Qt-Fokus unmittelbar vor einer Aktion. Der überprüfte
 Fokuswechsel aus einem eigenen unveränderten Positionsnamen bleibt erhalten.
+Die im Inhaltsbaum ausgelassene Hauptfensterquelle muss vor einer Übergabe
+zusätzlich direkt über HWND, PID, Runtime-ID, AID, Fokus und Grenzen frisch
+gebunden werden. Nur die Zielpositionierung erhält diese Übergabe ohne Aktion.
 Ein bereits versuchter Fokuswechsel oder ein anderer Bindungsfehler erlaubt
 diese Übergabe nicht.
 

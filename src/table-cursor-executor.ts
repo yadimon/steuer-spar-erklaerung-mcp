@@ -8,7 +8,7 @@ import { executeNativeTargetPosition } from "./table-cursor-position.js";
 import { bindingSchema, leaseSchema, nativeFocusBinding, publicCursorResult, rejectProof, sameContext,
   tableCursorModelFingerprint, bindNativeViewport, cursorProofActivation, CursorProofFailure,
   type CursorBinding, type CursorLease, type CursorPhase, type CompleteModel } from "./table-cursor-proofs.js";
-import { executeNativeSteppedCursor } from "./table-cursor-step.js";
+import { executeNativeSteppedCursor, sameSteppedContext } from "./table-cursor-step.js";
 export { tableCursorModelFingerprint } from "./table-cursor-proofs.js";
 export { executeTableCursorMutation } from "./table-cursor-mutation.js";
 
@@ -148,6 +148,17 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
   let physicalInputAttempted: boolean | null = false;
   let currentPhase = "prebind";
   let traversalResult: WorkerResult | undefined;
+  const preservePriorActivation = (result: WorkerResult): WorkerResult => {
+    if (result.ok || !activationSubmitted) return result;
+    const activation = result.cursorActivation && typeof result.cursorActivation === "object"
+      && !Array.isArray(result.cursorActivation) ? result.cursorActivation as Record<string, unknown> : undefined;
+    const reportedInput = result.physicalInputAttempted;
+    return { ...result, activationSubmitted: true,
+      physicalInputAttempted: typeof reportedInput === "boolean" || reportedInput === null ? reportedInput
+        : result.physicalInputUsed === true || (typeof result.steps === "number" && result.steps > 0) ? true : physicalInputAttempted,
+      outcomeUnknown: true, reconciliationRequired: true, retryable: false, vollstaendig: false,
+      ...(activation ? { cursorActivation: { ...activation, activationAttempted: true } } : {}) };
+  };
   try {
     const prebind = await phase("prebind");
     if (!prebind.ok) return prebind;
@@ -176,14 +187,55 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
       if (!positioned.ok) return publicCursorResult(positioned);
       return { ...projectQtNativeCompleteTable(before, Number(args.maxRows) || 400), ...publicCursorResult(positioned) };
     }
+    const nativeFirstHeader = before.headers[0];
+    const numbered = /^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "")
+      || (typeof nativeFirstHeader === "string" && /^Nr\.?$/u.test(nativeFirstHeader));
+    const initialFocus = before.cursorFocusBinding;
+    const emptyCursor = initialFocus?.currentIndex[0] === -1 && initialFocus.currentIndex[1] === -1
+      && initialFocus.selectedIndexes.length === 0;
+    let stepBinding = binding, stepModel = before;
+    if (numbered && emptyCursor) {
+      // Page re-entry can leave a complete model with no current/selected index.
+      // Plan the existing position transaction explicitly; never fall back from
+      // a failed normal acquire or invoke the table's clicked action.
+      if (!capabilities || typeof capabilities !== "object"
+        || (capabilities as Record<string, unknown>).tableFocusOnlyProtocol !== 1
+        || (capabilities as Record<string, unknown>).tablePositionNumberProtocol !== 1) {
+        rejectProof("native-cursor-bootstrap-position-protocol");
+      }
+      const focus = nativeFocusBinding(before, binding);
+      const targetRow = Array.from({ length: before.rows }, (_, row) => row)
+        .find(row => !before.hiddenRows.includes(row));
+      if (targetRow === undefined) return rejectProof("native-cursor-bootstrap-empty-model");
+      currentPhase = "native-cursor-bootstrap-position";
+      const positioned = await executeNativeTargetPosition(client, phase, args, binding, before, remaining, release, targetRow, signal);
+      // A release failure can follow construction of the position success
+      // envelope. Its action remains submitted even if the helper returns !ok.
+      activationSubmitted = positioned.ok === true || positioned.activationSubmitted === true
+        || positioned.cursorTransaction === "native-target-position";
+      if (!positioned.ok) return preservePriorActivation(publicCursorResult(positioned));
+      currentPhase = "native-cursor-bootstrap-readback";
+      stepBinding = bindingSchema.parse(positioned.cursorBinding);
+      if (!sameSteppedContext(binding, stepBinding) || stepBinding.inputEpoch !== binding.inputEpoch
+        || positioned.physicalInputUsed !== false || positioned.steps !== 0
+        || positioned.nativeWholeModelUnchanged !== true || positioned.cleanupRequired === true) {
+        rejectProof("native-cursor-bootstrap-context");
+      }
+      stepModel = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+      if (tableCursorModelFingerprint(stepModel) !== tableCursorModelFingerprint(before)) {
+        rejectProof("native-cursor-bootstrap-whole-model");
+      }
+      const expectedFocus = { ...focus, currentIndex: [targetRow, 0], selectedIndexes: [[targetRow, 0]] };
+      if (JSON.stringify(nativeFocusBinding(stepModel, stepBinding, true)) !== JSON.stringify(expectedFocus)) {
+        rejectProof("native-cursor-bootstrap-current-selection");
+      }
+    }
     if (capabilities && typeof capabilities === "object"
       && (capabilities as Record<string, unknown>).tableFocusOnlyProtocol === 1) {
-      const nativeFirstHeader = before.headers[0];
       // Either observation of Nr. requires the strict shared number policy.
       // A disagreement must fail there before input, never enter legacy resume.
-      if (/^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "")
-        || (typeof nativeFirstHeader === "string" && /^Nr\.?$/u.test(nativeFirstHeader))) {
-        return await executeNativeSteppedCursor(client, phase, args, binding, before, remaining, release, signal);
+      if (numbered) {
+        return preservePriorActivation(await executeNativeSteppedCursor(client, phase, args, stepBinding, stepModel, remaining, release, signal));
       }
       return await executeNativeCursorFocus(client, phase, args, binding, before, remaining, release, signal);
     }
@@ -220,11 +272,11 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
       ...(!result.ok ? { outcomeUnknown: activationSubmitted, reconciliationRequired: activationSubmitted } : {}),
       nativeWholeModelUnchanged: true, cursorTransaction: "guarded-table-viewport", retryable: false };
   } catch (error) {
-    return { ...cursorFailureEvidence(traversalResult), ok: false, kind: traversalResult?.kind ?? "cursor-proof-failed",
+    return preservePriorActivation({ ...cursorFailureEvidence(traversalResult), ok: false, kind: traversalResult?.kind ?? "cursor-proof-failed",
       error: "Geschuetzter Tabellenlauf konnte seinen vollstaendigen Zustandsnachweis nicht halten; frisch abgleichen, nicht wiederholen.",
       phase: currentPhase, proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
       ...cursorProofActivation(error),
       activationSubmitted, physicalInputAttempted, outcomeUnknown: activationSubmitted,
-      reconciliationRequired: activationSubmitted, retryable: false, vollstaendig: false };
+      reconciliationRequired: activationSubmitted, retryable: false, vollstaendig: false });
   }
 }

@@ -4,12 +4,32 @@ $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worke
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$parseErrors)
 if (@($parseErrors).Count) {throw 'Worker syntax is invalid.'}
+Add-Type -TypeDefinition @'
+namespace System.Windows.Automation {
+ public static class ControlType {public const string Window="Window",DataItem="DataItem";}
+ public static class AutomationElement {
+  public static object FocusedElement,RootElement;
+  public static bool ThrowFromHandle;
+  public static int FromHandleCalls;
+  public static object FromHandle(System.IntPtr hwnd) {
+   FromHandleCalls++;
+   if(ThrowFromHandle) throw new System.InvalidOperationException("Synthetic root provider failure");
+   return RootElement;
+  }
+ }
+}
+'@
+$AE=[System.Windows.Automation.AutomationElement]
 foreach ($helperName in @('Get-SSETableExceptionDiagnostic','Get-SSETextSha256','New-SSETablePositionPhaseDiagnostic')) {
   $helper=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -ceq $helperName},$true))
   if ($helper.Count -ne 1) {throw 'Productive diagnostic helper is absent.'}
   . ([scriptblock]::Create($helper[0].Extent.Text))
 }
+$rootSourceHelper=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Test-SSETableNativePositionMainWindowSource'},$true))
+if ($rootSourceHelper.Count -gt 1) {throw 'Productive native main-window source helper is ambiguous.'}
+if ($rootSourceHelper.Count -eq 1) {. ([scriptblock]::Create($rootSourceHelper[0].Extent.Text))}
 $nativeIf=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
   $node.Clauses[0].Item1.Extent.Text -ceq '$cursorPhase -cin @(''native-acquire'',''native-position-acquire'')'},$true))
 if ($nativeIf.Count -ne 1) {throw 'Productive native cursor acquire branch is absent.'}
@@ -23,6 +43,13 @@ if (-not $activationTry -or $activationTry.CatchClauses.Count -ne 1) {throw 'Pro
 function Get-SSETableLiveInputState {
   param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
   $script:cursorReads++
+  if ($script:mode -like 'position-root-*') {
+    if ($script:cursorReads -gt 1 -and $script:mode -ceq 'position-root-late-source') {
+      $AE::FocusedElement=New-SyntheticMainRoot '42.112'
+    }
+    return [pscustomobject]@{ok=[bool]($cursorPhase -ceq 'native-position-acquire' -and -not $RequireSelection -and
+      $script:cursorReads -gt 1 -and $script:mode -cne 'position-root-live-unbound');selectedRids=@();selectedCount=0;editorClosed=$true}
+  }
   if ($script:mode -like 'passive-*') {
     $script:cursorRequests+=@([pscustomobject]@{keyboard=[bool]$RequireKeyboard;selection=[bool]$RequireSelection})
     $valid=$script:cursorReads -gt 1 -and $script:mode -cnotin @(
@@ -41,6 +68,14 @@ function Invoke-SSETableFooterFocus {
   param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$ExpectedPage,$InputBaseline,$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,$NumberPolicy,[switch]$AllowPositionNameSource)
   if([bool]$AllowPositionNameSource -ne ($cursorPhase -ceq 'native-position-acquire')) {throw 'Position-name permission was omitted or granted to another cursor phase.'}
   $script:footerCalls++
+  if ($script:mode -like 'position-root-*') {
+    $focused=$AE::FocusedElement;$current=$focused.Current;$bounds=$current.BoundingRectangle
+    return [pscustomobject]@{ok=$false;phase='source-binding';reason='footer-source-focus-unbound';
+      focusAttempted=[bool]($script:mode -ceq 'position-root-footer-attempted');sourceReason='source-snapshot-node-not-unique';
+      sourceEvidence=[pscustomobject]@{focusedSource=[pscustomobject]@{type=[string]$current.ControlType;rid=$focused.rid;
+        aid=[string]$current.AutomationId;processId=[int]$current.ProcessId;nativeWindowHandle=[int64]$current.NativeWindowHandle;
+        x=$bounds.X;y=$bounds.Y;w=$bounds.Width;h=$bounds.Height};exactMatchCount=0;runtimeIdMatchCount=0}}
+  }
   if ($script:mode -like 'passive-*') {
     $type=switch ($script:mode) {
       'passive-edit-source' {'Edit';break}
@@ -81,6 +116,13 @@ function Publish-SSETableCursorLeaseHandover {
   [pscustomobject]@{synthetic=$true}
 }
 function Emit {param($Payload) $script:emitted=$Payload}
+function New-SyntheticMainRoot([string]$Rid='42.111') {
+  $root=[pscustomobject]@{rid=$Rid;Current=[pscustomobject]@{ControlType='Window';ProcessId=7;NativeWindowHandle=[int64]111;
+    AutomationId='SSE_Application.Synthetic';HasKeyboardFocus=$true;IsEnabled=$true;IsOffscreen=$false;
+    BoundingRectangle=[pscustomobject]@{X=0;Y=0;Width=1000;Height=800}}}
+  $root | Add-Member ScriptMethod GetRuntimeId {$this.rid.Split('.')}
+  $root
+}
 $cursorPhase='native-acquire';$hwnd=[IntPtr]111;$targetPid=7
 $focusedSnapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRootAid='Synthetic.Table';tableRootRid='10.1';heading='Synthetic';editorFree=$true}}
 $erst=$focusedSnapshot;$latestTableSnapshot=[pscustomobject]@{tree=$null}
@@ -179,6 +221,64 @@ foreach ($case in @('existing-focus','selected-after-footer','footer-proof','foo
     throw 'Ordinary cursor read followed an unavailable source with a snapshot, selection or lease delegation.'
   }
 }
+$savedSnapshot=$focusedSnapshot;$savedTree=$latestTableSnapshot
+foreach ($case in @('position-root-valid','position-root-ordinary','position-root-foreign-pid','position-root-wrong-hwnd',
+  'position-root-wrong-rid','position-root-wrong-aid','position-root-wrong-type','position-root-unfocused','position-root-focus-untyped',
+  'position-root-disabled','position-root-offscreen','position-root-zero-bounds','position-root-provider-throw',
+  'position-root-truncated','position-root-active-editor','position-root-incomplete','position-root-snapshot-editor',
+  'position-root-wrong-table-prefix','position-root-duplicate-root','position-root-footer-attempted',
+  'position-root-live-unbound','position-root-navigation-guard','position-root-input-checkpoint','position-root-late-source')) {
+  $cursorPhase=$(if ($case -ceq 'position-root-ordinary') {'native-acquire'} else {'native-position-acquire'})
+  $script:mode=$case;$script:cursorReads=0;$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
+  $script:leaseCheckpoints=0;$script:leasePublications=0;$script:emitted=$null
+  $AE::FromHandleCalls=0;$AE::ThrowFromHandle=$case -ceq 'position-root-provider-throw'
+  $AE::RootElement=New-SyntheticMainRoot;$AE::FocusedElement=New-SyntheticMainRoot
+  $rootTableAid='SSE_Application.Synthetic.centralWidget.RedThreadContent.Synthetic.Table'
+  $rootTable=[pscustomobject]@{i=0;p=-1;rid='10.1';aid=$rootTableAid;type='Table';on=$true;x=50;y=100;w=500;h=200}
+  $tree=[pscustomobject]@{nodes=@($rootTable);stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0}}
+  $focusedSnapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRootAid=$rootTableAid;tableRootRid='10.1';
+    heading='Synthetic';complete=$true;editorFree=$true}}
+  switch ($case) {
+    'position-root-foreign-pid' {$AE::FocusedElement.Current.ProcessId=8}
+    'position-root-wrong-hwnd' {$AE::FocusedElement.Current.NativeWindowHandle=[int64]222}
+    'position-root-wrong-rid' {$AE::FocusedElement.rid='42.222'}
+    'position-root-wrong-aid' {$AE::FocusedElement.Current.AutomationId='SSE_Application.Other'}
+    'position-root-wrong-type' {$AE::FocusedElement.Current.ControlType='DataItem'}
+    'position-root-unfocused' {$AE::FocusedElement.Current.HasKeyboardFocus=$false}
+    'position-root-focus-untyped' {$AE::FocusedElement.Current.HasKeyboardFocus='true'}
+    'position-root-disabled' {$AE::FocusedElement.Current.IsEnabled=$false}
+    'position-root-offscreen' {$AE::FocusedElement.Current.IsOffscreen=$true}
+    'position-root-zero-bounds' {$AE::FocusedElement.Current.BoundingRectangle.Width=0}
+    'position-root-truncated' {$tree.stats.truncated=$true}
+    'position-root-active-editor' {$tree.nodes+=@([pscustomobject]@{i=1;p=0;type='Edit';rid='10.5';aid=$rootTableAid+'.Editor';on=$true;x=55;y=125;w=50;h=20})}
+    'position-root-incomplete' {$focusedSnapshot.navigationBinding.complete=$false}
+    'position-root-snapshot-editor' {$focusedSnapshot.navigationBinding.editorFree=$false}
+    'position-root-wrong-table-prefix' {$rootTable.aid='Other.centralWidget.Table';$focusedSnapshot.navigationBinding.tableRootAid=$rootTable.aid}
+    'position-root-duplicate-root' {$tree.nodes+=@([pscustomobject]@{i=1;p=-1;type='Window';rid='42.111';aid='SSE_Application.Synthetic';on=$true;x=0;y=0;w=1000;h=800})}
+  }
+  $erst=$focusedSnapshot;$latestTableSnapshot=[pscustomobject]@{tree=$tree}
+  $physicalUsed=$false;$viewportClickSubmitted=$false
+  $cursorActivation=[pscustomobject]@{method='none';phase='not-started';reason=$null;exceptionType=$null;
+    tableFocusable=$null;anchorFocusable=$null;anchorVerified=$false;subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$null}
+  $navigationState=[pscustomobject]@{phase='fresh-focus-readback';snapshot=$focusedSnapshot;tick=10;
+    windows=[pscustomobject]@{fingerprint='Synthetic.Stable'}}
+  $readNavigationGuard={param($Phase) $navigationState.phase=$Phase;$script:mode -cne 'position-root-navigation-guard'}
+  $readFocusCheckpoint={param($Phase) $navigationState.phase=$Phase;$script:mode -cne 'position-root-input-checkpoint'}
+  Invoke-SyntheticCursorAcquire
+  $success=$case -ceq 'position-root-valid'
+  if (-not $script:emitted -or $script:emitted.ok -ne $success) {throw "$case`: exact main-window position delegation mismatch."}
+  if ($script:footerCalls -ne 1 -or $script:anchorCalls -ne 0 -or $script:snapshotProofs -ne 0 -or
+      $script:emitted.steps -ne 0 -or $script:emitted.physicalInputUsed -or $script:emitted.physicalInputAttempted -or
+      $script:leasePublications -ne [int]$success) {throw "$case`: root-source delegation focused, selected, replayed or published unbound authority."}
+  if ($success -and ($script:emitted.activationSubmitted -cne $false -or @($script:emitted.selectedRids).Count -ne 0 -or
+      $script:cursorReads -ne 2 -or $script:leaseCheckpoints -ne 1 -or $AE::FromHandleCalls -lt 2)) {
+    throw 'Root-source no-action delegation omitted the fresh source/root/editor/selection-independent/epoch proof.'
+  }
+  if (-not $success -and ($script:emitted.retryable -ne $false -or
+      $script:emitted.outcomeUnknown -ne ($case -ceq 'position-root-footer-attempted'))) {throw "$case`: root-source rejection lost precise no-action uncertainty."}
+  if ($case -ceq 'position-root-ordinary' -and $AE::FromHandleCalls -ne 0) {throw 'Ordinary cursor acquisition gained a root Window allowance.'}
+}
+$AE::ThrowFromHandle=$false;$focusedSnapshot=$savedSnapshot;$erst=$savedSnapshot;$latestTableSnapshot=$savedTree
 $cursorPhase='native-position-acquire'
 foreach($case in @('position-empty-selection','position-document-source','position-missing-source','position-passive-proof',
   'footer-proof','footer-snapshot','lease-checkpoint','lease-publication')) {

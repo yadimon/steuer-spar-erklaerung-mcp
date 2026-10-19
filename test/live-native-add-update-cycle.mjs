@@ -1,4 +1,4 @@
-/** Opt-in exact native Add -> passive read -> Update transition; use with-api. */
+/** Opt-in native Add/read/Update, guarded cursor and page reentry; use with-api. */
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { appendFileSync, constants, copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -7,7 +7,7 @@ import { callApiOperationEnvelope, readApiHealthz } from "../dist/api-client.js"
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { profiledTablePage } from "./profiled-table-page.mjs";
 import { formatCents, parseCents } from "./currency-cents.mjs";
-import { assertStateMutation, assertStateRowsUnchanged, stateJourneyInventory } from "./state-journey-contract.mjs";
+import { assertStateMutation, assertStateRowsUnchanged, stateJourneyDestination, stateJourneyInventory } from "./state-journey-contract.mjs";
 import { desktopMarkerState, ssePids } from "./direct-worker-helpers.mjs";
 import { assertFreshMegaDist, megaRuntimeFingerprint, megaSourceFingerprint } from "./performance/api-mega-fingerprint.mjs";
 
@@ -40,6 +40,8 @@ const definition = expectations.cases.find(entry => entry.mode === "einur");
 assert(definition, "A supported official income sample is required.");
 const original = join("C:\\Program Files\\Steuertipps\\SteuerSparErklaerung",
   profile.executable.installationFolderName, expectations.musterDirRelative, definition.file);
+const catalog = JSON.parse(readFileSync(profile.pageObjectsPath, "utf8"));
+const destination = stateJourneyDestination(catalog, original, table.heading);
 const hash = path => createHash("sha256").update(readFileSync(path)).digest("hex");
 const originalHash = hash(original), markerBefore = desktopMarkerState();
 assert.equal(ssePids(), "", "Do not take over existing SSE processes.");
@@ -48,7 +50,7 @@ const client = { baseUrl: process.env.SSE_API_URL };
 const health = await readApiHealthz(client);
 client.expectedInstanceId = health.instanceId;
 assert.equal(health.prewarm?.ready, true, "The canonical prewarm must be ready before the first operation.");
-const report = { scope: "Native Add/passive read/Update transition, independent fresh product processes; no mutation replay",
+const report = { scope: "Native Add/passive read/Update, guarded cursor and profiled page reentry; independent fresh product processes; no mutation replay",
   source: sourceBefore, runtimeFingerprint: runtimeBefore.fingerprint,
   nativeManifestSha256: process.env.SSE_TEST_NATIVE_MANIFEST_SHA256, requestedCycles: cycles, cycles: [], status: "running" };
 writeFileSync(reportPath + ".calls.jsonl", "", { flag: "wx" });
@@ -173,6 +175,34 @@ try {
     const finalModel = await call("table_read", modelArgs());
     assertStateRowsUnchanged(updatedInventory, stateJourneyInventory(finalModel, "model after cursor"), "Cursor preserved native raw/type/checkbox inventory");
     assert.deepEqual(finalModel.rowDetails.map(row => row.rowFingerprint), afterUpdate.rowDetails.map(row => row.rowFingerprint));
+    // Page reentry is a separate, planned transition after the original exact
+    // Add/read/Update sequence and its first guarded cursor/model checks.
+    current.reentry = { pageId: destination.pageId, heading: destination.heading, status: "running" };
+    const away = await call("goto", { pageId: destination.pageId, hwnd: owned.hwnd });
+    assert.equal(away.erreicht, true);
+    assert.equal(away.ueberschrift ?? away.heading, destination.heading);
+    const awayPage = await call("page", { hwnd: owned.hwnd });
+    assert.equal(awayPage.ueberschrift ?? awayPage.heading, destination.heading);
+    const returned = await call("goto", { name: table.heading, hwnd: owned.hwnd });
+    assert.equal(returned.erreicht, true);
+    assert.equal(returned.ueberschrift ?? returned.heading, table.heading);
+    const returnedPage = await call("page", { hwnd: owned.hwnd });
+    assert.equal(returnedPage.ueberschrift ?? returnedPage.heading, table.heading);
+    const reentryModel = await call("table_read", modelArgs());
+    assert.equal(reentryModel.backend, "qt");
+    assertStateRowsUnchanged(updatedInventory, stateJourneyInventory(reentryModel, "native model after page reentry"),
+      "Page reentry preserved every native cell and typed checkbox state");
+    assert.equal(reentryModel.summe, updateSum);
+    assert.deepEqual(reentryModel.rowDetails.map(row => row.rowFingerprint), afterUpdate.rowDetails.map(row => row.rowFingerprint));
+    const reentryCursor = await call("table_read", { ...modelArgs(), noKeys: false });
+    assert.deepEqual(comparable(stateJourneyInventory(reentryCursor, "explicit native guarded cursor after reentry")), comparable(updatedInventory));
+    assert.equal(reentryCursor.summe, updateSum);
+    const reentryFinalModel = await call("table_read", modelArgs());
+    assertStateRowsUnchanged(updatedInventory, stateJourneyInventory(reentryFinalModel, "native model after reentry cursor"),
+      "Reentry cursor preserved native raw/type/checkbox inventory");
+    assert.equal(reentryFinalModel.summe, updateSum);
+    assert.deepEqual(reentryFinalModel.rowDetails.map(row => row.rowFingerprint), afterUpdate.rowDetails.map(row => row.rowFingerprint));
+    current.reentry.status = "passed";
     const closed = await call("close", { ...owned, discardChanges: true });
     assert.equal(closed.stillRunning, false); owned = undefined;
     assert.equal((await call("instances")).count, 0);
@@ -212,4 +242,4 @@ try {
 if (primary && finalErrors.length) throw new AggregateError([primary, ...finalErrors], "Native transition and cleanup failed.", { cause: primary });
 if (primary) throw primary;
 if (finalErrors.length) throw new AggregateError(finalErrors, "Native transition cleanup failed.");
-console.log(`Native Add/read/Update: ${cycles} independent fresh processes passed; full inventories and original hashes preserved.`);
+console.log(`Native Add/read/Update and page reentry: ${cycles} independent fresh processes passed; both guarded cursors, full comparable inventories and original hashes preserved.`);

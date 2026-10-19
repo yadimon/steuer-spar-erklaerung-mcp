@@ -7953,6 +7953,46 @@ function Test-SSETableFocusedSource {
   } catch {if ($FailureReason) {$FailureReason.Value='source-focus-proof-exception'};$false}
 }
 
+function Test-SSETableNativePositionMainWindowSource {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,$Footer)
+  try {
+    $evidence=$Footer.sourceEvidence;$source=$evidence.focusedSource
+    if ($Footer.ok -isnot [bool] -or $Footer.ok -or $Footer.focusAttempted -isnot [bool] -or $Footer.focusAttempted -or
+        $Footer.reason -cne 'footer-source-focus-unbound' -or $Footer.sourceReason -cne 'source-snapshot-node-not-unique' -or
+        $source.type -cne 'Window' -or $source.processId -ne $ProcessId -or
+        $source.nativeWindowHandle -ne [int64]$Hwnd -or -not [string]$source.rid -or -not [string]$source.aid -or
+        $evidence.exactMatchCount -isnot [int] -or $evidence.exactMatchCount -ne 0 -or
+        $evidence.runtimeIdMatchCount -isnot [int] -or $evidence.runtimeIdMatchCount -ne 0) {return $false}
+    $binding=$Snapshot.navigationBinding;$aid=[string]$binding.tableRootAid;$marker='.centralWidget.'
+    $offset=$aid.IndexOf($marker,[StringComparison]::Ordinal)
+    if ($binding.complete -isnot [bool] -or -not $binding.complete -or
+        $binding.editorFree -isnot [bool] -or -not $binding.editorFree -or $offset -le 0 -or
+        $aid.IndexOf($marker,$offset+$marker.Length,[StringComparison]::Ordinal) -ge 0 -or
+        $aid.Substring(0,$offset) -cne [string]$source.aid -or
+        @($Tree.nodes | Where-Object {$_.rid -ceq $source.rid -or $_.aid -ceq $source.aid}).Count) {return $false}
+    $state=Get-SSETableSnapshotInputState $Tree $aid $binding.tableRootRid
+    if (-not $state.ok -or -not $state.editorFree) {return $false}
+    # The ordinary content snapshot intentionally excludes the main root.
+    # Bind that exact root independently; this grants no focus or selection.
+    $root=$AE::FromHandle($Hwnd);$focused=$AE::FocusedElement
+    if (-not $root -or -not $focused) {return $false}
+    foreach ($element in @($root,$focused)) {
+      $current=$element.Current;$bounds=$current.BoundingRectangle
+      if ($current.ControlType -ne [System.Windows.Automation.ControlType]::Window -or
+          [int]$current.ProcessId -ne $ProcessId -or [int64]$current.NativeWindowHandle -ne [int64]$Hwnd -or
+          ($element.GetRuntimeId() -join '.') -cne [string]$source.rid -or
+          [string]$current.AutomationId -cne [string]$source.aid -or
+          $current.HasKeyboardFocus -isnot [bool] -or -not $current.HasKeyboardFocus -or
+          $current.IsEnabled -isnot [bool] -or -not $current.IsEnabled -or
+          $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or
+          $bounds.Width -le 0 -or $bounds.Height -le 0 -or
+          $bounds.X -ne $source.x -or $bounds.Y -ne $source.y -or
+          $bounds.Width -ne $source.w -or $bounds.Height -ne $source.h) {return $false}
+    }
+    $true
+  } catch {$false}
+}
+
 function Invoke-SSETableFooterFocus {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,[string]$ExpectedPage,
     $InputBaseline,[string]$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,[switch]$RequireNumberEditor,
@@ -20227,6 +20267,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Invoke-SSETableReadNumberCellClick $hwnd $targetPid $BeforeClick $latestTableSnapshot.tree $callbacks
         }
         if ($cursorPhase -cin @('native-acquire','native-position-acquire')) {
+          $nativeMainWindowSource=$false
           $cursorActivation.subphase='native-current-cursor-proof'
           $boundCursor=Get-SSETableLiveInputState $hwnd $targetPid $focusedSnapshot.navigationBinding.tableRootAid `
             $focusedSnapshot.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection
@@ -20242,8 +20283,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             # A Chromium Document can be an unavailable UIA source even while
             # Qt has a passive focus widget. Only the unattempted source result
             # may pass to the native source/editor proof, never a failed action.
-            if (-not $footer.ok -and -not (Test-SSETableNativeFocusDelegation $cursorPhase $footer)) {
-              throw 'Profilierter passiver Fokusanker ist nicht beweisbar.'
+            if (-not $footer.ok) {
+              $nativeMainWindowSource=[bool]($cursorPhase -ceq 'native-position-acquire' -and
+                (Test-SSETableNativePositionMainWindowSource $hwnd $targetPid $latestTableSnapshot.tree $focusedSnapshot $footer))
+              if (-not $nativeMainWindowSource -and -not (Test-SSETableNativeFocusDelegation $cursorPhase $footer)) {
+                throw 'Profilierter passiver Fokusanker ist nicht beweisbar.'
+              }
             }
             if ($footer.ok) {
               $cursorActivation.subphase='native-footer-table-readback'
@@ -20279,8 +20324,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $cursorActivation.subphase='native-selected-cursor-proof'
           $selectedCursor=Get-SSETableLiveInputState $hwnd $targetPid $navigationState.snapshot.navigationBinding.tableRootAid `
             $navigationState.snapshot.navigationBinding.tableRootRid -RequireSelection:($cursorPhase -ceq 'native-acquire')
-          if (-not $selectedCursor.ok -or -not (& $readNavigationGuard 'native-lease-handover') -or
-              -not (& $readFocusCheckpoint 'native-lease-input-checkpoint')) {throw 'Privater Fokushandover verlor seine Bindung.'}
+          if (-not $selectedCursor.ok -or -not (& $readNavigationGuard 'native-lease-handover')) {throw 'Privater Fokushandover verlor seine Bindung.'}
+          # Reprove the same root after all scoped UIA reads, immediately
+          # before the existing final Win32 input/window checkpoint.
+          if ($nativeMainWindowSource -and -not (Test-SSETableNativePositionMainWindowSource $hwnd $targetPid `
+              $latestTableSnapshot.tree $navigationState.snapshot $footer)) {throw 'Eigene Hauptfensterquelle aenderte sich vor dem nativen Handover.'}
+          if (-not (& $readFocusCheckpoint 'native-lease-input-checkpoint')) {throw 'Privater Fokushandover verlor seine Bindung.'}
           $cursorActivation.subphase='native-lease-checkpoint'
           Set-SSEForegroundLeaseInputCheckpoint $navigationState.tick -Context 'private-native-cursor-handover'
           $cursorActivation.subphase='native-lease-publication'

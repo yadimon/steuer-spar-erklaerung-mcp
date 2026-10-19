@@ -53,8 +53,20 @@ die alte Auswahl verlangt. Nur ein positiv nachgewiesener eigener Nr.-Editor
 erlaubt nun die Ausrichtung nach frischem Wurzel-/Editor-/Modellnachweis;
 anschließend bleibt der vollständige Auswahl-/Zellnachweis Pflicht. Der
 tatsächliche Worker-Vertrag reproduziert den Fehler und besteht mit der
-Korrektur einschließlich negativer Bindungsfälle. Vollsuite und weitere reale
-Abnahme stehen aus.
+Korrektur einschließlich negativer Bindungsfälle. Weitere reale Abnahme steht aus.
+
+Die reale Folge besteht nun auch die fünfte Anlage und ihren vollständigen
+Cursor-/Inventarabgleich. Nach Seitenwechsel und Rückkehr kann die neu aufgebaute
+Tabelle jedoch ohne aktuelle Auswahl starten. Nur für den exakt leeren nativen
+Cursor plant der Einstieg jetzt die vorhandene modellgebundene Nr.-Positionierung,
+prüft anschließend Bindung, Auswahl und vollständiges Modell frisch und startet
+den normalen Schrittpfad. Eine exakt gebundene eigene Hauptfensterquelle darf
+dabei ausschließlich ohne Aktion an die native Positionierung übergeben werden.
+Spätere Fehler behalten den Nachweis der bereits erfolgten Positionierung.
+Tatsächliche Executor-/Worker-Verträge scheitern vorher und bestehen danach.
+Die vollständige Offline-Suite einschließlich Abdeckungs-, Ergebnis- und
+Dokumentationsbilanzen besteht ebenfalls. Der reale Rückkehrtest, die weitere
+native Zustandsreise und die abschließenden Paketprüfungen stehen noch aus.
 
 Eine zusätzliche Start-Race der nativen Test-Fixture ist reproduziert: Der
 Dateipfad kann bereits existieren, bevor sein JSON vollständig geschrieben ist.

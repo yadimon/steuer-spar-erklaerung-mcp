@@ -18780,6 +18780,21 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
   let physicalInputAttempted = false;
   let currentPhase = "prebind";
   let traversalResult;
+  const preservePriorActivation = (result) => {
+    if (result.ok || !activationSubmitted) return result;
+    const activation = result.cursorActivation && typeof result.cursorActivation === "object" && !Array.isArray(result.cursorActivation) ? result.cursorActivation : void 0;
+    const reportedInput = result.physicalInputAttempted;
+    return {
+      ...result,
+      activationSubmitted: true,
+      physicalInputAttempted: typeof reportedInput === "boolean" || reportedInput === null ? reportedInput : result.physicalInputUsed === true || typeof result.steps === "number" && result.steps > 0 ? true : physicalInputAttempted,
+      outcomeUnknown: true,
+      reconciliationRequired: true,
+      retryable: false,
+      vollstaendig: false,
+      ...activation ? { cursorActivation: { ...activation, activationAttempted: true } } : {}
+    };
+  };
   try {
     const prebind = await phase("prebind");
     if (!prebind.ok) return prebind;
@@ -18804,10 +18819,39 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
       if (!positioned.ok) return publicCursorResult(positioned);
       return { ...projectQtNativeCompleteTable(before, Number(args.maxRows) || 400), ...publicCursorResult(positioned) };
     }
+    const nativeFirstHeader = before.headers[0];
+    const numbered = /^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "") || typeof nativeFirstHeader === "string" && /^Nr\.?$/u.test(nativeFirstHeader);
+    const initialFocus = before.cursorFocusBinding;
+    const emptyCursor = initialFocus?.currentIndex[0] === -1 && initialFocus.currentIndex[1] === -1 && initialFocus.selectedIndexes.length === 0;
+    let stepBinding = binding, stepModel = before;
+    if (numbered && emptyCursor) {
+      if (!capabilities || typeof capabilities !== "object" || capabilities.tableFocusOnlyProtocol !== 1 || capabilities.tablePositionNumberProtocol !== 1) {
+        rejectProof("native-cursor-bootstrap-position-protocol");
+      }
+      const focus = nativeFocusBinding(before, binding);
+      const targetRow = Array.from({ length: before.rows }, (_, row) => row).find((row) => !before.hiddenRows.includes(row));
+      if (targetRow === void 0) return rejectProof("native-cursor-bootstrap-empty-model");
+      currentPhase = "native-cursor-bootstrap-position";
+      const positioned = await executeNativeTargetPosition(client, phase, args, binding, before, remaining, release, targetRow, signal);
+      activationSubmitted = positioned.ok === true || positioned.activationSubmitted === true || positioned.cursorTransaction === "native-target-position";
+      if (!positioned.ok) return preservePriorActivation(publicCursorResult(positioned));
+      currentPhase = "native-cursor-bootstrap-readback";
+      stepBinding = bindingSchema.parse(positioned.cursorBinding);
+      if (!sameSteppedContext(binding, stepBinding) || stepBinding.inputEpoch !== binding.inputEpoch || positioned.physicalInputUsed !== false || positioned.steps !== 0 || positioned.nativeWholeModelUnchanged !== true || positioned.cleanupRequired === true) {
+        rejectProof("native-cursor-bootstrap-context");
+      }
+      stepModel = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+      if (tableCursorModelFingerprint(stepModel) !== tableCursorModelFingerprint(before)) {
+        rejectProof("native-cursor-bootstrap-whole-model");
+      }
+      const expectedFocus = { ...focus, currentIndex: [targetRow, 0], selectedIndexes: [[targetRow, 0]] };
+      if (JSON.stringify(nativeFocusBinding(stepModel, stepBinding, true)) !== JSON.stringify(expectedFocus)) {
+        rejectProof("native-cursor-bootstrap-current-selection");
+      }
+    }
     if (capabilities && typeof capabilities === "object" && capabilities.tableFocusOnlyProtocol === 1) {
-      const nativeFirstHeader = before.headers[0];
-      if (/^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "") || typeof nativeFirstHeader === "string" && /^Nr\.?$/u.test(nativeFirstHeader)) {
-        return await executeNativeSteppedCursor(client, phase, args, binding, before, remaining, release, signal);
+      if (numbered) {
+        return preservePriorActivation(await executeNativeSteppedCursor(client, phase, args, stepBinding, stepModel, remaining, release, signal));
       }
       return await executeNativeCursorFocus(client, phase, args, binding, before, remaining, release, signal);
     }
@@ -18847,7 +18891,7 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
       retryable: false
     };
   } catch (error) {
-    return {
+    return preservePriorActivation({
       ...cursorFailureEvidence(traversalResult),
       ok: false,
       kind: traversalResult?.kind ?? "cursor-proof-failed",
@@ -18861,7 +18905,7 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
       reconciliationRequired: activationSubmitted,
       retryable: false,
       vollstaendig: false
-    };
+    });
   }
 }
 var init_table_cursor_executor = __esm({

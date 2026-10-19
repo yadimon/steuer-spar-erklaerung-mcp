@@ -47,22 +47,44 @@ function nativeGeometry(op, model, binding) {
 async function run(options = {}) {
   let model = copy(template), binding = copy(baseBinding), lease = copy(baseLease);
   options.initialize?.(model, binding);
-  let selected = [`Synthetic.cell.${model.cursorFocusBinding.currentIndex[0]}`];
+  let selected = model.cursorFocusBinding?.selectedIndexes.length ? [`Synthetic.cell.${model.cursorFocusBinding.currentIndex[0]}`] : [];
   options.binding?.(binding);
-  const phases = [], keys = [], focuses = [], releases = [], leases = [], requests = [], consumed = new Set();
+  const phases = [], keys = [], focuses = [], positions = [], positionCheckpoints = [], releases = [], leases = [], requests = [], consumed = new Set();
+  let positionReleased = false;
   const client = { binding: { hwnd: 111, pid: 7 }, request: async (op, args) => {
     requests.push(op);
-    if (op === "ping") return { result: { ok: true, pid: 7, hwnd: 111, recoveryRequired: false,
-      mutationAcknowledgmentRequired: false, capabilities: { tableFocusOnlyProtocol: 1 } } };
+    if (op === "ping") {
+      const result = { ok: true, pid: 7, hwnd: 111, recoveryRequired: false,
+        mutationAcknowledgmentRequired: false, capabilities: { tableFocusOnlyProtocol: 1, tablePositionNumberProtocol: 1 } };
+      options.ping?.(result); return { result };
+    }
     if (["objects", "accessibility_snapshot"].includes(op)) {
-      const result = nativeGeometry(op, model, binding); options.geometry?.(result, op); return { result };
+      const result = nativeGeometry(op, model, binding); options.geometry?.(result, op, positionReleased); return { result };
     }
     assert.equal(op, "table_snapshot");
     assert.equal(args.withCursorFocusBinding, true,
       "A private cursor transaction must explicitly request its unchanged focus/model binding.");
+    if (positionReleased && !keys.length && options.postBootstrapReadThrows) throw new Error("Synthetic post-bootstrap model read lost");
     const value = copy(model); options.model?.(value, keys.length, focuses.length);
     return { result: value };
   }, requestAcknowledged: async (op, args) => {
+    if (op === "table_position_number") {
+      positions.push(copy(args)); assert.equal(positions.length, 1, "Bootstrap positioning must never replay");
+      assert.deepEqual(args.binding, model.cursorFocusBinding);
+      assert.equal(args.expectedInputTick, binding.inputEpoch);
+      const firstVisible = model.values.findIndex((_row, index) => !model.hiddenRows.includes(index));
+      assert.equal(args.targetRow, firstVisible, "Bootstrap must bind the first visible raw model Nr. row");
+      if (options.positionThrows) throw new Error("Synthetic unknown positioning transport outcome");
+      model.cursorFocusBinding.currentIndex = [args.targetRow, 0];
+      model.cursorFocusBinding.selectedIndexes = [[args.targetRow, 0]];
+      selected = [`Synthetic.cell.${args.targetRow}`];
+      if (options.positionUnknown) return { result: { ok: false, mutationAttempted: true,
+        outcomeUnknown: true, code: "GUI_OPERATION_TIMEOUT" }, receiptAcknowledged: false };
+      if (options.positionModelChanged) model.values[0][2].edit = "Synthetic position callback changed model";
+      return { result: { ok: true, positioned: true, physicalInputUsed: false, mutationAttempted: true,
+        numberEditorPending: false, inputTick: binding.inputEpoch, binding: copy(model.cursorFocusBinding) },
+      receiptAcknowledged: !options.noPositionAck };
+    }
     assert.equal(op, "table_focus_only");
     focuses.push(copy(args)); assert.equal(args.expectedInputTick, binding.inputEpoch);
     assert.deepEqual(args.binding, model.cursorFocusBinding);
@@ -74,15 +96,37 @@ async function run(options = {}) {
   const worker = async (op, args, timeout, signal) => {
     assert.equal(op, "table_read"); const plan = args.__tableCursorPlan; phases.push(plan.phase);
     if (plan.phase === "prebind") return { ok: true, cursorBinding: copy(binding) };
-    if (plan.phase === "native-acquire") {
-      const acquired = { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected };
+    if (plan.phase === "native-acquire" || plan.phase === "native-position-acquire") {
+      const acquired = { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected,
+        activationSubmitted: false, physicalInputUsed: false, steps: 0 };
+      if (plan.phase === "native-position-acquire") { options.positionAcquire?.(acquired); return acquired; }
+      if (model.cursorFocusBinding.currentIndex.some(index => index < 0) || !model.cursorFocusBinding.selectedIndexes.length) {
+        return { ok: false, kind: "cursor-proof-failed", error: "Synthetic own root Window has no current Nr. cell",
+          activationSubmitted: false, physicalInputAttempted: false, physicalInputUsed: false, outcomeUnknown: false, steps: 0 };
+      }
       options.acquire?.(acquired); return acquired;
     }
     if (plan.phase === "native-release") {
       assert.equal(timeout, 5000); assert.equal(signal, undefined);
       assert.equal(consumed.has(plan.lease.nonce), false, "A consumed nonce must never be imported for cleanup.");
-      releases.push(plan.lease.nonce); return { ok: true, cursorLeaseReleased: true,
-        focusTelemetry: { releasedByEmit: !options.releaseUnproven, foregroundRestored: !options.releaseUnproven } };
+      releases.push(plan.lease.nonce);
+      const unproven = options.releaseUnproven || (positionReleased && options.laterReleaseUnproven);
+      if (positions.length && !positionReleased) {
+        positionReleased = true; consumed.add(plan.lease.nonce);
+        lease = { ...lease, nonce: randomUUID() };
+        options.afterPositionRelease?.(model, binding);
+      }
+      return { ok: true, cursorLeaseReleased: true,
+        focusTelemetry: { releasedByEmit: !unproven, foregroundRestored: !unproven } };
+    }
+    if (plan.phase === "native-position-checkpoint") {
+      positionCheckpoints.push(copy(plan));
+      assert.deepEqual(plan.lease, lease); assert.deepEqual(plan.binding, binding);
+      assert.equal(plan.position.targetRow, positions[0].targetRow);
+      assert.equal(plan.position.numberModel.length, model.rows);
+      binding.snapshot.navigationBinding.contentSignature = "d".repeat(64);
+      consumed.add(lease.nonce); lease = { ...lease, nonce: randomUUID() };
+      return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), cursorCheckpoint: true };
     }
     if (plan.phase === "checkpoint") return options.checkpointFails ? { ok: false } : { ok: true, cursorCheckpoint: true };
     assert.equal(plan.phase, "native-step", "The legacy resume must not reset HOME or rebuild progress.");
@@ -120,7 +164,7 @@ async function run(options = {}) {
     options.step?.(stepped, keys.length, model); return stepped;
   };
   const result = await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000);
-  return { result, phases, keys, focuses, releases, leases, requests };
+  return { result, phases, keys, focuses, positions, positionCheckpoints, releases, leases, requests };
 }
 const success = await run();
 assert.equal(success.result.ok, true); assert.equal(success.result.vollstaendig, true);
@@ -203,6 +247,103 @@ assert.deepEqual(bank.result.zeilen, [["1", "05.08", "Synthetic bank fee", "15,3
   ["2", "05.09", "Synthetic card fee", "5,11", "", "0", "5,11"], ["", "", "", "0,19", "", "0", "0,19"]]);
 assert.deepEqual(bank.result.rowDetails.map(row => row.typedValues[4]), [false, false, false]);
 assert.deepEqual(bank.result.rowDetails.map(row => row.checkboxStates[4]), ["Off", "Off", "Off"]);
+
+// Leaving and returning to a page can preserve the whole model while clearing
+// current/selection and leaving focus on its own root Window. Only this exact
+// empty-cursor state may plan a native Nr. position before normal stepped read.
+function bankWithoutCurrent(model, binding) {
+  bankAfterUpdate(model, binding);
+  Object.assign(model.cursorFocusBinding, { currentIndex: [-1, -1], selectedIndexes: [] });
+}
+const bootstrapped = await run({ initialize: bankWithoutCurrent });
+assert.equal(bootstrapped.result.ok, true,
+  "A returned page with exact empty current/selection must position once before stepped acquisition");
+assert.deepEqual(bootstrapped.keys, bank.keys);
+assert.equal(bootstrapped.positions.length, 1); assert.equal(bootstrapped.positions[0].targetRow, 0);
+assert.deepEqual(bootstrapped.positions[0].binding.currentIndex, [-1, -1]);
+assert.deepEqual(bootstrapped.positions[0].binding.selectedIndexes, []);
+assert.equal(bootstrapped.positionCheckpoints.length, 1); assert.equal(bootstrapped.releases.length, 2);
+assert.equal(new Set(bootstrapped.releases).size, 2, "Bootstrap and traversal must release independent authority");
+assert.deepEqual(bootstrapped.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "checkpoint", "native-release",
+  "native-acquire", "native-step", "native-step", "native-step", "native-step", "checkpoint", "native-release"]);
+assert.deepEqual(Object.keys(bootstrapped.result).sort(), Object.keys(bank.result).sort(),
+  "Successful bootstrap must preserve the existing public result shape");
+assert.deepEqual(bootstrapped.result.zeilen, bank.result.zeilen);
+for (const field of ["cursorBinding", "cursorLease", "selectedRids", "numberPolicy", "bootstrap", "cursorStep"]) {
+  assert.equal(Object.hasOwn(bootstrapped.result, field), false);
+}
+const hiddenFirst = await run({ initialize: (model, binding) => {
+  bankWithoutCurrent(model, binding); model.hiddenRows = [0];
+} });
+assert.equal(hiddenFirst.result.ok, true); assert.equal(hiddenFirst.positions[0].targetRow, 1);
+assert.deepEqual(hiddenFirst.keys, ["home", "down", "down"]);
+for (const [currentIndex, selectedIndexes] of [[[-1, 0], []], [[0, -1], []], [[-1, -1], [[0, 0]]], [[1, 0], []]]) {
+  const refused = await run({ initialize: (model, binding) => {
+    bankWithoutCurrent(model, binding); Object.assign(model.cursorFocusBinding, { currentIndex, selectedIndexes });
+  } });
+  assert.equal(refused.result.ok, false); assert.deepEqual(refused.positions, []); assert.deepEqual(refused.keys, []);
+  assert.deepEqual(refused.focuses, [], "Half-invalid or contradictory cursor state is not bootstrap authority");
+}
+for (const cursorFocusBinding of [undefined, null]) {
+  const refused = await run({ initialize: (model, binding) => {
+    bankWithoutCurrent(model, binding); model.cursorFocusBinding = cursorFocusBinding;
+  } });
+  assert.equal(refused.result.ok, false); assert.deepEqual(refused.positions, []); assert.deepEqual(refused.keys, []);
+  assert.deepEqual(refused.focuses, [], "Missing native focus metadata is not proof of an empty cursor");
+}
+for (const capability of ["tableFocusOnlyProtocol", "tablePositionNumberProtocol"]) {
+  for (const value of [undefined, 0, "1"]) {
+    const refused = await run({ initialize: bankWithoutCurrent, ping: reply => { reply.capabilities[capability] = value; } });
+    assert.equal(refused.result.ok, false); assert.deepEqual(refused.positions, []); assert.deepEqual(refused.keys, []);
+    assert.deepEqual(refused.focuses, []);
+    assert.deepEqual(refused.phases, ["prebind"], "Missing bootstrap capability must not enter legacy activation or acquire authority");
+  }
+}
+const noVisible = await run({ initialize: (model, binding) => {
+  bankWithoutCurrent(model, binding); model.hiddenRows = [0, 1, 2, 3];
+} });
+assert.equal(noVisible.result.ok, false); assert.deepEqual(noVisible.positions, []); assert.deepEqual(noVisible.keys, []);
+const acquireRefused = await run({ initialize: bankWithoutCurrent, positionAcquire: reply => {
+  Object.assign(reply, { ok: false, kind: "cursor-proof-failed", outcomeUnknown: false });
+} });
+assert.equal(acquireRefused.result.ok, false); assert.deepEqual(acquireRefused.positions, []);
+assert.equal(acquireRefused.result.activationSubmitted, false); assert.equal(acquireRefused.result.outcomeUnknown, false);
+
+for (const failure of [{ positionUnknown: true }, { noPositionAck: true }, { positionThrows: true }, { positionModelChanged: true }]) {
+  const stopped = await run({ initialize: bankWithoutCurrent, ...failure });
+  assert.equal(stopped.result.ok, false); assert.equal(stopped.positions.length, 1); assert.deepEqual(stopped.keys, []);
+  assert.equal(stopped.phases.includes("native-acquire"), false, "An unknown or changed bootstrap must not start another transaction");
+  assert.equal(stopped.result.activationSubmitted, true); assert.equal(stopped.result.outcomeUnknown, true);
+  assert.equal(stopped.result.reconciliationRequired, true); assert.equal(stopped.result.retryable, false);
+}
+const changedAfterRelease = await run({ initialize: bankWithoutCurrent,
+  afterPositionRelease: model => { model.values[0][4].checkState = 2; } });
+assert.equal(changedAfterRelease.result.ok, false); assert.equal(changedAfterRelease.positions.length, 1);
+assert.equal(changedAfterRelease.phases.includes("native-acquire"), false,
+  "A fresh complete model must be identical before a second focus handover is acquired");
+assert.equal(changedAfterRelease.result.activationSubmitted, true); assert.equal(changedAfterRelease.result.outcomeUnknown, true);
+assert.equal(changedAfterRelease.result.reconciliationRequired, true); assert.deepEqual(changedAfterRelease.keys, []);
+for (const [failure, nestedActivation] of [
+  [{ postBootstrapReadThrows: true }, undefined],
+  [{ geometry: (reply, op, released) => { if (released && op === "objects") reply.objects[0].nativeScreenRect[0] += 5; } }, true],
+  [{ acquire: reply => Object.assign(reply, { ok: false, kind: "cursor-proof-failed", error: "Synthetic later acquire failed",
+    activationSubmitted: false, physicalInputAttempted: false, outcomeUnknown: false, reconciliationRequired: false,
+    cursorActivation: { activationAttempted: false, subphase: "native-acquire" } }) }, true],
+]) {
+  const stopped = await run({ initialize: bankWithoutCurrent, ...failure });
+  assert.equal(stopped.result.ok, false); assert.equal(stopped.positions.length, 1); assert.deepEqual(stopped.keys, []);
+  assert.equal(stopped.result.activationSubmitted, true, "A completed bootstrap action cannot be erased by a later pre-key failure");
+  assert.equal(stopped.result.outcomeUnknown, true); assert.equal(stopped.result.reconciliationRequired, true);
+  assert.equal(stopped.result.physicalInputAttempted, false); assert.equal(stopped.result.retryable, false);
+  assert.equal(stopped.result.cursorActivation?.activationAttempted, nestedActivation,
+    "Nested proof diagnostics must not falsely claim no action after bootstrap");
+  assert.equal(stopped.releases.length, 1, "Already-released bootstrap authority must not be imported again after a later guard fails");
+}
+const laterCleanupLost = await run({ initialize: bankWithoutCurrent, laterReleaseUnproven: true });
+assert.equal(laterCleanupLost.result.ok, false); assert.equal(laterCleanupLost.result.cleanupRequired, true);
+assert.equal(laterCleanupLost.result.activationSubmitted, true); assert.equal(laterCleanupLost.result.outcomeUnknown, true);
+assert.equal(laterCleanupLost.result.reconciliationRequired, true); assert.equal(laterCleanupLost.releases.length, 2);
+
 const otherNumbered = await run({ initialize: (model, binding) => {
   bankAfterUpdate(model, binding);
   const name = "/.Synthetic.OtherNumbered", tableAid = `Synthetic.RedThreadContent.DialogUI.${name}`;
