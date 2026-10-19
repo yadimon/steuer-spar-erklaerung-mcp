@@ -23,6 +23,13 @@ dafür benötigte Accessibility-Abfrage. Private Cursortransaktionen fordern ihr
 zusätzlichen Fokus- und Geometrienachweis ausdrücklich an; öffentliche
 Leseparameter können diesen internen Pfad nicht einschalten.
 
+Geschütztes Cursorlesen mit `noKeys: false` verwendet für nummerierte Tabellen
+den einzelnen Modell-Schrittweg. Bereits ein `Nr.`- beziehungsweise `Nr`-Header
+in einer der beiden Beobachtungen verlangt dessen vollständige gemeinsame
+UIA-/Modellbindung vor jeder Aktion. Widersprüchliche Header, ungeeignete
+Nr.-Zellrollen oder eine ausgeblendete Nr.-Spalte erlauben keinen Wechsel zum
+allgemeinen Fokusweg. Die Auswahl hängt nicht vom Seitentitel ab.
+
 Bei der nativen Zielpositionierung kann ein noch nicht versuchter UIA-Fokusweg
 seine Quelle an die native Prüfung übergeben, wenn UIA keinen aktuellen Fokus
 oder nur einen nicht unterstützten Quelltyp meldet. Fenster-, Eingabe-,

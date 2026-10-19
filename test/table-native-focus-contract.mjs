@@ -2,21 +2,23 @@ import assert from "node:assert/strict";
 import { executeTableCursorRead } from "../dist/table-cursor-executor.js";
 
 // All workers/native transports are synthetic. No desktop or process call.
+// This contract covers the non-numbered focus/resume route. Numbered tables
+// require the separately checked one-key/model-backed transaction.
 const copy = value => structuredClone(value);
 const aid = "Synthetic.RedThreadContent.DialogUI./.Synthetic.Table";
 const focus = { tableId: 9, modelId: 10, tableAid: aid, tableName: "/.Synthetic.Table",
   currentIndex: [0, 0], selectedIndexes: [[0, 0]], modelFingerprint: "c".repeat(64) };
 const model = { ok: true, controllerBound: true, windowEnabled: true, modalBlocked: false,
-  rows: 2, readRows: 2, columns: 2, headers: ["Nr.", "Text"],
+  rows: 2, readRows: 2, columns: 2, headers: ["Code", "Text"],
   values: [["", "Example"], ["", ""]].map(row => row.map(display => ({ display, edit: display, checkState: null, flags: 35 }))),
   rowFingerprints: ["1".repeat(64), "2".repeat(64)], hiddenColumns: [], hiddenRows: [], complete: true,
   canFetchMore: false, tableCount: 1, table: { id: 9, name: "/.Synthetic.Table", class: "DialogUITable", visible: true },
   summary: "4,00", binding: {}, summaries: [{ label: "Summe", vorkommen: 1, wert: "4,00" }], cursorFocusBinding: focus };
 const binding = { hwnd: 111, pid: 7, inputEpoch: 123, dirty: true, dpi: 144, clientOrigin: [1000, 200],
   windowTitle: "Synthetic window", windowFingerprint: "a".repeat(64),
-  snapshot: { kopf: ["Nr.", "Text"], navigationBinding: { complete: true, editorFree: true, heading: "Synthetic",
+  snapshot: { kopf: ["Code", "Text"], navigationBinding: { complete: true, editorFree: true, heading: "Synthetic",
     tableRootAid: aid, tableRootRid: "42.777.4.-20", contentSignature: "b".repeat(64),
-    headers: ["Nr.", "Text"].map((name, index) => ({ name, aid: `${aid}.${index}`, rid: `42.777.4.-${30 + index}` })) } } };
+    headers: ["Code", "Text"].map((name, index) => ({ name, aid: `${aid}.${index}`, rid: `42.777.4.-${30 + index}` })) } } };
 const lease = { schemaVersion: 1, nonce: "d50d2d7b-cc3c-4b89-ab78-9d0415b79077", rootHwnd: 111, targetPid: 7,
   inputEpoch: 123, previous: { hwnd: 222, pid: 8, start: "133000000000000001", class: "SyntheticCaller" }, previousCursor: null };
 

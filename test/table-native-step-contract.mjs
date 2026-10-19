@@ -45,7 +45,9 @@ function nativeGeometry(op, model, binding) {
 }
 
 async function run(options = {}) {
-  let model = copy(template), binding = copy(baseBinding), lease = copy(baseLease), selected = ["Synthetic.cell.1"];
+  let model = copy(template), binding = copy(baseBinding), lease = copy(baseLease);
+  options.initialize?.(model, binding);
+  let selected = [`Synthetic.cell.${model.cursorFocusBinding.currentIndex[0]}`];
   options.binding?.(binding);
   const phases = [], keys = [], focuses = [], releases = [], leases = [], consumed = new Set();
   const client = { binding: { hwnd: 111, pid: 7 }, request: async (op, args) => {
@@ -129,6 +131,72 @@ for (const field of ["cursorBinding", "cursorLease", "cursorStep", "selectedRids
   assert.equal(Object.hasOwn(success.result, field), false);
 }
 assert.equal(JSON.stringify(success.result).includes("SyntheticCaller"), false);
+// A native Add/Update leaves the current Nr. at the changed row. A following
+// guarded read must not enter legacy resume, whose HOME can open an Nr. editor
+// without the model-backed closure and selection proof before the first DOWN.
+function bankAfterUpdate(model, binding) {
+  const tableName = "/.Bankgebuehren.Tab";
+  const tableAid = `Synthetic.RedThreadContent.DialogUI./.Bankgebuehren.${tableName}`;
+  const visibleHeaders = ["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "%", "Netto"];
+  Object.assign(model, { rows: 4, readRows: 4, columns: visibleHeaders.length, headers: visibleHeaders,
+    hiddenColumns: [], hiddenRows: [], summary: "20,64", summaries: [{ label: "Summe", vorkommen: 1, wert: "20,64" }],
+    values: [["1", "05.08", "Synthetic bank fee", "15,34", "", "0", "15,34"],
+      ["2", "05.09", "Synthetic card fee", "5,11", "", "0", "5,11"],
+      ["", "", "", "0,19", "", "0", "0,19"],
+      ["", "", "", "0,00", "", "0", "0,00"]].map(row => row.map((display, column) =>
+        column === 4 ? { display, edit: display, flags: 49, checkState: 0 } : cell(display))),
+    rowFingerprints: ["1", "2", "3", "4"].map(char => char.repeat(64)) });
+  model.table.name = tableName;
+  Object.assign(model.cursorFocusBinding, { tableName, tableAid, currentIndex: [2, 0], selectedIndexes: [[2, 0]] });
+  binding.snapshot.kopf = [...visibleHeaders];
+  Object.assign(binding.snapshot.navigationBinding, { heading: "Beiträge, Gebühren und Abgaben", tableRootAid: tableAid,
+    summaryValue: "20,64", headers: visibleHeaders.map((name, column) =>
+      ({ name, aid: `${tableAid}.${column}`, rid: `42.777.4.-${30 + column}` })) });
+}
+const bank = await run({ initialize: bankAfterUpdate });
+assert.equal(bank.result.ok, true, "A bound numbered table after Update must use the model-backed step route.");
+assert.equal(bank.result.cursorTransaction, "native-step-focus-only");
+assert.equal(bank.result.vollstaendig, true); assert.equal(bank.result.nativeWholeModelUnchanged, true);
+assert.equal(bank.result.lastRowFullyContained, true); assert.equal(bank.result.summe, "20,64");
+assert.deepEqual(bank.keys, ["home", "down", "down", "down"]);
+assert.deepEqual(bank.focuses[0].binding.currentIndex, [2, 0]);
+assert.deepEqual(bank.phases, ["prebind", "native-acquire", "native-step", "native-step", "native-step", "native-step", "checkpoint", "native-release"]);
+assert.deepEqual(bank.result.zeilen, [["1", "05.08", "Synthetic bank fee", "15,34", "", "0", "15,34"],
+  ["2", "05.09", "Synthetic card fee", "5,11", "", "0", "5,11"], ["", "", "", "0,19", "", "0", "0,19"]]);
+assert.deepEqual(bank.result.rowDetails.map(row => row.typedValues[4]), [false, false, false]);
+assert.deepEqual(bank.result.rowDetails.map(row => row.checkboxStates[4]), ["Off", "Off", "Off"]);
+const otherNumbered = await run({ initialize: (model, binding) => {
+  bankAfterUpdate(model, binding);
+  const name = "/.Synthetic.OtherNumbered", tableAid = `Synthetic.RedThreadContent.DialogUI.${name}`;
+  model.table.name = name; Object.assign(model.cursorFocusBinding, { tableName: name, tableAid });
+  binding.snapshot.navigationBinding.heading = "Synthetic unrelated heading";
+  binding.snapshot.navigationBinding.tableRootAid = tableAid;
+  binding.snapshot.navigationBinding.headers.forEach((header, column) => { header.aid = `${tableAid}.${column}`; });
+} });
+assert.equal(otherNumbered.result.ok, true, "Number policy must bind the table/model, not a heading allowlist.");
+assert.deepEqual(otherNumbered.keys, bank.keys);
+const shortNumberHeader = await run({ initialize: (model, binding) => {
+  bankAfterUpdate(model, binding); model.headers[0] = "Nr"; binding.snapshot.kopf[0] = "Nr";
+  binding.snapshot.navigationBinding.headers[0].name = "Nr";
+} });
+assert.equal(shortNumberHeader.result.ok, true); assert.deepEqual(shortNumberHeader.keys, bank.keys);
+for (const [name, change] of [
+  ["UIA Nr with non-Nr native header", model => { model.headers[0] = "Code"; }],
+  ["native Nr with non-Nr UIA header", (_model, binding) => {
+    binding.snapshot.kopf[0] = "Code"; binding.snapshot.navigationBinding.headers[0].name = "Code";
+  }],
+  ["non-string native header", model => { model.headers[0] = 17; }],
+  ["hidden raw Nr column", model => { model.hiddenColumns = [0]; }],
+  ["unselectable Nr cell", model => { model.values[0][0].flags = 1; }],
+  ["checkable Nr cell", model => { model.values[0][0].flags = 49; model.values[0][0].checkState = 0; }],
+  ["numeric Nr role", model => { model.values[0][0].display = 1; model.values[0][0].edit = 1; }],
+  ["table name outside bound Aid", model => { model.table.name = "/.Synthetic.Foreign"; }],
+]) {
+  const stopped = await run({ initialize: (model, binding) => { bankAfterUpdate(model, binding); change(model, binding); } });
+  assert.equal(stopped.result.ok, false, name);
+  assert.deepEqual(stopped.phases, ["prebind"], `${name}: failed number proof must not fall back to resume or acquire focus.`);
+  assert.deepEqual(stopped.keys, [], name); assert.deepEqual(stopped.focuses, [], name); assert.deepEqual(stopped.releases, [], name);
+}
 for (const geometry of [
   (result, op) => { if (op === "objects") result.objects[1].rootRect = [4, 24, 700, 212]; },
   (result, op) => { if (op === "objects") result.objects[1].parentId = 99; },

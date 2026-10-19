@@ -26,7 +26,12 @@ gebaut; die zugehörige reale native Abnahme und Paketprüfung stehen noch aus.
 Die Zustandsreise fordert den Cursor nun in beiden Backends ausdrücklich mit
 `noKeys: false` an. Eine zusätzliche opt-in Regression erhält die direkte Folge
 Add, passiver Readback, Update mit derselben Zellidentität und prüft danach
-vollständige Inventare. Ihre reale Abnahme steht noch aus.
+vollständige Inventare. Sie hat einen nativen Cursorfehler nach Update belegt:
+Ein seitentitelabhängiger Pfad konnte den durch HOME geöffneten Nr.-Editor
+nicht korrekt nachweisen. Nummerierte Tabellen wählen nun anhand ihrer
+Struktur den vorhandenen Modell-Schrittweg; widersprüchliche Bindungen scheitern
+vor jeder Aktion. Neue positive und negative Verträge bestehen nach der
+Korrektur. Die erneute reale Abnahme steht noch aus.
 
 Die Verzögerung beim ersten nativen Unicode-Schreiben ist erneut reproduziert:
 Die feine Diagnose bindet sie an `QLineEdit::insert` vor dem `textEdited`-Signal.

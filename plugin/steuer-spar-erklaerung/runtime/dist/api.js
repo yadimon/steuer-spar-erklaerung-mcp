@@ -18792,8 +18792,8 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
       return { ...projectQtNativeCompleteTable(before, Number(args.maxRows) || 400), ...publicCursorResult(positioned) };
     }
     if (capabilities && typeof capabilities === "object" && capabilities.tableFocusOnlyProtocol === 1) {
-      const profiledEdv = binding.snapshot.navigationBinding.heading === "EDV-Kosten" && JSON.stringify(binding.snapshot.kopf) === JSON.stringify(["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "%", "Netto"]);
-      if (profiledEdv || binding.snapshot.navigationBinding.tableRootAid.endsWith(".grpEmpf13b.Empf13b") && before.table.name === "/.grpEmpf13b.Empf13b" && /^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "")) {
+      const nativeFirstHeader = before.headers[0];
+      if (/^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "") || typeof nativeFirstHeader === "string" && /^Nr\.?$/u.test(nativeFirstHeader)) {
         return await executeNativeSteppedCursor(client, phase, args, binding, before, remaining, release, signal);
       }
       return await executeNativeCursorFocus(client, phase, args, binding, before, remaining, release, signal);

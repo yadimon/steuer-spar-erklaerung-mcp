@@ -178,10 +178,11 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
     }
     if (capabilities && typeof capabilities === "object"
       && (capabilities as Record<string, unknown>).tableFocusOnlyProtocol === 1) {
-      const profiledEdv = binding.snapshot.navigationBinding.heading === "EDV-Kosten"
-        && JSON.stringify(binding.snapshot.kopf) === JSON.stringify(["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "%", "Netto"]);
-      if (profiledEdv || (binding.snapshot.navigationBinding.tableRootAid.endsWith(".grpEmpf13b.Empf13b")
-        && before.table.name === "/.grpEmpf13b.Empf13b" && /^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? ""))) {
+      const nativeFirstHeader = before.headers[0];
+      // Either observation of Nr. requires the strict shared number policy.
+      // A disagreement must fail there before input, never enter legacy resume.
+      if (/^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "")
+        || (typeof nativeFirstHeader === "string" && /^Nr\.?$/u.test(nativeFirstHeader))) {
         return await executeNativeSteppedCursor(client, phase, args, binding, before, remaining, release, signal);
       }
       return await executeNativeCursorFocus(client, phase, args, binding, before, remaining, release, signal);
