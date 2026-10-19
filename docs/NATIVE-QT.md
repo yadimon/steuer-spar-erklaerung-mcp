@@ -492,8 +492,9 @@ Der private `replace-edit-text`-Pfad trennt lesende Vorbereitung und ersten
 Eingriff durch einen atomaren Permit. Eine noch wartende Anfrage oder laufende
 Vorbereitung kann innerhalb der unveränderten GUI-Frist abgebrochen werden.
 Gewinnt der Abbruch, darf derselbe Callback später weder Auswahl noch Text
-oder Commit ändern. Der ursprüngliche Callback behält seine Controller-Sperre
-bis zum vollständigen Ende; eine verschachtelte Anfrage erhält `busy`, ohne
+oder Commit ändern. Solange eine bereits laufende Vorbereitung drainiert,
+bleiben ihre Controller-Sperre und der Schutz vor verschachtelter Ausführung
+gehalten; eine verschachtelte Anfrage erhält `busy`, ohne
 den äußeren Session-, Mutations- oder Permit-Kontext zu löschen.
 
 Ein bestätigter Abbruch meldet `GUI_QUEUE_TIMEOUT` beziehungsweise
@@ -505,6 +506,12 @@ Eingriff; gelesene Provider und Schriftcaches können bereits initialisiert
 sein. Hat der Permit gewonnen, bleibt eine Zeitüberschreitung unbekannt und
 sperrt weitere Änderungen wie bisher. Keine dieser Antworten löst eine
 automatische Wiederholung aus.
+
+Nach bestätigtem Ende des ursprünglichen Callbacks kann der Aufrufer einen
+neuen Versuch ausdrücklich stellen. Er benötigt erneut frische Ziel- und
+Ausgangswertprüfungen. Die Cancellation bestätigt nur den ausgebliebenen
+Texteingriff dieses Auftrags; frühere Aktionen oder ungeklärte Ausgänge einer
+umgebenden Transaktion bleiben davon unberührt.
 
 Für normale unmaskierte `QLineEdit`-Felder bereitet ein lokales `QTextLayout`
 die gewünschte Anzeigezeichenfolge mit einer Kopie der tatsächlichen Schrift

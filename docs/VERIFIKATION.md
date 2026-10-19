@@ -190,7 +190,8 @@ Speichern behalten ihre bestehenden Transaktionswege.
 
 Der atomare Texteingriffs-Permit hat eigene native Zustands- und
 Verschachtelungsverträge: Abbruch vor Permit verhindert jeden späteren Einstieg,
-Permit vor Abbruch behält den unbekannten Ausgang. Eine zusätzliche frische
+Gewinnt der Permit und überschreitet die noch laufende Ausführung danach die
+Antwortfrist, bleibt ihr Ausgang unbekannt. Eine zusätzliche frische
 Qt-Fixture verzögert einen tatsächlich gelesenen Accessible-Namen vor der
 ersten Auswahl. Nach bestätigtem Abbruch und Drain müssen Text, Modell,
 Auswahl, Cursor, Fokus und Signalzähler unverändert bleiben; anschließend muss
