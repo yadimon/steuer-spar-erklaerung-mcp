@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-cleanup-contract-"));
 const environment = { ...process.env };
@@ -18,18 +18,21 @@ function removeOwnSandbox(path) {
   assert.equal(existsSync(target), false);
 }
 
-function run(name, { code = 0, missing = false, removeFailure = false, serverFailure = false, serverThrow = false, traceFailure = false, preserve = false, blockFlush = false } = {}) {
+function run(name, { code = 0, missing = false, removeFailure = false, serverFailure = false, serverThrow = false, traceFailure = false, preserve = false, blockFlush = false, reportDirectory = temporary } = {}) {
   const capturePath = join(temporary, `${name}.jsonl`);
-  const reportPath = join(temporary, `${name}.report.json`);
+  // Keep a supplied lexical alias intact so the actual log canonicalizes it.
+  const reportPath = `${reportDirectory}${sep}${name}.report.json`;
   const tracePath = `${reportPath}.execution.jsonl`;
   // The preloader affects only the actual wrapper. Its Node child does not
   // inherit --import, and no product operation or native worker is started.
   const preloader = [
     "import fs from 'node:fs';",
     "import http from 'node:http';",
+    "import {basename,dirname,resolve} from 'node:path';",
     "import {syncBuiltinESMExports} from 'node:module';",
     `const capturePath=${JSON.stringify(capturePath)};`,
     `const tracePath=${JSON.stringify(tracePath)};`,
+    "const traceTarget=resolve(fs.realpathSync.native(dirname(tracePath)),basename(tracePath));",
     "const record=value=>fs.appendFileSync(capturePath,JSON.stringify(value)+'\\n');",
     "const originalMkdtemp=fs.mkdtempSync;",
     "fs.mkdtempSync=(...args)=>{const path=originalMkdtemp(...args);record({phase:'created',path});return path;};",
@@ -39,7 +42,7 @@ function run(name, { code = 0, missing = false, removeFailure = false, serverFai
     `http.Server.prototype.close=function(callback){record({phase:'http-server'});const result=originalCloseServer.call(this,error=>callback(${serverFailure ? "error??new Error('synthetic-http-server-failure')" : "error"}));${serverThrow ? "throw new Error('synthetic-http-server-throw');" : "return result;"}};`,
     "let traceDescriptor;",
     "const originalOpen=fs.openSync;",
-    "fs.openSync=(path,...args)=>{const descriptor=originalOpen(path,...args);if(path===tracePath)traceDescriptor=descriptor;return descriptor;};",
+    "fs.openSync=(path,...args)=>{const descriptor=originalOpen(path,...args);if(path===traceTarget){traceDescriptor=descriptor;record({phase:'execution-log-open'});}return descriptor;};",
     "const originalCloseFile=fs.closeSync;",
     `fs.closeSync=(descriptor)=>{const result=originalCloseFile(descriptor);if(descriptor===traceDescriptor){record({phase:'execution-log'});${traceFailure ? "throw new Error('synthetic-execution-log-failure');" : ""}}return result;};`,
     ...(blockFlush ? ["const originalWrite=process.stderr.write;process.stderr.write=function(chunk,...args){if(chunk===''){record({phase:'flush-blocked'});return true;}return originalWrite.call(this,chunk,...args);};"] : []),
@@ -65,7 +68,7 @@ function run(name, { code = 0, missing = false, removeFailure = false, serverFai
     assert.equal(result.error, undefined, `${name}: wrapper must finish without timeout or driver error`);
     assert.equal(result.signal, null, `${name}: wrapper must finish normally`);
     assert.deepEqual(captures.map(entry => entry.phase), [
-      "created", "http-server", "execution-log", ...((preserve && (code !== 0 || missing || serverFailure || serverThrow || traceFailure)) ? [] : ["sandbox"]), ...(blockFlush ? ["flush-blocked"] : []),
+      "created", "execution-log-open", "http-server", "execution-log", ...((preserve && (code !== 0 || missing || serverFailure || serverThrow || traceFailure)) ? [] : ["sandbox"]), ...(blockFlush ? ["flush-blocked"] : []),
     ], `${name}: later independent cleanup phases must run exactly once`);
     const failed = missing || code !== 0 || removeFailure || serverFailure || serverThrow || traceFailure;
     assert.equal(result.status, code !== 0 ? code : failed ? 1 : 0, `${name}: preserve original child exit status`);
@@ -87,9 +90,9 @@ function run(name, { code = 0, missing = false, removeFailure = false, serverFai
   }
 }
 
-function runLifecycle(name, { code = 23, missing = false, nativeFailure = false, prewarmFailure = false, traceFailure = false, blockFlush = false } = {}) {
+function runLifecycle(name, { code = 23, missing = false, nativeFailure = false, prewarmFailure = false, traceFailure = false, blockFlush = false, reportDirectory = temporary } = {}) {
   const lifecycleTemporary = mkdtempSync(join(temporary, `${name}-`));
-  const capturePath = join(temporary, `${name}.jsonl`), reportPath = join(temporary, `${name}.report.json`);
+  const capturePath = join(temporary, `${name}.jsonl`), reportPath = `${reportDirectory}${sep}${name}.report.json`;
   const tracePath = `${reportPath}.execution.jsonl`, markerPath = join(lifecycleTemporary, "sse-mcp-desktop.txt");
   const nativeStub = [
     "import fs from 'node:fs';import {join} from 'node:path';import {tmpdir} from 'node:os';",
@@ -111,12 +114,13 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
     "export const ensureWarmSpare=()=>{throw new Error('Real workers forbidden.');};export const takeWarmSpare=()=>{throw new Error('Real workers forbidden.');};",
   ].join("\n");
   const preloader = [
-    "import fs from 'node:fs';import http from 'node:http';import {registerHooks,syncBuiltinESMExports} from 'node:module';",
+    "import fs from 'node:fs';import http from 'node:http';import {basename,dirname,resolve} from 'node:path';import {registerHooks,syncBuiltinESMExports} from 'node:module';",
     `const tracePath=${JSON.stringify(tracePath)};const record=value=>fs.appendFileSync(${JSON.stringify(capturePath)},JSON.stringify(value)+'\\n');`,
+    "const traceTarget=resolve(fs.realpathSync.native(dirname(tracePath)),basename(tracePath));",
     "const originalMkdtemp=fs.mkdtempSync;fs.mkdtempSync=(...args)=>{const path=originalMkdtemp(...args);record({phase:'created',path});return path;};",
     "const originalRemove=fs.rmSync;fs.rmSync=(path,...args)=>{record({phase:'sandbox',path});return originalRemove(path,...args);};",
     "const originalCloseServer=http.Server.prototype.close;http.Server.prototype.close=function(callback){record({phase:'http-server'});return originalCloseServer.call(this,callback);};",
-    "let traceDescriptor;const originalOpen=fs.openSync;fs.openSync=(path,...args)=>{const descriptor=originalOpen(path,...args);if(path===tracePath)traceDescriptor=descriptor;return descriptor;};",
+    "let traceDescriptor;const originalOpen=fs.openSync;fs.openSync=(path,...args)=>{const descriptor=originalOpen(path,...args);if(path===traceTarget){traceDescriptor=descriptor;record({phase:'execution-log-open'});}return descriptor;};",
     `const originalCloseFile=fs.closeSync;fs.closeSync=(descriptor)=>{const result=originalCloseFile(descriptor);if(descriptor===traceDescriptor){record({phase:'execution-log'});${traceFailure ? "throw new Error('synthetic trace close failure');" : ""}}return result;};`,
     `registerHooks({load(url,context,nextLoad){if(url.endsWith('/dist/qt-native-runtime.js'))return{format:'module',source:${JSON.stringify(nativeStub)},shortCircuit:true};if(url.endsWith('/dist/worker-prewarm.js'))return{format:'module',source:${JSON.stringify(prewarmStub)},shortCircuit:true};return nextLoad(url,context);}});`,
     ...(blockFlush ? ["const originalWrite=process.stderr.write;process.stderr.write=function(chunk,...args){if(chunk===''){record({phase:'flush-blocked'});return true;}return originalWrite.call(this,chunk,...args);};"] : []),
@@ -141,7 +145,7 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
     assert.equal(result.error, undefined, `${name}: cleanup must finish inside the subprocess deadline`);
     assert.equal(result.signal, null);
     assert.equal(result.status, missing ? 1 : code || (nativeFailure || prewarmFailure || traceFailure ? 1 : 0));
-    assert.deepEqual(captures.map(entry => entry.phase), ["created", "native-created", "prewarm-enable", "http-server", "native-shutdown", "native-runtime", "worker-prewarm", "execution-log",
+    assert.deepEqual(captures.map(entry => entry.phase), ["created", "execution-log-open", "native-created", "prewarm-enable", "http-server", "native-shutdown", "native-runtime", "worker-prewarm", "execution-log",
       ...(nativeFailure ? [] : ["sandbox"]), ...(blockFlush ? ["flush-blocked"] : [])]);
     assert.equal(existsSync(sandbox), nativeFailure, `${name}: uncertain native ownership must retain the sandbox automatically`);
     assert.equal(existsSync(markerPath), nativeFailure, `${name}: the wrapper must not erase the unproved marker`);
@@ -245,6 +249,10 @@ const peer = spawn(process.execPath, ["-e", "setInterval(()=>{},1000);"], { stdi
 assert(Number.isSafeInteger(peer.pid) && peer.pid > 0, "The independent peer subprocess must have an owned PID.");
 peer.on("error", error => { throw error; });
 try {
+  run("aliased-trace-cleanup", { reportDirectory: `${temporary}${sep}.`, traceFailure: true });
+  runLifecycle("aliased-native-trace-cleanup", {
+    reportDirectory: `${temporary}${sep}.`, nativeFailure: true, prewarmFailure: true, traceFailure: true,
+  });
   runPendingOrStartup("pending-http-close", { pending: "http-server" });
   runPendingOrStartup("pending-http-without-handles", { pending: "http-server", code: 0, holdHandle: false });
   runPendingOrStartup("pending-shutdown", { pending: "native-shutdown" });
