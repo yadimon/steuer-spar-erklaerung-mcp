@@ -60,17 +60,22 @@ class BrokerStream extends Duplex {
   }
 }
 
-async function readReadiness(child: ChildProcessWithoutNullStreams, timeoutMs: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
+async function bootstrapBroker(child: ChildProcessWithoutNullStreams, bootstrap: Buffer, timeoutMs: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
   return new Promise((resolveReady, reject) => {
     let bytes = Buffer.alloc(0), done = false;
     const finish = (error?: Error, value?: Record<string, unknown>) => {
       if (done) return; done = true;
       clearTimeout(timer); child.stdout.off("readable", read); child.off("exit", exited); child.off("error", failed);
+      child.stdin.off("error", sendFailed); child.stdin.off("finish", sendFailed); child.stdin.off("close", sendFailed);
+      child.stdout.off("error", readFailed); child.stderr.off("error", readFailed);
+      child.stdout.off("end", readFailed); child.stdout.off("close", readFailed);
       signal?.removeEventListener("abort", aborted);
       if (error) reject(error); else resolveReady(value!);
     };
     const exited = () => finish(new QtNativeTransportError("Native broker ended before readiness.", "native-startup", true));
     const failed = (error: Error) => finish(error);
+    const sendFailed = () => finish(new QtNativeTransportError("Native broker bootstrap submission failed.", "native-startup", true));
+    const readFailed = () => finish(new QtNativeTransportError("Native broker readiness channel failed.", "native-startup", true));
     const aborted = () => finish(new QtNativeTransportError("Native broker startup cancelled; attachment may have begun.", "aborted", true));
     const timer = setTimeout(() => finish(new QtNativeTransportError("Native broker startup deadline exceeded.", "native-startup-timeout", true)), timeoutMs);
     const read = () => {
@@ -88,8 +93,16 @@ async function readReadiness(child: ChildProcessWithoutNullStreams, timeoutMs: n
       }
     };
     child.stdout.on("readable", read); child.once("exit", exited); child.once("error", failed);
+    child.stdin.once("error", sendFailed); child.stdin.once("finish", sendFailed); child.stdin.once("close", sendFailed);
+    child.stdout.once("error", readFailed); child.stderr.once("error", readFailed);
+    child.stdout.once("end", readFailed); child.stdout.once("close", readFailed);
     signal?.addEventListener("abort", aborted, { once: true });
-    if (signal?.aborted) aborted(); else read();
+    if (signal?.aborted) aborted();
+    else {
+      try { child.stdin.write(bootstrap, error => { if (error) sendFailed(); }); }
+      catch { sendFailed(); }
+      if (!done) read();
+    }
   });
 }
 
@@ -119,7 +132,6 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
   let stderrBytes = 0, client: QtNativeClient | undefined, stream: BrokerStream | undefined;
   // Diagnostics are bounded and never copied into API errors, where they could disclose local paths.
   child.stderr.on("data", (data: Buffer) => { stderrBytes += data.length; if (stderrBytes > 65536) child.kill(); });
-  child.stdin.on("error", () => {});
   let processExited = false;
   const exited = new Promise<void>(resolveExit => {
     child.once("exit", () => { processExited = true; resolveExit(); });
@@ -127,12 +139,24 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
     // still does not prove exit, and later owned-child errors stay handled.
     child.on("error", () => resolveExit());
   });
+  let ioFailed = false;
+  const ioFailure = () => {
+    ioFailed = true; client?.close(); stream?.destroy(); child.kill();
+  };
+  const verifyStartup = () => {
+    if (signal?.aborted) throw new QtNativeTransportError("Native broker startup cancelled; attachment may have begun.", "aborted", true);
+    if (ioFailed || processExited || child.stdin.destroyed || child.stdin.writableEnded
+      || child.stdout.destroyed || child.stdout.readableEnded || stream?.destroyed
+      || (stream && (!stream.readable || !stream.writable))) {
+      throw new QtNativeTransportError("Native broker transport ended during startup.", "native-startup", true);
+    }
+  };
+  child.stdin.on("error", ioFailure); child.stdout.on("error", ioFailure); child.stderr.on("error", ioFailure);
   const abort = () => { client?.close(); child.kill(); };
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    const waiting = readReadiness(child, options.timeoutMs, signal);
-    child.stdin.write(Buffer.concat([header, body]));
-    const loaded = await waiting;
+    const loaded = await bootstrapBroker(child, Buffer.concat([header, body]), options.timeoutMs, signal);
+    verifyStartup();
     if (loaded.ok !== true || loaded.pipePeerVerified !== true || loaded.binaryIdentityVerified !== true
       || loaded.bindingDiscovered !== true || loaded.bridgeImageVerified !== true
       || loaded.controllerPid !== process.pid || loaded.brokerPid !== child.pid || loaded.ownerPid !== child.pid
@@ -153,6 +177,7 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
     let remaining = Math.floor(options.timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before handshake.", "native-startup-timeout", true);
     stream = new BrokerStream(child); client = await QtNativeClient.connectStream(binding, stream, remaining);
+    verifyStartup();
     remaining = Math.floor(options.timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before owner verification.", "native-startup-timeout", true);
     const ping = (await client.request("ping", {}, remaining, signal)).result;
@@ -160,6 +185,7 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
     if (ping.ownerPid !== child.pid || ping.ownerCreationTime !== loaded.ownerCreationTime) {
       throw new QtNativeTransportError("Native session owner does not match its broker.", "native-peer");
     }
+    verifyStartup();
     return { client, brokerPid: child.pid!, exited, get processExited() { return processExited; },
       async close() { client!.close(); child.kill(); await exited; } };
   } catch (error) {

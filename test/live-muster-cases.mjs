@@ -57,6 +57,47 @@ const definitions = requestedIds.size
   ? allDefinitions.filter(({ id }) => requestedIds.has(id))
   : allDefinitions;
 
+// Select the assertion contract before observing a response. The native case
+// is intentionally limited to the independently verified, table-free ESt page;
+// populated native models are covered by the separate Add/Update cycle.
+const tableContracts = new Map([
+  ["--table-contract=legacy", {
+    name: "legacy",
+    environment: [],
+    requiredEnvironment: [],
+    preconditions: [],
+    assertRead: assertLegacyTableReadContract,
+  }],
+  ["--table-contract=native-empty-page", {
+    name: "native-empty-page",
+    environment: [["SSE_PROFILE_ID", "2025"], ["SSE_LIVE_MUSTER_MODE", "core-read"]],
+    requiredEnvironment: ["SSE_TEST_NATIVE_PACKAGE", "SSE_TEST_NATIVE_MANIFEST_SHA256"],
+    preconditions: [
+      () => assert.deepEqual(definitions.map(({ id }) => id), ["est"],
+        "The native empty-page contract requires exactly the ESt fixture."),
+      () => assert.equal(typeof definitions[0]?.terminalCollect?.headingAtLaunch, "string",
+        "The native empty-page contract requires a known fixture launch heading."),
+      () => assert.equal(/^[a-f0-9]{64}$/iu.test(process.env.SSE_TEST_NATIVE_MANIFEST_SHA256), true,
+        "The native empty-page contract requires an explicit native manifest SHA-256."),
+      () => assert.equal(existsSync(process.env.SSE_TEST_NATIVE_PACKAGE), true,
+        "The explicit native package must exist before making any API call."),
+    ],
+    assertRead: assertNativeEmptyPageTableContract,
+  }],
+]);
+const tableContractArguments = process.argv.slice(2);
+assert(tableContractArguments.length <= 1, "Supply at most one explicit table-contract selector.");
+const tableContract = tableContracts.get(tableContractArguments[0] ?? "--table-contract=legacy");
+assert(tableContract, "Unknown table-contract selector; use legacy or native-empty-page.");
+for (const [name, expected] of tableContract.environment) {
+  assert.equal(process.env[name], expected, `The selected table contract requires explicit ${name}.`);
+}
+for (const name of tableContract.requiredEnvironment) {
+  assert.equal(typeof process.env[name] === "string" && process.env[name].trim().length > 0, true,
+    `The selected table contract requires explicit ${name}.`);
+}
+for (const precondition of tableContract.preconditions) precondition();
+
 for (const definition of definitions) {
   const path = join(musterDir, definition.file);
   assert(existsSync(path), `Offizieller SSE-Musterfall fehlt: ${path}`);
@@ -197,6 +238,50 @@ function assertNoDoubledHelpLines(id, abschnitte) {
   }
 }
 
+async function assertLegacyTableReadContract(_definition, hwnd) {
+  await call("sse_table_read", { hwnd });
+}
+
+async function assertNativeEmptyPageTableContract(definition, hwnd) {
+  const heading = definition.terminalCollect.headingAtLaunch;
+  const before = await callCanonical("sse_page", { hwnd });
+  assert.equal(before.backend, "qt", "The native empty-page assertion must actually use Qt.");
+  assert.equal(before.ueberschrift, heading, "The fixture must remain on its known launch page.");
+  assert.equal(before.tabelle, null, "The independent page inventory must prove that no table is present.");
+  assert(Array.isArray(before.felder), "The independent page inventory must contain its field list.");
+
+  const visible = await callCanonical("sse_read_table", { hwnd });
+  assert.equal(visible.backend, "qt");
+  assert.equal(visible.incomplete, false, "A truncated visible inventory cannot prove table absence.");
+  assert.deepEqual(visible.headers, []);
+  assert.deepEqual(visible.rows, []);
+  assert.equal(visible.rowCount, 0);
+  assert.deepEqual(visible.rowDetails, []);
+
+  const response = await callRaw("sse_table_read", { hwnd, noKeys: true });
+  assert.equal(response.isError, true, "A model reader must reject a page with no input model.");
+  assert(response.structuredContent && typeof response.structuredContent === "object"
+    && !Array.isArray(response.structuredContent), "The expected negative result must retain its canonical fields.");
+  const result = response.structuredContent;
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "no-table");
+  assert.equal(result.code, "no-table");
+  assert.equal(result.backend, "qt");
+  assert.equal(result.controllerBound, true);
+  assert.equal(result.mutationAttempted, false);
+  assert.equal(typeof result.error, "string");
+  assert(result.error.length > 0, "The negative result must explain the missing model.");
+
+  const after = await callCanonical("sse_page", { hwnd });
+  assert.equal(after.backend, "qt");
+  assert.equal(after.ueberschrift, heading);
+  assert.equal(after.tabelle, null);
+  assert(Array.isArray(after.felder), "The final page inventory must retain its field list.");
+  const fieldDigest = (page) => createHash("sha256").update(JSON.stringify(page.felder)).digest("hex");
+  assert.equal(fieldDigest(after), fieldDigest(before), "The rejected model read must preserve the page fields.");
+  semanticChecks += 1;
+}
+
 // Lese-Sweep fuer Operationen, die laut Coverage-Audit bisher keine einzige
 // funktionale Zusicherung hatten (help, subpages, read_table u. a.). "ok"
 // wird bewusst nicht als Feld gelesen: call() wirft bereits bei isError, ein
@@ -245,7 +330,7 @@ async function assertReadOnlyOperationSweep(definition, hwnd) {
   assert.equal(typeof scrollPage.scrollbar, "boolean", `${id}: sse_scroll_page ohne scrollbar-Flag.`);
 
   // sse_table_read ist der eigenstaendige Tabellenvertrag (nicht sse_read_table).
-  await call("sse_table_read", { hwnd });
+  await tableContract.assertRead(definition, hwnd);
 
   // Die tieferen Accessibility-Diagnosen sind deutlich teurer als die
   // fachlichen Leser. Ein echter Lauf pro Produktprofil reicht, um ihren
@@ -930,6 +1015,7 @@ process.stdout.write(`${JSON.stringify({
     checkerGesamt: observation.checkerGesamt ?? null,
   })),
   mode: liveMode,
+  tableContract: tableContract.name,
   omittedInCoreRead: liveMode === "core-read"
     ? ["cross-section-navigation", "ustva-read", "checker", "terminal-collect", "deep-read-sweep"]
     : [],

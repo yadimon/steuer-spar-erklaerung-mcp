@@ -43,9 +43,9 @@ export class QtNativeClient {
 
   private constructor(private socket: Duplex, readonly binding: Readonly<QtNativeBinding>) {
     socket.on("data", chunk => this.acceptData(chunk));
-    socket.on("error", error => this.fail("Native pipe failed: " + error.message, "native-connection", true));
-    socket.on("close", () => this.fail("Native pipe closed.", "native-connection", true));
-    socket.on("end", () => this.fail("Native response stream ended.", "native-connection", true));
+    socket.on("error", () => this.fail("Native pipe failed.", "native-connection", this.pending.size > 0));
+    socket.on("close", () => this.fail("Native pipe closed.", "native-connection", this.pending.size > 0));
+    socket.on("end", () => this.fail("Native response stream ended.", "native-connection", this.pending.size > 0));
   }
 
   static async connect(binding: QtNativeBinding, timeoutMs = 5_000): Promise<QtNativeClient> {
@@ -65,8 +65,8 @@ export class QtNativeClient {
         socket.off("close", closed);
       };
       const connected = () => { cleanup(); resolve(); };
-      const failed = (error: Error) => { cleanup(); reject(error); };
-      const closed = () => { cleanup(); reject(client.failure ?? new Error("Native connection closed before readiness.")); };
+      const failed = () => { cleanup(); reject(client.failure ?? client.fail("Native connection failed.", "native-connection")); };
+      const closed = () => { cleanup(); reject(client.failure ?? client.fail("Native connection closed before readiness.", "native-connection")); };
       socket.once("connect", connected);
       socket.once("error", failed);
       socket.once("close", closed);
@@ -194,7 +194,8 @@ export class QtNativeClient {
         removeAbortListener: () => signal?.removeEventListener("abort", abort),
       });
       signal?.addEventListener("abort", abort, { once: true });
-      this.socket.write(Buffer.concat([header, payload]));
+      try { this.socket.write(Buffer.concat([header, payload])); }
+      catch { this.fail("Native request submission failed; completion must be checked before retry.", "native-connection", true); }
     });
   }
 
@@ -246,8 +247,8 @@ export class QtNativeClient {
           this.acceptResponse(body);
         }
       }
-    } catch (error) {
-      this.fail(error instanceof Error ? error.message : "Invalid native response.", "native-protocol", true);
+    } catch {
+      this.fail("Invalid native response frame.", "native-protocol", true);
     }
   }
 

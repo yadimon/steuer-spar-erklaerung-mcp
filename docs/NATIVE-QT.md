@@ -665,6 +665,29 @@ höchstens fünf Sekunden begrenzt; fehlende Exit-Beweise bleiben als Fehler und
 gehaltene Besitzer erhalten. Ein Transportfehler löst weder einen automatischen
 Neustart noch eine Wiederholung oder einen Wechsel zum Worker aus.
 
+Ein synchroner Sendefehler beendet die Verbindung und alle wartenden Anfragen
+sofort; Timer und Abbruch-Listener werden freigegeben. Sobald die Übermittlung
+begonnen hat, bleibt der Ausgang unbekannt. Ein Verbindungsfehler vor der ersten
+Anfrage meldet dagegen keine mögliche Ausführung. Betriebssystem- und
+JSON-Parserdetails werden nicht in öffentliche Transportfehler übernommen,
+weil sie Sitzungsbindungen oder Antwortinhalte enthalten können. Beim Fehler
+einer Empfangsbestätigung bleibt die zuvor empfangene Schreibantwort erhalten.
+Schon die erste Bootstrap-Übermittlung und das Warten auf Brokerbereitschaft
+besitzen einen gemeinsamen Abschluss. Ein Sendefehler beendet dieses Warten
+direkt und gibt seine Beobachter frei; eine abgewiesene Bereitschaft bleibt
+nicht als unbehandelte Promise-Ablehnung zurück.
+Auch Fehler der Ein-, Ausgabe- oder Diagnosekanäle werden während des gesamten
+Brokerlebens behandelt. Sie schließen die gebundene Verbindung und beenden
+den eigenen Broker. Fehler vor der Bereitschaft beenden das Warten; sie führen
+nicht zu einer unbehandelten Ausnahme im API-Prozess. Das tatsächliche
+Prozessende bleibt unabhängig nachweispflichtig.
+Nach jeder asynchronen Bereitschaftsphase wird ein inzwischen beobachteter
+I/O-Fehler, Prozessabbruch, geschlossener Protokollkanal oder Aufrufabbruch erneut
+geprüft. Auch ein zuvor vollständig empfangener Ping erlaubt keine erfolgreiche
+Anbindung einer bereits beendeten oder abgebrochenen Sitzung. Endet der
+Protokollkanal vor der Bereitschaft, schlägt der Start direkt fehl und wartet
+nicht bis zum Ablauf seiner gesamten Frist.
+
 Dieser Pfad erweitert keine Schreib- oder Belegfreigaben. Native Ergebnisse
 kennzeichnet `backend: "qt"`; nach einem unsicheren Transportende bleibt
 `outcomeUnknown` erhalten. Die internen TypeScript-Testabhängigkeiten sind
@@ -695,3 +718,23 @@ Diese Offline-Prüfung lädt keine DLL in eine installierte SSE und ersetzt
 keine reale Prüfung eines konkreten nativen Pakets mit dem unterstützten
 Produkt. Leistung wird mit dem tatsächlichen Aufrufweg gemessen; ein kurzer
 Pipe-Rundlauf allein belegt keine entsprechende Ende-zu-Ende-Laufzeit.
+
+Der native Modellleser meldet `no-table`, wenn die gewählte Seite kein
+sichtbares Eingabemodell enthält; mehrere passende Modelle bleiben
+`ambiguous-table`. Eine leere Teilansicht eines Legacy-Lesers ist dafür kein
+Erfolgsnachweis. Der opt-in Live-Test kann die bekannte tabellenfreie
+ESt-Startseite ausdrücklich mit `--table-contract=native-empty-page` prüfen:
+Er verlangt Profil `2025`, `SSE_LIVE_MUSTER_MODE=core-read`,
+`SSE_LIVE_MUSTER_CASES=est` und ein über `SSE_TEST_NATIVE_PACKAGE` sowie
+`SSE_TEST_NATIVE_MANIFEST_SHA256` gepinntes natives Paket.
+
+```powershell
+node test/with-api.mjs node test/live-muster-cases.mjs --table-contract=native-empty-page
+node test/with-api.mjs node test/live-model-page-cycles.mjs
+```
+
+Der erste Lauf beweist die Tabellenabwesenheit unabhängig über Seite und
+sichtbares Inventar, prüft den genauen Fehlervertrag und unveränderte Felder.
+Der zweite prüft wiederholte native Navigation und vollständig gelesene,
+befüllte Modelle mit unveränderten Original- und Arbeitsdateien. Beide
+verwenden ausschließlich eigene Wegwerfkopien offizieller Musterfälle.

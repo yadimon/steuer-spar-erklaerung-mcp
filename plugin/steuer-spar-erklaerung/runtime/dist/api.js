@@ -12590,9 +12590,9 @@ var init_qt_native_client = __esm({
         this.socket = socket;
         this.binding = binding;
         socket.on("data", (chunk) => this.acceptData(chunk));
-        socket.on("error", (error) => this.fail("Native pipe failed: " + error.message, "native-connection", true));
-        socket.on("close", () => this.fail("Native pipe closed.", "native-connection", true));
-        socket.on("end", () => this.fail("Native response stream ended.", "native-connection", true));
+        socket.on("error", () => this.fail("Native pipe failed.", "native-connection", this.pending.size > 0));
+        socket.on("close", () => this.fail("Native pipe closed.", "native-connection", this.pending.size > 0));
+        socket.on("end", () => this.fail("Native response stream ended.", "native-connection", this.pending.size > 0));
       }
       socket;
       binding;
@@ -12625,13 +12625,13 @@ var init_qt_native_client = __esm({
             cleanup();
             resolve17();
           };
-          const failed = (error) => {
+          const failed = () => {
             cleanup();
-            reject(error);
+            reject(client.failure ?? client.fail("Native connection failed.", "native-connection"));
           };
           const closed = () => {
             cleanup();
-            reject(client.failure ?? new Error("Native connection closed before readiness."));
+            reject(client.failure ?? client.fail("Native connection closed before readiness.", "native-connection"));
           };
           socket.once("connect", connected);
           socket.once("error", failed);
@@ -12754,7 +12754,11 @@ var init_qt_native_client = __esm({
             removeAbortListener: () => signal?.removeEventListener("abort", abort)
           });
           signal?.addEventListener("abort", abort, { once: true });
-          this.socket.write(Buffer.concat([header, payload]));
+          try {
+            this.socket.write(Buffer.concat([header, payload]));
+          } catch {
+            this.fail("Native request submission failed; completion must be checked before retry.", "native-connection", true);
+          }
         });
       }
       close() {
@@ -12800,8 +12804,8 @@ var init_qt_native_client = __esm({
               this.acceptResponse(body);
             }
           }
-        } catch (error) {
-          this.fail(error instanceof Error ? error.message : "Invalid native response.", "native-protocol", true);
+        } catch {
+          this.fail("Invalid native response frame.", "native-protocol", true);
         }
       }
       resetResponseFrame() {
@@ -24608,7 +24612,7 @@ import { spawn as spawn3 } from "node:child_process";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { Duplex } from "node:stream";
 import { isAbsolute as isAbsolute8 } from "node:path";
-async function readReadiness(child, timeoutMs, signal) {
+async function bootstrapBroker(child, bootstrap, timeoutMs, signal) {
   return new Promise((resolveReady, reject) => {
     let bytes = Buffer.alloc(0), done = false;
     const finish = (error, value) => {
@@ -24618,12 +24622,21 @@ async function readReadiness(child, timeoutMs, signal) {
       child.stdout.off("readable", read);
       child.off("exit", exited);
       child.off("error", failed);
+      child.stdin.off("error", sendFailed);
+      child.stdin.off("finish", sendFailed);
+      child.stdin.off("close", sendFailed);
+      child.stdout.off("error", readFailed);
+      child.stderr.off("error", readFailed);
+      child.stdout.off("end", readFailed);
+      child.stdout.off("close", readFailed);
       signal?.removeEventListener("abort", aborted);
       if (error) reject(error);
       else resolveReady(value);
     };
     const exited = () => finish(new QtNativeTransportError("Native broker ended before readiness.", "native-startup", true));
     const failed = (error) => finish(error);
+    const sendFailed = () => finish(new QtNativeTransportError("Native broker bootstrap submission failed.", "native-startup", true));
+    const readFailed = () => finish(new QtNativeTransportError("Native broker readiness channel failed.", "native-startup", true));
     const aborted = () => finish(new QtNativeTransportError("Native broker startup cancelled; attachment may have begun.", "aborted", true));
     const timer = setTimeout(() => finish(new QtNativeTransportError("Native broker startup deadline exceeded.", "native-startup-timeout", true)), timeoutMs);
     const read = () => {
@@ -24646,9 +24659,25 @@ async function readReadiness(child, timeoutMs, signal) {
     child.stdout.on("readable", read);
     child.once("exit", exited);
     child.once("error", failed);
+    child.stdin.once("error", sendFailed);
+    child.stdin.once("finish", sendFailed);
+    child.stdin.once("close", sendFailed);
+    child.stdout.once("error", readFailed);
+    child.stderr.once("error", readFailed);
+    child.stdout.once("end", readFailed);
+    child.stdout.once("close", readFailed);
     signal?.addEventListener("abort", aborted, { once: true });
     if (signal?.aborted) aborted();
-    else read();
+    else {
+      try {
+        child.stdin.write(bootstrap, (error) => {
+          if (error) sendFailed();
+        });
+      } catch {
+        sendFailed();
+      }
+      if (!done) read();
+    }
   });
 }
 async function startQtNativeBroker(options) {
@@ -24680,8 +24709,6 @@ async function startQtNativeBroker(options) {
     stderrBytes += data.length;
     if (stderrBytes > 65536) child.kill();
   });
-  child.stdin.on("error", () => {
-  });
   let processExited = false;
   const exited = new Promise((resolveExit) => {
     child.once("exit", () => {
@@ -24690,15 +24717,30 @@ async function startQtNativeBroker(options) {
     });
     child.on("error", () => resolveExit());
   });
+  let ioFailed = false;
+  const ioFailure = () => {
+    ioFailed = true;
+    client?.close();
+    stream?.destroy();
+    child.kill();
+  };
+  const verifyStartup = () => {
+    if (signal?.aborted) throw new QtNativeTransportError("Native broker startup cancelled; attachment may have begun.", "aborted", true);
+    if (ioFailed || processExited || child.stdin.destroyed || child.stdin.writableEnded || child.stdout.destroyed || child.stdout.readableEnded || stream?.destroyed || stream && (!stream.readable || !stream.writable)) {
+      throw new QtNativeTransportError("Native broker transport ended during startup.", "native-startup", true);
+    }
+  };
+  child.stdin.on("error", ioFailure);
+  child.stdout.on("error", ioFailure);
+  child.stderr.on("error", ioFailure);
   const abort = () => {
     client?.close();
     child.kill();
   };
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    const waiting = readReadiness(child, options.timeoutMs, signal);
-    child.stdin.write(Buffer.concat([header, body]));
-    const loaded = await waiting;
+    const loaded = await bootstrapBroker(child, Buffer.concat([header, body]), options.timeoutMs, signal);
+    verifyStartup();
     if (loaded.ok !== true || loaded.pipePeerVerified !== true || loaded.binaryIdentityVerified !== true || loaded.bindingDiscovered !== true || loaded.bridgeImageVerified !== true || loaded.controllerPid !== process.pid || loaded.brokerPid !== child.pid || loaded.ownerPid !== child.pid || loaded.pid !== target.pid || loaded.hwnd !== target.hwnd || typeof loaded.ownerCreationTime !== "string" || !/^[1-9][0-9]{0,19}$/u.test(loaded.ownerCreationTime) || loaded.bridgeBuildIdentity !== nativePackage.manifest.buildIdentity || typeof loaded.image !== "string" || loaded.image.toLowerCase() !== expectedImage.toLowerCase()) {
       throw new QtNativeTransportError("Native broker did not verify the requested binding and package.", "native-peer");
     }
@@ -24714,6 +24756,7 @@ async function startQtNativeBroker(options) {
     if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before handshake.", "native-startup-timeout", true);
     stream = new BrokerStream(child);
     client = await QtNativeClient.connectStream(binding, stream, remaining);
+    verifyStartup();
     remaining = Math.floor(options.timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before owner verification.", "native-startup-timeout", true);
     const ping = (await client.request("ping", {}, remaining, signal)).result;
@@ -24721,6 +24764,7 @@ async function startQtNativeBroker(options) {
     if (ping.ownerPid !== child.pid || ping.ownerCreationTime !== loaded.ownerCreationTime) {
       throw new QtNativeTransportError("Native session owner does not match its broker.", "native-peer");
     }
+    verifyStartup();
     return {
       client,
       brokerPid: child.pid,

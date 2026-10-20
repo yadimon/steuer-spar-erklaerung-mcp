@@ -248,6 +248,17 @@ using System.Text;
 using System.Threading;
 
 public static class Program {
+  static int CountLaunches(string state, string mutexName) {
+    using (var mutex = new Mutex(false, mutexName)) {
+      mutex.WaitOne();
+      try {
+        return File.ReadAllLines(state).Length;
+      } finally {
+        mutex.ReleaseMutex();
+      }
+    }
+  }
+
   static void Append(string state, string mutexName, string line) {
     using (var mutex = new Mutex(false, mutexName)) {
       mutex.WaitOne();
@@ -286,8 +297,10 @@ public static class Program {
       info.UseShellExecute = false;
       Process.Start(info);
       var deadline = DateTime.UtcNow.AddSeconds(5);
-      while (File.ReadAllLines(state).Length < 2 && DateTime.UtcNow < deadline) Thread.Sleep(10);
-      if (File.ReadAllLines(state).Length < 2) return 2;
+      // The keeper appends under this same mutex. File.ReadAllLines denies
+      // concurrent writes, so an unlocked read could fail before readiness.
+      while (CountLaunches(state, mutexName) < 2 && DateTime.UtcNow < deadline) Thread.Sleep(10);
+      if (CountLaunches(state, mutexName) < 2) return 2;
       Console.WriteLine("{\\\"prewarm\\\":\\\"ready\\\",\\\"pid\\\":" + pid + "}");
       Console.Out.Flush();
       Console.ReadLine();

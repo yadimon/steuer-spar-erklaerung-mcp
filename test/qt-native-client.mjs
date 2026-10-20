@@ -5,6 +5,8 @@ import { EventEmitter } from "node:events";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { setImmediate as nextTurn, setTimeout as delay } from "node:timers/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,11 +19,13 @@ import { callApiOperationEnvelope } from "../dist/api-client.js";
 import { testNativePageProjections } from "./qt-native-page-projections.mjs";
 import { testNativeAcknowledgmentDeadline } from "./qt-native-deadline-fixture.mjs";
 import { testNativeFrameBoundaries } from "./qt-native-frame-fixture.mjs";
+import { testNativeTransportFailures } from "./qt-native-transport-failure-fixture.mjs";
 import { executeQtNativeTableRead } from "../dist/qt-native-tables.js";
 import { testNativeEditTraceCoverage } from "./qt-native-edit-trace-contract.mjs";
 
 await testNativePageProjections();
 await testNativeFrameBoundaries();
+await testNativeTransportFailures();
 testNativeEditTraceCoverage();
 
 const frame = value => {
@@ -553,7 +557,7 @@ await withPeer((socket, request) => {
   assert.deepEqual(requests.slice(1).map(request => request.op), ["table_set_cell", "mutation_ack"]);
 });
 
-async function withMockBroker(replyAtPing, action) {
+async function withMockBroker(replyAtPing, action, bootstrapFailure) {
   const childProcess = createRequire(import.meta.url)("node:child_process");
   const originalSpawn = childProcess.spawn;
   const state = { spawns: 0, kills: 0, requests: [], exited: false };
@@ -565,7 +569,8 @@ async function withMockBroker(replyAtPing, action) {
     const child = new EventEmitter();
     child.pid = 4242;
     child.stdout = new PassThrough(); child.stderr = new PassThrough();
-    let input = Buffer.alloc(0), bootstrap, pings = 0;
+    state.readinessListeners = () => child.stdout.listenerCount("readable");
+    let input = Buffer.alloc(0), bootstrap, pings = 0, exitQueued = false;
     child.stdin = new Writable({ write(chunk, _encoding, callback) {
       input = Buffer.concat([input, chunk]);
       while (input.length >= 4 && input.length >= input.readUInt32LE(0) + 4) {
@@ -573,28 +578,55 @@ async function withMockBroker(replyAtPing, action) {
         input = input.subarray(4 + length); state.requests.push(request);
         if (request.mode === "attach") {
           bootstrap = request;
-          queueMicrotask(() => child.stdout.write(JSON.stringify({
-            ok: true, pipePeerVerified: true, binaryIdentityVerified: true, bindingDiscovered: true, bridgeImageVerified: true,
-            controllerPid: process.pid, brokerPid: child.pid, ownerPid: child.pid, pid: request.pid, hwnd: request.hwnd,
-            ownerCreationTime, creationTime: "134000000000000000", image: request.expectedImage,
-            profile: request.expectedProfile, bridgeBuildIdentity: "a".repeat(64),
-          }) + "\n"));
+          if (bootstrapFailure === "throw") throw new Error("SYNTH42");
+          if (bootstrapFailure === "callback") { callback(new Error("SYNTH42")); return; }
+          const terminate = {
+            "stdout-end": () => child.stdout.end(), "stdout-close": () => child.stdout.destroy(),
+            "stdin-end": () => child.stdin.end(), "stdin-close": () => child.stdin.destroy(),
+          }[bootstrapFailure];
+          if (terminate) { callback(); queueMicrotask(terminate); return; }
+          queueMicrotask(() => {
+            child.stdout.write(JSON.stringify({
+              ok: true, pipePeerVerified: true, binaryIdentityVerified: true, bindingDiscovered: true, bridgeImageVerified: true,
+              controllerPid: process.pid, brokerPid: child.pid, ownerPid: child.pid, pid: request.pid, hwnd: request.hwnd,
+              ownerCreationTime, creationTime: "134000000000000000", image: request.expectedImage,
+              profile: request.expectedProfile, bridgeBuildIdentity: "a".repeat(64),
+            }) + "\n");
+            if (state.failAfterReadiness) {
+              child.stdout.emit("readable");
+              state.emitStderrError(); state.emitStderrError();
+            }
+            if (state.afterReadiness) { child.stdout.emit("readable"); state.afterReadiness(); }
+          });
         } else {
           assert.equal(request.op, "ping", "A rejected startup may only attempt its two required readiness pings.");
           assert.equal(request.nonce, bootstrap.nonce);
           const ping = ++pings;
-          queueMicrotask(() => child.stdout.write(frame({
-            ok: true, id: request.id, pid: bootstrap.pid, hwnd: bootstrap.hwnd, creationTime: "134000000000000000",
-            bridgeProtocol: 1, guiThread: true, ownerPid: child.pid, ownerCreationTime, ...replyAtPing(ping),
-          })));
+          queueMicrotask(() => {
+            if (state.failBeforePing === ping) { state.emitStderrError(); return; }
+            child.stdout.write(frame({
+              ok: true, id: request.id, pid: bootstrap.pid, hwnd: bootstrap.hwnd, creationTime: "134000000000000000",
+              bridgeProtocol: 1, guiThread: true, ownerPid: child.pid, ownerCreationTime, ...replyAtPing(ping),
+            }));
+            if (state.failAfterPing === ping) state.emitStderrError();
+            state.afterPing?.(ping);
+          });
         }
       }
       callback();
     } });
     state.emitProcessError = () => child.emit("error", Error("Synthetic broker error without process exit"));
+    state.emitStderrError = () => child.stderr.emit("error", Error("SYNTH42"));
+    state.emitProcessExit = () => { exitQueued = true; state.exited = true; child.emit("exit", 0, null); };
+    state.endInput = () => child.stdin.end();
+    state.destroyOutput = () => child.stdout.destroy();
+    state.pauseOutput = () => child.stdout.pause();
+    state.observeTerminal = (channel, event) => child[channel].once(event, () => { state.terminalObserved = true; });
+    state.readinessTerminalObservers = () => [child.stdin.listenerCount("finish"), child.stdin.listenerCount("close"),
+      child.stdout.listenerCount("end"), child.stdout.listenerCount("close")];
     child.kill = () => {
       state.kills++;
-      if (!state.exited) { state.exited = true; queueMicrotask(() => child.emit("exit", 0, null)); }
+      if (!exitQueued) { exitQueued = true; queueMicrotask(() => { state.exited = true; child.emit("exit", 0, null); }); }
       return true;
     };
     return child;
@@ -605,7 +637,7 @@ async function withMockBroker(replyAtPing, action) {
       package: { loaderPath: "synthetic-loader", bridgePath: process.execPath,
         manifest: { buildIdentity: "a".repeat(64), profile: { taxYear: 2025, engineFileMajor: 31 } } },
       target: { pid: process.pid, hwnd: 42, creationTime: "134000000000000000" },
-      expectedImage: process.execPath, timeoutMs: 1000,
+      expectedImage: process.execPath, timeoutMs: 1000, signal: state.signal,
     });
     await action(session, state);
   } finally {
@@ -661,6 +693,126 @@ await withMockBroker(() => ({}), async (start, state) => {
   assert.equal(state.spawns, 1); assert.equal(state.requests.length, 3);
   await session.close();
   assert.equal(session.processExited, true, "The later actual exit must still publish authoritative exit evidence.");
+});
+
+for (const bootstrapFailure of ["throw", "callback"]) {
+  const unhandled = [], rejected = reason => unhandled.push(reason);
+  process.on("unhandledRejection", rejected);
+  try {
+    await withMockBroker(() => assert.fail("Failed bootstrap must not dispatch a readiness ping."), async (start, state) => {
+      await assert.rejects(start(), error => {
+        assert(nativeError("native-startup")(error)); assert.equal(error.outcomeUnknown, true);
+        assert.equal(error.message.includes("SYNTH42"), false);
+        return true;
+      });
+      assert.equal(state.spawns, 1); assert.equal(state.exited, true);
+      assert.equal(state.readinessListeners(), 0, "Bootstrap failure must release the readiness observer.");
+      assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach"]);
+      await nextTurn();
+      assert.equal(unhandled.length, 0, "A failed send must not abandon a rejected readiness Promise.");
+    }, bootstrapFailure);
+  } finally { process.off("unhandledRejection", rejected); }
+}
+
+for (const channel of ["stdout", "stderr"]) {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./qt-native-bootstrap-stream-fixture.mjs", import.meta.url)), channel], {
+    encoding: "utf8", windowsHide: true, timeout: 5000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout), { ok: true, channel, spawns: 1, verifiedExit: true });
+}
+
+for (const [channel, action, event] of [["stdout", "end", "end"], ["stdout", "close", "close"],
+  ["stdin", "end", "finish"], ["stdin", "close", "close"]]) {
+  await withMockBroker(() => assert.fail("A terminated bootstrap must not dispatch readiness pings."), async (start, state) => {
+    const cancel = new AbortController(); state.signal = cancel.signal;
+    let settled = false, failure;
+    const startup = start().then(async session => { settled = true; await session.close(); }, error => { failure = error; settled = true; });
+    state.observeTerminal(channel, event);
+    await nextTurn();
+    const settledAfterTerminal = settled, exitedAfterTerminal = state.exited;
+    cancel.abort(); await startup;
+    assert.equal(state.terminalObserved, true, "The test must deliver the real terminal stream event.");
+    assert.equal(settledAfterTerminal, true, `Bootstrap ${channel} ${event} must settle before waiting for its deadline.`);
+    assert.equal(exitedAfterTerminal, true, "A terminal startup must dispose its owned broker and observe its actual exit.");
+    assert(nativeError("native-startup")(failure)); assert.equal(failure.outcomeUnknown, true);
+    assert.equal(state.readinessListeners(), 0); assert.equal(state.spawns, 1);
+    assert.deepEqual(state.readinessTerminalObservers(), [0, 0, 0, 0], "Readiness must release its terminal stream observers.");
+    assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach"]);
+  }, `${channel}-${action}`);
+}
+
+await withMockBroker(() => ({}), async (start, state) => {
+  state.afterReadiness = () => state.pauseOutput();
+  const session = await start();
+  assert.equal(session.processExited, false, "A paused readable stream is not a terminal transport.");
+  assert.equal(state.spawns, 1); assert.equal(state.requests.length, 3);
+  await session.close(); assert.equal(state.exited, true);
+});
+
+await withMockBroker(() => ({}), async (start, state) => {
+  const session = await start();
+  try {
+    assert.doesNotThrow(() => state.emitStderrError(), "A late diagnostic-channel error must not escape the API owner.");
+    await session.exited;
+    assert.equal(session.processExited, true); assert.equal(state.spawns, 1);
+    await assert.rejects(session.client.request("objects"), error =>
+      error instanceof QtNativeTransportError && !error.outcomeUnknown && !error.message.includes("SYNTH42"));
+    assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach", "ping", "ping"]);
+  } finally { await session.close(); }
+});
+
+for (const failAfterPing of [2, 1]) {
+  await withMockBroker(() => ({}), async (start, state) => {
+    state.failAfterPing = failAfterPing;
+    await assert.rejects(start(), error => nativeError("native-startup")(error) && error.outcomeUnknown);
+    assert.equal(state.exited, true); assert.equal(state.spawns, 1);
+    assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach", ...Array(failAfterPing).fill("ping")],
+      "A known startup I/O failure must not publish a dead client or submit another ping.");
+  });
+}
+
+for (const stopAfterPing of [2, 1]) {
+  for (const stop of ["exit", "input-end", "output-destroy", "abort"]) {
+    await withMockBroker(() => ({}), async (start, state) => {
+      const cancel = new AbortController(); state.signal = cancel.signal;
+      const terminate = { exit: () => state.emitProcessExit(), "input-end": () => state.endInput(),
+        "output-destroy": () => state.destroyOutput(), abort: () => cancel.abort() }[stop];
+      state.afterPing = ping => { if (ping === stopAfterPing) terminate(); };
+      await assert.rejects(start(), error => nativeError(stop === "abort" ? "aborted" : "native-startup")(error)
+        && error.outcomeUnknown, `Observed ${stop} after readiness ping ${stopAfterPing} must reject startup.`);
+      assert.equal(state.exited, true); assert.equal(state.spawns, 1);
+      assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach", ...Array(stopAfterPing).fill("ping")],
+        "An ended or cancelled startup must not return a dead client or submit another ping.");
+    });
+  }
+}
+
+await withMockBroker(() => assert.fail("No ping is allowed after an observed broker exit."), async (start, state) => {
+  state.afterReadiness = () => state.emitProcessExit();
+  await assert.rejects(start(), error => nativeError("native-startup")(error) && error.outcomeUnknown);
+  assert.equal(state.exited, true); assert.equal(state.spawns, 1);
+  assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach"]);
+});
+
+await withMockBroker(() => assert.fail("No ping is allowed after a readiness-channel failure."), async (start, state) => {
+  state.failAfterReadiness = true;
+  await assert.rejects(start(), error => nativeError("native-startup")(error) && error.outcomeUnknown);
+  assert.equal(state.exited, true); assert.equal(state.spawns, 1);
+  assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach"]);
+});
+
+await withMockBroker(() => ({}), async (start, state) => {
+  const session = await start();
+  try {
+    state.failBeforePing = 3;
+    await assert.rejects(session.client.request("ping"), error =>
+      error instanceof QtNativeTransportError && error.outcomeUnknown && !error.message.includes("SYNTH42"));
+    await session.exited;
+    assert.equal(session.processExited, true); assert.equal(state.spawns, 1);
+    assert.deepEqual(state.requests.map(request => request.mode ?? request.op), ["attach", "ping", "ping", "ping"]);
+  } finally { await session.close(); }
 });
 
 console.log(`OK: native readiness failures preserved (${pingFailures.length + 2} client, 2 API, ${brokerRejections} broker cases), exact peer/owner checks and no replay.`);
