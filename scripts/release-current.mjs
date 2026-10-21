@@ -226,7 +226,7 @@ async function main() {
   if (process.argv.includes("--help")) {
     process.stdout.write(
       "Aufruf: npm run release:current\n\n" +
-        "Prueft den bereits versionierten main-Stand, pusht ihn, erstellt Tag und GitHub-Prerelease, " +
+        "Prueft den bereits gemergten und mit origin/main synchronisierten Stand, erstellt Tag und GitHub-Prerelease, " +
         "startet Trusted Publishing und prueft danach die installierten Registry-Pakete.\n",
     );
     return;
@@ -253,8 +253,10 @@ async function main() {
 
   git(["fetch", "origin", "--prune", "--tags"]);
   const headSha = capture(git, ["rev-parse", "HEAD"]);
-  const ancestor = git(["merge-base", "--is-ancestor", "origin/main", headSha], { allowFailure: true, capture: true });
-  if (ancestor.status !== 0) throw new Error("origin/main ist kein Vorfahr von HEAD; zuerst synchronisieren.");
+  const remoteMainSha = capture(git, ["rev-parse", "origin/main"]);
+  if (headSha !== remoteMainSha) {
+    throw new Error("Der Release-Commit muss bereits per Pull Request auf origin/main gemergt sein; main zuerst synchronisieren.");
+  }
   const localTagCommit = tagCommit(tag);
   if (localTagCommit) {
     assertAnnotatedTag(tag);
@@ -271,7 +273,6 @@ async function main() {
   if (capture(git, ["status", "--short"])) throw new Error("Release-Gates haben den getrackten Worktree veraendert.");
   if (capture(git, ["rev-parse", "HEAD"]) !== headSha) throw new Error("HEAD hat sich waehrend der Release-Gates veraendert.");
 
-  git(["push", "origin", "HEAD:main"]);
   if (!localTagCommit) git(["tag", "-a", tag, "-m", tag]);
   if (!existingRemoteTag) git(["push", "origin", tag]);
 

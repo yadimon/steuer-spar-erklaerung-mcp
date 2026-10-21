@@ -37,8 +37,10 @@ Für eine neue Beta müssen gemeinsam aktualisiert werden:
 
 Der Pull Request nennt bekannte Live-Lücken und behauptet weder Stable- noch
 Produktionsreife. Vor dem Merge müssen die Windows-CI und alle vorgesehenen
-Reviews grün sein. CI-Artefakte sind nur ein sieben Tage verfügbarer Nachweis,
-kein öffentliches Release.
+Reviews grün sein. Der CI-Lauf am geprüften Commit dokumentiert das Ergebnis;
+der Workflow lädt keine Build-Artefakte hoch und erstellt kein öffentliches Release.
+Die Pflichtregeln für PR und CI stehen unter
+[Geschützter main](../CONTRIBUTING.md#geschützter-main).
 
 ## 2. Exakten Release-Commit herstellen
 
@@ -53,10 +55,13 @@ $tag = "v$version"
 git fetch origin --tags
 ```
 
-`git status --short` muss leer sein. Paketversion, Lockfile, Runtimeversion und
-Release Notes werden zusätzlich durch `test/release-metadata-contract.mjs`
-gebunden. Ein vorhandener lokaler oder entfernter Tag darf nicht verschoben
-oder wiederverwendet werden.
+`git status --short` muss leer sein. Der Release-Commit muss bereits über einen
+Pull Request gemergt sein und `HEAD` dem frisch gelesenen `origin/main`
+entsprechen. Ein lokaler Commit vor oder hinter `origin/main` wird vor den
+Release-Gates abgewiesen; der Release-Orchestrator pusht keine Änderungen auf
+`main`. Paketversion, Lockfile, Runtimeversion und Release Notes werden zusätzlich
+durch `test/release-metadata-contract.mjs` gebunden. Ein vorhandener lokaler oder
+entfernter Tag darf nicht verschoben oder wiederverwendet werden.
 
 ## 3. Release-Gates ausführen
 
@@ -191,11 +196,12 @@ nicht OIDC. In GitHub weder ein klassisches npm-Token noch ein Secret
 `NPM_TOKEN` anlegen.
 
 Ab der nächsten vollständig vorbereiteten Version übernimmt der lokale
-Orchestrator die Reihenfolge. Er verlangt einen sauberen `main`, identische
-API-/MCP-Versionen und vorhandene Release Notes. Danach führt er alle Gates aus,
-pusht Commit und annotierten Tag, erstellt und liest den GitHub-Prerelease
-zurück, startet erst danach Trusted Publishing, führt den Registry-Smoke aus und
-hängt zuletzt `latest` auf die neue Version:
+Orchestrator die Reihenfolge. Er verlangt einen sauberen, bereits gemergten und
+mit `origin/main` synchronisierten `main`, identische API-/MCP-Versionen und
+vorhandene Release Notes. Danach führt er alle Gates aus, pusht den annotierten
+Tag, erstellt und liest den GitHub-Prerelease zurück, startet erst danach
+Trusted Publishing und führt den Registry-Smoke aus. Der Publish setzt `latest`
+auf die neue Version; der Orchestrator liest diesen Zustand anschließend zurück:
 
 ```powershell
 npm run release:current
