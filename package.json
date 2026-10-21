@@ -27,6 +27,7 @@
   "scripts": {
     "test": "node test/run-suite.mjs",
     "test:fast": "node test/run-fast-suite.mjs",
+    "test:inventory": "node test/test-inventory.mjs",
     "build": "npm run prune:dist && npm run build:native && tsc && node scripts/build-npm-packages.mjs && node scripts/build-agent-plugin.mjs",
     "build:plugin": "npm run build:native && node scripts/build-agent-plugin.mjs",
     "check:plugin": "node scripts/build-agent-plugin.mjs --check",

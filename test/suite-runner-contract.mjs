@@ -22,6 +22,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "test-inventory-contract",
   "with-api-cleanup",
   "live-state-journey-contract", "table-grid-read-contract", "fresh-raw-resolver-contract",
   "table-grid-api",

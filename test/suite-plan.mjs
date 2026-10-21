@@ -34,6 +34,7 @@ export const serialBuildSteps = Object.freeze([
 
 export const parallelSteps = Object.freeze([
   nodeFile("suite-runner-contract", "test/suite-runner-contract.mjs"),
+  nodeFile("test-inventory-contract", "test/test-inventory-contract.mjs"),
   nodeFile("with-api-cleanup", "test/with-api-cleanup.mjs"),
   nodeFile("live-state-journey-contract", "test/live-state-journey-contract.mjs"),
   psFile("table-grid-read-contract", "test/table-grid-read-contract.ps1"),
@@ -300,6 +301,7 @@ const FAST_STEP_NAMES = new Set([
   "qt-native-classify",
   "qt-native-goto",
   "suite-runner-contract",
+  "test-inventory-contract",
   "public-skills",
   "repository-privacy",
   "repository-privacy-upstream",
@@ -431,3 +433,31 @@ export const fastBuildSteps = Object.freeze(
 export const fastSteps = Object.freeze(
   [...parallelSteps, ...finalSteps].filter((step) => FAST_STEP_NAMES.has(step.name)),
 );
+
+/**
+ * A display-only view of the canonical plans. It does not select or run steps.
+ * Executable paths are aliases so generated output contains no host paths.
+ */
+export function getTestInventory() {
+  const aliases = new Map([[powershell, "powershell.exe"], [node, "node"]]);
+  const fast = new Set([...fastBuildSteps, ...fastSteps]);
+  const phases = [
+    ["build", serialBuildSteps],
+    ["parallel", parallelSteps],
+    ["exclusive", exclusiveSteps],
+    ["final", finalSteps],
+  ];
+  return Object.freeze(phases.flatMap(([phase, steps]) => steps.map((step) => {
+    const command = aliases.get(step.command);
+    if (!command) throw new Error("Unreviewed executable in test inventory step: " + step.name);
+    return Object.freeze({
+      name: step.name,
+      fullPhase: phase,
+      suites: Object.freeze(fast.has(step) ? ["full", "fast"] : ["full"]),
+      runtime: command === "node" ? "node" : "windows-powershell",
+      command,
+      args: Object.freeze(step.args.map((value) => aliases.get(value) ?? value)),
+      conflictKey: step.conflictKey ?? null,
+    });
+  })));
+}
