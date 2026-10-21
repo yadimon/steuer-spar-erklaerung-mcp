@@ -25,6 +25,26 @@ GitHubs private Funktion **Report a vulnerability**, wie in der
 - eine installierte SteuerSparErklärung nur für ausdrücklich optionale
   Live-Tests.
 
+Der Testplan lässt sich vor dem Installieren der Abhängigkeiten mit der
+festgelegten Node-Version anzeigen:
+
+```powershell
+npm run test:inventory
+npm run --silent test:inventory -- --json
+```
+
+Dieser Befehl gibt nur den Plan aus. Er baut nichts und startet keine
+Testprogramme, zusätzlichen Prozesse, API-Server oder Anwendung. Die Ausgabe nennt für jeden Schritt Suite,
+Volltest-Ausführungsphase, Laufzeit und vorhandene Konfliktressource. Sie wird direkt
+aus den bestehenden Voll- und Schnellplänen erzeugt; lokale Programmpfade
+werden als `node` oder `powershell.exe` angezeigt. Native CTest- und Live-Läufe
+gehören zu getrennten opt-in Befehlen und sind nicht Teil dieses Inventars.
+
+`fullPhase` bezeichnet die Phase im Volltest. `fast` markiert die Zugehörigkeit
+zum Schnellplan; dieser führt seine Buildschritte seriell und die übrigen
+Schritte konfliktbewusst parallel aus. Ein Volltest-Finalschritt läuft im
+Schnellplan deshalb nicht in einer eigenen Finalphase.
+
 Abhängigkeiten und Build:
 
 ```powershell
@@ -39,10 +59,13 @@ werden.
 
 Der schnelle Lauf enthält keine Checker-Worker-Probe, die ein fehlendes
 SSE-Fenster voraussetzt. Dieser Vertrag bleibt im vollständigen `npm test`,
-das vor dem Start ein geschlossenes SSE verlangt. Die getrennte native
-Qt-Fixture läuft auf einem eigenen inaktiven Desktop und darf parallel zu
-einem offenen Produkt geprüft werden; gleichzeitig darf keine Automation
-des echten SSE den sitzungsweiten Controller verwenden.
+das vor dem Start ein geschlossenes SSE verlangt. Der schnelle Lauf enthält
+Windows-PowerShell-Verträge, synthetische API-/MCP-Läufe und Helferprüfungen.
+Er ist deshalb kein rein statischer Prüflauf für einen gerade benutzten PC.
+
+Die getrennte native Qt-Fixture läuft auf einem eigenen inaktiven Desktop
+und wird gesondert opt-in gestartet. Gleichzeitig darf keine Automation des
+echten SSE den sitzungsweiten Controller verwenden.
 
 ## Branches und Commits
 
@@ -68,6 +91,24 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 | TypeScript, PowerShell, API, MCP, Profile oder Tests | `npm test` |
 | npm-Laufzeit, Paketinhalt oder Release-Metadaten | `npm test`, `npm run pack`, `npm run publish:dry-run`, `npm run test:npm-clean-install` |
 | UI-Bindung oder Profilverhalten | vollständige Offline-Suite und, wenn Voraussetzungen vorhanden sind, der passende opt-in Live-Lauf |
+
+### Testebenen und Voraussetzungen
+
+| Befehl | Umfang und Voraussetzungen |
+| --- | --- |
+| `npm run test:inventory` | Nur Planausgabe; Node.js genügt, kein Build und keine Testausführung |
+| `npm run test:fast` | Schnellplan mit TypeScript-Build; Windows x64, festgelegte Node-Version, Abhängigkeiten und Windows PowerShell 5.1 |
+| `npm test` | Vollständige Offline-Suite samt C#-Build und Controller-Prüfungen; Windows-Voraussetzungen wie oben, SSE muss geschlossen sein |
+| `npm run test:qt-native` | Gesonderter opt-in Lauf mit gebautem Qt-Paket und passendem SDK; synthetische Qt-Fixture auf eigenem inaktivem Desktop |
+| `npm run test:live` | Installiertes unterstütztes Produkt, Musterfallkopien, aktivierte Live-Konfiguration und unbenutzte entsperrte Windows-Sitzung |
+| `npm run perf:api-mega` | Opt-in Reise durch das installierte Produkt; dieselben Voraussetzungen für Sitzung und Wegwerfdaten wie bei Live-Tests |
+| `npm run check` | Release-Gate mit vollständiger Offline-Suite, installierter Produktidentität und Paketprüfungen |
+
+Das Inventar beschreibt die Planung; es gibt keine zusätzliche Erlaubnis zur
+Testausführung. Voraussetzungen gelten für die jeweilige Suite. Dateiendung
+und `contract` im Namen belegen keine Nebenwirkungsfreiheit eines Schritts.
+In einem Pull Request gehören tatsächliche Prüfergebnisse und fehlende
+Voraussetzungen ausdrücklich in den Testnachweis.
 
 `npm test` bleibt auf einem neutralen Windows-Rechner ohne installierte SSE
 portabel. Wer die unterstützte SSE-2025-Standardinstallation besitzt, prüft die
