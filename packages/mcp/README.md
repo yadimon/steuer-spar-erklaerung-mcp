@@ -62,12 +62,13 @@ Details zu getrennten Arbeitsdaten, Update und sicherer Entfernung stehen in der
 - Cancellation bis zum lokalen API-Auftrag;
 - Größenlimits, protokollreines stdout und fail-closed Fehlerantworten.
 
-Die direkten fachlichen Werkzeugnamen werden aus dem versionierten
-Operationskatalog abgeleitet und als strukturierte Werkzeuge registriert.
-Hinzu kommen der komponierte Preflight `sse_preflight` und das getrennte
-API-Lebenszykluswerkzeug `sse_api_control`. Die genaue Zuordnung veröffentlicht
-der Werkzeugkatalog; eine feste Werkzeugzahl in dieser Einführung ist kein
-Vertrag.
+Der aktuelle Katalog umfasst **102 direkte API-Toolnamen**. Hinzu kommen der
+komponierte Preflight `sse_preflight` und das getrennte
+API-Lebenszykluswerkzeug `sse_api_control`.
+Alle 104 MCP-Werkzeugnamen werden als strukturierte Werkzeuge registriert.
+Die Zuordnung ist im versionierten Operationskatalog festgelegt. Die Anzahl
+der Werkzeugnamen ist getrennt von der Anzahl der API-Operationen zu lesen:
+Zwei Änderungswerkzeuge verwenden dieselbe API-Operation.
 
 Vor der ersten Facharbeit bündelt `sse_preflight` nacheinander
 `workspace_status`, `product_info` und `health`. Er startet keinen Steuerfall
