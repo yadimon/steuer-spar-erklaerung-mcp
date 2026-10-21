@@ -12,6 +12,7 @@ const publicProcessFiles = [
   ".github/ISSUE_TEMPLATE/config.yml",
   ".github/ISSUE_TEMPLATE/fehler.yml",
   "docs/RELEASE.md",
+  ".github/main-ruleset.json",
 ];
 for (const path of publicProcessFiles) {
   assert(existsSync(path), `Öffentlicher Contributor-/Release-Vertrag fehlt: ${path}`);
@@ -56,7 +57,8 @@ assert.match(releaseCheck, /env:\s*releaseEnvironment/u, "Release-Kindprozesse m
 for (const required of [
   'capture(git, ["status", "--short"])',
   '["fetch", "origin", "--prune", "--tags"]',
-  '["merge-base", "--is-ancestor", "origin/main", headSha]',
+  'const remoteMainSha = capture(git, ["rev-parse", "origin/main"]);',
+  "if (headSha !== remoteMainSha)",
   "assertAnnotatedTag(tag)",
   "reportDistTagState(version)",
   "tags.latest !== version",
@@ -69,6 +71,11 @@ for (const required of [
   assert(releaseCurrent.includes(required), `release:current verschweigt Grenze: ${required}`);
 }
 assert(!/npm\(\["publish"/u.test(releaseCurrent), "release:current darf npm nicht lokal mit Langzeittoken publizieren.");
+assert(!releaseCurrent.includes('git(["push", "origin", "HEAD:main"])'), "Releases muessen bereits gemergt sein und duerfen main nicht direkt pushen.");
+const synchronizedMainIndex = releaseCurrent.indexOf("if (headSha !== remoteMainSha)");
+assert(synchronizedMainIndex > releaseCurrent.indexOf('git(["fetch", "origin", "--prune", "--tags"])')
+  && synchronizedMainIndex < releaseCurrent.indexOf('npm(["run", "release:check"])'),
+  "Der frisch gelesene main muss vor den Release-Gates exakt mit HEAD uebereinstimmen.");
 assert(
   !releaseCurrent.includes("dist-tag\", \"add") && !/setDistTag/u.test(releaseCurrent),
   "Es gibt nur den Kanal latest; er wird beim Publish gesetzt, nicht nachtraeglich per dist-tag.",
@@ -79,7 +86,36 @@ for (const trigger of ["push:", "pull_request:", "workflow_dispatch:"]) {
   assert(workflow.includes(`  ${trigger}`), `CI-Trigger fehlt: ${trigger}`);
 }
 assert.match(workflow, /^permissions:\r?\n  contents: read$/mu, "CI braucht ausschließlich read-only Contents-Rechte.");
-assert.match(workflow, /^    name: Offline API\/MCP and package gate$/mu);
+const requiredCheckName = workflow.match(/^  validate:\r?\n    name: ([^\r\n]+)$/mu)?.[1];
+assert.equal(requiredCheckName, "Offline API/MCP and package gate", "Der Pflichtcheck muss dem tatsaechlichen CI-Jobnamen entsprechen.");
+const mainRuleset = JSON.parse(readFileSync(".github/main-ruleset.json", "utf8"));
+assert.deepEqual(mainRuleset, {
+  name: "main PR and CI",
+  target: "branch",
+  enforcement: "active",
+  bypass_actors: [],
+  conditions: { ref_name: { exclude: [], include: ["refs/heads/main"] } },
+  rules: [
+    {
+      type: "pull_request",
+      parameters: {
+        dismiss_stale_reviews_on_push: true,
+        require_code_owner_review: false,
+        require_last_push_approval: false,
+        required_approving_review_count: 0,
+        required_review_thread_resolution: true,
+      },
+    },
+    {
+      type: "required_status_checks",
+      parameters: {
+        do_not_enforce_on_create: false,
+        required_status_checks: [{ context: requiredCheckName, integration_id: 15368 }],
+        strict_required_status_checks_policy: true,
+      },
+    },
+  ],
+}, "main braucht PRs, aufgeloeste Threads und den exakten GitHub-Actions-Check ohne Bypass.");
 assert.match(workflow, /^    runs-on: windows-2022$/mu);
 assert.match(workflow, /^    timeout-minutes: 25$/mu);
 
@@ -214,6 +250,8 @@ for (const required of [
 }
 assert.match(releaseProcess, /Erst nach ausdrücklicher Freigabe/u);
 assert.match(releaseProcess, /kein öffentliches Release/u);
+assert(!releaseProcess.includes("sieben Tage"), "Release-Dokumentation darf keine nicht hochgeladenen CI-Artefakte versprechen.");
+assert(contributing.includes("Die Datei aktiviert GitHub-Regeln nicht selbst."), "Die kanonische Ruleset-Datei darf nicht als bereits angewendet beschrieben werden.");
 
 process.stdout.write(
   `GitHub Windows-CI: Node ${nodeVersion}, read-only, Vollsuite und Clean-Install mit gepinnten Actions bestanden\n`,

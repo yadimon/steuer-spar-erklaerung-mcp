@@ -119,5 +119,62 @@ npm-Publish-Workflow ist manuell, taggebunden und verwendet OIDC ohne
 langlebiges npm-Token. Ein grüner
 Offline-Lauf allein macht ein neues UI-Verhalten nicht live-verifiziert.
 
+## Geschützter main
+
+Änderungen an `main` gehen über einen Pull Request. Die kanonische
+[Ruleset-Konfiguration](.github/main-ruleset.json) verlangt den erfolgreichen
+GitHub-Actions-Check `Offline API/MCP and package gate` auf einem gegenüber
+`main` aktuellen Stand sowie aufgelöste Review-Threads. Es gibt keine
+Bypass-Akteure. Verpflichtende externe Freigaben stehen auf null, damit ein
+einzelner Maintainer eigene PRs mergen kann; Community-Änderungen werden
+weiterhin vor dem Merge geprüft.
+
+Die Datei aktiviert GitHub-Regeln nicht selbst. Maintainer gleichen sie mit den
+Repository-Einstellungen ab. Bereits aktive Regeln gegen Löschen und Force-push
+bleiben erhalten; die zusätzliche Ruleset `main PR and CI` ergänzt sie.
+
+Vor einer Aktivierung muss der genannte Check für den aktuellen Änderungsstand
+im CI-Workflow erfolgreich laufen. Bei ersten Beiträgen aus einem Fork kann GitHub zunächst eine bewusste
+Freigabe des Workflow-Laufs verlangen. Ein ausstehender Lauf wird weder durch
+einen Dummy-Check noch durch einen Bypass ersetzt. Die CI verwendet
+`pull_request`; fremder PR-Code erhält keine Publish-Secrets oder Schreibrechte.
+
+Für den Abgleich zuerst die vorhandenen Rulesets lesen:
+
+```powershell
+gh api repos/yadimon/steuer-spar-erklaerung-mcp/rulesets --jq '.[] | {id, name, target, enforcement}'
+```
+
+Bei einer vorhandenen Ruleset `main PR and CI` deren vollständige Konfiguration
+lesen und die passende ID verwenden. Bei mehreren passenden Einträgen zuerst
+die Mehrdeutigkeit klären. Keine neue Ruleset über eine bestehende legen:
+
+```powershell
+$rulesetId = '<ID der vorhandenen main PR and CI Ruleset>'
+gh api "repos/yadimon/steuer-spar-erklaerung-mcp/rulesets/$rulesetId"
+gh api --method PUT "repos/yadimon/steuer-spar-erklaerung-mcp/rulesets/$rulesetId" --input .github/main-ruleset.json
+```
+
+Nur wenn keine passende Ruleset existiert, sie einmal neu anlegen:
+
+```powershell
+gh api --method POST repos/yadimon/steuer-spar-erklaerung-mcp/rulesets --input .github/main-ruleset.json
+```
+
+Anschließend die erzeugte oder aktualisierte Ruleset über ihre ID und die
+effektiven Regeln von `main` erneut lesen:
+
+```powershell
+gh api "repos/yadimon/steuer-spar-erklaerung-mcp/rulesets/$rulesetId"
+gh api repos/yadimon/steuer-spar-erklaerung-mcp/rules/branches/main
+```
+
+Beim Neuanlegen die zurückgegebene ID zuerst in `$rulesetId` übernehmen.
+Abzugleichen sind Aktivierung, exakter Zielbranch, leere Bypass-Liste, PR-Regel,
+aufgelöste Threads und der strikt aktuelle Pflichtcheck mit GitHub-Actions-App
+`15368`. Die bestehenden Lösch- und Force-push-Sperren müssen weiterhin gelten.
+Checkname und App-ID binden den Statusanbieter; Änderungen an Workflow und
+Tests brauchen weiterhin eine inhaltliche Prüfung.
+
 Maintainer folgen für Version, Tag und GitHub-Prerelease zusätzlich dem
 [Release-Prozess](docs/RELEASE.md).
