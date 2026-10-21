@@ -3,6 +3,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { WORKER_RUNTIME_FILES } from "./worker-fixture-files.mjs";
+import {
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
+  SSE_MCP_TOOL_OPERATIONS,
+} from "../dist/operation-catalog.js";
 
 const rootPackage = JSON.parse(readFileSync("package.json", "utf8"));
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
@@ -79,8 +84,14 @@ for (const required of [
   "PC-blinder MCP-Wrapper",
   "exakt dieselbe Paketversion",
   "@yadimon/steuer-spar-erklaerung-mcp",
-  "100 fachliche API-Toolnamen plus den komponierten MCP-Preflight",
-  "Alle 101 MCP-Werkzeugnamen",
+  `${Object.keys(SSE_MCP_TOOL_OPERATIONS).length} direkte API-Toolnamen`,
+  `Alle ${new Set([
+    ...Object.keys(SSE_MCP_TOOL_OPERATIONS),
+    ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS),
+    ...Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS),
+  ]).size} MCP-Werkzeugnamen`,
+  ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS),
+  ...Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS),
   "$env:SSE_API_CONFIG",
   "structuredContent",
   "ELSTER",

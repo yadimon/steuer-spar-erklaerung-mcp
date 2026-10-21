@@ -24,6 +24,7 @@ Entstehungsgeschichte einzelner UIA-Lösungen.
 ## Inhalt
 
 - [Produktziel](#produktziel)
+- [Zweck der Qt-Umstellung](#zweck-der-qt-umstellung)
 - [Verbindliche Grenzen](#verbindliche-grenzen)
 - [Nebenfenster](#nebenfenster-allgemein-lesbar-nur-rollenbezogen-bedienbar)
 - [Inhaltsbereich einer Seite](#der-inhaltsbereich-einer-seite-gemessen-oder-geraten)
@@ -47,27 +48,46 @@ MCP-Start nicht benötigt werden. Sichtbar bleibt die SteuerSparErklärung
 selbst; API-, MCP- und Worker-Prozesse dürfen keine schwarzen Konsolenfenster
 öffnen.
 
-Das Produkt besteht aus vier klaren Schichten:
+Die API wählt den passenden Ausführungsweg. MCP und eigene HTTP-Clients
+verwenden dabei dieselben Operationen und Sicherheitsprüfungen:
 
-```text
-Codex / Claude Code
-        │
-        ├── Skill (First run und sichere Workflows)
-        └── MCP-Bundle (stdio, PC-blind) ─────┐
-                                              │
-Eigenes Programm ── HTTP/JSON ────────────────┤
-                                              ▼
-                                 lokale SSE-API (Singleton)
-                       Herkunftsschutz, Queue, Dateien/Hash,
-                         Szenarien, Konfiguration
-                                     │
-                                     ▼
-                         isolierter Windows-Worker
-                              UIA, Win32
-                                     │
-                                     ▼
-                         SteuerSparErklärung UI
+```mermaid
+flowchart TD
+    Agent["Codex / Claude Code + Skill"] --> MCP["MCP: stdio, ohne Zugriff auf Steuerdateien"]
+    MCP --> API["Lokale HTTP/JSON-API: Verträge, Queue, Fristen, Ressourcen"]
+    Client["Eigenes Programm"] --> API
+    API --> Local["Node.js: Datei- und Metadatenoperationen"]
+    API --> Worker["Frischer PowerShell-Worker mit C# / UIA / Win32"]
+    API --> Native["Optional: geprüftes natives Paket"]
+    Native --> Broker["Dauerhaft gebundener Broker"]
+    Broker --> Qt["C++-Brücke im Qt-GUI-Thread von SSE"]
+    Native --> Lifecycle["Externer Win32-Helfer; Stop zusätzlich mit COM-UIA"]
+    Worker --> SSE["SteuerSparErklärung"]
+    Qt --> SSE
+    Lifecycle --> SSE
 ```
+
+### Zweck der Qt-Umstellung
+
+Die Umstellung ersetzt schrittweise ausgewählte UIA-Wege. Die native Brücke
+kann Qt-Objekte und Tabellenmodelle im GUI-Thread direkt lesen und eng
+gebundene Aktionen dort ausführen. Eine bestehende Verbindung spart bei diesen
+Aufrufen den erneuten PowerShell-Start. Frische Ziel-, Vorwert- und
+Ergebnisprüfungen bleiben erhalten; die Verbindung ist kein Cache für Feldwerte.
+
+Der Qt-Pfad ist ausdrücklich optional: Er benötigt ein separat gebautes und
+gepinntes Paket sowie `qtNativeRuntime` in der API-Konfiguration. Die normalen
+npm- und Plugin-Pakete enthalten dieses Paket nicht. Ohne diese Konfiguration
+bleiben die bisherigen Wege aktiv. Auch mit Qt werden Dateioperationen weiter
+in Node.js und nicht migrierte Operationen im isolierten Worker ausgeführt.
+Die C#-Bibliothek `sse-native.dll` unterstützt diesen Worker; sie ist nicht die
+C++-Brücke `sse-qt-read.dll`.
+
+Eine migrierte Operation fällt nach einem Qt-Fehler nicht still auf UIA,
+Cursorsteuerung oder erneute Ausführung zurück. Insbesondere kann ein
+Transportabbruch eine bereits ausgeführte Änderung verbergen. Dann verlangt
+`outcomeUnknown` einen gezielten Zustandsabgleich. Die genaue Auswahl und die
+verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
 
 ## Verbindliche Grenzen
 
@@ -341,10 +361,10 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Diese Phasen lassen sich mit `npm run perf:api-mega` untersuchen; ihre
   Anteile hängen von Operation, Rechner und Last ab.
 - Reine Datei-/Metadatenoperationen werden nach feldgenauer Parität in den
-  API-Prozess gezogen. Für verbleibende UI-Operationen lässt sich dieser Boden
-  nur durch eine fachliche Skriptaufteilung senken, sodass ein Aufruf weniger
-  Code übersetzt – nicht durch einen langlebigen UIA-Prozess. Letzteres
-  verbietet der oben genannte Qt/UIA-Fehlerzustand.
+  API-Prozess gezogen. Verbleibende Worker-Aufrufe profitieren von weniger
+  Skriptvorbereitung oder fachlich gebündelten Plänen. Der optionale Qt-Pfad
+  umgeht für ausgewählte Operationen den Worker vollständig. Ein langlebiger
+  UIA-Worker ist dagegen wegen des oben genannten Fehlerzustands kein Ersatz.
 - Interne Schreib- und VaSt-Entscheidungen überspringen die teure
   Prozess-Kommandozeilenabfrage nur dann, wenn bereits ein vollständiger,
   nicht gekürzter Fenstertitel den erwarteten Fallpfad exakt beweist.
@@ -440,16 +460,16 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Dirty-State-Readback erlaubt; nicht strukturiert bedienbare Qt-Controls
   benötigen eine sichtbare Vordergrund-Lease und Nutzerzustimmung. Ein privater
   Desktop ist Fokus-/UX-Isolation, keine Security-Sandbox.
-- Fuer den BelegManager gilt eine engere aktuelle Laufzeitgrenze:
-  `receipt_manager_list` ist als `focusless-read` freigegeben;
-  `receipt_manager_action` und `receipt_manager_read` laufen über exakt
-  gebundene, quittierte Qt-Aktionen ohne globale physische Eingabe. Alle sieben
-  verbleibenden Wege, die noch sichtbaren Vordergrund beziehungsweise globale
-  physische Eingabe benoetigen, stoppen nach der
-  oeffentlichen Argumentpruefung, aber vor Ressourcenaufloesung, Workerstart,
-  Buildpruefung und UIA. Derselbe Katalog und Block liegen zusaetzlich direkt
-  im Worker; ein direkter Aufruf oder eine Komposition kann die API-Grenze
-  daher nicht umgehen.
+- Für den BelegManager gilt eine engere aktuelle Laufzeitgrenze:
+  `receipt_manager_list` ist als `focusless-read` freigegeben. Die neun übrigen
+  BelegManager-Operationen sind im normalen API-/MCP-Betrieb gesperrt. Nur die
+  interne Testinfrastruktur kann eine kurzlebige interaktive Lease erteilen.
+  Ohne sie stoppen die Operationen nach der öffentlichen Argumentprüfung,
+  aber vor Ressourcenauflösung,
+  Workerstart und Qt-Dispatch. Das gilt auch für native Handler, die selbst
+  keine globale physische Eingabe verwenden. API und direkter Worker setzen
+  dieselbe zusätzliche Interaktionsgrenze durch. Diese Testfreigabe ist weder
+  ein Feld der öffentlichen Konfigurationsdatei noch ein Operationsargument.
 - Seine Zustandsprüfung klassifiziert die sechs profilierten, ordinalen
   AutomationId-Suffixe einmal je frischem UIA-Snapshot. Doppelte oder
   deaktivierte Treffer bleiben fail-closed; Knotenmenge und Fingerprint werden
@@ -481,13 +501,12 @@ fallabhängige Zusatz nicht vorher bekannt ist. Eine bloß ähnlich benannte
 Seite oder eine andere Fahrzeug-Unterseite mit derselben Überschrift reicht
 nicht aus.
 
-Der semantische Pfad liest Überschrift und Pflichtfelder direkt über ihre
-vollständigen AutomationIds. Er vermeidet den generischen 400-Knoten-Baum bei
-der Start-, Warte- und Zielprüfung, behält aber Suche, linearen Fallback,
-Dialogstopp und Schrittlimit unverändert. Im lokalen Wegwerffall wurde der
-vollständige Sprung von `Beiträge, Gebühren und Abgaben` zum Fahrzeug deutlich
-kürzer und endete statt mit einem falschen `not-found` mit verifiziertem
-Erfolg; auf der bereits geöffneten Zielseite bleibt der Nullschritt kurz.
+Der semantische Worker-Pfad liest Überschrift und Pflichtfelder direkt über
+ihre vollständigen AutomationIds. Er vermeidet den generischen 400-Knoten-Baum
+bei der Start-, Warte- und Zielprüfung, behält aber Suche, linearen Fallback,
+Dialogstopp und Schrittlimit bei. Mit konfiguriertem Qt-Paket nutzt `goto`
+stattdessen die gebundene native Navigation und prüft das Ziel ebenfalls
+vollständig. Eine bereits erreichte Seite benötigt keinen weiteren Übergang.
 
 ### Typisierte Ein-Worker-Pläne
 
@@ -520,27 +539,16 @@ Listenread im selben Prozess. Nur ein vollständiges, hashgleiches semantisches
 Zeilen-Multiset hebt diesen Zwischenzustand auf; der öffentliche Einzelread
 bleibt unverändert fail-closed.
 
-Bei einem kalten API→PowerShell-Aufruf wiegt der Prozess- und Transportweg
-schwerer als die eigentliche Arbeit im Worker. Ein Plan, der fünf Felder in
-einem Worker erledigt, spart deshalb den Startaufwand der übrigen vier: Ein
-Beleg ohne Klassifikation benötigte zuvor drei Worker, fünf Belege fünfzehn;
-der Plan startet jeweils genau einen. Beim sichtbaren Beleg-Import dominiert
-dagegen die Qt-Interaktion und ihre Stabilisierung — dort bringt die Bündelung
-wenig.
-
-Eine kontrollierte Vorher-/Nachher-Messung auf demselben lokalen Wegwerffall
-mit 21 vorhandenen Belegen verkürzte Import, sieben Feldwerte und unabhängigen
-Abschlussreadback um knapp ein Drittel. Dafür liest
-`receipt_manager_update` zwischen den drei vollständigen Bindungs-/Abschluss-
-Snapshots jedes bereits gebundene Feld direkt über dessen exakte AutomationId
-und pollt den tatsächlichen Wert, statt vor und nach jedem Feld erneut bis zu
-800 UIA-Knoten zu projizieren. `performance.internalTimings` erklärt jede
-interne Operation einzeln; im erfolgreichen Nachlauf entfällt der größte
-Anteil auf den nativen Importdialog, gefolgt vom unabhängigen Detailreadback
-und den zwei vollständigen Listenreads. Diese Sicherheitsnachweise zu Liste, Dialogen,
-Fenstern und Dirty-State bleiben absichtlich erhalten. Ein separater
-langlebiger Worker oder C#-Bulk-Prozess ist nach diesen Messungen nicht
-gerechtfertigt.
+Ein Plan spart wiederholte Workerstarts, indem er mehrere fachlich gebundene
+Schritte im selben isolierten Prozess ausführt. Er hebt weder Dialog- noch
+Readback-Prüfungen auf. Im Worker-Pfad liest `receipt_manager_update` zwischen
+vollständigen Bindungs- und Abschluss-Snapshots bereits gebundene Felder über
+ihre exakten AutomationIds und wartet auf den tatsächlichen Wert. Der native
+Einzelaufruf verwendet dagegen die Qt-Widgettransaktion. Beide Wege benötigen
+einen unabhängigen Abschlussnachweis; die interaktive Belegfreigabe gilt auch
+für den gebündelten Plan. Welche Phase Zeit beansprucht, ist über den gesamten
+Aufrufweg zu messen; aus einem kurzen Einzelzugriff folgt keine allgemeine
+Latenzgarantie.
 
 ### Harte Sicherheit
 
@@ -634,16 +642,20 @@ die beiden Klassifikationsoperationen, `receipt_manager_link` und
 `receipt_manager_bulk_upsert`. Auf einer frischen
 Installation lässt sich der Einwilligungsdialog weiterhin nicht beantworten.
 
-**Aktuelle Verfuegbarkeit:** Von diesen zehn Operationen sind
-`receipt_manager_list`, `receipt_manager_action` und `receipt_manager_read`
-über den privaten authentifizierten Qt-Broker aktiv. Die sieben anderen Implementierungen bleiben als
-historisch verifizierter, statisch gepruefter Vertrag im Worker erhalten, sind
-aber unerreichbar: API und Worker liefern
+**Aktuelle Verfügbarkeit:** Im normalen API-/MCP-Betrieb ist nur
+`receipt_manager_list` nutzbar. Die neun anderen Operationen liefern
 `reason=foreground-required-operation-disabled`, `retryable=false`,
 `mutationStarted=false` und `resultingState=unchanged`, bevor ein Fenster
-gelesen oder veraendert wird. Die folgenden Abschnitte beschreiben diesen
-dormanten Vertrag und seine damaligen Bindungs-/Readback-Invarianten; sie sind
-keine aktuelle Freigabe.
+gelesen oder verändert wird. Ausschließlich die interne Testinfrastruktur kann
+eine kurzlebige interaktive Lease erteilen; alle Profil-, Build-, Bindungs-
+und Nachprüfungen bleiben bestehen. Es gibt dafür keinen öffentlichen
+Konfigurationsschalter. Mit konfiguriertem Qt-Paket besitzen
+`receipt_manager_action`, `receipt_manager_read`, `receipt_manager_update`,
+`receipt_manager_link` und beide Klassifikationsoperationen neben
+`receipt_manager_list` direkte native Handler. `receipt_manager_import`,
+`receipt_manager_delete` und `receipt_manager_bulk_upsert` bleiben
+workerbasiert. Die folgenden Beschreibungen unterscheiden diese Wege; allein
+ein vorhandener Handler beweist keine vollständige Live-Abdeckung.
 
 Der vorgesehene Weg sind stattdessen eigene, eng gefasste Operationen je
 katalogisierter Fensterrolle. Eine solche Operation braucht mindestens:
@@ -673,13 +685,12 @@ katalogisierten Detailwerten gebildet und bleibt dadurch zwischen Qt-Lesung und
 den noch workerbasierten Folgeoperationen exakt vergleichbar.
 `receipt_manager_update` verlangt zusätzlich den frischen Detailfingerprint
 und `acknowledgeUpdate=true`. Ein Aufruf kann Titel, Datum, Belegnummer,
-Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Er
-verwendet ausschließlich profilierte AutomationIds, prüft jeden Feldwert nach
-dem Commit am exakt gebundenen Live-Element und rollt bereits geänderte Felder
-bei einer eindeutigen normalen Nachbedingungsverletzung rückwärts zurück. Drei
-vollständige UIA-Projektionen bleiben als Ausgangs-, ausgewählte Detail- und
-Abschlussbindung erhalten; die wiederholten Vollbaum-Reads je Feld sind durch
-einen Quellvertrag gesperrt.
+Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Jeder
+Feldwert wird nach dem Commit am exakt gebundenen Element geprüft. Ein
+Rollback ist nur bei bekanntem Ausgang und weiterhin eindeutig eigenen
+Werten erlaubt. Der Worker bindet die profilierten AutomationIds über
+vollständige UIA-Projektionen; der native Pfad verwendet gebundene Qt-Widgets,
+quittierte Aktionen und einen unabhängigen Detail- und Listenabgleich.
 `receipt_manager_import` lehnt nicht profilierte Dateiendungen und Dateien ohne
 PDF-Header bereits vor jeder UI-Bindung ab. Erst danach legt die Operation bei
 vollständiger Liste ohne vorhandenen Entwurf einen neuen Beleg an, bindet die
@@ -972,9 +983,11 @@ bereits ausgeführten UI-Schritten weiterhin eine Ergebnisdatei entsteht.
 
 ## Testsuite
 
-Der Suite-Plan enthält drei Phasen: quellgebundenes `dist`-Pruning und Builds
-laufen seriell, voneinander unabhängige Vertragstests mit begrenzter
-Parallelität und globale Sentinels exklusiv. Schritte, die einen echten
+Der Suite-Plan in `test/suite-plan.mjs` trennt serielle Vorbereitung und Builds,
+Vertragstests mit begrenzter Parallelität, exklusive Prüfungen und eine
+abschließende Abdeckungsbilanz. `npm run test:inventory` zeigt den aktuellen
+Plan, ohne Tests auszuführen; JSON liefert
+`npm run --silent test:inventory -- --json`. Schritte, die einen echten
 lock-pflichtigen Worker starten, teilen im parallelen Scheduler einen
 Konfliktschlüssel; untereinander laufen sie seriell, während reine Quell- und
 lokale Tests weiter parallel bleiben. Der Controller-Mutex-Vertrag und der
@@ -990,7 +1003,10 @@ Kann selbst nach dem harten Wachhund kein Prozessende nachgewiesen werden,
 sperrt der API-Prozess alle weiteren Worker-Aufrufe bis zum Neustart. So kann
 kein möglicherweise verwaister UI-Worker mit einem Folgeauftrag konkurrieren.
 
-`npm run test:fast` und `npm test` starten absichtlich keine reale SSE-UI.
+`npm run test:fast` und `npm test` starten absichtlich keine reale SSE-UI,
+enthalten aber Windows- und Controllerprüfungen. Sie sind deshalb keine
+Zusicherung einer reinen, nebenwirkungsfreien Node-Prüfung; Voraussetzungen
+und geeignete Auswahl stehen in [CONTRIBUTING.md](../CONTRIBUTING.md).
 `npm run test:live-core-read` belegt für beide Profile die auf der offenen
 Herstellermusterseite möglichen, fallunverändernden Leseverträge; sein Ergebnis
 weist die nicht enthaltene Bereichsnavigation, Prüfer, UStVA und den

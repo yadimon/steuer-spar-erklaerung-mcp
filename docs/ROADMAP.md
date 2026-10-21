@@ -6,7 +6,7 @@ wiederholt sie nicht:
 
 - **[API-REFERENZ.md](API-REFERENZ.md)** listet alle Operationen, ihre
   MCP-Werkzeuge, ihre Art und ihren Verifikationsstand. Sie wird aus den Quellen
-  erzeugt und kann nicht veralten.
+  erzeugt; `npm run docs:build -- --check` erkennt einen veralteten Stand.
 - **`test/operation-coverage.json`** haelt fest, welche Operation live belegt
   ist und wo die Grenze der Aussage liegt.
 
@@ -40,6 +40,51 @@ Fertigstellungsgrad. Der Qt-Pfad verlangt explizite Konfiguration und ein
 separates kompatibles Paket. Begrenzte Belegänderungen und Navigation sind
 angeschlossen; allgemeine Schreibzugriffe und Speichern bleiben auf den
 bestehenden Transaktionswegen.
+
+### Warum die Qt-Umstellung schrittweise erfolgt
+
+Die Qt-Brücke liest QObject-, Accessibility- und Tabellenmodelldaten direkt im
+Produktprozess. Das kann zusätzliche Worker-Aufrufe, UIA-Baumläufe und
+Cursoraktionen vermeiden. Ziel sind besser begrenzte Abläufe und weniger
+Kommunikationsschritte bei gleichbleibender Ergebnisqualität. Eine direkte
+Abfrage ist aber weder automatisch schneller noch eine vollständige
+Transaktion: Zielbindung, GUI-Thread, Fristen und unbekannte Ausgänge bleiben
+zu prüfen. Dateioperationen brauchen dafür häufig überhaupt keine Qt-DLL.
+
+Die vorhandene C#-Bibliothek `sse-native.dll` ist ein Worker-Helfer. Die neue
+C++-Brücke `sse-qt-read.dll` arbeitet im Produktprozess; direkte native
+Lebenszyklushelfer verwenden wiederum Win32 beziehungsweise COM-UIA. Diese
+Wege getrennt zu benennen verhindert, dass ein nativer Build fälschlich als
+vollständige Qt-Umstellung gilt.
+
+Für jede weitere Operation gilt derselbe Ablauf:
+
+1. **Vertrag festhalten:** Eingaben, Zielidentität, Vollständigkeit, Seiteneffekte
+   und Fehler des bisherigen öffentlichen Wegs benennen. Lese- und Schreibpfade
+   getrennt bewerten.
+2. **Begrenzt anbinden:** kompatibles Produkt-/Qt-Paket verifizieren und genau
+   einen Ausführungspfad wählen. Ein Fehler erlaubt keinen automatischen
+   Backendwechsel oder zweiten Schreibversuch.
+3. **Synthetisch absichern:** tatsächlichen Dispatcher und Ergebnisprojektion
+   auf Erfolg, Mehrdeutigkeit, Zustandswechsel, Fristende und Antwortverlust
+   prüfen. Native Komponentenprüfungen müssen zusätzlich reale DLL, Broker
+   und Runtime mit dem eigenen Qt-Testprogramm verbinden.
+4. **Am Produkt abnehmen:** denselben Ablauf auf Wegwerfkopien prüfen.
+   Bei Änderungen gehören vorheriger Zustand, Commit, frischer vollständiger
+   Readback, unbeteiligte Daten und bestätigtes Cleanup zusammen. Speichern und
+   Wiederöffnen benötigen einen eigenen Persistenznachweis.
+5. **Ende zu Ende vergleichen:** dieselbe Methode und denselben Backendmodus
+   mehrfach vor und nach der Änderung messen. Kalte Vorbereitung, eigentliche
+   Operation und Bereinigung unterscheiden; keine Frist erhöhen, um einen
+   Leistungsgewinn vorzutäuschen.
+6. **Stand synchronisieren:** erst nach passenden Nachweisen Referenz, Matrix
+   und Dokumentation anpassen. Ein implementierter Handler, eine synthetische
+   Prüfung und eine erfolgreiche Produktreise bleiben getrennte Aussagen.
+
+Die Schritte sind Abnahmekriterien für weitere Arbeit, keine Behauptung, dass
+bereits jede Operation alle Stufen erfüllt. Der [Projektstand](../PROGRESS.md)
+nennt verbleibende Grenzen; [VERIFIKATION.md](VERIFIKATION.md) erklärt die
+Nachweisarten und [NATIVE-QT.md](NATIVE-QT.md) die technische Einbindung.
 
 Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Gesamtzahl ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
@@ -145,7 +190,7 @@ Risiko und ob der Benutzer dabei zusehen muss.
 | --- | --- | --- | --- |
 | **Fokusloses UIA-Lesen** | Baum und Einzelwerte lesen, ohne den Vordergrund anzufassen | ein Baumlauf ist teuer, gezielte Bindung ueber AutomationId ist billig | Seitenlesen, Tabellen, Pruefer, Fallbindung |
 | **Fokusloses Schreiben** | Werte in ausdrücklich profilierten Feldpfaden schreiben, mit Commit und Readback | auf privatem Desktop nur für freigegebene Focusless-Pfade; generische Selektoren erweitern diese Freigabe nicht | ein profilierter Feldpfad; `tracked_set_value` und `fill_fields` behalten ihre Grenzen |
-| **Vordergrund-Lease mit physischer Eingabe** | Qt-Steuerelemente bedienen, die kein brauchbares UIA-Muster anbieten | der Benutzer sieht es und darf nicht dazwischenfunken; braucht ausdrueckliche Zustimmung | `click`, `combo_select`, neun der zehn BelegManager-Wege |
+| **Vordergrund-Lease mit physischer Eingabe** | Qt-Steuerelemente bedienen, die kein brauchbares UIA-Muster anbieten | braucht eine ausdrückliche Freigabe und eine unbenutzte Sitzung; öffentlich gesperrte Wege bleiben gesperrt | `click`, `combo_select`; neun BelegManager-Wege sind nur über die interne Test-Lease erreichbar |
 | **C#-Worker-Helfer (`sse-native.dll`)** | Fensteraufzaehlung, Prozesskommandozeile, MSAA-Punktprobe, UIA-Baumlauf, Controller-Lease | bleibt Teil des bisherigen Worker-Pfads; nicht die Qt-Brücke in SSE | bestehende UIA-/Win32-Operationen |
 | **C++-Qt-Brücke (`sse-qt-read.dll`)** | frische QObject-Werte, begrenzte Tabellenmodelle und Qt-Accessibility-Bäume im SSE-Prozess | exakte Produkt-/Qt-Bindung, GUI-Thread, Controller-Lease und dauerhaft gebundener Transport | optional die direkt angeschlossenen Operationen der [vollständigen Matrix](NATIVE-COVERAGE.md) |
 | **Direkte native Lebenszyklushelfer** | Desktopstatus und eigentumsgebundener Prozessstart über Win32; Stop über Win32 und begrenztes COM-UIA | Produkt-/Markerprüfung, atomare Prozesszuordnung, verifizierte Bereinigung; reale Dialogvarianten brauchen eigene Nachweise | optional `desktop_status`, `desktop_start`, `desktop_stop` |
@@ -162,10 +207,10 @@ im Repository belegt sind.
 
 | Luecke | Warum offen | Weg | Was dafuer noetig ist |
 | --- | --- | --- | --- |
-| **VaSt vollstaendig** – die sechs Wege `vast_apply`, `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`, `vast_row_details`, `vast_row_set_expanded` | in einer abgeschotteten Prüfumgebung erreichte jeder kontrolliert den echten `not-found`-Fehlerpfad; ohne Zertifikat-PIN kam kein Datensatz | Vordergrund-Lease, wie heute | ein ELSTER-Zertifikat mit PIN in einer Wegwerf-Umgebung, und die Entscheidung, ob echte Abrufdaten dort liegen duerfen |
-| **BelegManager ohne Vordergrund** – neun der zehn Wege | nur `receipt_manager_list` ist als fokusloses Lesen freigegeben; Detailauswahl, Navigation und Mutation brauchen sichtbaren Vordergrund | fokusloses Schreiben, falls die Qt-Liste je brauchbare Muster anbietet | Nachweis, dass Auswahl und Detailbindung ohne physische Eingabe stabil sind – bisher nicht gelungen |
+| **VaSt vollständig** – die sechs Wege `vast_apply`, `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`, `vast_row_details`, `vast_row_set_expanded` | das Live-Ledger belegt ausschließlich Fehlerpfade, keinen erfolgreichen Datenabruf | bestehender gebundener Produktweg | ein eigener zulässiger Ende-zu-Ende-Nachweis mit kontrollierten Voraussetzungen; Zugangsdaten und Abrufdaten bleiben außerhalb von Git |
+| **BelegManager ohne Vordergrund** – neun der zehn Wege | öffentlich ist nur `receipt_manager_list` freigegeben; ein nativer Handler hebt die globale Vordergrundsperre nicht auf | Qt-/Modellzugriff mit eigenem Interaktionsvertrag | Nachweis stabiler Auswahl, Detailbindung, Commit und Readback ohne globale Eingabe sowie eine ausdrücklich geprüfte Freigabeänderung |
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
-| **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
+| **Steuerjahr 2026** | im Repository gibt es kein freigegebenes Profil | vorhandene Wege, neues Profil | Produkt-/Buildbindung, Katalog und eigene Live-Verifikation; das Vorhandensein eines Herstellerprodukts allein ist keine Freigabe |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
 | **Weitere schnelle native Operationen** | Qt-Pfade und drei direkte native Lebenszykluspfade gemäß aktueller Matrix vorhanden; weitere öffentliche Handler fehlen | Qt-Brücke für UI/Modell, direkte Systemzugriffe für Dateien/Lebenszyklus | vollständige Ergebnisparität, Commit/Readback, unbekannte Ausgänge und Ende-zu-Ende-Messung; siehe [Native-Matrix](NATIVE-COVERAGE.md) |
 | **`headingPrefix` trägt zwei Rollen** – Suchbegriff für `goto` und Präfix für die Seitenbindung können unterschiedliche Werte benötigen; ähnliche Überschriften können die Suche auf einen Nachbartreffer führen | beide Rollen wollen verschiedene Werte | Bindungsregel | ein eigenes Feld für das Navigationsziel, getrennt vom Bindungspräfix |
@@ -213,89 +258,35 @@ die HTTP-, Prozess- und MCP-Vertraege: falsche Identitaet, laufende Auftraege,
 konkurrierende Stopps, Antwortverlust, Reservearbeiter-Cleanup und ausdruecklichen
 Neustart. Diese Tests verwenden ausschliesslich eigene API-Prozesse.
 
-### 3.1 SSEs eigene Kommandoflaeche
+### 3.1 Produktumfang und öffentliche API
 
-Aus den statischen Belegen im Repository lassen sich **vierzehn** Kommandonamen
-von SSE selbst belegen (Quellen: `static-analysis-partial/targeted-strings.json`
-und der in `codex-static-events.jsonl` eingebettete Kommando-Index; beide liegen
-im privaten Analyseordner ausserhalb von Git). Davon deckt
-die API vier funktional ab, drei teilweise, sieben gar nicht.
+Herstellerfunktionen, interne Kommandonamen und öffentlich ausführbare
+API-Operationen sind unterschiedliche Dinge. Nur Operationskatalog, Dispatcher
+und Ergebnisvertrag zeigen, was dieser Adapter tatsächlich anbietet. Ein im
+Produkt gefundener Symbolname oder ein interner Testpfad ist keine öffentliche
+Freigabe.
 
-| Kommando | Stand bei uns |
-| --- | --- |
-| `FileOpen`, `FileClose`, `FileSaveAsCopy`, `ShowBelegManager` | abgedeckt |
-| `FileOpenFromDir` | teilweise – wir listen Faelle, oeffnen aber nicht aus einem Verzeichnis |
-| `DeleteBelegeOfDialog` | teilweise – wir loeschen Belege einzeln, nicht dialogweise |
-| `SteuerSparTipps` | teilweise – das Fenster ist lesend und zum exakt gebundenen Schließen profiliert |
-| `CommandList`, `ExportCommands`, `StartCommandAsync` | nicht abgedeckt |
-| `WriteToDM` | nicht abgedeckt, und das mit Absicht: wir schreiben ausschliesslich ueber profilierte Feldpfade mit Readback |
-| `CopyDMNode`, `CopyDMNodeToDMExplorer` | nicht abgedeckt |
-| `GenerateNavtreeXML` | nicht abgedeckt |
-
-Zwei Einschraenkungen gehoeren dazu. Erstens ist diese Liste **nicht
-vollstaendig**: Der zugrundeliegende Zeichenkettenscan war auf ein Suchmuster
-begrenzt, und dass SSE ueberhaupt ein `ExportCommands` kennt, zeigt, dass das
-Programm selbst einen groesseren Katalog fuehrt. Zweitens ist ein Literal
-`Goto` in den vorliegenden Belegen **nicht** nachweisbar; belegt ist nur eine
-Parametersignatur `STRING GotoExpression`.
-
-### 3.2 Programmbereiche ohne Profil
-
-Wer die Luecke lieber an der Oberflaeche als an Symbolnamen sehen will, findet
-sie in zwei Entwicklungsdokumenten. Das
-[Aktionsinventar](entwicklung/aktionsinventar.md) geht die sieben Menues von
-SSE mit ihren 64 Eintraegen durch: elf abgedeckt, neun teilweise, vier mit
-Absicht zu, der Rest offen, darunter zwei vollstaendig leere Menues. Der
-[Funktionskatalog](entwicklung/funktionskatalog.md) nimmt die fachliche Achse -
-SteuerSparErklaerung ist **sieben Module**, nicht eines, und zu **vieren davon
-gibt es bei uns gar nichts**: Feststellung, Lohnsteuer-Ermaessigung, Prognose
-und konsolidierte Umsatzsteuer.
-
-
-Die Methodennamen von `DMSession` im dekompilierten `Dm.dll`-Index nennen
-Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
-
-| Bereich | Beleg | Weg |
-| --- | --- | --- |
-| Fast die gesamte Einkommensteuer | dreizehn `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
-| Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
-| Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
-| Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |
-| Anonymisierter Export | `writeAnonymizedDataFile` | UI, sofern im Menue erreichbar |
-| VLH-Import und -Export | `vlhImport`, `vlhExport` | UI |
-| Fremdformat-Import | `importDataFile`, `callImportScript` | UI |
-| Autosave und Wiederherstellung | `autoSave`, `restoreAutoSaved` | heute bewusst nur die Wiederherstellungsfrage, und dort ist ausschliesslich `Nein` erlaubt |
-| Ehegatten-/Partnersicht | `isSpouseVisible` | UI |
-| DMExplorer als eigenes Programm | als IPC-Partner belegt | ausserhalb der Prozessgrenze der API |
-| **Kommandoregistry als JSON** | `getCommandRegistryAsJson` | waere der autoritative Katalog – nur ueber den Herstellerweg erreichbar |
-
-Der letzte Eintrag ist der interessanteste: SSE kann seinen eigenen
-Kommandokatalog maschinenlesbar ausgeben. Waere er erreichbar, muesste niemand
-mehr Zeichenketten aus Binaerdateien lesen, um diese Liste zu fuehren.
+Die [Statustafel](entwicklung/status.md), das
+[Aktionsinventar](entwicklung/aktionsinventar.md) und der
+[Funktionskatalog](entwicklung/funktionskatalog.md) ordnen weitere Produktbereiche
+ein. Beispiele sind Druckdialoge, Datenübernahme, Passwortdialoge und zusätzliche
+Steuermodule. Vor einer Erweiterung braucht jeder Bereich einen eindeutigen
+Ziel- und Interaktionsvertrag sowie eigene Nachweise. Allgemeine Operationen
+wie `menu` oder `snapshot` belegen noch keinen sicheren fachlichen Ablauf in
+jedem dieser Bereiche.
 
 ## 4. Der Hersteller-IPC-Weg und warum er zu ist
 
-Diese Grenze betrifft den untersuchten Hersteller-IPC-Weg. Sie verhindert
-nicht den inzwischen implementierten eigenen [Qt-Lesepfad](NATIVE-QT.md).
-Statisch gefundene Kommandonamen sind weiterhin keine ausführbaren API-Handler.
+Die öffentliche Runtime bietet kein Hersteller-IPC-Backend an. Interne
+Kommandonamen oder mögliche Nachrichtenprotokolle sind deshalb kein
+unterstützter Zugriffspfad und kein automatischer Ersatz bei einem Fehler.
+Eine spätere Herstellerintegration müsste als eigener Vertrag mit nachweisbarer
+Produktkompatibilität, Zielbindung und Ergebnisprüfung entstehen.
 
-SteuerSparErklaerung kennt einen internen Nachrichtenweg: eine
-`WM_COPYDATA`-Nachricht mit der Kennung `0x01FE0000`, deren Nutzlast
-`"<Nachrichtenname>:<Inhalt>"` lautet, fuer SSE also
-`"CallCommand:KommandoName(<Parameterliste>)"`. Der Empfaenger antwortet
-synchron mit einem Ergebniscode. Das Protokoll ist vollstaendig rekonstruiert.
-
-Er ist trotzdem nicht nutzbar: Die Gegenstelle lebt in `IPCHelper.dll`, und
-diese Bibliothek wird seit SSE 2025 **nicht mehr ausgeliefert** – auch nicht in
-Build `31.0.2.0`. Der ebenfalls vorhandene `IPCHelperWrapper.dll` wird zwar
-geladen, installiert ohne sein Backend aber keinen Empfaenger. Gemessen an
-einem vollstaendig geladenen Fall antwortet das Programm auf jede Nutzlast mit
-dem Standardwert des Systems, auch auf absichtlich unsinnige.
-
-Damit ist der Weg keine Aufgabe fuer diesen Adapter, sondern ein Gespraech mit
-dem Hersteller. Kaeme die Bibliothek zurueck oder aktivierte der Hersteller die
-Empfaengerseite, liessen sich Navigation und Bedienung ohne Oberflaeche
-ausfuehren – das waere der groesste denkbare Sprung.
+Der eigene optionale [Qt-Pfad](NATIVE-QT.md) ist davon unabhängig: Er verwendet
+die implementierte Brücke und das separat gebaute, kompatible Paket. Seine
+Handler und verbleibenden Lücken stehen in der
+[Native-Matrix](NATIVE-COVERAGE.md).
 
 ## 5. Dauerhaft geschlossen
 

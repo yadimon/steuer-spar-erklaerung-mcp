@@ -6,9 +6,10 @@ ihrem Qt-DLL- und funktionalen Live-Stand. „Fertig“ in dieser Tafel bedeutet
 keine native Umsetzung und keine garantierte Laufzeit.
 
 **Produktbezug:** SSE `31.0.2.0` / `[31.31]`.
-Diese Tafel ist von Hand gepflegt und veraltet zwangslaeufig. Die erzeugte
-[API-Referenz](../API-REFERENZ.md) ist immer aktuell; sie sagt aber nur, was da
-ist, nicht was fehlt.
+Diese Tafel wird von Hand gepflegt. Die [API-Referenz](../API-REFERENZ.md)
+wird aus dem aktuellen Build, Katalog und Abdeckungsledger erzeugt; ihr
+Generatorvergleich erkennt Abweichungen. Sie beschreibt vorhandene
+Operationen, nicht alle noch fehlenden Produktfähigkeiten.
 
 ## Legende
 
@@ -23,7 +24,7 @@ ist, nicht was fehlt.
 
 | | Produkt | Bei uns |
 | --- | --- | --- |
-| Module (Fallarten) | 7 | 3 angefasst, davon 2 live gefahren |
+| Module (Fallarten) | 7 | Teilabdeckung siehe Modulübersicht; keine vollständige Modulfreigabe |
 | Seiten (`.dialog`-Dateien) | 672 | generische Lese-/Schreibmechanismen, kein Vollnachweis für alle Seiten; 22 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
@@ -47,7 +48,7 @@ Von den 102 Operationen brauchen genau **zwei** einen Katalogeintrag:
 
 | Operation | warum |
 | --- | --- |
-| `fill_fields` | plant eine Feldtransaktion ueber `pageId` und `fieldId` und rollt bei verletzten Nachbedingungen zurueck |
+| `fill_fields` | plant Feldänderungen über `pageId` und `fieldId` und versucht bei Fehlern, eigene abgeschlossene Schritte bestmöglich zurückzusetzen; unbekannte Ausgänge bleiben abgleichpflichtig |
 | `known_page_state` | vergleicht gegen einen hinterlegten Sollzustand |
 
 Die folgenden Mechanismen brauchen keinen Seitenkatalogeintrag; ihre
@@ -62,13 +63,12 @@ praktische Reichweite bleibt vom tatsächlichen Zielzustand abhängig:
 - **Tabellen** kennen gar keine `pageId`: `table_add`, `table_update` und
   `table_delete` binden ueber `expectedPage` als Zeichenkette.
 
-**Eine Grenze bleibt, und sie ist wichtig:** Das gilt fuer Schreibwege mit
-sichtbarem Vordergrund. Auf einem privaten Desktop laesst der Worker nur
-profilierte Focusless-Pfade zu - heute genau **einen** - und stoppt sonst
-fail-closed mit `hidden-desktop`. Und dass jede der 672 Seiten per `goto`
-erreichbar ist, folgt aus der Bauart, ist aber nicht gemessen: `goto`
-navigiert ueber die Programmsuche, und was nicht im Stichwortverzeichnis
-steht, ist unbelegt.
+Für Schreibwege gelten die jeweilige Vordergrundfreigabe und Zielbindung.
+Auf einem inaktiven Desktop erlaubt der Worker nur ausdrücklich profilierte
+Wege ohne Vordergrundbedienung; ansonsten stoppt er mit `hidden-desktop`.
+`goto` besitzt einen Workerweg über die Programmsuche und einen optionalen
+Qt-Pfad. Daraus folgt keine Erreichbarkeit aller Produktseiten. Katalogisierte
+Ziele und tatsächlich belegte Navigationsfolgen sind getrennt zu prüfen.
 
 Ein Katalogeintrag bringt also: benannte, stabile `pageId`/`fieldId` statt
 selbst gebauter Selektoren, hinterlegte Beschriftung, Wertart und Ueberschrift,
@@ -101,7 +101,7 @@ maschinenlesbaren Verifikationsstand.
 Die 672 Seiten liegen in **einem** flachen Ordner, nicht je Modul getrennt; die
 sieben Module sind sieben Datenmodelle ueber demselben Seitenvorrat. „Ein Modul
 profilieren" ist deshalb keine sinnvolle Einheit - profiliert wird eine Seite.
-Belege in der [Seitenlandkarte](funktionskatalog.md).
+Belege in der [Seitenlandkarte](seitenlandkarte.md).
 
 ## Fall und Datei
 
@@ -122,7 +122,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 
 | Faehigkeit | Stand | Beleg / Detail |
 | --- | --- | --- |
-| Zu einer Seite navigieren | **fertig** | `goto` – ueber Suchfeld und Doppelklick, weil die UIA-Muster des Baums nicht wirken |
+| Zu einer Seite navigieren | **fertig** | `goto` – Workerweg über Suche und Aktivierung oder optionaler gebundener Qt-Pfad; Grenzen je Ziel in der [Native-Matrix](../NATIVE-COVERAGE.md) |
 | Seite lesen | **fertig** | `page`, `read_page`, `known_page_state`, `ui_state` |
 | Tabellen lesen | **fertig** | `table_read`, `read_table` und `positions` lesen optional über Qt; `read_table` prüft dabei das Fensterinventar und führt offene Nebenfenster unter `ausgeschlosseneFenster` |
 | Unterseiten finden | **fertig** | `subpages` – „Erfassen"-Verweise sind echte Schaltflaechen |
@@ -151,8 +151,8 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | Faehigkeit | Stand | Beleg / Detail |
 | --- | --- | --- |
 | Belege auflisten | **fertig** | `receipt_manager_list` – der einzige fokuslose Weg |
-| Lesen, Aendern, Klassifizieren, Importieren, Loeschen, Verknuepfen, Massenpflege | **teils** | `receipt_manager_*` – neun weitere Operationen, alle nur mit sichtbarem Vordergrund |
-| Belege entknuepfen | **offen** | Gegenrichtung zu `receipt_manager_link` fehlt |
+| Lesen, Aendern, Klassifizieren, Importieren, Loeschen, Verknuepfen, Massenpflege | **teils** | `receipt_manager_*` – neun weitere registrierte Operationen sind im normalen API-/MCP-Betrieb mit `foreground-required-operation-disabled` gesperrt; vorhandene Qt-Implementierungen und interne Verifikation heben diese Sperre nicht auf |
+| Belege entknuepfen | **teils** | `receipt_manager_link` unterstützt `linked: false`; im normalen API-/MCP-Betrieb wie Verknüpfen gesperrt |
 | Belegempfehler und Checkliste | **offen** | gehoert zum Druckweg |
 
 ## Umsatzsteuer und Selbstaendige

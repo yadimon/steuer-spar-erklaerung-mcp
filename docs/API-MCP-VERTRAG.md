@@ -4,6 +4,7 @@
 
 - [Rollen](#rollen)
 - [Werkzeugwahl: Hauptweg, Fallback und Diagnose](#werkzeugwahl-hauptweg-fallback-und-diagnose)
+- [Gezielt lesen und geprüft ändern](#gezielt-lesen-und-geprüft-ändern)
 - [Feldwerte mit explizitem Namensraum lesen](#feldwerte-mit-explizitem-namensraum-lesen)
 - [Tabellen ohne Fokuswechsel lesen](#tabellen-ohne-fokuswechsel-lesen)
 - [Bekanntes Hilfsfenster vor Tabellenbindung schließen](#bekanntes-hilfsfenster-vor-tabellenbindung-schließen)
@@ -22,7 +23,7 @@
 ## Rollen
 
 Für die optionale dauerhafte Qt-Anbindung der in der [Native-Matrix](NATIVE-COVERAGE.md)
-als **Qt optional** geführten Leseoperationen gilt zusätzlich der
+als **Qt optional** geführten Operationen gilt zusätzlich der
 [native Paket- und Laufzeitvertrag](NATIVE-QT.md).
 Dasselbe optionale Paket übernimmt `desktop_status` und `desktop_start` direkt
 über Win32. Die Startoperation behält Ressourcenauflösung und Eigentumsprüfung;
@@ -76,6 +77,43 @@ Versuch braucht frische passende Nachweise. RuntimeIds dürfen nicht entfernt
 und Selektornamensräume nicht gewechselt werden, um einen Fehler zu umgehen.
 Die ausdrücklich dokumentierten internen API-Kompatibilitätspfade bleiben
 auf ihre jeweiligen Voraussetzungen begrenzt.
+
+## Gezielt lesen und geprüft ändern
+
+Die API bietet gezielte Zustandsabfragen und darauf aufbauende, stärker
+abgesicherte Änderungen. Ein kurzer Aufrufname bedeutet keinen ungeprüften
+Direktzugriff auf Steuerdaten.
+
+| Aufgabe | Passender Vertrag |
+| --- | --- |
+| Einzelwert oder Element untersuchen | `get_value`, `find` und `snapshot` liefern den gebundenen Zustand; der Selektornamensraum bestimmt den Lesepfad. |
+| Eine Seite oder Tabelle lesen | Seitenleser und `table_read` liefern strukturierte Daten mit dem jeweiligen Vollständigkeitsvertrag. |
+| Ein Feld kontrolliert ändern | `tracked_set_value`, über MCP `sse_change_field` oder kataloggebunden `sse_change_known_field`: Ziel und Seite binden, Vorwert lesen und prüfen, schreiben, Commit ausführen und zurücklesen. Je nach Auftrag kommen Summen- oder Ergebnisprüfungen hinzu. |
+| Mehrere Felder derselben Seite ändern | `fill_fields` plant eine begrenzte Folge katalogisierter Feldänderungen und führt sie gemeinsam in einem Worker aus. |
+| Tabellenzeilen ändern | `table_add`, `table_update` und `table_delete` verwenden ihre eigenen Ziel-, Vorbedingungs- und Readback-Verträge. |
+
+`set_value` ist auf das globale steuerneutrale Suchfeld begrenzt. Für fachliche
+Feldänderungen gilt der geprüfte Änderungsweg; ein ähnlicher Name oder eine
+passende Bildschirmposition ersetzt keine frische Zielbindung.
+
+`fill_fields` akzeptiert ein bis zwanzig eindeutige Felder einer bereits
+geöffneten katalogisierten Seite. Der vollständige Plan wird vor der ersten
+Änderung geprüft. Beim ersten Fehler endet die Vorwärtsausführung; bereits
+abgeschlossene eigene Schritte werden bestmöglich in umgekehrter Reihenfolge
+zurückgesetzt. Soweit der Worker regulär abschließen kann, beschreibt ein
+abschließendes `known_page_state` den erreichten Seitenzustand. Bei Timeout,
+Abbruch oder Transportverlust kann dieser Abschlussread fehlen:
+`finalReadback: null`, `finalReadbackVerified: false` und
+`resultingState: "unknown"` verlangen einen neuen Zustandsabgleich.
+Das ist keine ACID-Transaktion und keine Garantie, dass jeder Teilstand
+zurückgenommen werden kann.
+
+Fremdeingaben, geänderte Bindungen und unbekannte Schreibausgänge verlangen
+Zustandsklärung. Auch eine Rücknahme darf fremde Änderungen nicht überschreiben.
+Keine dieser Operationen speichert den Fall automatisch. Speichern benötigt
+einen eigenen ausdrücklichen Auftrag. Eine erneute Änderung ist kein allgemeiner
+Fehlerbehandler; die enge [Busy-Wiederholung](#optionale-wiederholung-bei-belegter-api)
+betrifft nur vor der Ausführung abgelehnte API-Anfragen.
 
 ## Feldwerte mit explizitem Namensraum lesen
 
@@ -421,7 +459,7 @@ beobachteten Weg und loest keine weitere Navigation aus.
 ## Optionale Wiederholung bei belegter API
 
 `steuer-spar-erklaerung-call <operation> --busy-attempts 3` erlaubt insgesamt
-höchstens drei Versuche mit jeweils 250 ms Pause. Ohne diese Option oder mit
+höchstens drei Versuche mit 250 ms zwischen den Versuchen. Ohne diese Option oder mit
 `--busy-attempts 1` bleibt es beim unveränderten einzelnen Aufruf. Die
 Wiederholung greift ausschließlich bei einer validierten
 HTTP-409-Antwort mit Fehlercode `busy`: Diese Anfrage wurde vor der Ausführung
@@ -472,12 +510,11 @@ die Grundlage, einzelne Werte gewinnen darüber. Ein einzelner Wert wird als JSO
 gelesen, wenn er sich als JSON lesen lässt, sonst als Zeichenkette — `--hwnd 123`
 ist also eine Zahl, `--name Spenden` eine Zeichenkette.
 
-Eine Zeichenkette, die wie eine Zahl aussieht, lässt sich **nicht shellneutral**
-erzwingen. Gemessen auf derselben Maschine: Windows PowerShell 5.1 entfernt die
-Anführungszeichen aus `--pageId '"2024"'` und übergibt `2024`, PowerShell 7
-reicht `"2024"` unverändert durch; die jeweils andere Schreibweise `'\"2024\"'`
-verhält sich spiegelbildlich. Es gibt keine Form, die in beiden Editionen
-funktioniert. Wer einen Typ sicher erzwingen will, nimmt `--args-file`.
+Eine Zeichenkette, die wie eine Zahl aussieht, lässt sich über verschachtelte
+Shell-Anführungszeichen nicht zuverlässig zwischen Windows PowerShell 5.1 und
+PowerShell 7 übertragen. Deren Übergabe nativer Argumente unterscheidet sich;
+die CLI kann dadurch statt einer JSON-Zeichenkette eine Zahl erhalten. Wer den
+JSON-Typ sicher erhalten will, verwendet `--args-file`.
 
 Für den Weg über die Kommandozeile gelten zwei weitere Einschränkungen, die
 keine Verbote sind, sondern Eigenschaften der Umgebung: Werte landen im
@@ -601,7 +638,7 @@ Gesamt-Discovery und OpenAPI werden beim Serverstart einmal innerhalb des
 Antwortlimits als UTF-8-Bytes serialisiert. Wiederholte GETs übertragen diesen
 byteidentischen Snapshot, statt die rund 200–270 KiB großen Vertragsbäume pro
 Request erneut zu durchlaufen. Die kleine Einzeloperations-Discovery bleibt
-dynamisch, weil ihre Serialisierung im gemessenen Pfad vernachlässigbar ist.
+dynamisch und wird für die jeweils angefragte Operation serialisiert.
 
 Der Operationsvertrag trennt Registrierung von aktueller Interaktionsfreigabe.
 Beim BelegManager ist nur `receipt_manager_list` als `focusless-read` erlaubt.

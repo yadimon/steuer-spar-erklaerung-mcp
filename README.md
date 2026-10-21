@@ -1,4 +1,4 @@
-# SteuerSparErklärung für lokale AI-Agenten
+# SteuerSparErklärung für KI-Assistenten
 
 [![Windows CI](https://github.com/yadimon/steuer-spar-erklaerung-mcp/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/yadimon/steuer-spar-erklaerung-mcp/actions/workflows/windows-ci.yml)
 
@@ -36,8 +36,10 @@ Schluss die Umsatzsteuer-Voranmeldung zeigen. Nichts wird an ELSTER gesendet.
 
 Profil 2025 / Engine 31 ist freigegeben. Profil 2024 bleibt experimentell und
 auf Verifikation begrenzt. `GewErfass2026` ist ausschließlich für den belegten
-Folgejahr-Leseweg und die neu angelegte Gewinn-Erfassung freigegeben. Im BelegManager ist aktuell nur die focusless
-Leseliste allgemein aktiv; die Vordergrundwege bleiben fail-closed gesperrt.
+Folgejahr-Leseweg und die neu angelegte Gewinn-Erfassung freigegeben. Im
+BelegManager ist allgemein nur die Leseliste ohne Vordergrundbedienung aktiv.
+Die neun weiteren BelegManager-Operationen sind im normalen API-/MCP-Betrieb
+gesperrt, auch wenn dafür bereits interne Qt-Implementierungen bestehen.
 
 ## Voraussetzungen und harte Grenzen
 
@@ -64,33 +66,32 @@ nicht empfohlen.
 ### Codex
 
 ```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
+mkdir steuer-auftrag
+cd steuer-auftrag
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
 codex plugin add steuer-spar-erklaerung@plugins-cli --json
 ```
 
-Beide Codex-Befehle sind derzeit erforderlich: `plugins@1.3.4` registriert
-Cache und Marketplace, aber Codex CLI 0.151 meldete das Plugin danach noch als
-`not installed`. Erst der target-native zweite Befehl machte es
-`installed, enabled`. Lies den Zustand danach mit
-`codex plugin list --json` zurück. Dieser Befehl ist hier als Status-Readback,
-nicht als vorgesehener Installationsschritt dokumentiert; die beobachtete
-Codex-Alpha kann beim Readback dennoch Cache-/Konfigurationszustand
-materialisieren.
+Zur dokumentierten Installationsstrecke mit `plugins@1.3.4` gehören beide
+Codex-Befehle: Der erste registriert Cache und Marketplace, der zweite
+installiert das Plugin im Client. Ein Status `not installed` ist noch kein
+erfolgreicher Abschluss; erwartet wird `installed, enabled`. Prüfe das mit
+`codex plugin list --json`. Diese Statusabfrage ersetzt keinen
+Installationsschritt und kann abhängig von der Clientversion selbst
+Cache-/Konfigurationszustand materialisieren.
 
 ### Claude Code
 
 ```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
+mkdir steuer-auftrag
+cd steuer-auftrag
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
 Claude Code benötigt keinen zusätzlichen Codex-Befehl: Der Eintrag steht nach
 diesem einen Installeraufruf als `enabled`, und die target-native Entfernung
 gelingt mit demselben User-Scope.
-Danach den gewählten Client in `C:\mein-steuer-ai` neu starten oder
+Danach den gewählten Client im Ordner `steuer-auftrag` neu starten oder
 seine Plugins neu laden. Git wird nur vom einmaligen Installer zum Klonen
 benötigt. Zur Laufzeit ist Node.js 22+ die einzige zusätzliche Voraussetzung:
 Es ist kein `npm install`, kein separates API-Terminal und kein weiterer
@@ -129,7 +130,7 @@ unklare Angaben. Speichere und schließe ihn nicht.
 ```
 
 ```text
-Vergleiche den geöffneten Fall mit allen Belegen in C:\MeineBelege\2025.
+Vergleiche den geöffneten Fall mit allen Belegen in <BELEGORDNER>.
 Frage nach, falls diese Quellen nicht vollständig erscheinen.
 ```
 
@@ -145,23 +146,42 @@ Speichere nicht und sende nichts über ELSTER.
 
 ## Komponenten
 
-```text
-Codex / Claude Code
-        │
-        ├── Skill: sicherer Dialog und wiederverwendbare Arbeitsabläufe
-        │
-        └── MCP (stdio): Preflight, Schemas und Pfadredaktion
-                         │
-                         ▼
-                 lokale API (Singleton auf Loopback)
-                         │
-                         ▼
-             PowerShell/Native Worker → SteuerSparErklärung
+```mermaid
+flowchart TD
+    Agent["Codex / Claude Code mit Skill"] --> MCP["MCP über stdio: Fachwerkzeuge und Preflight"]
+    MCP --> API["Lokale HTTP-API: Prüfung, Zielbindung, Queue und Zeitbudget"]
+    API --> Dateien["Lokale Datei- und Metadatenoperationen"]
+    API --> Worker["PowerShell-Worker: UIA und Win32"]
+    API --> Native["Optionales natives Paket"]
+    Native --> Qt["C++-Qt-Brücke: Objekte, Modelle und begrenzte Aktionen"]
+    Native --> Win32["Direkte Win32-/COM-UIA-Helfer für den Lebenszyklus"]
+    Worker --> SSE["SteuerSparErklärung"]
+    Qt --> SSE
+    Win32 --> SSE
 ```
 
 Der MCP-Supervisor übernimmt nur eine exakt passende API-Identität oder startet
 die mitgelieferte API unsichtbar. Fremde Dienste, alte Versionen und unklare
 Portinhaber stoppen fail-closed und werden nie automatisch beendet.
+
+### Warum die Umstellung auf Qt?
+
+Viele Formulare und Tabellen beruhen auf Qt. Die optionale C++-Brücke kann
+Werte und Tabellenmodelle direkt im gebundenen Produktprozess lesen und
+bestimmte Aktionen quittiert ausführen. Damit sollen wiederholte UIA-Baumläufe,
+zusätzliche Workerstarts und unnötige Fokuswechsel vermieden werden.
+
+Die Umstellung erfolgt je Operation. Ein passendes natives Paket muss separat
+gebaut und über `qtNativeRuntime` konfiguriert sein. Die normale
+Plugin-Installation aktiviert die Qt-Brücke nicht automatisch. Dateiarbeit,
+Speichern, Dialoge und nicht umgestellte Operationen behalten ihre jeweils
+vorgesehenen Ausführungswege. Die C#-Helfer des Workers sind keine Qt-Brücke.
+
+Ein nativer Handler allein beweist weder vollständige Live-Abdeckung noch
+eine feste Antwortzeit. Nach einem unklaren Schreibausgang wird kein anderer
+Backendweg ausprobiert. Zweck, Umstellungsprozess und Nachweisgrenzen stehen
+in [Architektur](docs/ARCHITEKTUR.md), [Qt-Vertrag](docs/NATIVE-QT.md) und
+[Native-Matrix](docs/NATIVE-COVERAGE.md).
 
 Die direkte Installation der
 [`@yadimon/steuer-spar-erklaerung-api`](packages/api/README.md) oder des
@@ -178,15 +198,21 @@ fortgeschrittener npm-Weg verfügbar, ist aber nicht der Nutzerstandard.
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Fortschritt der Qt-DLL-Integration](docs/NATIVE-COVERAGE.md)
 - [Skill-Vertrag](skills/steuer-spar-erklaerung/SKILL.md)
+- [Entwicklungsprozess und offene Qualitätsziele](PROGRESS.md)
 - [Releases](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
 
 ## Mitwirken
 
 ```powershell
-npm ci
-npm run test:fast
-npm test
+npm run test:inventory
+npm ci --ignore-scripts
 ```
+
+Das Inventar zeigt nur den Testplan und startet keine Tests. Voraussetzungen,
+passende Prüfungen und der PR-Prozess stehen in [CONTRIBUTING.md](CONTRIBUTING.md).
+Auch die schnelle Suite enthält Windows-Helferprüfungen. Produkt- und
+GUI-Läufe benötigen die dort beschriebenen Voraussetzungen und eine eigene
+Freigabe. Änderungen an `main` gehen über einen PR mit erfolgreicher Windows-CI.
 
 Niemals echte Steuerfälle, Belege, Namen, Steuer-IDs, Tokens, lokale Pfade oder
 ungeschwärzte Screenshots veröffentlichen. Sicherheitsprobleme bitte privat
