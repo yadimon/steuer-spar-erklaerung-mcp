@@ -5,10 +5,41 @@ Lauf gegen die installierte Anwendung beweisen kann. Ein grüner Vertragstest
 belegt nicht automatisch, dass eine UI-Operation auf jeder Jahresversion
 praktisch funktioniert.
 
+## Nachweisstufen und Testauswahl
+
+| Stufe | Was sie belegt | Was offen bleibt |
+| --- | --- | --- |
+| Quell- und Dokumentationsvertrag | Katalog, Ergebnisformen, Sperren und dokumentierte Struktur passen zusammen | tatsächliche Bedienung und Laufzeitverhalten |
+| Synthetischer Ablauf | Produktionscode reagiert an kontrollierten Grenzen auf Erfolg, Fehler, Abbruch und unbekannte Ausgänge | Verhalten des ausgelieferten Produktprofils |
+| Native Komponentenprüfung | tatsächliche DLL, Broker und Runtime arbeiten mit dem synthetischen Qt-Programm zusammen | Parität mit realen SSE-Seiten und Dialogen |
+| Produktprüfung | Installation, Build und freigegebenes Profil passen zur Konfiguration | erfolgreicher fachlicher Bedienablauf |
+| Live-Reise | die konkret geprüfte Folge funktioniert am unterstützten Produkt mit vollständigem Readback und Cleanup | andere Seiten, Zustände, Backends oder spätere Quellstände |
+
+`npm run test:inventory` liest ausschließlich den deklarativen Suiteplan und
+führt keine Tests aus. Für maschinenlesbare Ausgabe gilt
+`npm run --silent test:inventory -- --json`. Die Spalte `fullPhase` bezeichnet
+die Phase der vollständigen Suite, auch wenn ein Schritt zusätzlich im
+Schnellplan läuft. Voraussetzungen und Mindestchecks stehen in
+[CONTRIBUTING.md](../CONTRIBUTING.md).
+
+`npm run test:fast` ist kein rein statischer Lauf; die Suite enthält neben dem
+TypeScript-Build auch Windows-PowerShell- und Worker-Verträge. `npm test` baut
+zusätzlich den C#-Helfer und prüft Controllergrenzen. Produkt-, native
+Komponenten- und GUI-Prüfungen bleiben eigene Schritte. Ein Testname oder die
+Endung `.mjs` beweist keine Nebenwirkungsfreiheit.
+
+Die [Windows-CI](../.github/workflows/windows-ci.yml) prüft Offline-Verträge,
+Produktionsabhängigkeiten ab Schwereklasse `high`, Plugin-Abgleich und saubere
+Paketinstallation. Der erforderliche Check heißt
+`Offline API/MCP and package gate`; er ersetzt weder das lokale Release-Gate
+`npm run check` noch eine Produktreise. Pull Requests und wirksame Main-Regeln
+werden gemäß [Contributor-Anleitung](../CONTRIBUTING.md) separat kontrolliert.
+
 ## Was die Testsuite beweist
 
 Die Suite prüft Transport, Schemas, Zustandsmaschinen, Sperren und Fehlerwege
-offline und ohne die Produktanwendung. Das umfasst den vollständigen
+offline; die vollständige Suite setzt voraus, dass SSE geschlossen ist.
+Das umfasst den vollständigen
 Operationskatalog, die Abbruch- und Zeitgrenzen, die Redaktion privater Pfade
 und Beträge sowie die fail-closed-Zusagen bei unbekannter Produktversion.
 
@@ -21,6 +52,10 @@ versucht; zusätzliche Fehler tragen ihre eigene Phasenkennung. Ein erfolgreiche
 Test mit fehlgeschlagener Bereinigung bleibt fehlgeschlagen. Die gezielte
 Regression prüft diese Regeln an echten Kindprozessen und der tatsächlichen
 Hülle, einschließlich der ausdrücklich angeforderten Diagnose-Sandbox.
+Die Diagnose-Datei wird dabei über ihren kanonischen Elternpfad gebunden.
+Gezielt abweichende Pfadschreibweisen müssen dieselbe Öffnung und genau einen
+Abschluss beobachten; sonst könnte ein verfehlter Test-Hook zugleich die
+Fehlerinjektion und ihre Kontrolle umgehen.
 
 Die Getter-Regressionen `get-value-namespace-contract.mjs` und
 `get-value-worker-namespace-contract.ps1` prüfen die explizite Wahl zwischen
@@ -57,9 +92,9 @@ Tabellenvorbereitung und Fokuswege. Insbesondere sind große Tabellen,
 Nr.-Editorübergänge und das Zusammenwirken mit dem echten Hilfsfenster
 über eine vollständig geprüfte Arbeitskopie mit unverändertem
 unbeteiligtem Datenbestand und bestätigtem Abschluss zu verifizieren.
-Die vollständige unmodifizierte Zustandsreise und die große direkte
-Mutations-/Cursorfolge bestehen zusätzlich mit vollständigen Inventaren,
-Falldatenintegrität und bestätigtem Cleanup.
+Für die Produktabnahme verlangen die vollständige Zustandsreise und die direkte
+Mutations-/Cursorfolge zusätzlich vollständige Inventare, Falldatenintegrität
+und bestätigtes Cleanup. Ihr Ergebnis gilt nur für den jeweils geprüften Stand.
 
 `table-footer-focus-contract.ps1` bindet die tatsächlichen Worker-Helfer für
 Nummerneditor, Zeilenauswahl und Tastaturziel. Nach dem Sprung zum Anfang
@@ -78,9 +113,8 @@ ersetzt diese Zustandsübergänge nicht.
 Hilfe-Root als Ausgangspunkt derselben einmaligen Nr.-Zellenaktivierung.
 Provider-Version, tatsächliche Quellbindung und fehlendes TextPattern müssen
 zusammenpassen. Andere Dokumente, editierbare oder geänderte Quellen, fehlende
-Profilfreigabe und Fehler bleiben gesperrt. Die vollständige unmodifizierte
-Zustandsreise bestätigt die Tabellennutzung nach Seitenwechseln auch im echten
-Produkt.
+Profilfreigabe und Fehler bleiben gesperrt. Die vollständige Zustandsreise
+prüft zusätzlich die Tabellennutzung nach Seitenwechseln im echten Produkt.
 Passive eigene Quellen und eine erhaltene Zeilenauswahl werden getrennt
 modelliert. Die direkten Produktionshelfer müssen eine eindeutig gebundene
 Auswahl vor dem Klick unverändert wiedererkennen. Gegenfälle umfassen fremde
@@ -115,10 +149,20 @@ Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;
 ein Vertragstest hält dieses Dokument dagegen. Dort stehen 94 der 102
 Operationen als live-funktional.
 
-Sechzehn davon sind in einer abgeschotteten Prüfumgebung belegt statt im
-regulären Live-Lauf: der gesamte BelegManager, `instances` und die
-VaSt-Operationen. Diese Trennung bleibt bewusst sichtbar, weil ein Nachweis aus
-einer abgeschotteten Umgebung weniger wiegt als einer aus dem Alltagsbetrieb.
+Sechzehn Ledger-Einträge verwenden einen übernommenen separaten Nachweis statt
+der laufenden Live-Trace-Prüfung: neun BelegManager-Operationen, `instances` und
+die sechs VaSt-Operationen. Davon sind zehn funktional und sechs ausschließlich
+auf dem Fehlerpfad belegt. `receipt_manager_update` gehört dagegen zum regulären
+Live-Nachweis. Ein übernommener Eintrag beweist keinen erneuten Lauf auf dem
+aktuellen Quellstand.
+
+„Funktional“ bewertet den registrierten Operationsvertrag: Das kann ein
+erfolgreicher Ablauf oder ein vollständig geprüfter, beabsichtigter globaler
+Policy-Block sein. Insbesondere bedeutet BelegManager-Abdeckung keine
+öffentliche Freigabe der gesperrten Vordergrundwege. Allgemeine Fehler zählen
+weiterhin nur als Fehlerpfad. Die Einteilung stammt aus
+`test/operation-coverage-contract.mjs` und darf nicht als Erfolg jeder Mutation
+gelesen werden.
 
 Noch 8 der 102 Operationen sind nicht live-funktional belegt.
 Diese Bilanz bezieht sich auf den aggregierten Release-Snapshot.
@@ -172,6 +216,10 @@ zuletzt angeschlossenen Lesepfade gegen synthetische Qt-Bäume; unter Windows
 führt der Differenzorakel-Test dieselben Worker-Zweige über denselben
 Knotenbestand aus.
 Die Zahl 94 funktional live belegter Operationen ist keine Qt-Abdeckung.
+Zweck und schrittweise Abnahme der Umstellung stehen in der
+[Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt
+[NATIVE-QT.md](NATIVE-QT.md). Keine Nachweisstufe wird allein durch einen
+implementierten Handler oder eine schnellere Teilstrecke erreicht.
 
 `table-native-mutation-contract.mjs` prüft den echten Positionierer an
 synthetischen nativen Ablehnungen und erfolgreichen, unbestätigten oder
@@ -229,7 +277,7 @@ Leistungszahlen hängen so stark von der Maschine ab, dass eine hier
 abgedruckte Zahl mehr verspricht, als sie halten kann. Wer sie braucht, misst
 sie selbst — die Messwege liegen bei:
 
-```bash
+```powershell
 npm run perf:api-mega
 ```
 

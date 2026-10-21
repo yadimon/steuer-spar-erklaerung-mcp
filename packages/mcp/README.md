@@ -26,13 +26,13 @@ npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope p
 codex plugin add steuer-spar-erklaerung@plugins-cli --json
 ```
 
-Der erste Befehl allein erzeugte mit `plugins@1.3.4` und Codex CLI 0.151 zwar
-Cache-, Marketplace- und Konfigurationseinträge, blieb laut Status-Readback
-`codex plugin list --json` aber `not installed`. Der zweite, target-native Befehl ist
-daher zwingend; erst `installed, enabled` ist ein erfolgreicher Codex-Stand.
-Danach `codex plugin list --json` als Status-Readback verwenden, nicht als
-vorgesehenen Installationsschritt. Die beobachtete Codex-0.151-Alpha kann bei
-diesem Readback dennoch Cache-/Konfigurationszustand materialisieren.
+Zur dokumentierten Installationsstrecke mit `plugins@1.3.4` gehören beide
+Befehle. Der erste registriert Cache und Marketplace; der zweite installiert
+das Plugin im Client. Prüfe den Zustand mit `codex plugin list --json`:
+`not installed` ist kein erfolgreicher Abschluss, erwartet wird
+`installed, enabled`. Diese Statusabfrage ersetzt keinen Installationsschritt
+und kann abhängig von der Clientversion selbst Cache-/Konfigurationszustand
+materialisieren.
 
 Für Claude Code genügt der eine zielgenaue Installeraufruf:
 
@@ -62,9 +62,12 @@ Details zu getrennten Arbeitsdaten, Update und sicherer Entfernung stehen in der
 - Cancellation bis zum lokalen API-Auftrag;
 - Größenlimits, protokollreines stdout und fail-closed Fehlerantworten.
 
-Der Katalog umfasst **100 fachliche API-Toolnamen plus den komponierten MCP-Preflight**.
-Alle 101 MCP-Werkzeugnamen werden aus dem versionierten Vertrag abgeleitet und
-als strukturierte Werkzeuge registriert.
+Die direkten fachlichen Werkzeugnamen werden aus dem versionierten
+Operationskatalog abgeleitet und als strukturierte Werkzeuge registriert.
+Hinzu kommen der komponierte Preflight `sse_preflight` und das getrennte
+API-Lebenszykluswerkzeug `sse_api_control`. Die genaue Zuordnung veröffentlicht
+der Werkzeugkatalog; eine feste Werkzeugzahl in dieser Einführung ist kein
+Vertrag.
 
 Vor der ersten Facharbeit bündelt `sse_preflight` nacheinander
 `workspace_status`, `product_info` und `health`. Er startet keinen Steuerfall
@@ -97,7 +100,7 @@ Set-Location $Root
 npm.cmd init -y
 npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
 
-$Node = (Get-Command node).Source
+$Node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 $Mcp = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
 $ApiConfig = Join-Path $Root 'sse-api-config.json'
 $env:SSE_API_CONFIG = $ApiConfig

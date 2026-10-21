@@ -22,8 +22,8 @@ aktuelle Installationsanweisung.
   Build-Drift-Sperre und Verifikationsstand; wird aus den Quellen erzeugt;
 - [Native-Abdeckung](NATIVE-COVERAGE.md) — alle Operationen mit Qt-DLL- und
   funktionalem Live-Stand; klare Grenze zu noch nicht integrierten Funktionen;
-- [Qt-Lesepfad](NATIVE-QT.md) — separates natives Paket, Konfiguration,
-  Prozessbindung und Prüfungen;
+- [Qt-Ausführung](NATIVE-QT.md) — optionales natives Paket, direkte Lesewege,
+  begrenzte Aktionen, Prozessbindung und Prüfungen;
 - [Umsatzsteuer-Voranmeldung](UMSATZSTEUER-VORANMELDUNG.md) — fachlicher und
   technischer UStVA-Ablauf;
 - [Verifikationsstand](VERIFIKATION.md) — was die Suite beweist, was nur ein
@@ -44,6 +44,8 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 ## Für Mitwirkende
 
 - [Mitwirken](../CONTRIBUTING.md) — Entwicklung, Tests und Datenschutz;
+- [Entwicklungsprozess und Qualitätsziele](../PROGRESS.md) — schrittweise
+  Qt-Umstellung, Nachweisstufen und offene Grenzen;
 - [Fähigkeiten und offene Lücken](ROADMAP.md) — was fertig ist, was fehlt und
   auf welchem Bauweg es zu schließen wäre;
 - [Automations-Backlog](entwicklung/automations-backlog.md) — Batch-Buchungen,
@@ -72,5 +74,5 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 | Wie wird installiert? | [INSTALLATION.md](INSTALLATION.md) |
 | Was ist live belegt? | `test/operation-coverage.json` |
 | Was ist auf die Qt-DLL umgestellt? | [NATIVE-COVERAGE.md](NATIVE-COVERAGE.md), Dispatch in `src/api-executor.ts` |
-| Welche Tests gehören zum Gate? | `test/suite-plan.mjs` |
+| Welche Schritte gehören zur Offline-Suite? | `test/suite-plan.mjs`, angezeigt durch `npm run test:inventory` |
 | Wie wird veröffentlicht? | [RELEASE.md](RELEASE.md), npm-Publish-Workflow |

@@ -34,8 +34,9 @@ npm run --silent test:inventory -- --json
 ```
 
 Dieser Befehl gibt nur den Plan aus. Er baut nichts und startet keine
-Testprogramme, zusätzlichen Prozesse, API-Server oder Anwendung. Die Ausgabe nennt für jeden Schritt Suite,
-Volltest-Ausführungsphase, Laufzeit und vorhandene Konfliktressource. Sie wird direkt
+Testprogramme, zusätzlichen Prozesse, API-Server oder Anwendung. Die Ausgabe
+nennt für jeden Schritt Suite, Volltest-Ausführungsphase, benötigte Laufzeit
+(`node` oder Windows PowerShell) und vorhandene Konfliktressource. Sie wird direkt
 aus den bestehenden Voll- und Schnellplänen erzeugt; lokale Programmpfade
 werden als `node` oder `powershell.exe` angezeigt. Native CTest- und Live-Läufe
 gehören zu getrennten opt-in Befehlen und sind nicht Teil dieses Inventars.
@@ -110,6 +111,28 @@ und `contract` im Namen belegen keine Nebenwirkungsfreiheit eines Schritts.
 In einem Pull Request gehören tatsächliche Prüfergebnisse und fehlende
 Voraussetzungen ausdrücklich in den Testnachweis.
 
+### Dokumentation gezielt prüfen
+
+Für Text und lokale Links gibt es direkte, statische Node-Prüfungen:
+
+```powershell
+node test/readme-contract.mjs
+node test/repository-links-contract.mjs
+```
+
+`npm run docs:check` gleicht Operationsnamen und Teile der Statusangaben mit
+Katalog und Ledger ab. Es setzt einen aktuellen TypeScript-Build samt
+Abhängigkeiten voraus und baut diesen nicht selbst. Der Check ist bewusst
+grob und ersetzt keine inhaltliche Prüfung von Prosa oder Nachweisen.
+
+`node scripts/build-api-docs.mjs --check` vergleicht die erzeugte API-Referenz
+mit dem aktuellen Build. Dafür startet es einen MCP-Prozess gegen eine
+synthetische Loopback-API; Fachoperationen führt es dabei nicht aus. Die Option
+`--check` verhindert das Schreiben der Referenz, nicht den Prozessstart.
+
+Diese gezielten Prüfungen helfen beim Dokumentationsabgleich. Die
+Mindestprüfungen der Tabelle und der erforderliche CI-Check gelten weiterhin.
+
 `npm test` bleibt auf einem neutralen Windows-Rechner ohne installierte SSE
 portabel. Wer die unterstützte SSE-2025-Standardinstallation besitzt, prüft die
 lokale Produktidentität zusätzlich mit `npm run test:product`.
@@ -172,7 +195,7 @@ weiterhin vor dem Merge geprüft.
 
 Die Datei aktiviert GitHub-Regeln nicht selbst. Maintainer gleichen sie mit den
 Repository-Einstellungen ab. Bereits aktive Regeln gegen Löschen und Force-push
-bleiben erhalten; die zusätzliche Ruleset `main PR and CI` ergänzt sie.
+bleiben erhalten; das zusätzliche Ruleset `main PR and CI` ergänzt sie.
 
 Vor einer Aktivierung muss der genannte Check für den aktuellen Änderungsstand
 im CI-Workflow erfolgreich laufen. Bei ersten Beiträgen aus einem Fork kann GitHub zunächst eine bewusste

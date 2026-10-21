@@ -22,7 +22,7 @@ Bei Codex umfasst die Installation zusätzlich den target-nativen
 `codex plugin add steuer-spar-erklaerung@plugins-cli --json`-Schritt; der
 externe Installer allein registriert das Plugin dort derzeit nicht als
 installiert. Der vollständige, überprüfbare Ablauf steht im
-[Quickstart](https://github.com/yadimon/steuer-spar-erklaerung-mcp#schnellstart).
+[Schnellstart](https://github.com/yadimon/steuer-spar-erklaerung-mcp#schnellstart).
 
 Dieses npm-Paket bleibt für eigene HTTP-/CLI-Integrationen und tiefe Diagnosen
 separat unterstützt.
@@ -60,7 +60,7 @@ Set-Location $Root
 npm.cmd init -y
 npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-api@latest
 
-$Node = (Get-Command node).Source
+$Node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 $Api = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-api\dist\api-main.js'
 $ApiConfig = Join-Path $Root 'config.json'
 & $Node $Api --config $ApiConfig
@@ -71,7 +71,7 @@ API-only-Modus offen. Aus einem zweiten Terminal:
 
 ```powershell
 $Root = 'C:\mein-steuer-api'
-$Node = (Get-Command node).Source
+$Node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 $Call = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-api\dist\api-cli.js'
 $ApiConfig = Join-Path $Root 'config.json'
 & $Node $Call discovery --config $ApiConfig

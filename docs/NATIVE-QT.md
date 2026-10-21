@@ -12,6 +12,73 @@ noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt ü
 `desktop_stop` verwendet einen externen C++-Helfer mit Win32 und COM-UIA.
 Die übrigen Operationen behalten ihre bestehenden Ausführungspfade.
 
+Die Liste beschreibt vorhandene Handler, keine pauschale Nutzungsfreigabe.
+Im normalen API-/MCP-Betrieb bleibt von den BelegManager-Operationen nur
+`receipt_manager_list` freigegeben. Die neun anderen BelegManager-Operationen
+stoppen mit `foreground-required-operation-disabled` vor jedem UI-Zugriff.
+Eine kurzlebige interaktive Lease existiert ausschließlich in der internen
+Testinfrastruktur; sie ist kein öffentlicher Konfigurationsschalter. Das
+Qt-Paket hebt diese Sperre nicht auf.
+
+## Warum ein eigener Qt-Pfad?
+
+Der bisherige Windows-Worker verbindet PowerShell, C# und Windows UI Automation
+(UIA). Ein frischer Prozess pro Auftrag isoliert dabei fehlerhafte oder nicht
+mehr antwortende UIA-Zustände. Diese Isolation bleibt für den Worker erhalten,
+verursacht aber Vorbereitung vor jedem Auftrag.
+
+Die C++-Brücke greift für ausgewählte Operationen direkt auf Qt-Objekte und
+Tabellenmodelle im GUI-Thread der Anwendung zu. Ein dauerhaft gebundener Broker
+spart wiederholte Workerstarts. Die Brücke liest trotzdem für jeden Aufruf
+frische Werte und prüft Fenster-, Objekt- und Prozessidentität erneut. Das Ziel
+sind weniger unnötige Prozesse und verlässlich gebundene Zugriffe; daraus folgt
+weder eine allgemeine Höchstlaufzeit noch eine Freigabe aller Schreibwege.
+
+| Bestandteil | Aufgabe | Abgrenzung |
+|---|---|---|
+| Node.js-API | Verträge, Ressourcen, Fristen, Komposition und direkte Dateioperationen | Einziger öffentlicher Ausführungseinstieg für MCP |
+| PowerShell mit C#-Helfer `sse-native.dll` | Bestehende UIA-/Win32-Operationen in isolierten Workerprozessen | Bleibt für nicht migrierte und ausdrücklich gewählte Workerwege zuständig |
+| C++-Brücke `sse-qt-read.dll` | Gebundene Qt-Lesungen und eng begrenzte, quittierte Widgetaktionen | Separates, optionales Paket; kein allgemeiner Schreibzugriff |
+| Externer C++-Loader `bridge-load.exe` | Produktprüfung, Bindung, Broker sowie Desktop-Lebenszyklus | Status und Start mit Win32; Stop zusätzlich mit begrenztem COM-UIA |
+
+```mermaid
+flowchart TD
+    Request["API-Aufruf"] --> Guards["Argumente, Profil und Freigaben prüfen"]
+    Guards --> Route["Ausführungsweg auswählen"]
+    Route --> Local["Direkte Node-Dateioperation"]
+    Route --> Worker["Isolierter PowerShell-/C#-Worker"]
+    Route --> Config["Optional: qtNativeRuntime + geprüftes Paket"]
+    Config --> Desktop["Desktopstatus / Start / Stop: externer Helfer"]
+    Config --> Bind["Qt-Operation: Ziel prüfen und Broker binden"]
+    Bind --> Qt["Frischer Zugriff im Qt-GUI-Thread"]
+    Qt --> Result["Gebundenes Ergebnis oder ausdrücklicher Fehler"]
+    Result -->|"nur bei outcomeUnknown"| Unknown["Unbekannter Ausgang: Zustand abgleichen"]
+```
+
+### Wie die Umstellung abgesichert wird
+
+Die Umstellung erfolgt je Operation, ohne einen zweiten öffentlichen
+API-Vertrag einzuführen:
+
+1. Der bestehende Operations- und Ergebnisvertrag bleibt maßgeblich. Profil,
+   Selektoren, Vollständigkeit und Sicherheitsgrenzen gelten auch nativ.
+2. Paketprüfung, Bindung, Transport, Fristen und Fehlerfälle werden getrennt
+   durch Offline-Verträge geprüft. Synthetische Qt-Programme prüfen zusätzlich
+   tatsächliche GUI-Thread-Zugriffe und den Lebenszyklus eigener Fenster.
+3. Ein opt-in Live-Test mit dem passenden Paket und einer Wegwerfkopie eines
+   Musterfalls muss den konkreten Produktweg belegen. Eine synthetische Fixture
+   oder ein erfolgreicher Fehlerpfad ersetzt diesen Nachweis nicht.
+4. Erst die getrennte Einordnung von Implementierung, synthetischer Prüfung
+   und Live-Evidenz beschreibt den Stand. Die
+   [Native-Matrix](NATIVE-COVERAGE.md) und
+   [Verifikationsanleitung](VERIFIKATION.md) halten diese Ebenen auseinander.
+
+Ein vorhandener Handler ist deshalb weder eine allgemeine Qt-Freigabe noch ein
+Grund, den bisherigen Worker zu entfernen. Paket- oder Produktänderungen
+benötigen erneut passende Identitäts- und Funktionsnachweise.
+
+## Tabellen und geschützte Cursorwege
+
 Gewöhnliches `table_read` liest das gebundene QWidget-/QAbstractItemModel ohne
 Accessibility-Aktivierung, Provider-Geometrie oder Cursorbindung. Der begrenzte
 Modellread erhält Display/Edit/CheckState/Flags, ausgeblendete Zeilen und Spalten,
@@ -22,6 +89,13 @@ Katalogisierte Kfz-Teilsummen behalten ihre exakte AID-/Gruppenbindung und die
 dafür benötigte Accessibility-Abfrage. Private Cursortransaktionen fordern ihren
 zusätzlichen Fokus- und Geometrienachweis ausdrücklich an; öffentliche
 Leseparameter können diesen internen Pfad nicht einschalten.
+
+`table_read` mit `readMode: "grid"` wählt ausdrücklich den Worker-Lesepfad;
+`noKeys: false` wählt den geschützten Cursorpfad. Beides sind getrennte
+Ausführungsentscheidungen vor dem Zugriff, kein automatischer Ersatz nach
+einem fehlgeschlagenen nativen Modellread. Cursorlesen kann Fokus oder Auswahl
+bewegen und bleibt ein gezielter Ausweichweg. Für gewöhnliches Lesen ist der
+direkte Modellpfad bei aktiviertem Qt-Paket vorzuziehen.
 
 Geschütztes Cursorlesen mit `noKeys: false` verwendet für nummerierte Tabellen
 den einzelnen Modell-Schrittweg. Bereits ein `Nr.`- beziehungsweise `Nr`-Header
@@ -81,6 +155,8 @@ begrenzte Warteschlange, fragmentierte Antworten und fehlendes Replay.
 Diese synthetischen Nachweise beweisen keine Ursache oder Reparatur eines
 tatsächlichen SSE-Hängers. Sie ersetzen keine Live-Abnahme des konkreten Pfads.
 
+## Prozesswechsel und sichere Freigabe
+
 Nach einem erfolgreichen Prozess- oder Fallwechsel verwirft die Runtime die
 betroffene native Bindung. `close` berücksichtigt die beendete PID; `save_as`
 invalidiert die adressierte Fallbindung. Fehlt eine sichere Zielidentität,
@@ -121,6 +197,8 @@ diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 die hier beschriebene C++-Brücke verwendet `sse-qt-read.dll` in SSE.
 
+## Desktopstatus, Start und Stop
+
 `desktop_status` liefert `backend: "win32"`. Der gebundene Loader liest die
 Prozessversion der markierten PID und inventarisiert die sichtbaren Fenster
 des ausdrücklich geöffneten Desktops. Er injiziert keine DLL, benötigt keinen UIA-Worker und verwendet
@@ -152,10 +230,11 @@ Vor einem weiteren Start ist dann `desktop_status` zu prüfen.
 `ready` bezeichnet wie bisher ein eindeutig erkanntes Hauptfenster; Startdialoge
 werden separat zurückgegeben. Das ist keine Zusage, dass der komplette Fall bereits
 geladen ist. Der Messweg trennt Helferstart, SSE-Ladezeit und Antwortabschluss.
-Die native Startintegration ist durch synthetische Prozess-/Desktop- und öffentliche
-HTTP-Tests geprüft. Eine zusätzliche Serie mit einer Hersteller-Musterfallkopie
-prüft Start, frischen Qt-Seiten-Readback und normales Beenden in jedem Zyklus.
-Das belegt noch nicht alle Startmodi oder Dialogzustände.
+Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Für die
+Produktabnahme sind zusätzlich Start, frischer Qt-Seiten-Readback und normales
+Beenden mit einer Hersteller-Musterfallkopie über mehrere Zyklen zu prüfen.
+Das ist eine Abnahmeanforderung und kein pauschaler Nachweis aller Startmodi
+oder Dialogzustände.
 
 `desktop_stop` liefert `backend: "win32-uia"`. Der Helfer bindet seinen Thread an
 den markierten Desktop, prüft das gepinnte Programm und hält Prozessobjekt,
@@ -205,10 +284,12 @@ enthalten; ein kurzer durchschnittlicher Aufruf ist keine garantierte Höchstdau
 
 Die Stop-Tests verwenden ein separates Qt-Programm auf einem nicht aktiven Desktop.
 Sie prüfen normale und erzwungene Ausgänge, Dirty-State, Dialogantworten, doppelte
-Schaltflächen, Übermittlungssperren und Lesegrenzen. Eine zusätzliche Serie mit einer
-unveränderten Herstellerfallkopie prüft drei öffentliche HTTP-Zyklen mit frischem
-Qt-Seiten-Readback, normalem Prozessende und Markerabbau. Die Prüfung tatsächlicher
-SSE-Speicherdialoge und Hilfsfenster ist eine eigene Live-Abnahme.
+Schaltflächen, Übermittlungssperren und Lesegrenzen. Zur Produktabnahme gehören
+zusätzlich öffentliche HTTP-Zyklen mit einer Herstellerfallkopie, frischem
+Qt-Seiten-Readback, normalem Prozessende und Markerabbau. Tatsächliche
+SSE-Speicherdialoge und Hilfsfenster benötigen einen eigenen Live-Nachweis.
+
+## Lese- und Navigationsverträge
 
 `snapshot` liest den Qt-Accessibility-Baum im GUI-Thread. Es liefert die bestehenden
 Knotenfelder und UIA-kompatible `rid`-Referenzen, auch an nativen Kindfenstergrenzen.
@@ -308,6 +389,13 @@ machen den abgebrochenen Auftrag nicht erfolgreich. Der vollständige normale
 Such-/Tabellen-/Belegablauf benötigt einen eigenen Live-Nachweis; ein bestandener
 Timeout-/Bereinigungsvertrag ersetzt ihn nicht.
 
+## Interne Belegtransaktionen
+
+Die folgenden nativen Belegwege bleiben im normalen API-/MCP-Betrieb gesperrt.
+Ihre Implementierung und interne Verifikation sind von der öffentlichen
+Freigabe getrennt; insbesondere aktiviert `qtNativeRuntime` keine interaktive
+Test-Lease.
+
 `receipt_manager_update` bindet die vollständige Liste, die exakte Zeile und den
 Detailfingerprint vor jeder Feldänderung. Die sieben profilierten Belegfelder
 bleiben an dasselbe BelegManager-HWND gebunden; ein neu geöffnetes Fenster
@@ -335,6 +423,8 @@ Belegwerte-Dialog und ein erneutes Öffnen mit vollständiger Persistenzprüfung
 Ein unveränderter Auftrag schließt mit Abbrechen. Unbestätigte Änderungen werden
 weder wiederholt noch durch eine Gegenänderung verdeckt; unsichere Zustände melden
 `cleanupRequired`. Batch- und Legacy-Einzelmodus behalten ihre API-Verträge.
+
+## Seiten, Nebenfenster und Prüfer
 
 `page`, `help`, `read_table` und `checker_results` projizieren jeweils einen
 frischen, gebundenen GUI-Thread-Snapshot in genau die Ergebnisform des bisherigen
@@ -387,6 +477,11 @@ ein zweites Fallfenster werden nur gezählt, nie gelesen.
 Die Liste ausgeschlossener Nebenfenster folgt dabei der Inventarreihenfolge;
 ihre Reihenfolge kann von der UIA-Baumreihenfolge abweichen.
 
+## Interne Klassifikationsverträge
+
+Auch diese beiden Belegoperationen benötigen die interne Test-Lease und sind
+im normalen API-/MCP-Betrieb gesperrt.
+
 `receipt_manager_classification_options` liest nach exakter Zeilen-, Listen-
 und Sieben-Felder-Detailbindung den katalogisierten Kategorie- oder Personendialog.
 Eine private Qt-Abfrage enumeriert dessen gesamte `QAccessibleTableInterface`
@@ -417,6 +512,8 @@ Speichern und Benachrichtigung werden niemals wiederholt.
 Lässt SSE den Speichern-Schalter für die gewünschte Auswahl deaktiviert,
 meldet die Operation einen Fehler und prüft den Abbruch sowie die Rückkehr
 zum ursprünglichen Belegzustand; sie umgeht die Anwendungsbedingung nicht.
+
+## UI-Zustand
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
@@ -692,6 +789,24 @@ Dieser Pfad erweitert keine Schreib- oder Belegfreigaben. Native Ergebnisse
 kennzeichnet `backend: "qt"`; nach einem unsicheren Transportende bleibt
 `outcomeUnknown` erhalten. Die internen TypeScript-Testabhängigkeiten sind
 weder per Konfiguration noch über HTTP setzbar.
+
+### Wiederholen und unbekannte Ausgänge
+
+Es gibt keine pauschale Regel, einen fehlgeschlagenen Auftrag dreimal
+auszuführen. Eine Frist begrenzt den Aufruf; sie beweist nicht, dass keine
+Änderung stattgefunden hat.
+
+| Situation | Vertrag und nächster Schritt |
+|---|---|
+| Paket-, Profil-, Selektor- oder Bindungsfehler | Fehlerursache korrigieren; kein automatischer Wechsel des Backends oder Namensraums |
+| Explizites HWND unmittelbar nach dem Start noch nicht erkennbar | Nur die lesende Suche nach demselben Fenster darf begrenzt erneut erfolgen; kein neues Ziel und keine Mutation |
+| Bestätigter Abbruch vor dem Texteingriff | Kein Texteingriff dieses Auftrags; erst nach bestätigtem Callback-Ende und frischen Ziel-/Vorwertprüfungen ist ein ausdrücklich neuer Versuch möglich |
+| Transportverlust, fehlende Quittung oder `outcomeUnknown: true` | Keine Wiederholung; Zielzustand und frühere Aktionen unabhängig abgleichen |
+| Brokerende nicht bestätigt | Besitzer bleibt gehalten; Folgeauftrag wird vor Dispatch gesperrt, bis ein echter Exit bewiesen ist |
+
+Ein erfolgreicher Diagnoseread löscht keinen früheren unbekannten
+Mutationsausgang. Ein API-Neustart liefert ebenfalls keinen Nachweis darüber,
+was eine bereits abgesandte Aktion im Produkt bewirkt hat.
 
 ## Prüfung
 

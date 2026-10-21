@@ -36,12 +36,19 @@ Zwei Skripte halten die Dokumentation an den Quellen fest:
 | Skript | Befehl | Was es sichert |
 |---|---|---|
 | `scripts/build-api-docs.mjs` | `npm run docs:build` | erzeugt `docs/API-REFERENZ.md` aus dem laufenden MCP-Server, den Operationsmerkmalen und dem Abdeckungsledger; `--check` schlägt an, sobald der Text abweicht |
-| `scripts/check-docs-consistency.mjs` | `npm run docs:check` | prüft die **handgeschriebenen** Dokumente: keine toten Operationsnamen, jede live belegte Operation irgendwo genannt, kein `fertig` für etwas, das nur auf dem Fehlerpfad belegt ist |
+| `scripts/check-docs-consistency.mjs` | `npm run docs:check` | prüft Operationsnamen und Erwähnungen im Handtext; bei einer `fertig`-Zeile muss mindestens eine darin genannte Operation funktional belegt sein |
+
+Beide Befehle setzen einen aktuellen TypeScript-Build voraus; sie bauen ihn
+nicht selbst. Der Generator startet einen MCP-Prozess gegen eine synthetische
+API, führt dabei aber keine Fachoperation aus. `--check` verhindert das Schreiben
+der Referenz und prüft die Gleichheit mit dem erzeugten Text.
 
 Beide laufen in `npm test`. Die zweite Prüfung ist bewusst grob — Seiten- und
 Menünamen des Produkts lassen sich nicht auf Operationsnamen abbilden. Sie
 fängt die Abweichung, die tatsächlich passiert: eine gebaute und belegte
-Operation, von der kein Dokument erzählt.
+Operation, von der kein Dokument erzählt. Sie beweist weder die vollständige
+Abdeckung einer Operationsgruppe noch die Richtigkeit sämtlicher Prosa. Die
+fachliche Durchsicht und Prüfung gegen Code und Nachweise bleiben erforderlich.
 
 Historische Kopien öffentlicher Skills, agentenspezifische Arbeitspläne und
 Werkzeugprotokolle gehören nicht hierher. Der aktuelle Nutzervertrag liegt
