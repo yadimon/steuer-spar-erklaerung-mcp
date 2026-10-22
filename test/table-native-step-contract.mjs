@@ -51,6 +51,7 @@ async function run(options = {}) {
   options.binding?.(binding);
   const phases = [], keys = [], focuses = [], positions = [], positionCheckpoints = [], releases = [], leases = [], requests = [], consumed = new Set();
   let positionReleased = false;
+  const live = { inputEpoch: binding.inputEpoch, dirty: binding.dirty, windowFingerprint: binding.windowFingerprint, editorFree: true };
   const client = { binding: { hwnd: 111, pid: 7 }, request: async (op, args) => {
     requests.push(op);
     if (op === "ping") {
@@ -66,6 +67,7 @@ async function run(options = {}) {
       "A private cursor transaction must explicitly request its unchanged focus/model binding.");
     if (positionReleased && !keys.length && options.postBootstrapReadThrows) throw new Error("Synthetic post-bootstrap model read lost");
     const value = copy(model); options.model?.(value, keys.length, focuses.length);
+    if (positionCheckpoints.length && !positionReleased) options.afterPositionVerify?.();
     return { result: value };
   }, requestAcknowledged: async (op, args) => {
     if (op === "table_position_number") {
@@ -110,6 +112,15 @@ async function run(options = {}) {
       assert.equal(timeout, 5000); assert.equal(signal, undefined);
       assert.equal(consumed.has(plan.lease.nonce), false, "A consumed nonce must never be imported for cleanup.");
       releases.push(plan.lease.nonce);
+      if (positions.length && !positionReleased) {
+        options.beforePositionRelease?.(live);
+        if (live.inputEpoch !== plan.binding.inputEpoch || live.dirty !== plan.binding.dirty ||
+            live.windowFingerprint !== plan.binding.windowFingerprint || !live.editorFree) return { ok: false, kind: "interference" };
+        options.duringPositionRelease?.();
+        if (options.positionReleaseThrows) throw new Error("Synthetic release lost");
+        if (options.positionReleaseMissingReply) return undefined;
+        if (options.positionReleaseReply) return copy(options.positionReleaseReply);
+      }
       const unproven = options.releaseUnproven || (positionReleased && options.laterReleaseUnproven);
       if (positions.length && !positionReleased) {
         positionReleased = true; consumed.add(plan.lease.nonce);
@@ -163,7 +174,7 @@ async function run(options = {}) {
         modelFingerprint: plan.step.modelFingerprint, row: target, column: 0, rowFullyContained: !options.clippedLast } };
     options.step?.(stepped, keys.length, model); return stepped;
   };
-  const result = await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000);
+  const result = await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, options.signal);
   return { result, phases, keys, focuses, positions, positionCheckpoints, releases, leases, requests };
 }
 const success = await run();
@@ -264,7 +275,7 @@ assert.deepEqual(bootstrapped.positions[0].binding.currentIndex, [-1, -1]);
 assert.deepEqual(bootstrapped.positions[0].binding.selectedIndexes, []);
 assert.equal(bootstrapped.positionCheckpoints.length, 1); assert.equal(bootstrapped.releases.length, 2);
 assert.equal(new Set(bootstrapped.releases).size, 2, "Bootstrap and traversal must release independent authority");
-assert.deepEqual(bootstrapped.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "checkpoint", "native-release",
+assert.deepEqual(bootstrapped.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "native-release",
   "native-acquire", "native-step", "native-step", "native-step", "native-step", "checkpoint", "native-release"]);
 assert.deepEqual(Object.keys(bootstrapped.result).sort(), Object.keys(bank.result).sort(),
   "Successful bootstrap must preserve the existing public result shape");
@@ -272,6 +283,44 @@ assert.deepEqual(bootstrapped.result.zeilen, bank.result.zeilen);
 for (const field of ["cursorBinding", "cursorLease", "selectedRids", "numberPolicy", "bootstrap", "cursorStep"]) {
   assert.equal(Object.hasOwn(bootstrapped.result, field), false);
 }
+for (const [name, change] of [
+  ["input epoch", live => { live.inputEpoch++; }],
+  ["dirty state", live => { live.dirty = !live.dirty; }],
+  ["window set", live => { live.windowFingerprint = "f".repeat(64); }],
+  ["editor", live => { live.editorFree = false; }],
+]) {
+  const stopped = await run({ initialize: bankWithoutCurrent, beforePositionRelease: change });
+  assert.equal(stopped.result.ok, false, name);
+  assert.equal(stopped.result.cleanupRequired, true); assert.equal(stopped.result.reconciliationRequired, true);
+  assert.equal(stopped.result.activationSubmitted, true);
+  assert.deepEqual(stopped.keys, []); assert.equal(stopped.positions.length, 1); assert.equal(stopped.releases.length, 1);
+  assert.deepEqual(stopped.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "native-release"],
+    "Rejected bootstrap cleanup must never enter stepped acquisition or replay positioning.");
+}
+for (const failure of [
+  { positionReleaseReply: { ok: false, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } } },
+  { positionReleaseReply: { ok: true, cursorLeaseReleased: false, focusTelemetry: { releasedByEmit: true } } },
+  { positionReleaseReply: { ok: true, focusTelemetry: { releasedByEmit: true } } },
+  { positionReleaseReply: { ok: true, cursorLeaseReleased: true, focusTelemetry: {} } },
+  { positionReleaseMissingReply: true },
+  { positionReleaseThrows: true },
+]) {
+  const stopped = await run({ initialize: bankWithoutCurrent, ...failure });
+  assert.equal(stopped.result.ok, false); assert.equal(stopped.result.cleanupRequired, true);
+  assert.equal(stopped.result.reconciliationRequired, true);
+  assert.equal(stopped.releases.length, 1); assert.deepEqual(stopped.keys, []);
+  assert.equal(stopped.phases.includes("native-acquire"), false);
+}
+for (const when of ["afterPositionVerify", "duringPositionRelease"]) {
+  const controller = new AbortController();
+  const stopped = await run({ initialize: bankWithoutCurrent, signal: controller.signal, [when]: () => controller.abort() });
+  assert.equal(controller.signal.aborted, true); assert.equal(stopped.result.ok, false);
+  assert.equal(stopped.result.reconciliationRequired, true);
+  assert.notEqual(stopped.result.cleanupRequired, true, "Cancellation must still complete the owned passive release.");
+  assert.equal(stopped.releases.length, 1); assert.deepEqual(stopped.keys, []);
+  assert.equal(stopped.phases.includes("native-acquire"), false, "Aborted cleanup never authorizes another acquisition.");
+}
+
 const hiddenFirst = await run({ initialize: (model, binding) => {
   bankWithoutCurrent(model, binding); model.hiddenRows = [0];
 } });

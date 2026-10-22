@@ -242,8 +242,9 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
     } else {
       adopt(checkpoint, parent);
       await verify();
-      const final = await phase("checkpoint", binding);
-      if (!final.ok || final.cursorCheckpoint !== true) rejectProof("native-position-final-epoch");
+      // Mandatory native-release repeats the passive context checks before
+      // importing this lease. Keep the removed phase's local cancellation gate.
+      remaining();
       result = { ok: true, cursorBinding: binding, physicalInputUsed: false, steps: 0, nativeWholeModelUnchanged: true,
         lastRowFullyContained: true, cursorTransaction: "native-target-position", retryable: false };
     }

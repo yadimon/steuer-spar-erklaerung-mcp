@@ -18181,8 +18181,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     } else {
       adopt(checkpoint, parent);
       await verify();
-      const final = await phase("checkpoint", binding);
-      if (!final.ok || final.cursorCheckpoint !== true) rejectProof("native-position-final-epoch");
+      remaining();
       result = {
         ok: true,
         cursorBinding: binding,
