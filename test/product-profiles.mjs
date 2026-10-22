@@ -317,6 +317,12 @@ const powershell = join(
   process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows",
   "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
 );
+const executableDefaults = spawnSync(powershell, [
+  "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+  join(root, "test", "worker-default-executable-contract.ps1"),
+], { cwd: root, encoding: "utf8", windowsHide: true, timeout: 30_000 });
+assert.equal(executableDefaults.status, 0,
+  `${executableDefaults.error?.message ?? ""}\n${executableDefaults.stderr}\n${executableDefaults.stdout}`);
 const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 const runWorkerProfileMutation = (mutate, op = "product_info") => {
   const isolatedRoot = mkdtempSync(join(tmpdir(), "sse-worker-profile-"));
