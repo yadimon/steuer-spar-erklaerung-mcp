@@ -2393,10 +2393,25 @@ function Initialize-SSEProductProfile {
   $script:SSE_TAX_YEAR = [int]$profileManifest.taxYear
   $script:SSE_ENGINE_MAJOR = [int]$profileManifest.engineFileMajor
   $script:SSE_INSTANCE_LABEL = "SSE-$($script:SSE_TAX_YEAR)"
-  $programFiles = $(if ($env:ProgramFiles) { [string]$env:ProgramFiles } else { 'C:\Program Files' })
   $script:SSE_DEFAULT_EXE = $(
     if ($env:SSE_EXECUTABLE) { [IO.Path]::GetFullPath([string]$env:SSE_EXECUTABLE) }
-    else { [IO.Path]::GetFullPath((Join-Path $programFiles $relativeExe)) }
+    else {
+      $programFiles = $(if ($env:ProgramFiles) { [string]$env:ProgramFiles } else { 'C:\Program Files' })
+      $defaultPath = [IO.Path]::GetFullPath((Join-Path $programFiles $relativeExe))
+      $seenPaths = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+      $existingPaths = @(
+        foreach ($installationRoot in @($programFiles, [string]${env:ProgramFiles(x86)})) {
+          if (-not $installationRoot) { continue }
+          $candidate = [IO.Path]::GetFullPath((Join-Path $installationRoot $relativeExe))
+          if ($seenPaths.Add($candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { $candidate }
+        }
+      )
+      if ($existingPaths.Count -gt 1) {
+        Fail 'Mehrere SSE-Installationen an den Standardorten gefunden. SSE_EXECUTABLE muss die gewuenschte Programmdatei eindeutig festlegen.' 'ambiguous-installation'
+      }
+      if ($existingPaths.Count -eq 1) { $existingPaths[0] }
+      else { $defaultPath }
+    }
   )
 }
 
@@ -11557,9 +11572,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       dialogs = @($dialogInventory | ForEach-Object { [pscustomobject]@{ hwnd=$_.hwnd; title=$_.title; kind=$_.kind; buttons=$_.buttons; fingerprint=$_.fingerprint } })
       advice = $(
         if (-not $wins.Count) { 'Kein Fenster - startet noch oder Dialog fehlt.' }
-        elseif ($wins[0].hung) { 'Fenster haengt. Neu starten (sse_restart).' }
+        elseif ($wins[0].hung) { 'Fenster haengt. Zielinstanz, Dialoge und ungespeicherten Zustand zuerst pruefen. SSE nur nach ausdruecklichem Neustartauftrag kontrolliert schliessen und mit sse_launch starten; sse_api_control steuert nur die API.' }
         elseif ($dialogInventory.Count) { 'Ein modaler Dialog ist offen. Mit sse_dialog_list lesen und gezielt beantworten; NICHT neu starten.' }
-        elseif ($canary -and -not $canary.ok) { 'Traege UIA-Antwort. Programm ueberlastet - neu starten.' }
+        elseif ($canary -and -not $canary.ok) { 'Traege UIA-Antwort. Zielinstanz, Dialoge und ungespeicherten Zustand zuerst pruefen. Ein langsamer Read erlaubt keinen automatischen Neustart; ein ausdruecklicher SSE-Neustartauftrag ist von sse_api_control fuer die API getrennt.' }
         else { 'gesund' }
       )
     })
