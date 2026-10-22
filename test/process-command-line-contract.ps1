@@ -11,17 +11,116 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
-function Assert-NativeCommandLineBatch([int]$ProcessId, [string]$Expected) {
-  foreach ($iteration in 1..500) {
-    Assert-True ([SSEProcessCommandLine]::TryGet($ProcessId).Equals($Expected, [StringComparison]::Ordinal)) `
-      "Native Wiederholungsabfrage $iteration verlor die exakte Kommandozeile."
-  }
+# Der typisierte Delegate ruft die echte Produktionsfunktion auf, ohne dass
+# die Testklasse eine Referenz auf die geladene Interop-Assembly benoetigt.
+# Beide Handle-Stichproben und alle Reads laufen ohne PowerShell-Dispatch.
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
+
+public sealed class SSECommandLineHandleBatch
+{
+    public uint Before;
+    public uint After;
+    public int NativeCalls;
+    public int InjectedHandles;
+    public int ClosedInjectedHandles;
+    public long Growth { get { return (long)After - Before; } }
+    public bool WithinBudget { get { return Growth <= SSECommandLineHandleContract.MaximumHandleGrowth; } }
 }
 
-function Get-ContractHandleCount([Diagnostics.Process]$Process) {
-  $Process.Refresh()
-  $Process.HandleCount
+public static class SSECommandLineHandleContract
+{
+    public const int MaximumHandleGrowth = 2;
+    private const int BatchSize = 500;
+    private const int InjectionInterval = 100;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessHandleCount(IntPtr process, out uint count);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private static uint CountHandles(IntPtr process)
+    {
+        uint count;
+        if (!GetProcessHandleCount(process, out count))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Handle-Anzahl konnte nicht gelesen werden.");
+        return count;
+    }
+
+    public static SSECommandLineHandleBatch Measure(Func<int, string> read, int processId, string expected, bool injectHandles)
+    {
+        if (read == null) throw new ArgumentNullException("read");
+        if (processId <= 0) throw new ArgumentOutOfRangeException("processId");
+        if (expected == null) throw new ArgumentNullException("expected");
+        var result = new SSECommandLineHandleBatch();
+        var injected = new IntPtr[BatchSize / InjectionInterval];
+        var cleanupErrors = new List<Exception>();
+        Exception primaryError = null;
+        // GetCurrentProcess liefert ein Pseudo-Handle, das nicht geschlossen wird.
+        IntPtr observer = GetCurrentProcess();
+        result.Before = CountHandles(observer);
+        try
+        {
+            for (int iteration = 1; iteration <= BatchSize; iteration++)
+            {
+                string actual = read(processId);
+                result.NativeCalls++;
+                if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Native Wiederholungsabfrage " + iteration + " verlor die exakte Kommandozeile.");
+                if (injectHandles && iteration % InjectionInterval == 0)
+                {
+                    IntPtr handle = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+                    if (handle == IntPtr.Zero)
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Negativkontrolle konnte kein Prozess-Handle oeffnen.");
+                    injected[result.InjectedHandles++] = handle;
+                }
+            }
+            // Die fuenf Kontroll-Handles bleiben bis nach dieser Stichprobe offen.
+            result.After = CountHandles(observer);
+        }
+        catch (Exception error)
+        {
+            primaryError = error;
+        }
+        finally
+        {
+            for (int index = 0; index < result.InjectedHandles; index++)
+            {
+                try
+                {
+                    if (!CloseHandle(injected[index]))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Negativkontrolle konnte ein eigenes Handle nicht schliessen.");
+                    result.ClosedInjectedHandles++;
+                }
+                catch (Exception error) { cleanupErrors.Add(error); }
+            }
+        }
+        if (cleanupErrors.Count != 0)
+        {
+            if (primaryError != null) cleanupErrors.Insert(0, primaryError);
+            throw new AggregateException("Handle-Messung oder eigenes Handle-Cleanup fehlgeschlagen.", cleanupErrors);
+        }
+        if (primaryError != null) ExceptionDispatchInfo.Capture(primaryError).Throw();
+        return result;
+    }
 }
+'@
+$nativeMethod = [SSEProcessCommandLine].GetMethod('TryGet', [type[]]@([int]))
+$nativeReader = [Delegate]::CreateDelegate([Func[int,string]], $nativeMethod)
 
 Assert-True ($load.mode -in @('precompiled-dll', 'source-fallback', 'already-loaded')) `
   "Nativer Interop-Loader meldete einen unbekannten Modus '$($load.mode)'."
@@ -40,25 +139,24 @@ try {
   Assert-True ($null -ne $nativeCommandLine) 'Der Native-Pfad konnte den harmlosen Kindprozess nicht lesen.'
   Assert-True ($nativeCommandLine.Contains($unicodeArgument)) 'Die native Kommandozeile verlor Unicode oder Leerzeichen.'
 
-  # Native-Handles vor der ersten CIM-Abfrage messen. Deren kalte
-  # Initialisierung darf keine Hintergrund-Handles in die Messung einbringen.
-  # Aufwaermen und Messen verwenden dieselben PowerShell-Aufrufstellen.
-  # Zwei getrennte Schleifen initialisieren getrennte dynamische Binder; auch
-  # eine erstmals aufgerufene Prozessabfrage gehoert nicht in die Messstrecke.
-  $observer = [Diagnostics.Process]::GetCurrentProcess()
-  try {
-    $null = Get-ContractHandleCount $observer
-    $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
-    Assert-NativeCommandLineBatch $child.Id $nativeCommandLine
-    $nativeTimer.Stop()
-    $handlesBefore = Get-ContractHandleCount $observer
-    Assert-NativeCommandLineBatch $child.Id $nativeCommandLine
-    $handlesAfter = Get-ContractHandleCount $observer
-    Assert-True (($handlesAfter - $handlesBefore) -le 2) `
-      "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($handlesBefore -> $handlesAfter)."
-  } finally {
-    $observer.Dispose()
-  }
+  # Vor CIM werden beide C#-Pfade samt P/Invokes aufgewarmt. Die eigentliche
+  # Stichprobe enthaelt nur den typisierten Produktionsaufruf und den Vergleich.
+  $null = [SSECommandLineHandleContract]::Measure($nativeReader, $child.Id, $nativeCommandLine, $false)
+  $null = [SSECommandLineHandleContract]::Measure($nativeReader, $child.Id, $nativeCommandLine, $true)
+  $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
+  $nativeBatch = [SSECommandLineHandleContract]::Measure($nativeReader, $child.Id, $nativeCommandLine, $false)
+  $nativeTimer.Stop()
+  Assert-True ($nativeBatch.NativeCalls -eq 500 -and $nativeBatch.WithinBudget) `
+    "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($($nativeBatch.Before) -> $($nativeBatch.After))."
+
+  # Dieselbe Grenze muss fuenf absichtlich bis zur Stichprobe offene Handles
+  # erkennen. Measure schliesst jedes davon im finally und prueft das Ergebnis.
+  $leakControl = [SSECommandLineHandleContract]::Measure($nativeReader, $child.Id, $nativeCommandLine, $true)
+  Assert-True ($leakControl.NativeCalls -eq 500 -and
+    $leakControl.InjectedHandles -eq 5 -and $leakControl.ClosedInjectedHandles -eq 5) `
+    'Die Negativkontrolle hat nicht exakt fuenf eigene Prozess-Handles geoeffnet und geschlossen.'
+  Assert-True (-not $leakControl.WithinBudget) `
+    "Die unveraenderte Handle-Grenze erkannte fuenf offene Kontroll-Handles nicht ($($leakControl.Before) -> $($leakControl.After))."
 
   $deadline = [DateTime]::UtcNow.AddSeconds(10)
   $cimCommandLine = $null

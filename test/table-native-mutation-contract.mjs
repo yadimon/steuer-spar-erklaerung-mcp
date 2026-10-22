@@ -65,7 +65,9 @@ function nativeGeometry(op, model, binding) {
 }
 
 async function run(options = {}) {
-  const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], releases = [], releasePhases = [], preparations = [];
+  const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], releases = [], releasePhases = [], preparations = [], phases = [];
+  const live = { inputEpoch: binding.inputEpoch, dirty: binding.dirty, windowFingerprint: binding.windowFingerprint, editorFree: true };
+  let positionCheckpointed = false;
   const targetColumn = options.hiddenColumnBeforeTarget ? 3 : 2;
   const activeHeaders = options.category ? ["Nr.", "Datum", "Bezeichnung", "Kategorie", "%", "Netto"] : headers;
   if (options.category) {
@@ -106,6 +108,7 @@ async function run(options = {}) {
     }
     assert.equal(op, "table_snapshot");
     const value = copy(model); options.read?.(value, keys.length, mutations.length, probes.length);
+    if (positionCheckpointed && !releases.length) options.afterPositionVerify?.();
     return { result: value };
   }, requestAcknowledged: async (op, args) => {
     if (op === "table_position_number") {
@@ -140,7 +143,7 @@ async function run(options = {}) {
     return { result: { ok: true, focused: !options.focusNoop, physicalInputUsed: false, mutationAttempted: true,
       inputTick: binding.inputEpoch, binding: copy(model.cursorFocusBinding) }, receiptAcknowledged: true };
   } };
-  const worker = async (op, args, timeoutMs) => {
+  const worker = async (op, args, timeoutMs, signal) => {
     if (op !== "table_read") {
       mutations.push({ op, args: copy(args), timeoutMs });
       assert.equal(mutations.length, 1, "Only one mutation worker may be submitted.");
@@ -178,7 +181,7 @@ async function run(options = {}) {
       return { ok: true, verified: !options.unverified, mutationStarted: true,
         mutationPostProof: { inputEpoch: binding.inputEpoch, dirty: true } };
     }
-    const plan = args.__tableCursorPlan;
+    const plan = args.__tableCursorPlan; phases.push(plan.phase);
     if (plan.phase === "prebind") return { ok: true, cursorBinding: copy(binding) };
     if (plan.phase === "mutation-target") {
       probes.push(copy(plan));
@@ -199,6 +202,14 @@ async function run(options = {}) {
     }
     if (["native-release", "native-revoke-noop"].includes(plan.phase)) {
       releases.push(plan.lease.nonce); releasePhases.push(plan.phase);
+      assert.equal(timeoutMs, 5_000); assert.equal(signal, undefined, "Cleanup must ignore only the cancelled request signal.");
+      if (positionCheckpointed) {
+        options.beforeNativeRelease?.(live);
+        if (live.inputEpoch !== plan.binding.inputEpoch || live.dirty !== plan.binding.dirty ||
+            live.windowFingerprint !== plan.binding.windowFingerprint || !live.editorFree) return { ok: false, kind: "interference" };
+        options.duringNativeRelease?.();
+      }
+      if (options.releaseMissingReply) return undefined;
       if (options.releaseThrows) throw new Error("PRIVATE_RELEASE_ERROR");
       if (options.releaseReply) return copy(options.releaseReply);
       if (plan.phase === "native-revoke-noop") return { ok: true, cursorLeaseRevoked: true, focusTelemetry: {
@@ -230,6 +241,7 @@ async function run(options = {}) {
       if (options.positionCheckpointEpochChanged) binding.inputEpoch++;
       lease = { ...lease, nonce: options.replayedPositionInitialLease ? initialNonce : options.replayedPositionLease ? lease.nonce : randomUUID(),
         inputEpoch: binding.inputEpoch };
+      positionCheckpointed = true;
       return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), cursorCheckpoint: true };
     }
     if (plan.phase === "mutation-checkpoint") {
@@ -265,15 +277,17 @@ async function run(options = {}) {
   if (options.profileWrongOccurrence) catalog.pages.synthetic.tables.exact.sumOccurrence = 2;
   if (options.profileAmbiguous) catalog.pages.synthetic.tables.duplicate = copy(catalog.pages.synthetic.tables.exact);
   const result = options.publicRead || options.appendSeek
-    ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, undefined, options.appendSeek === true)
-    : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, options.timeoutMs ?? 30000, undefined, catalog);
-  return { result, keys, positions, mutations, focuses, probes, releases, releasePhases, preparations };
+    ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, options.signal, options.appendSeek === true)
+    : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, options.timeoutMs ?? 30000, options.signal, catalog);
+  return { result, keys, positions, mutations, focuses, probes, releases, releasePhases, preparations, phases };
 }
 for (const operation of ["table_update", "table_delete"]) {
   const result = await run({ operation });
   assert.equal(result.result.ok, true); assert.equal(result.result.nativeUntouchedRowsVerified, true);
   assert.deepEqual(result.keys, []); assert.equal(result.positions.length, 1); assert.equal(result.focuses.length, 1); assert.equal(result.mutations.length, 1);
   assert.equal(result.releases.length, 1); assert.equal(result.probes.length, 1);
+  assert.deepEqual(result.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "native-release",
+    "mutation-target", "mutation-checkpoint"], "Remove only the duplicate generic Worker; retain both final mutation proofs.");
   assert.equal(JSON.stringify(result.result).includes("SyntheticCaller"), false);
   for (const field of ["cursorBinding", "mutationTarget", "__tableMutationBinding", "__tableTransportCapability"]) assert.equal(Object.hasOwn(result.result, field), false);
 }
@@ -292,6 +306,74 @@ for (const operation of ["table_update", "table_delete"]) {
   assert.equal(acquired.positions.length, 0);
   assert.equal(acquired.mutations.length, 0);
 }
+// Interference injected after the last native model proof, at passive release.
+// The producer's actual shared guards are covered in table-cursor-lease-contract.ps1.
+for (const operation of ["table_update", "table_delete"]) {
+  for (const [name, change] of [
+    ["input epoch", live => { live.inputEpoch++; }],
+    ["dirty state", live => { live.dirty = !live.dirty; }],
+    ["window set", live => { live.windowFingerprint = "f".repeat(64); }],
+    ["editor", live => { live.editorFree = false; }],
+  ]) {
+    const rejected = await run({ operation, beforeNativeRelease: change });
+    assert.equal(rejected.result.ok, false, name);
+    assert.equal(rejected.result.cleanupRequired, true, "Rejected release is not proof of completed cleanup.");
+    assert.equal(rejected.result.reconciliationRequired, true);
+    assert.equal(rejected.result.mutationStarted, null, "Lost release authority must not claim a known mutation outcome.");
+    assert.equal(rejected.result.resultingState, "unknown");
+    assert.equal(rejected.mutations.length, 0);
+    assert.equal(rejected.releases.length, 1); assert.equal(rejected.positions.length, 1);
+    assert.deepEqual(rejected.keys, []);
+    assert.deepEqual(rejected.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "native-release"],
+      "A release rejection must not be retried or followed by target proof/mutation.");
+  }
+  for (const releaseFailure of [
+    { releaseReply: { ok: false, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } } },
+    { releaseReply: { ok: true, cursorLeaseReleased: false, focusTelemetry: { releasedByEmit: true } } },
+    { releaseReply: { ok: true, focusTelemetry: { releasedByEmit: true } } },
+    { releaseReply: { ok: true, cursorLeaseReleased: true, focusTelemetry: {} } },
+    { releaseMissingReply: true },
+    { releaseThrows: true },
+  ]) {
+    const rejected = await run({ operation, ...releaseFailure });
+    assert.equal(rejected.result.ok, false);
+    assert.equal(rejected.result.cleanupRequired, true); assert.equal(rejected.result.reconciliationRequired, true);
+    assert.equal(rejected.mutations.length, 0); assert.equal(rejected.releases.length, 1);
+    assert.deepEqual(rejected.keys, []);
+    assert(!JSON.stringify(rejected.result).includes("PRIVATE_RELEASE_ERROR"));
+  }
+  for (const when of ["afterPositionVerify", "duringNativeRelease"]) {
+    const controller = new AbortController();
+    const cancelled = await run({ operation, signal: controller.signal, [when]: () => controller.abort() });
+    assert.equal(controller.signal.aborted, true);
+    assert.equal(cancelled.result.ok, false);
+    assert.equal(cancelled.result.reconciliationRequired, true);
+    assert.equal(cancelled.mutations.length, 0); assert.equal(cancelled.releases.length, 1);
+    assert.notEqual(cancelled.result.cleanupRequired, true, "Cancellation must still allow confirmed passive cleanup.");
+    assert.deepEqual(cancelled.phases, ["prebind", "native-position-acquire", "native-position-checkpoint", "native-release"],
+      "Independent cleanup cannot authorize continuation of a cancelled write.");
+  }
+}
+// This seek-only caller has no later mutation gate: the local remaining() must
+// itself reject cancellation/deadline as the final model read resolves.
+{
+  const controller = new AbortController();
+  const cancelled = await run({ appendSeek: true, signal: controller.signal, afterPositionVerify: () => controller.abort() });
+  assert.equal(cancelled.result.ok, false); assert.equal(cancelled.result.reconciliationRequired, true);
+  assert.equal(cancelled.releases.length, 1); assert.equal(cancelled.mutations.length, 0);
+  assert.notEqual(cancelled.result.cleanupRequired, true);
+}
+{
+  let now = 0;
+  mock.method(performance, "now", () => now);
+  try {
+    const expired = await run({ appendSeek: true, afterPositionVerify: () => { now = 30_000; } });
+    assert.equal(expired.result.ok, false); assert.equal(expired.result.reconciliationRequired, true);
+    assert.equal(expired.releases.length, 1); assert.equal(expired.mutations.length, 0);
+    assert.notEqual(expired.result.cleanupRequired, true);
+  } finally { mock.restoreAll(); }
+}
+
 const rejectedCheckpoint = await run({ positionCheckpointFails: true });
 assert.equal(rejectedCheckpoint.result.outcomeUnknown, true);
 assert.equal(rejectedCheckpoint.result.activationSubmitted, true);

@@ -137,7 +137,8 @@ if($reset.Count -ne 1){throw 'The single-job worker no longer initializes its pr
 function Fail {param($Message,$Kind,$Metadata) $script:revokeRejections++;throw [InvalidOperationException]::new('synthetic-revoke-rejected')}
 function Test-SSETableFocusedSource {$script:sourceProofCalls++;$false}
 function Test-SSETableCursorPhaseEditorAuthority {$script:editorAuthority}
-function Test-SSETableReadSnapshotBinding {param($Before,$After,[switch]$BeforeNavigation) $script:snapshotUnchanged}
+function Test-SSETableReadSnapshotBinding {param($Before,$After,[switch]$BeforeNavigation)
+  $script:snapshotBeforeNavigation=[bool]$BeforeNavigation;$script:snapshotUnchanged}
 function Get-SSEWindowTitleText {'Synthetic case'}
 foreach($case in @('normal-unbound-source','revoke-unbound-source','input-changed','foreground-changed','nonce-invalid',
     'previous-identity-changed','root-changed','pid-changed','window-set-changed','dirty-changed','title-changed',
@@ -193,6 +194,44 @@ foreach($case in @('normal-unbound-source','revoke-unbound-source','input-change
   if($script:sourceProofCalls -ne $(if($case -ceq 'normal-unbound-source'){1}else{0})){throw 'Normal source guard changed or revocation reused it.'}
   if($script:restores -or [SW]::CursorReadCalls -or [SW]::CursorMoveCalls){throw 'No-op revocation activated/restored a source or moved the cursor.'}
 }
+# The removed generic checkpoint is safe only while ordinary native-release
+# independently rejects fresh drift in these actual shared producer guards.
+# Synthetic failed guards must stop BEFORE focus proof, lease import or Emit.
+foreach($case in @('input-epoch','dirty-state','window-set','editor','snapshot')) {
+  . ([scriptblock]::Create($initializer[0].Extent.Text))
+  $script:SSE_CURSOR_LEASE_HANDOVER=$null;$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
+  $script:tick=10;$script:restores=0;$script:sourceProofCalls=0;$script:revokeRejections=0
+  $script:editorAuthority=$true;$script:snapshotUnchanged=$true;$script:snapshotBeforeNavigation=$null
+  [SW]::Foreground=[IntPtr]111;[SW]::WindowPosCalls=0;[SW]::CursorReadCalls=0;[SW]::CursorMoveCalls=0
+  $hwnd=[IntPtr]111;$main=[pscustomobject]@{pid=7};$phaseInputBefore=10;$dirtyBefore=$true
+  $cursorPhase='native-release';$candidate=$json | ConvertFrom-Json
+  $inherited=[pscustomobject]@{hwnd=111;pid=7;dirty=$true;windowTitle='Synthetic case';inputEpoch=10;
+    windowFingerprint='Synthetic.Stable';dpi=96;clientOrigin=@(100,200);snapshot=[pscustomobject]@{}}
+  $cursorPlan=[pscustomobject]@{binding=$inherited;lease=$candidate}
+  $phaseWindows=[pscustomobject]@{fingerprint='Synthetic.Stable';windows=@([pscustomobject]@{role='main'})}
+  $erst=[pscustomobject]@{navigationBinding=[pscustomobject]@{complete=$true;tableRootAid='Synthetic.Table';tableRootRid='42.1';editorFree=$true};
+    cursorAnchorIsNumber=$true;tabelleAnzahl=1}
+  $latestTableSnapshot=[pscustomobject]@{tree=$null}
+  switch($case) {
+    'input-epoch' {$script:tick=11}
+    'dirty-state' {$dirtyBefore=$false}
+    'window-set' {$phaseWindows.fingerprint='Other.Set'}
+    'editor' {$script:editorAuthority=$false}
+    'snapshot' {$script:snapshotUnchanged=$false}
+  }
+  $script:SSE_CAPTURED_OPERATION_RESULT=$null
+  try {Invoke-SyntheticNativeRelease;throw 'Actual release guard did not terminate.'}
+  catch {if($_.Exception.Message -cne 'synthetic-revoke-rejected'){throw}}
+  if($script:revokeRejections -ne 1 -or $script:sourceProofCalls -ne 0 -or
+      $script:SSE_CAPTURED_OPERATION_RESULT -or $script:SSE_FOREGROUND_LEASE.watch -or
+      [SW]::WindowPosCalls -or [SW]::CursorReadCalls -or [SW]::CursorMoveCalls -or $script:restores) {
+    throw "$case`: fresh release interference reached focus/import/Emit or an input callback."
+  }
+  if($case -ceq 'snapshot' -and $script:snapshotBeforeNavigation -cne $true) {
+    throw 'Native release lost the strict passive BeforeNavigation snapshot binding.'
+  }
+}
+
 # A failure after successful import must still use the already installed fence.
 # Exercise the productive Fail -> Emit -> Exit chain, not a synthetic cleanup.
 $productiveFail=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and

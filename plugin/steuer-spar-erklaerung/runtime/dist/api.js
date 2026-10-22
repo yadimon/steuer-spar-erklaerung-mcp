@@ -6950,7 +6950,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.50";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.51";
   }
 });
 
@@ -18181,8 +18181,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     } else {
       adopt(checkpoint, parent);
       await verify();
-      const final = await phase("checkpoint", binding);
-      if (!final.ok || final.cursorCheckpoint !== true) rejectProof("native-position-final-epoch");
+      remaining();
       result = {
         ok: true,
         cursorBinding: binding,
