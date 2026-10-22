@@ -119,7 +119,7 @@ assert.deepEqual(mainRuleset, {
   ],
 }, "main braucht PRs, aufgeloeste Threads und den exakten GitHub-Actions-Check ohne Bypass.");
 assert.match(workflow, /^    runs-on: windows-2022$/mu);
-assert.match(workflow, /^    timeout-minutes: 25$/mu);
+assert.match(workflow, /^    timeout-minutes: 40$/mu);
 
 const pinnedActions = {
   "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
