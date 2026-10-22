@@ -14,7 +14,7 @@ concurrency:
 jobs:
   publish:
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,15 +72,8 @@ jobs:
           }
 
       - name: Wait for exact API dependency in registry
-        run: |
-          $version = node -p "require('./package.json').version"
-          $ready = $false
-          foreach ($attempt in 1..30) {
-            $visible = (& npm view "@yadimon/steuer-spar-erklaerung-api@$version" version --json 2>$null | Out-String).Trim('"', "`r", "`n", ' ')
-            if ($LASTEXITCODE -eq 0 -and $visible -eq $version) { $ready = $true; break }
-            Start-Sleep -Seconds 2
-          }
-          if (-not $ready) { throw "Exakte API-Dependency $version wurde nicht rechtzeitig sichtbar." }
+        timeout-minutes: 12
+        run: node scripts/wait-npm-visibility.mjs @yadimon/steuer-spar-erklaerung-api
 
       - name: Publish MCP package with exact API dependency
         run: |

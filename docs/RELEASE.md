@@ -218,6 +218,17 @@ Der Workflow akzeptiert nur `refs/tags/v<package-version>`, baut auf einem
 GitHub-gehosteten Windows-Runner die Native-Runtime, führt Vollsuite und echten
 Tarball-Clean-install aus und veröffentlicht zuerst die API, wartet auf die
 Registry-Sichtbarkeit dieser exakten Dependency und veröffentlicht danach MCP.
+npm kann eine angenommene Veröffentlichung verzögert bereitstellen. Die
+Registry-Prüfung liest deshalb die öffentlichen Dependency-Metadaten online
+und wartet begrenzt bis zu zehn Minuten auf die exakte Version. Eine einzelne
+Abfrage darf höchstens 20 Sekunden und nie länger als das verbleibende Budget
+dauern; zwischen offenen Prüfungen liegen höchstens fünf Sekunden. Fortschritt
+und Abbruch nennen Paket, erwartete Version und letzten Prüfstatus, ohne
+Antwortinhalte oder Anmeldedaten auszugeben. Der lokale Orchestrator wartet
+zusätzlich auf beide passenden `latest`-Tags. Erst der anschließende
+Registry-Smoke bestätigt die Installation. Ein Zeitlimit löst keine erneute
+Veröffentlichung aus.
+
 Beide Publish-Schritte überspringen eine bereits vorhandene exakte Version, so
 dass derselbe Tag-Workflow eine Teilpublikation idempotent fertigstellen kann.
 Nie eine veröffentlichte Paketversion ersetzen oder den Tag verschieben. Der

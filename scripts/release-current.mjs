@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { waitForNpmVisibility } from "./wait-npm-visibility.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repository = "yadimon/steuer-spar-erklaerung-mcp";
@@ -289,21 +290,11 @@ async function main() {
     gh(["workflow", "run", workflow, "--repo", repository, "--ref", tag]);
     const runId = await waitForWorkflow(headSha, startedAt);
     gh(["run", "watch", String(runId), "--repo", repository, "--exit-status"]);
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      if (registryPublicationState(version).published === packageNames.length) break;
-      await wait(2_000);
-    }
-    assertRegistryState(version, true);
   }
 
+  await waitForNpmVisibility({ packageNames, version, requireLatest: true });
   for (const packageName of packageNames) {
-    const tags = registryTags(packageName);
-    if (tags.latest !== version) {
-      throw new Error(
-        `Trusted Publishing hat latest von ${packageName} nicht auf ${version} gesetzt: ${JSON.stringify(tags)}`,
-      );
-    }
-    process.stdout.write(`${packageName}: latest zeigt auf ${version}.\n`);
+    process.stdout.write(`${packageName}: exakte Version und latest sind online sichtbar.\n`);
   }
   npm(["run", "smoke:published"]);
   process.stdout.write(`\nRelease ${tag} vollstaendig verifiziert: ${releaseUrl}\n`);

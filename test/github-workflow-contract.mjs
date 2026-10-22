@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { REGISTRY_VISIBILITY } from "../scripts/wait-npm-visibility.mjs";
+import { verifyRegistryVisibility } from "./registry-visibility-fixtures.mjs";
 
 const workflowPath = ".github/workflows/windows-ci.yml";
 assert(existsSync(workflowPath), "Windows-CI-Workflow fehlt.");
@@ -61,7 +63,7 @@ for (const required of [
   "if (headSha !== remoteMainSha)",
   "assertAnnotatedTag(tag)",
   "reportDistTagState(version)",
-  "tags.latest !== version",
+  "requireLatest: true",
   'npm(["run", "release:check"])',
   '"--verify-tag", "--prerelease"',
   '"workflow", "run", workflow',
@@ -161,7 +163,15 @@ assert.match(
   "npm-Publish braucht nur Contents-Leserechte und OIDC.",
 );
 assert.match(publishWorkflow, /^    runs-on: windows-2022$/mu);
-assert.match(publishWorkflow, /^    timeout-minutes: 25$/mu);
+const publishJobMinutes = Number(publishWorkflow.match(/^    timeout-minutes: (\d+)$/mu)?.[1]);
+const normalCiMinutes = Number(workflow.match(/^    timeout-minutes: (\d+)$/mu)?.[1]);
+const visibilityStep = publishWorkflow.match(/      - name: Wait for exact API dependency in registry\r?\n        timeout-minutes: (\d+)\r?\n        run: ([^\r\n]+)/u);
+assert(visibilityStep, "Registry-Warteschritt braucht ein eigenes aeusseres Zeitlimit.");
+const visibilityMinutes = Number(visibilityStep[1]);
+assert(visibilityMinutes * 60_000 >= REGISTRY_VISIBILITY.timeoutMs + 60_000,
+  "Der Workflow muss das gemeinsame Registry-Budget samt Abbruchdiagnose zulassen.");
+assert(publishJobMinutes >= normalCiMinutes + visibilityMinutes + 5 && publishJobMinutes <= 60,
+  "Publish braucht neben der normalen CI Zeit fuer Registry-Verarbeitung und beide Publikationen.");
 assert(!/secrets\.|NODE_AUTH_TOKEN|NPM_TOKEN/iu.test(publishWorkflow), "Trusted Publishing darf kein npm-Token verwenden.");
 for (const [action, revision] of Object.entries({
   "actions/checkout": pinnedActions["actions/checkout"],
@@ -197,7 +207,20 @@ for (const command of publishCommands) {
 assert.match(publishWorkflow, /Wait for exact API dependency in registry/u);
 assert.match(publishWorkflow, /API .*bereits veröffentlicht; überspringe den idempotenten Wiederanlauf/u);
 assert.match(publishWorkflow, /MCP .*bereits veröffentlicht; überspringe den idempotenten Wiederanlauf/u);
-assert.match(publishWorkflow, /foreach \(\$attempt in 1\.\.30\)/u);
+assert.equal(visibilityStep[2], "node scripts/wait-npm-visibility.mjs @yadimon/steuer-spar-erklaerung-api");
+const visibilityIndex = publishWorkflow.indexOf(visibilityStep[0]);
+assert(visibilityIndex > publishWorkflow.indexOf(publishCommands.at(-2)) &&
+  visibilityIndex < publishWorkflow.indexOf(publishCommands.at(-1)),
+  "Die exakte API-Dependency muss zwischen API- und MCP-Publish online sichtbar werden.");
+assert.match(releaseCurrent, /import \{ waitForNpmVisibility \} from "\.\/wait-npm-visibility\.mjs"/u);
+assert.match(releaseCurrent, /await waitForNpmVisibility\(\{ packageNames, version, requireLatest: true \}\)/u);
+const finalVisibilityIndex = releaseCurrent.indexOf("await waitForNpmVisibility");
+assert(finalVisibilityIndex > releaseCurrent.indexOf('gh(["run", "watch"') &&
+  finalVisibilityIndex < releaseCurrent.indexOf('npm(["run", "smoke:published"])'),
+  "Versions-/Tag-Konvergenz muss nach dem Workflow und vor dem separaten Registry-Smoke liegen.");
+assert(!releaseCurrent.includes("registryPublicationState(version).published === packageNames.length) break"),
+  "Die alte kurze Registry-Schleife darf nicht parallel bestehen bleiben.");
+await verifyRegistryVisibility();
 
 const contributing = readFileSync("CONTRIBUTING.md", "utf8");
 for (const required of [
