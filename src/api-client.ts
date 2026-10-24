@@ -493,6 +493,7 @@ export async function callApiOperationEnvelope(
   // Antwort zu liefern. Erst danach wird die HTTP-Verbindung abgebrochen.
   const clientTimeoutMs = timeoutMs + 12_000;
   const timer = setTimeout(() => controller.abort(), clientTimeoutMs);
+  let operationResponseReceived = false;
   try {
     const { response, payload } = await withCombinedAbortSignal(
       [controller.signal, settings.signal],
@@ -513,6 +514,7 @@ export async function callApiOperationEnvelope(
             signal,
           },
         );
+        operationResponseReceived = true;
         return { response, payload: await readApiJsonResponse(response) };
       },
     );
@@ -553,7 +555,7 @@ export async function callApiOperationEnvelope(
       );
     }
   } catch (error) {
-    if (error instanceof ApiClientError) throw error;
+    if (error instanceof ApiClientError) throw error.withOperationResponse(operationResponseReceived);
     if (settings.signal?.aborted) {
       throw new ApiClientError(
         "API-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",

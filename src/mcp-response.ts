@@ -135,6 +135,10 @@ export function apiErrorResult(operation: string, result: Record<string, unknown
 }
 
 function apiErrorHint(operation: string, result: Record<string, unknown>): string | undefined {
+  if (result.kind === "protocol" && result.outcomeUnknown === true) {
+    return "Die API-Antwort konnte nicht verlaesslich ausgewertet werden. Der Auftrag kann bereits ausgefuehrt sein. " +
+      "Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
+  }
   if (result.reason === "foreground-required-operation-disabled") {
     return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. " +
       "Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";

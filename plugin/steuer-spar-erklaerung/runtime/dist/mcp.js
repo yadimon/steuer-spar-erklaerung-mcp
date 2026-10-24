@@ -20613,15 +20613,20 @@ var ApiClientError;
 var init_api_client_error = __esm({
   "src/api-client-error.ts"() {
     "use strict";
-    ApiClientError = class extends Error {
-      constructor(message, kind = "api", httpStatus) {
+    ApiClientError = class _ApiClientError extends Error {
+      constructor(message, kind = "api", httpStatus, operationResponseReceived = false) {
         super(message);
         this.kind = kind;
         this.httpStatus = httpStatus;
+        this.operationResponseReceived = operationResponseReceived;
         this.name = "ApiClientError";
       }
       kind;
       httpStatus;
+      operationResponseReceived;
+      withOperationResponse(received) {
+        return this.kind === "protocol" && received ? new _ApiClientError(this.message, this.kind, this.httpStatus, true) : this;
+      }
     };
   }
 });
@@ -24235,6 +24240,7 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
   const controller = new AbortController();
   const clientTimeoutMs = timeoutMs + 12e3;
   const timer = setTimeout(() => controller.abort(), clientTimeoutMs);
+  let operationResponseReceived = false;
   try {
     const { response, payload } = await withCombinedAbortSignal(
       [controller.signal, settings.signal],
@@ -24253,6 +24259,7 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
             signal
           }
         );
+        operationResponseReceived = true;
         return { response: response2, payload: await readApiJsonResponse(response2) };
       }
     );
@@ -24293,7 +24300,7 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
       );
     }
   } catch (error62) {
-    if (error62 instanceof ApiClientError) throw error62;
+    if (error62 instanceof ApiClientError) throw error62.withOperationResponse(operationResponseReceived);
     if (settings.signal?.aborted) {
       throw new ApiClientError(
         "API-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",
@@ -25272,6 +25279,9 @@ function apiErrorResult(operation, result) {
   };
 }
 function apiErrorHint(operation, result) {
+  if (result.kind === "protocol" && result.outcomeUnknown === true) {
+    return "Die API-Antwort konnte nicht verlaesslich ausgewertet werden. Der Auftrag kann bereits ausgefuehrt sein. Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
+  }
   if (result.reason === "foreground-required-operation-disabled") {
     return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";
   }
@@ -43184,7 +43194,7 @@ function createMcpRegistry(server) {
       });
     }
     if (error62 instanceof ApiClientError) {
-      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error62.kind);
+      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.kind === "protocol" && error62.operationResponseReceived;
       return apiErrorResult(operation, {
         ok: false,
         kind: error62.kind,
