@@ -7879,7 +7879,7 @@ function Get-SSETableTypedEditorFocusProof {
 function Test-SSETableFocusedSource {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,$OwnedCell,$ExpectedSource,
     [ref]$FailureReason,[ref]$FailureEvidence,$NumberAnchor,[ref]$NumberEditorProof,$NumberModel,
-    [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$TypedEditorAuthority,[ref]$TypedEditorProof,$NumberPolicy,[ref]$PositionNameProof,[switch]$AllowPositionNameSource)
+    [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$TypedEditorAuthority,[ref]$TypedEditorProof,$NumberPolicy,[ref]$PositionNameProof,[switch]$AllowPositionNameSource,$HelpDocumentSnapshot)
   if ($FailureReason) {$FailureReason.Value='source-focus-unbound'}
   if ($FailureEvidence) {$FailureEvidence.Value=$null}
   try {
@@ -7897,6 +7897,21 @@ function Test-SSETableFocusedSource {
         processId=[int]$current.ProcessId;nativeWindowHandle=[int64]$current.NativeWindowHandle;
         x=$bounds.X;y=$bounds.Y;w=$bounds.Width;h=$bounds.Height};
         exactMatchCount=[int]$nodes.Count;runtimeIdMatchCount=[int]@($Tree.nodes | Where-Object {$_.rid -ceq $rid}).Count}
+    }
+    if ($HelpDocumentSnapshot -and $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Document) {
+      # Reuse the exact profiled/provider-bound Help proof. This authority is
+      # supplied only by native positioning, never by generic cursor reads.
+      $helpBinding=$HelpDocumentSnapshot.navigationBinding
+      if ($RequireNumberEditor -or $TypedEditorAuthority -or
+          $helpBinding.tableRootAid -cne $TableAid -or $helpBinding.tableRootRid -cne $TableRid) {
+        if ($FailureReason) {$FailureReason.Value='source-help-document-unbound'};return $false
+      }
+      $helpProof=Get-SSETableNumberClickSourceProof $Hwnd $ProcessId $Tree $HelpDocumentSnapshot $ExpectedSource
+      if (-not $helpProof.ok -or $helpProof.kind -cne 'help-document') {
+        if ($FailureReason) {$FailureReason.Value='source-help-document-unbound'};return $false
+      }
+      if ($FailureReason) {$FailureReason.Value=$null}
+      return $true
     }
     if (($nodes.Count -eq 0 -or $RequireNumberEditor) -and $NumberAnchor) {
       $numberProof=Get-SSETableNumberAnchorFocusProof $Hwnd $ProcessId $Tree $TableAid $TableRid `
@@ -8022,7 +8037,7 @@ function Test-SSETableNativePositionMainWindowSource {
 function Invoke-SSETableFooterFocus {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,[string]$ExpectedPage,
     $InputBaseline,[string]$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,[switch]$RequireNumberEditor,
-    [int]$ExpectedNumberRow=-1,$TypedEditorAuthority,$NumberPolicy,[switch]$AllowPositionNameSource)
+    [int]$ExpectedNumberRow=-1,$TypedEditorAuthority,$NumberPolicy,[switch]$AllowPositionNameSource,$HelpDocumentSnapshot)
   $reject=[pscustomobject]@{ok=$false;reason='profiled-footer-focus-unbound';button=$null;
     phase='profile-binding';focusAttempted=$false;sourceReason=$null;uncachedReason=$null;
     exceptionType=$null;exceptionMessage=$null;errorRecord=$null;sourceEvidence=$null}
@@ -8056,7 +8071,7 @@ function Invoke-SSETableFooterFocus {
           ([ref]$sourceProofReason) ([ref]$sourceProofEvidence) $NumberAnchor ([ref]$numberEditorProof) $NumberModel `
           -RequireNumberEditor:$RequireNumberEditor -ExpectedNumberRow $ExpectedNumberRow `
           -TypedEditorAuthority $TypedEditorAuthority -TypedEditorProof ([ref]$typedEditorProof) -NumberPolicy $NumberPolicy `
-          -PositionNameProof ([ref]$positionNameProof) -AllowPositionNameSource:$AllowPositionNameSource)) {
+          -PositionNameProof ([ref]$positionNameProof) -AllowPositionNameSource:$AllowPositionNameSource -HelpDocumentSnapshot $HelpDocumentSnapshot)) {
       $reject.sourceReason=$sourceProofReason
       $reject.sourceEvidence=$sourceProofEvidence
       $reject.reason='footer-source-focus-unbound';return $reject
@@ -8122,6 +8137,14 @@ function Invoke-SSETableFooterFocus {
           ($gridRoot.GetRuntimeId() -join '.') -cne $typedEditorProof.tableRid -or
           [string]$gridRoot.Current.AutomationId -cne $typedEditorProof.tableAid) {
         $reject.reason='footer-typed-editor-model-cell-changed';return $reject
+      }
+    }
+    if ($HelpDocumentSnapshot -and $sourceType -eq [System.Windows.Automation.ControlType]::Document) {
+      # The final source check repeats the same proof before the single action;
+      # changed focus, provider, ancestry or editable-document semantics reject.
+      $helpNow=Get-SSETableNumberClickSourceProof $Hwnd $ProcessId $Tree $HelpDocumentSnapshot $sourceExpected
+      if (-not $helpNow.ok -or $helpNow.kind -cne 'help-document') {
+        $reject.reason='footer-help-source-changed';return $reject
       }
     }
     if (-not (Test-SSELastInputUnchanged $InputBaseline) -or
@@ -20142,7 +20165,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $footer=Invoke-SSETableFooterFocus $hwnd $targetPid $latestTableSnapshot.tree `
               $focusedSnapshot.navigationBinding.tableRootAid $focusedSnapshot.navigationBinding.tableRootRid `
               $erst.navigationBinding.heading $navigationState.tick $navigationState.windows.fingerprint $null $focusedSnapshot.ersteZelle `
-              $cursorPlan.numberModel -NumberPolicy $cursorPlan.numberPolicy -AllowPositionNameSource:($cursorPhase -ceq 'native-position-acquire')
+              $cursorPlan.numberModel -NumberPolicy $cursorPlan.numberPolicy -AllowPositionNameSource:($cursorPhase -ceq 'native-position-acquire') `
+              -HelpDocumentSnapshot $(if ($cursorPhase -ceq 'native-position-acquire') {$focusedSnapshot} else {$null})
             $cursorActivation.footerFocus=[pscustomobject]@{ok=[bool]$footer.ok;reason=$footer.reason;phase=$footer.phase;
               focusAttempted=[bool]$footer.focusAttempted;sourceReason=$footer.sourceReason;uncachedReason=$footer.uncachedReason;
               exceptionType=$footer.exceptionType;exceptionMessage=$footer.exceptionMessage;errorRecord=$footer.errorRecord;sourceEvidence=$footer.sourceEvidence}

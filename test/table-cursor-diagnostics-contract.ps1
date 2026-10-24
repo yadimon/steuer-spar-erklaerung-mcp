@@ -65,8 +65,10 @@ function Get-SSETableLiveInputState {
     keyboardEvidence=[pscustomobject]@{focusedSource=[pscustomobject]@{type='Edit';processId=7;aid='Synthetic.Table.(2).BelegNr';rid='10.9'}}}
 }
 function Invoke-SSETableFooterFocus {
-  param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$ExpectedPage,$InputBaseline,$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,$NumberPolicy,[switch]$AllowPositionNameSource)
+  param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$ExpectedPage,$InputBaseline,$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,$NumberPolicy,[switch]$AllowPositionNameSource,$HelpDocumentSnapshot)
   if([bool]$AllowPositionNameSource -ne ($cursorPhase -ceq 'native-position-acquire')) {throw 'Position-name permission was omitted or granted to another cursor phase.'}
+  if(($cursorPhase -ceq 'native-position-acquire' -and $HelpDocumentSnapshot -ne $focusedSnapshot) -or
+      ($cursorPhase -cne 'native-position-acquire' -and $null -ne $HelpDocumentSnapshot)) {throw 'Exact Help source snapshot was omitted or granted outside native positioning.'}
   $script:footerCalls++
   if ($script:mode -like 'position-root-*') {
     $focused=$AE::FocusedElement;$current=$focused.Current;$bounds=$current.BoundingRectangle
@@ -76,10 +78,11 @@ function Invoke-SSETableFooterFocus {
         aid=[string]$current.AutomationId;processId=[int]$current.ProcessId;nativeWindowHandle=[int64]$current.NativeWindowHandle;
         x=$bounds.X;y=$bounds.Y;w=$bounds.Width;h=$bounds.Height};exactMatchCount=0;runtimeIdMatchCount=0}}
   }
-  if ($script:mode -like 'passive-*') {
+  if ($script:mode -like 'passive-*' -or $script:mode -ceq 'position-help-proven') {
     $type=switch ($script:mode) {
       'passive-edit-source' {'Edit';break}
       'passive-document-source' {'Document';break}
+      'position-help-proven' {'Document';break}
       'passive-unknown-source' {'';break}
       default {'Button'}
     }
@@ -88,6 +91,10 @@ function Invoke-SSETableFooterFocus {
       sourceReason=$null;uncachedReason=$null;exceptionType=$null;exceptionMessage=$null;errorRecord=$null;
       sourceEvidence=[pscustomobject]@{focusedSource=[pscustomobject]@{type=$type};exactMatchCount=1;runtimeIdMatchCount=1};
       currentNumberCell=$null}
+  }
+  if ($script:mode -ceq 'position-help-rejected') {
+    return [pscustomobject]@{ok=$false;phase='source-binding';reason='footer-source-focus-unbound';focusAttempted=$false;
+      sourceReason='source-help-document-unbound'}
   }
   if ($script:mode -cin @('position-document-source','position-missing-source')) {
     return [pscustomobject]@{ok=$false;phase='source-binding';reason='footer-source-focus-unbound';focusAttempted=$false;
@@ -281,7 +288,7 @@ foreach ($case in @('position-root-valid','position-root-ordinary','position-roo
 $AE::ThrowFromHandle=$false;$focusedSnapshot=$savedSnapshot;$erst=$savedSnapshot;$latestTableSnapshot=$savedTree
 $cursorPhase='native-position-acquire'
 foreach($case in @('position-empty-selection','position-document-source','position-missing-source','position-passive-proof',
-  'footer-proof','footer-snapshot','lease-checkpoint','lease-publication')) {
+  'position-help-proven','position-help-rejected','footer-proof','footer-snapshot','lease-checkpoint','lease-publication')) {
   $script:mode=$case;$script:cursorReads=0;$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
   $script:leaseCheckpoints=0;$script:leasePublications=0;$script:emitted=$null
   $physicalUsed=$false;$viewportClickSubmitted=$false
@@ -292,7 +299,7 @@ foreach($case in @('position-empty-selection','position-document-source','positi
   $readNavigationGuard={param($Phase) $navigationState.phase=$Phase;$true}
   $readFocusCheckpoint={param($Phase) $navigationState.phase=$Phase;$script:mode -ne 'lease-checkpoint'}
   Invoke-SyntheticCursorAcquire
-  $success=$case -cin @('position-empty-selection','position-document-source','position-missing-source')
+  $success=$case -cin @('position-empty-selection','position-document-source','position-missing-source','position-help-proven')
   if($script:emitted.ok -ne $success) {throw "$case`: position-only passive lease proof mismatch."}
   if($success -and ($script:emitted.activationSubmitted -isnot [bool] -or
       $script:emitted.physicalInputUsed -isnot [bool] -or $script:emitted.physicalInputUsed -or
@@ -302,7 +309,15 @@ foreach($case in @('position-empty-selection','position-document-source','positi
   if($script:anchorCalls -ne 0 -or $script:footerCalls -ne 1) {throw "$case`: position acquisition selected an anchor or retried focus."}
   if($script:emitted.physicalInputUsed -or $script:emitted.steps -ne 0) {throw 'Position acquisition issued input before the broker target action.'}
   if($success -and @($script:emitted.selectedRids).Count) {throw 'An empty Qt selection was replaced by guessed UIA cell authority.'}
-  if(-not $success -and $script:emitted.outcomeUnknown -ne ($case -cne 'footer-proof')) {throw "$case`: dispatched footer focus was reported as a known outcome."}
+  if(-not $success -and $script:emitted.outcomeUnknown -ne ($case -cnotin @('footer-proof','position-help-rejected'))) {throw "$case`: dispatched footer focus was reported as a known outcome."}
+  if($case -ceq 'position-help-proven' -and ($script:emitted.activationSubmitted -cne $true -or
+      $script:snapshotProofs -ne 1 -or $script:leasePublications -ne 1 -or $script:leaseCheckpoints -ne 1)) {
+    throw 'Exact Help source omitted its full after-focus readback or final lease proof.'
+  }
+  if($case -ceq 'position-help-rejected' -and ($script:snapshotProofs -ne 0 -or $script:leasePublications -ne 0 -or
+      $script:cursorReads -ne 1 -or $cursorActivation.footerFocus.sourceReason -cne 'source-help-document-unbound')) {
+    throw 'A rejected Help proof delegated to native or lost its precise no-action reason.'
+  }
   if($case -cin @('position-document-source','position-missing-source') -and
       ($script:snapshotProofs -ne 0 -or $script:emitted.activationSubmitted -or $script:leasePublications -ne 1)) {
     throw 'Unattempted UIA source delegation changed focus or omitted its exact passive lease.'
@@ -313,6 +328,7 @@ if (Test-SSETableNativeFocusDelegation 'native-acquire' $unavailable) {throw 'Or
 foreach ($invalid in @(
   @{ok=$false;focusAttempted=$true;reason='footer-source-focus-unbound';sourceReason='source-control-type-unbound'},
   @{ok=$false;focusAttempted=$false;reason='footer-source-focus-unbound';sourceReason='source-editor-or-owned-cell-unbound'},
+  @{ok=$false;focusAttempted=$false;reason='footer-source-focus-unbound';sourceReason='source-help-document-unbound'},
   @{ok=$false;focusAttempted=$false;reason='footer-input-epoch-unbound';sourceReason='source-control-type-unbound'},
   @{ok=$false;reason='footer-source-focus-unbound';sourceReason='source-control-type-unbound'}
 )) {
