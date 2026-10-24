@@ -20670,12 +20670,20 @@ function responseHeaders(rawHeaders) {
   }
   return headers;
 }
-var LOOPBACK_HOSTS, NULL_BODY_STATUSES, localHttpFetch;
+var LOOPBACK_HOSTS, NULL_BODY_STATUSES, HttpResponseRejectedError, localHttpFetch;
 var init_local_http_transport = __esm({
   "src/local-http-transport.ts"() {
     "use strict";
     LOOPBACK_HOSTS = /* @__PURE__ */ new Set(["127.0.0.1", "[::1]", "::1"]);
     NULL_BODY_STATUSES = /* @__PURE__ */ new Set([204, 205, 304]);
+    HttpResponseRejectedError = class extends TypeError {
+      constructor(message, status, options) {
+        super(message, options);
+        this.status = status;
+        this.name = "HttpResponseRejectedError";
+      }
+      status;
+    };
     localHttpFetch = async (input2, init) => {
       const url2 = requestUrl(input2);
       const method = requestMethod(init);
@@ -20695,12 +20703,12 @@ var init_local_http_transport = __esm({
             const status = incoming.statusCode;
             if (status === void 0 || status < 200 || status > 599) {
               incoming.destroy();
-              reject(new TypeError(`SSE-HTTP-Transport erhielt ungueltigen Status ${String(status)}.`));
+              reject(new HttpResponseRejectedError(`SSE-HTTP-Transport erhielt ungueltigen Status ${String(status)}.`, status));
               return;
             }
             if (init?.redirect === "error" && status >= 300 && status < 400) {
               incoming.destroy();
-              reject(new TypeError(`SSE-HTTP-Transport verweigert Redirectstatus ${status}.`));
+              reject(new HttpResponseRejectedError(`SSE-HTTP-Transport verweigert Redirectstatus ${status}.`, status));
               return;
             }
             try {
@@ -20716,7 +20724,7 @@ var init_local_http_transport = __esm({
               ));
             } catch (error62) {
               incoming.destroy();
-              reject(error62);
+              reject(new HttpResponseRejectedError(error62 instanceof Error ? error62.message : String(error62), status, { cause: error62 }));
             }
           });
         } catch (error62) {
@@ -20727,6 +20735,63 @@ var init_local_http_transport = __esm({
         outgoing.end(body);
       });
     };
+  }
+});
+
+// src/api-transport-failure.ts
+function transportCodeFrom(value) {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+    const record2 = value;
+    if (typeof record2.code !== "string") return void 0;
+    return /^[A-Z][A-Z0-9_]{1,63}$/u.test(record2.code) ? record2.code : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function transportFailureCode(error62) {
+  const directCode = transportCodeFrom(error62);
+  if (directCode) return directCode;
+  try {
+    const cause = error62 instanceof Error ? error62.cause : void 0;
+    return transportCodeFrom(cause);
+  } catch {
+    return void 0;
+  }
+}
+function networkErrorMessage(prefix, error62, code) {
+  const detail = error62 instanceof Error ? error62.message : String(error62);
+  return `${prefix}${code ? ` (${code})` : ""}: ${detail}`;
+}
+function isUnknownOperationTransportCode(code) {
+  return HTTP_TRANSPORT_STATE_UNKNOWN_CODES.has(code) || /^HPE_[A-Z0-9_]+$/u.test(code);
+}
+function operationResponseRejection(error62) {
+  if (!(error62 instanceof HttpResponseRejectedError)) return void 0;
+  return new ApiClientError(
+    `SSE-API-Antwort ist ungueltig: ${error62.message}`,
+    "protocol",
+    error62.status,
+    true
+  );
+}
+var HTTP_TRANSPORT_TIMEOUT_CODES, HTTP_TRANSPORT_STATE_UNKNOWN_CODES;
+var init_api_transport_failure = __esm({
+  "src/api-transport-failure.ts"() {
+    "use strict";
+    init_api_client_error();
+    init_local_http_transport();
+    HTTP_TRANSPORT_TIMEOUT_CODES = /* @__PURE__ */ new Set([
+      "UND_ERR_HEADERS_TIMEOUT",
+      "UND_ERR_BODY_TIMEOUT"
+    ]);
+    HTTP_TRANSPORT_STATE_UNKNOWN_CODES = /* @__PURE__ */ new Set([
+      "ECONNRESET",
+      "ECONNABORTED",
+      "EPIPE",
+      "ERR_STREAM_PREMATURE_CLOSE",
+      "UND_ERR_SOCKET"
+    ]);
   }
 });
 
@@ -24025,28 +24090,6 @@ function apiResponseError(payload, status) {
   const kind = typeof error62?.code === "string" ? error62.code : "http";
   return new ApiClientError(`SSE-API: ${message}`, kind, status);
 }
-function transportCodeFrom(value) {
-  try {
-    if (!isRecord(value) || typeof value.code !== "string") return void 0;
-    return /^[A-Z][A-Z0-9_]{1,63}$/u.test(value.code) ? value.code : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function transportFailureCode(error62) {
-  const directCode = transportCodeFrom(error62);
-  if (directCode) return directCode;
-  try {
-    const cause = error62 instanceof Error ? error62.cause : void 0;
-    return transportCodeFrom(cause);
-  } catch {
-    return void 0;
-  }
-}
-function networkErrorMessage(prefix, error62, code) {
-  const detail = error62 instanceof Error ? error62.message : String(error62);
-  return `${prefix}${code ? ` (${code})` : ""}: ${detail}`;
-}
 function hasJsonContentType(response) {
   const contentType = response.headers.get("content-type") ?? "";
   return contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
@@ -24313,6 +24356,8 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
         "timeout"
       );
     }
+    const rejectedResponse = operationResponseRejection(error62);
+    if (rejectedResponse) throw rejectedResponse;
     const transportCode = transportFailureCode(error62);
     if (transportCode && HTTP_TRANSPORT_TIMEOUT_CODES.has(transportCode)) {
       throw new ApiClientError(
@@ -24320,7 +24365,7 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
         "timeout"
       );
     }
-    if (transportCode && HTTP_TRANSPORT_STATE_UNKNOWN_CODES.has(transportCode)) {
+    if (transportCode && isUnknownOperationTransportCode(transportCode)) {
       throw new ApiClientError(
         networkErrorMessage("SSE-API-Verbindung brach waehrend des Operationsaufrufs ab", error62, transportCode) + " Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
         "transport-unknown"
@@ -24334,7 +24379,7 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
 async function callApiOperation(operation, args = {}, timeoutMs = 9e4, options = {}) {
   return (await callApiOperationEnvelope(operation, args, timeoutMs, options)).result;
 }
-var UUID_V4, HTTP_TRANSPORT_TIMEOUT_CODES, HTTP_TRANSPORT_STATE_UNKNOWN_CODES, MAX_API_DOCUMENT_BYTES, API_DOCUMENT_TIMEOUT_MS;
+var UUID_V4, MAX_API_DOCUMENT_BYTES, API_DOCUMENT_TIMEOUT_MS;
 var init_api_client = __esm({
   "src/api-client.ts"() {
     "use strict";
@@ -24342,6 +24387,7 @@ var init_api_client = __esm({
     init_abort();
     init_zod();
     init_api_client_error();
+    init_api_transport_failure();
     init_local_http_transport();
     init_operation_catalog();
     init_result_contract();
@@ -24350,17 +24396,6 @@ var init_api_client = __esm({
     init_api_contract();
     init_api_client_error();
     UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    HTTP_TRANSPORT_TIMEOUT_CODES = /* @__PURE__ */ new Set([
-      "UND_ERR_HEADERS_TIMEOUT",
-      "UND_ERR_BODY_TIMEOUT"
-    ]);
-    HTTP_TRANSPORT_STATE_UNKNOWN_CODES = /* @__PURE__ */ new Set([
-      "ECONNRESET",
-      "ECONNABORTED",
-      "EPIPE",
-      "ERR_STREAM_PREMATURE_CLOSE",
-      "UND_ERR_SOCKET"
-    ]);
     MAX_API_DOCUMENT_BYTES = 1024 * 1024;
     API_DOCUMENT_TIMEOUT_MS = 1e4;
   }

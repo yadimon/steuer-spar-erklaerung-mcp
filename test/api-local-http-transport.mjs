@@ -4,7 +4,7 @@ import { createServer as createHttpServer } from "node:http";
 import { callApiOperation, callApiOperationEnvelope, readApiDiscovery, readApiHealthz } from "../dist/api-client.js";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
-import { localHttpFetch } from "../dist/local-http-transport.js";
+import { HttpResponseRejectedError, localHttpFetch } from "../dist/local-http-transport.js";
 
 const server = createSseApiServer({
   execute: async () => ({ ok: true, running: false }),
@@ -100,9 +100,11 @@ try {
 
   await assert.rejects(
     localHttpFetch(`${rawBaseUrl}/redirect`, { redirect: "error" }),
-    /verweigert Redirectstatus 302/u,
+    error => error instanceof TypeError && error instanceof HttpResponseRejectedError &&
+      error.status === 302 && /verweigert Redirectstatus 302/u.test(error.message),
   );
-  await assert.rejects(localHttpFetch("http://192.0.2.10:43127/"), /ausschliesslich fuer Loopback/u);
+  await assert.rejects(localHttpFetch("http://192.0.2.10:43127/"),
+    error => error instanceof TypeError && !(error instanceof HttpResponseRejectedError) && /ausschliesslich fuer Loopback/u.test(error.message));
   await assert.rejects(localHttpFetch(`http://user:secret@127.0.0.1:${rawAddress.port}/echo`), /keine URL-Zugangsdaten/u);
   await assert.rejects(localHttpFetch(`${rawBaseUrl}/echo`, { method: "DELETE" }), /nur GET und POST/u);
   await assert.rejects(
