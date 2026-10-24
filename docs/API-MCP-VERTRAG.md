@@ -753,6 +753,15 @@ werden; eine ungültige Antwort löst keine automatische Wiederholung aus.
 Protokollfehler der vorgeschalteten Healthz-Prüfung verhindern dagegen bereits
 den Operations-POST und werden nicht als möglicherweise ausgeführter Auftrag markiert.
 
+Lehnt der lokale HTTP-Transport die Operationsantwort schon vor der JSON-Prüfung
+ab, etwa wegen eines Redirects oder eines ungültigen HTTP-Status, gelten dieselben
+Ungewissheitsregeln. HTTP-Parserfehler (`HPE_*`) während eines Operationsaufrufs
+werden als `transport-unknown` gemeldet. Weder solche Antworten noch ein
+Verbindungsabbruch lösen eine automatische Schreibwiederholung aus. Eine
+weiterhin erfolglose vorgeschaltete Healthz-Prüfung startet auch nach den
+erlaubten rein lesenden Proben keinen Operations-POST. Ein tatsächlich
+verweigerter Verbindungsaufbau bleibt `network`.
+
 Die gültigen HTTP-Nullbody-Statuscodes 204, 205 und 304 werden ohne
 synthetischen Web-Stream abgebildet; 304 bleibt bei `redirect=error` dennoch
 vorher gesperrt. Dadurch entstehen an dieser Adaptergrenze keine internen

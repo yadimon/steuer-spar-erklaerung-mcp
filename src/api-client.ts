@@ -14,6 +14,10 @@ import {
 import { withCombinedAbortSignal } from "./abort.js";
 import { ZodError } from "zod";
 import { ApiClientError } from "./api-client-error.js";
+import {
+  HTTP_TRANSPORT_TIMEOUT_CODES, isUnknownOperationTransportCode, networkErrorMessage,
+  operationResponseRejection, transportFailureCode,
+} from "./api-transport-failure.js";
 import { localHttpFetch } from "./local-http-transport.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
 import { parseApiOperationResult, SSE_API_RESULT_SCHEMA_VERSION } from "./result-contract.js";
@@ -177,48 +181,6 @@ export function apiResponseError(payload: Record<string, unknown>, status: numbe
   const message = typeof error?.message === "string" ? error.message : `HTTP ${status}`;
   const kind = typeof error?.code === "string" ? error.code : "http";
   return new ApiClientError(`SSE-API: ${message}`, kind, status);
-}
-
-const HTTP_TRANSPORT_TIMEOUT_CODES = new Set([
-  "UND_ERR_HEADERS_TIMEOUT",
-  "UND_ERR_BODY_TIMEOUT",
-]);
-const HTTP_TRANSPORT_STATE_UNKNOWN_CODES = new Set([
-  "ECONNRESET",
-  "ECONNABORTED",
-  "EPIPE",
-  "ERR_STREAM_PREMATURE_CLOSE",
-  "UND_ERR_SOCKET",
-]);
-
-function transportCodeFrom(value: unknown): string | undefined {
-  try {
-    if (!isRecord(value) || typeof value.code !== "string") return undefined;
-    return /^[A-Z][A-Z0-9_]{1,63}$/u.test(value.code) ? value.code : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function transportFailureCode(error: unknown): string | undefined {
-  const directCode = transportCodeFrom(error);
-  if (directCode) return directCode;
-  try {
-    const cause = error instanceof Error
-      ? (error as Error & { cause?: unknown }).cause
-      : undefined;
-    return transportCodeFrom(cause);
-  } catch {
-    // Fehlerobjekte stammen von der Transportgrenze und koennen fremde
-    // Getter besitzen. Deren Diagnose darf den eigentlichen Fehler nicht
-    // durch einen zweiten Ausnahmefehler verdecken.
-    return undefined;
-  }
-}
-
-function networkErrorMessage(prefix: string, error: unknown, code?: string): string {
-  const detail = error instanceof Error ? error.message : String(error);
-  return `${prefix}${code ? ` (${code})` : ""}: ${detail}`;
 }
 
 function hasJsonContentType(response: Response): boolean {
@@ -569,6 +531,8 @@ export async function callApiOperationEnvelope(
         "timeout",
       );
     }
+    const rejectedResponse = operationResponseRejection(error);
+    if (rejectedResponse) throw rejectedResponse;
     const transportCode = transportFailureCode(error);
     if (transportCode && HTTP_TRANSPORT_TIMEOUT_CODES.has(transportCode)) {
       throw new ApiClientError(
@@ -577,7 +541,7 @@ export async function callApiOperationEnvelope(
         "timeout",
       );
     }
-    if (transportCode && HTTP_TRANSPORT_STATE_UNKNOWN_CODES.has(transportCode)) {
+    if (transportCode && isUnknownOperationTransportCode(transportCode)) {
       throw new ApiClientError(
         networkErrorMessage("SSE-API-Verbindung brach waehrend des Operationsaufrufs ab", error, transportCode) +
           " Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",

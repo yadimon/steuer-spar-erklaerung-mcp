@@ -4,6 +4,14 @@ import { Readable } from "node:stream";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "[::1]", "::1"]);
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 
+/** The peer replied, but its response cannot be represented by this transport. */
+export class HttpResponseRejectedError extends TypeError {
+  constructor(message: string, readonly status: number | undefined, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "HttpResponseRejectedError";
+  }
+}
+
 function requestUrl(input: string | URL | Request): URL {
   if (typeof input !== "string" && !(input instanceof URL)) {
     throw new TypeError("Interner SSE-HTTP-Transport akzeptiert keine Request-Objekte.");
@@ -69,12 +77,12 @@ export const localHttpFetch: typeof fetch = async (input, init) => {
         const status = incoming.statusCode;
         if (status === undefined || status < 200 || status > 599) {
           incoming.destroy();
-          reject(new TypeError(`SSE-HTTP-Transport erhielt ungueltigen Status ${String(status)}.`));
+          reject(new HttpResponseRejectedError(`SSE-HTTP-Transport erhielt ungueltigen Status ${String(status)}.`, status));
           return;
         }
         if (init?.redirect === "error" && status >= 300 && status < 400) {
           incoming.destroy();
-          reject(new TypeError(`SSE-HTTP-Transport verweigert Redirectstatus ${status}.`));
+          reject(new HttpResponseRejectedError(`SSE-HTTP-Transport verweigert Redirectstatus ${status}.`, status));
           return;
         }
         try {
@@ -92,7 +100,7 @@ export const localHttpFetch: typeof fetch = async (input, init) => {
           ));
         } catch (error) {
           incoming.destroy();
-          reject(error);
+          reject(new HttpResponseRejectedError(error instanceof Error ? error.message : String(error), status, { cause: error }));
         }
       });
     } catch (error) {

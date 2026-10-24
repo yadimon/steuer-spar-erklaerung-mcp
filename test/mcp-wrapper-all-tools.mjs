@@ -65,8 +65,19 @@ let forcedOperationResults = {};
 let forceTransportReset = false;
 let forceMalformedJson = false;
 let forceIncompatibleHealth = false;
+let forcedHttpStatus;
+let forcedHealthStatus;
+let forcedRawResponse;
+let healthProbeCalls = 0;
 const api = createServer(async (request, response) => {
   if (request.url === "/healthz") {
+    healthProbeCalls += 1;
+    if (forcedHealthStatus !== undefined) {
+      const status = forcedHealthStatus;
+      response.writeHead(status, { location: "/healthz" });
+      response.end();
+      return;
+    }
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       ok: true,
@@ -99,6 +110,19 @@ const api = createServer(async (request, response) => {
   assert(operation, `Unerwarteter API-Pfad: ${request.url}`);
   const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
   calls.push({ operation, args: body.args ?? {} });
+  if (forcedRawResponse !== undefined) {
+    const raw = forcedRawResponse;
+    forcedRawResponse = undefined;
+    response.socket.end(raw);
+    return;
+  }
+  if (forcedHttpStatus !== undefined) {
+    const status = forcedHttpStatus;
+    forcedHttpStatus = undefined;
+    response.writeHead(status, { location: "/v1/operations/table_update" });
+    response.end();
+    return;
+  }
   const defaultResult = {
     ok: true,
     operation,
@@ -361,6 +385,49 @@ try {
     assert.match(result.structuredContent.hint, /keine automatische Schreibwiederholung/u, failureMode);
     assert.deepEqual(calls.slice(before).map((call) => call.operation), ["table_update"],
       `${failureMode}: an invalid response must not replay the already received write.`);
+  }
+
+  for (const status of [302, 304, 601]) {
+    const before = calls.length;
+    forcedHttpStatus = status;
+    const result = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent.kind, "protocol", `HTTP ${status}`);
+    assert.equal(result.structuredContent.outcomeUnknown, true, `HTTP ${status}`);
+    assert.equal(result.structuredContent.reconciliationRequired, true, `HTTP ${status}`);
+    assert.equal(result.structuredContent.retryable, false, `HTTP ${status}`);
+    assert.match(result.structuredContent.hint, /keine automatische Schreibwiederholung/u);
+    assert.deepEqual(calls.slice(before).map(call => call.operation), ["table_update"],
+      `HTTP ${status}: never follow or replay a received operation POST.`);
+  }
+
+  for (const raw of [
+    "HTTP/1.1 200 OK\r\nBad Header: value\r\nContent-Length: 0\r\n\r\n",
+    "HTTP/1.1 XXX Bad\r\nContent-Length: 0\r\n\r\n",
+  ]) {
+    const before = calls.length;
+    forcedRawResponse = raw;
+    const result = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent.kind, "transport-unknown");
+    assert.equal(result.structuredContent.outcomeUnknown, true);
+    assert.equal(result.structuredContent.reconciliationRequired, true);
+    assert.equal(result.structuredContent.retryable, false);
+    assert.deepEqual(calls.slice(before).map(call => call.operation), ["table_update"]);
+  }
+
+  for (const status of [302, 601]) {
+    const before = calls.length;
+    const probesBefore = healthProbeCalls;
+    forcedHealthStatus = status;
+    const result = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+    forcedHealthStatus = undefined;
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent.kind, "network", `Health HTTP ${status}`);
+    assert.equal(result.structuredContent.outcomeUnknown, undefined);
+    assert.equal(result.structuredContent.reconciliationRequired, undefined);
+    assert.equal(calls.length, before, "An invalid health response must not dispatch a write.");
+    assert.equal(healthProbeCalls - probesBefore, 2, "Only the existing bounded read-only health reprobe is allowed.");
   }
 
   const desktopPeers = [{ pid: 102, hwnd: 43, title: "Synthetic additional instance" }];

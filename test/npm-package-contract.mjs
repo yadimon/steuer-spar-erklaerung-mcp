@@ -127,6 +127,7 @@ for (const required of [
   "dist/api-first-run.js",
   "dist/api-runtime.js",
   "dist/api-cli.js",
+  "dist/api-transport-failure.js",
   "dist/local-http-transport.js",
   "dist/api-discovery.js",
   "dist/api-openapi.js",
@@ -156,6 +157,7 @@ assert(mcp.manifest.size < 2 * 1024 * 1024, `MCP-Paket ist unerwartet gross: ${m
 for (const required of [
   "dist/index.js",
   "dist/api-client.js",
+  "dist/api-transport-failure.js",
   "dist/local-http-transport.js",
   "dist/mcp-main.js",
   "dist/mcp-api-supervisor.js",
