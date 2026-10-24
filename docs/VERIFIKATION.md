@@ -319,6 +319,30 @@ Für produktfreie Teilstrecken stehen `npm run perf:tax-journeys`,
 Rahmen dazu ist in [`test/performance/README.md`](../test/performance/README.md)
 beschrieben.
 
+Der produktfreie Lasttest prüft auch einen frühen Testfehler zusammen mit einem
+Fehler beim Schließen der eigenen API oder des MCP-Prozesses. Im Fehlerabschluss wird ein
+fehlgeschlagenes Schließen einmal erneut versucht. Scheitern beide Versuche,
+führt der Abschluss die bestehende Freigabe der eigenen API oder des Transports direkt aus.
+Die Prüfungen der Prozessidentität und bestätigten Ruhephasen bleiben bestehen;
+`apiForcedRelease` und `mcpForcedRelease` kennzeichnen diese zusätzliche Freigabe
+getrennt. Eigene Prozessregressionen prüfen auch das natürliche Ende des äußeren Prüfers.
+Fehlerberichte behalten in `primaryFailureStage` und `primaryErrorName` die
+ursprüngliche Fehlerstelle und Fehlerklasse. `cleanupFailureStages` hält die
+Bereinigungsfehler einschließlich Wiederholungsfehlern und Fehlern beim Anlegen
+des Fehlerindexes fest. Ein Fehler im abschließenden Erfolgsindex
+(`artifact-index`) ist selbst die ursprüngliche Fehlerstelle und erscheint
+deshalb nicht zusätzlich unter `cleanupFailureStages`.
+Ist die Bereinigung selbst der erste Fehler, steht ihre Stelle auch als
+ursprüngliche Fehlerstelle im Bericht. Das bisherige `failureStage` behält bei
+einem gescheiterten Schließversuch samt Wiederholung die gemeinsame
+Bereinigungsphase. Eine erfolgreiche Bereinigung macht den fehlgeschlagenen
+Test nicht erfolgreich. Auch ein gescheiterter Abschlussbericht erhält die
+ursprüngliche Ursache in der geworfenen Fehlerkette. Ein selbst angelegter,
+unvollständiger Fehlerindex wird nur nach erneuter Verzeichnis- und Dateibindung
+entfernt; eine bereits vor dem Schreibversuch vorhandene Datei bleibt erhalten.
+Derselbe Dateischutz gilt für den Erfolgsindex. Auch ein Fehler beim Schließen
+des Index-Dateihandles darf einen vorherigen Schreibfehler nicht verdecken.
+
 Die drei Nachweise sind getrennt zu bewerten: `test:live` prüft die installierte
 Anwendung über seine deklarierten Live-Schritte; `perf:api-mega` prüft eine
 zusammenhängende HTTP-Reise im ausdrücklich gewählten Backend; der produktfreie

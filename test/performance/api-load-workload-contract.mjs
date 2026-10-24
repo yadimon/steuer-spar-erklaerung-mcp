@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -57,6 +57,59 @@ function sha256File(path) {
 
 function statSize(path) {
   return readFileSync(path).length;
+}
+
+function assertFailedWorkloadResources(output, quiescenceGapMs) {
+  const cleanup = readJson(join(output, "cleanup.json"));
+  assert.equal(cleanup.completionStatus, "failed");
+  assert.match(cleanup.primaryFailureStage, /^[a-z][a-z0-9-]+$/u);
+  assert.match(cleanup.primaryErrorName, /^[A-Za-z][A-Za-z0-9]{0,63}$/u);
+  assert(Array.isArray(cleanup.cleanupFailureStages));
+  assert(cleanup.cleanupFailureStages.every(stage => /^[a-z][a-z0-9-]+$/u.test(stage)));
+  assert.equal(cleanup.scratchRemoved, true);
+  assert.equal(cleanup.apiOwnershipRetained, false);
+  assert.equal(cleanup.apiListening, false);
+  assert(["not-needed", "released"].includes(cleanup.apiForcedRelease));
+  assert.equal(cleanup.mcpOwnershipRetained, false);
+  assert.equal(cleanup.mcpClientActive, false);
+  assert(["not-needed", "released"].includes(cleanup.mcpForcedRelease));
+  assert.equal(cleanup.executorActive, 0);
+  assert.equal(cleanup.observerStopped, true);
+  assert.equal(cleanup.identityBoundMcpAliveCount, 0);
+  assert.equal(cleanup.ownedDescendantAliveCount, 0);
+  assert(cleanup.ownedMcpProcessStates.every(entry => entry.identityBound && entry.identityMatchedAlive === false));
+  assert.deepEqual(cleanup.unboundMcpPidOccupancies, []);
+  assert(cleanup.finalQuiescence, "Failure cleanup needs fresh owned-process quiescence evidence.");
+  assert(cleanup.finalQuiescence.first.sequence > cleanup.finalQuiescence.floorSequence);
+  assert(cleanup.finalQuiescence.second.sequence > cleanup.finalQuiescence.first.sequence);
+  assert(cleanup.finalQuiescence.gapMs >= quiescenceGapMs);
+  assert.equal(cleanup.finalQuiescence.first.liveOwnedChildren, 0);
+  assert.equal(cleanup.finalQuiescence.second.liveOwnedChildren, 0);
+  assert.equal(cleanup.lastObserverState.liveOwnedChildren, 0);
+  assert.equal(cleanup.lastObserverState.sseProcessCount, 0);
+  assert.equal(existsSync(join(output, ".scratch")), false);
+  assert(!/[A-Z]:\\|file:\/\/|\\\\|sse-lab|Users\\|https?:\/\//iu.test(JSON.stringify(cleanup)));
+  return cleanup;
+}
+
+function assertFailedWorkloadClean(output, quiescenceGapMs) {
+  const cleanup = assertFailedWorkloadResources(output, quiescenceGapMs);
+  const failureIndex = readJson(join(output, "failure-artifacts.json"));
+  assert.deepEqual(failureIndex.map(entry => entry.relativePath), [
+    "executor-calls.jsonl", "lifecycle.jsonl", "operations.jsonl", "run.json", "windows-resources.jsonl",
+  ]);
+  for (const entry of failureIndex) {
+    const artifactPath = join(output, entry.relativePath);
+    assert.equal(statSize(artifactPath), entry.bytes);
+    assert.equal(sha256File(artifactPath), entry.sha256);
+  }
+  const failureEvidence = JSON.stringify({
+    indexed: Object.fromEntries(failureIndex.map(entry => [entry.relativePath, readFileSync(join(output, entry.relativePath), "utf8")])),
+    cleanup,
+    failureIndex,
+  });
+  assert(!/[A-Z]:\\|file:\/\/|\\\\|sse-lab|Users\\|https?:\/\//iu.test(failureEvidence));
+  return cleanup;
 }
 
 test("arrival and soak plans are deterministic, fair and explicitly client-scheduled", () => {
@@ -311,6 +364,8 @@ test("compact real HTTP/MCP workload proves arrivals, lifecycle, telemetry and c
 
   const cleanup = readJson(join(output, "cleanup.json"));
   assert.equal(cleanup.completionStatus, "passed");
+  assert.equal(cleanup.apiForcedRelease, "not-needed");
+  assert.equal(cleanup.mcpForcedRelease, "not-needed");
   assert.equal(cleanup.scratchRemoved, true);
   assert.equal(cleanup.apiOwnershipRetained, false);
   assert.equal(cleanup.apiListening, false);
@@ -400,42 +455,242 @@ test("injected API, MCP and observer close failures retain ownership, retry clea
       runApiLoadWorkload({ output }, { ...common, ...injection }),
       expected,
     );
-    const cleanup = readJson(join(output, "cleanup.json"));
-    assert.equal(cleanup.completionStatus, "failed");
-    assert.equal(cleanup.scratchRemoved, true);
-    assert.equal(cleanup.apiOwnershipRetained, false);
-    assert.equal(cleanup.apiListening, false);
-    assert.equal(cleanup.mcpOwnershipRetained, false);
-    assert.equal(cleanup.mcpClientActive, false);
-    assert.equal(cleanup.executorActive, 0);
-    assert.equal(cleanup.observerStopped, true);
-    assert.equal(cleanup.identityBoundMcpAliveCount, 0);
-    assert.equal(cleanup.ownedDescendantAliveCount, 0);
-    assert(cleanup.ownedMcpProcessStates.every((entry) => entry.identityBound && entry.identityMatchedAlive === false));
-    assert.deepEqual(cleanup.unboundMcpPidOccupancies, []);
-    assert(cleanup.finalQuiescence, "Failure cleanup needs fresh owned-process quiescence evidence.");
-    assert(cleanup.finalQuiescence.first.sequence > cleanup.finalQuiescence.floorSequence);
-    assert(cleanup.finalQuiescence.second.sequence > cleanup.finalQuiescence.first.sequence);
-    assert(cleanup.finalQuiescence.gapMs >= common.quiescenceGapMs);
-    assert.equal(cleanup.finalQuiescence.first.liveOwnedChildren, 0);
-    assert.equal(cleanup.finalQuiescence.second.liveOwnedChildren, 0);
-    assert.equal(cleanup.lastObserverState.liveOwnedChildren, 0);
-    assert.equal(cleanup.lastObserverState.sseProcessCount, 0);
-    assert.equal(existsSync(join(output, ".scratch")), false);
-    const failureIndex = readJson(join(output, "failure-artifacts.json"));
-    assert.deepEqual(failureIndex.map((entry) => entry.relativePath), [
-      "executor-calls.jsonl", "lifecycle.jsonl", "operations.jsonl", "run.json", "windows-resources.jsonl",
-    ]);
-    for (const entry of failureIndex) {
-      const artifactPath = join(output, entry.relativePath);
-      assert.equal(statSize(artifactPath), entry.bytes);
-      assert.equal(sha256File(artifactPath), entry.sha256);
-    }
-    const failureEvidence = JSON.stringify({
-      indexed: Object.fromEntries(failureIndex.map((entry) => [entry.relativePath, readFileSync(join(output, entry.relativePath), "utf8")])),
-      cleanup,
-      failureIndex,
-    });
-    assert(!/[A-Z]:\\|file:\/\/|\\\\|sse-lab|Users\\|https?:\/\//iu.test(failureEvidence));
+    assertFailedWorkloadClean(output, common.quiescenceGapMs);
   }
+  const startupCleanup = readJson(join(parent, "startup-api-close", "cleanup.json"));
+  assert.equal(startupCleanup.primaryFailureStage, "api-mcp-start");
+  assert.deepEqual(startupCleanup.cleanupFailureStages, ["api-cleanup"]);
+});
+
+test("primary failure plus MCP cleanup failure keeps the cause and ends owned helpers", { timeout: 45_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-primary-close-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run");
+  let failure;
+  await assert.rejects(async () => {
+    try {
+      await runApiLoadWorkload({ output }, {
+        allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+        soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+        quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+        failAfterMcpStartOnce: true, failBeforeMcpCloseOnce: true,
+      });
+    } catch (error) { failure = error; throw error; }
+  }, /Load workload and MCP cleanup failed/u);
+  assert(failure instanceof AggregateError);
+  assert.equal(failure.errors[0].message, "Injected MCP workload startup failure.");
+  assert.equal(failure.errors[1].message, "Injected MCP close failure before ownership release.");
+  const cleanup = assertFailedWorkloadClean(output, 1_000);
+  assert.equal(cleanup.primaryFailureStage, "api-mcp-start");
+  assert.equal(cleanup.primaryErrorName, "Error");
+  assert.deepEqual(cleanup.cleanupFailureStages, ["mcp-cleanup"]);
+  assert.equal(cleanup.mcpForcedRelease, "not-needed");
+});
+
+for (const [transport, hook, prefix] of [["MCP", "beforeMcpClose", "mcp"], ["API", "beforeApiClose", "api"]]) {
+test(`repeated ${transport} close failures release owned helpers and let the outer process exit naturally`, { timeout: 45_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), `sse-api-load-repeated-${prefix}-close-`));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run");
+  const driver = `
+    import assert from "node:assert/strict";
+    import { runApiLoadWorkload } from ${JSON.stringify(new URL("./run-api-load-workload.mjs", import.meta.url).href)};
+    let calls = 0;
+    let failure;
+    try {
+      await runApiLoadWorkload({ output: process.argv[1] }, {
+        allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+        soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+        quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+        failAfterMcpStartOnce: true,
+        ${hook}: () => { calls++; throw new Error("Injected repeated ${transport} close failure."); },
+      });
+    } catch (error) { failure = error; }
+    assert.equal(calls, 2);
+    assert(failure instanceof AggregateError);
+    assert.equal(failure.message, "${transport} cleanup recovery failed.");
+    assert.equal(failure.errors[0].errors[0].message, "Injected MCP workload startup failure.");
+    assert.equal(failure.errors[0].errors[1].message, "Injected repeated ${transport} close failure.");
+    assert.equal(failure.errors[1].message, "Injected repeated ${transport} close failure.");
+  `;
+  await runStep({ name: `repeated-${prefix}-close-natural-exit`, command: process.execPath,
+    args: ["--input-type=module", "-e", driver, output], timeoutMs: 30_000, maxOutputBytes: 64 * 1024 });
+  const cleanup = assertFailedWorkloadClean(output, 1_000);
+  assert.equal(cleanup.primaryFailureStage, "api-mcp-start");
+  assert.equal(cleanup.failureStage, `${prefix}-cleanup`);
+  assert.equal(cleanup.primaryErrorName, "Error");
+  assert.deepEqual(cleanup.cleanupFailureStages, [`${prefix}-cleanup`, `${prefix}-cleanup-retry`]);
+  assert.equal(cleanup[`${prefix}ForcedRelease`], "released");
+});
+}
+
+test("failure artifact indexing preserves the primary cause and later failure stage", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-failure-index-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run");
+  let failure;
+  await assert.rejects(async () => {
+    try {
+      await runApiLoadWorkload({ output }, {
+        allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+        soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+        quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+        failAfterMcpStartOnce: true,
+        beforeFailureArtifactIndex: () => { throw new Error("Injected failure-artifact index failure."); },
+      });
+    } catch (error) { failure = error; throw error; }
+  }, /Load failure and failure-artifact indexing failed/u);
+  assert(failure instanceof AggregateError);
+  assert.equal(failure.errors[0].message, "Injected MCP workload startup failure.");
+  assert.equal(failure.errors[1].message, "Injected failure-artifact index failure.");
+  const cleanup = assertFailedWorkloadResources(output, 1_000);
+  assert.equal(cleanup.failureStage, "failure-artifact-index");
+  assert.equal(cleanup.primaryFailureStage, "api-mcp-start");
+  assert.equal(cleanup.primaryErrorName, "Error");
+  assert.deepEqual(cleanup.cleanupFailureStages, ["failure-artifact-index"]);
+  assert.equal(existsSync(join(output, "failure-artifacts.json")), false);
+  assert.equal(readJson(join(output, "run.json")).productFree, true);
+  assert(readJsonLines(join(output, "windows-resources.jsonl")).length >= 2);
+});
+
+test("final artifact indexing failure retains a complete failed-report identity", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-final-index-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run");
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    beforeArtifactIndex: () => { throw new TypeError("Injected final artifact index failure."); },
+  }), /Injected final artifact index failure/u);
+  const cleanup = assertFailedWorkloadResources(output, 1_000);
+  assert.equal(cleanup.failureStage, "artifact-index");
+  assert.equal(cleanup.primaryFailureStage, "artifact-index");
+  assert.equal(cleanup.primaryErrorName, "TypeError");
+  assert.deepEqual(cleanup.cleanupFailureStages, []);
+  assert.equal(existsSync(join(output, "artifacts.json")), false);
+  assert.equal(readJson(join(output, "summary.json")).productFree, true);
+});
+
+test("failure cleanup record write errors preserve the original cause and existing bytes", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-cleanup-record-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run"), sentinel = "existing cleanup record\n";
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    failAfterMcpStartOnce: true,
+    beforeFailureArtifactIndex: () => writeFileSync(join(output, "cleanup.json"), sentinel, { flag: "wx" }),
+  }), error => {
+    assert(error instanceof AggregateError);
+    assert.equal(error.message, "Load failed and failure cleanup record could not be written.");
+    assert.equal(error.errors[0].message, "Injected MCP workload startup failure.");
+    assert.equal(error.errors[1].code, "EEXIST");
+    return true;
+  });
+  assert.equal(readFileSync(join(output, "cleanup.json"), "utf8"), sentinel);
+  const samples = readJsonLines(join(output, "windows-resources.jsonl"));
+  assert(samples.at(-1).tracked.every(entry => entry.role === "runner" || entry.alive === false));
+  assert.equal(existsSync(join(output, ".scratch")), false);
+});
+
+test("partial failure artifact writes remove only their own incomplete index", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-partial-index-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run");
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    failAfterMcpStartOnce: true,
+    beforeFailureArtifactIndexWrite: descriptor => {
+      writeFileSync(descriptor, "{", "utf8");
+      throw new Error("Injected partial failure-artifact write failure.");
+    },
+  }), /Load failure and failure-artifact indexing failed/u);
+  const cleanup = assertFailedWorkloadResources(output, 1_000);
+  assert.deepEqual(cleanup.cleanupFailureStages, ["failure-artifact-index"]);
+  assert.equal(existsSync(join(output, "failure-artifacts.json")), false);
+});
+
+test("pre-existing failure artifacts survive an index creation collision", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-existing-index-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run"), sentinel = "existing failure index\n";
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    failAfterMcpStartOnce: true,
+    beforeFailureArtifactIndex: () => writeFileSync(join(output, "failure-artifacts.json"), sentinel, { flag: "wx" }),
+  }), /Load failure and failure-artifact indexing failed/u);
+  const cleanup = assertFailedWorkloadResources(output, 1_000);
+  assert.deepEqual(cleanup.cleanupFailureStages, ["failure-artifact-index"]);
+  assert.equal(readFileSync(join(output, "failure-artifacts.json"), "utf8"), sentinel);
+});
+
+test("pre-existing success artifacts survive an index creation collision", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-existing-success-index-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run"), sentinel = "existing success index\n";
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    beforeArtifactIndex: () => writeFileSync(join(output, "artifacts.json"), sentinel, { flag: "wx" }),
+  }), { code: "EEXIST" });
+  const cleanup = assertFailedWorkloadResources(output, 1_000);
+  assert.equal(cleanup.primaryFailureStage, "artifact-index");
+  assert.deepEqual(cleanup.cleanupFailureStages, []);
+  assert.equal(readFileSync(join(output, "artifacts.json"), "utf8"), sentinel);
+});
+
+test("replaced failure artifacts retain replacement bytes and report refused cleanup", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-replaced-index-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run"), sentinel = "replacement failure index\n";
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    failAfterMcpStartOnce: true,
+    beforeFailureArtifactIndexWrite: descriptor => {
+      writeFileSync(descriptor, "{", "utf8");
+      renameSync(join(output, "failure-artifacts.json"), join(output, "partial-index-retained.json"));
+      writeFileSync(join(output, "failure-artifacts.json"), sentinel, { flag: "wx" });
+      throw new Error("Injected failure after index replacement.");
+    },
+  }), /Failure index cleanup was refused or failed/u);
+  const cleanup = assertFailedWorkloadResources(output, 1_000);
+  assert.equal(cleanup.primaryFailureStage, "api-mcp-start");
+  assert.equal(cleanup.failureStage, "failure-artifact-cleanup");
+  assert.deepEqual(cleanup.cleanupFailureStages, ["failure-artifact-index", "failure-artifact-cleanup"]);
+  assert.equal(readFileSync(join(output, "failure-artifacts.json"), "utf8"), sentinel);
+  assert.equal(readFileSync(join(output, "partial-index-retained.json"), "utf8"), "{");
+});
+
+test("index write and descriptor cleanup failures retain both causes", { timeout: 30_000 }, async (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sse-api-load-index-descriptor-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = join(parent, "run");
+  await assert.rejects(runApiLoadWorkload({ output }, {
+    allowNonCanonical: true, arrivalRounds: 1, fairJobsPerCaller: 1,
+    soakOperations: 8, soakDurationMs: 50, observerIntervalMs: 1_000,
+    quiescenceGapMs: 1_000, normalDelayMs: 1, controlTimeoutMs: 100, silent: true,
+    failAfterMcpStartOnce: true,
+    beforeFailureArtifactIndexWrite: descriptor => {
+      writeFileSync(descriptor, "{", "utf8"); closeSync(descriptor);
+      throw new Error("Injected index write and descriptor cleanup failure.");
+    },
+  }), error => {
+    assert(error instanceof AggregateError);
+    assert.equal(error.errors[0].message, "Injected MCP workload startup failure.");
+    assert(error.errors[1] instanceof AggregateError);
+    assert.equal(error.errors[1].errors[0].message, "Injected index write and descriptor cleanup failure.");
+    assert.equal(error.errors[1].errors[1].code, "EBADF");
+    return true;
+  });
+  assertFailedWorkloadResources(output, 1_000);
+  assert.equal(existsSync(join(output, "failure-artifacts.json")), false);
 });
