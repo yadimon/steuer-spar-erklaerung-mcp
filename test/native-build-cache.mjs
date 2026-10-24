@@ -104,6 +104,8 @@ const completeSurface = {
     "public static class SSEAccessible",
     "public sealed class SSEUiaScrollState",
   ),
+  SSEAccDocumentNode: publicStaticMethods(originalNativeSource, "public sealed class SSEAccDocumentNode"),
+  SSEAccDocumentSnapshot: publicStaticMethods(originalNativeSource, "public sealed class SSEAccDocumentSnapshot"),
   SSEUiaFreshRawResult: publicStaticMethods(originalNativeSource, "public sealed class SSEUiaFreshRawResult"),
   SSEUiaFreshRaw: publicStaticMethods(originalNativeSource, "public static class SSEUiaFreshRaw"),
   SSEUiaScrollState: publicStaticMethods(

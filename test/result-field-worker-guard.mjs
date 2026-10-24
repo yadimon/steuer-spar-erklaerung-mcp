@@ -24,6 +24,7 @@ const lines = readFileSync(workerPath, "utf8").split("\n");
 const workerSource = lines.join("\n");
 const gridProjectionSource = readFileSync(join(here, "..", "powershell", "table-grid-read.ps1"), "utf8");
 const windowCloseSource = readFileSync(join(here, "..", "powershell", "window-close.ps1"), "utf8");
+const knowledgeSource = readFileSync(join(here, "..", "powershell", "tax-knowledge.ps1"), "utf8");
 const receiptPolicySource = readFileSync(join(here, "..", "src", "receipt-interaction-policy.ts"), "utf8");
 const localExecutors = new Map([
   ["backup_cases", readFileSync(join(here, "..", "src", "backup-executor.ts"), "utf8")],
@@ -203,6 +204,14 @@ function emittedResultObjects(body) {
     assertLoadedWorkerHelper("windowCloseHelpers", "window-close.ps1");
     results.push(...parsedPowerShellHelperObjects(windowCloseSource, emittedCall[1], "returns"));
   }
+  for (const emittedCall of body.matchAll(/^\s*Emit\s+\((Invoke-SSETaxKnowledgeSearch)\s+\$a\)\s*$/gmu)) {
+    assertLoadedWorkerHelper("knowledgeHelpers", "tax-knowledge.ps1");
+    const wrapper = inspectedHelpers[inspectedHelperEntries.findIndex(entry =>
+      entry.source === knowledgeSource && entry.name === emittedCall[1] && entry.mode === "delegate")];
+    assert.equal(wrapper.error, null, wrapper.error ?? "");
+    assert.equal(wrapper.delegate, "Invoke-SSEKnowledgeSearchPhysical");
+    results.push(...parsedPowerShellHelperObjects(knowledgeSource, wrapper.delegate, "final"));
+  }
   return results;
 }
 
@@ -276,6 +285,25 @@ $results=@(foreach($entry in $entries) {
     if($definitions.Count -ne 1){throw 'Result helper definition must be unique.'}
     $definition=$definitions[0]
     $returns=@($definition.Body.FindAll({param($node) $node -is [Management.Automation.Language.ReturnStatementAst]},$true))
+    if($entry.mode -ceq 'delegate') {
+      $last=$definition.Body.EndBlock.Statements[-1]
+      if($returns.Count -ne 0 -or $last -isnot [Management.Automation.Language.TryStatementAst] -or
+         $last.CatchClauses.Count -ne 0 -or $null -eq $last.Finally -or $last.Body.Statements.Count -ne 1) {
+        throw 'Result wrapper must end in one direct try/finally delegation without indirect returns.'
+      }
+      $pipeline=$last.Body.Statements[0]
+      if($pipeline -isnot [Management.Automation.Language.PipelineAst] -or $pipeline.PipelineElements.Count -ne 1) {
+        throw 'Result delegation must be a single pipeline.'
+      }
+      $call=$pipeline.PipelineElements[0]
+      if($call -isnot [Management.Automation.Language.CommandAst] -or $call.GetCommandName() -cne $entry.target -or
+         $call.CommandElements.Count -ne 2 -or $call.CommandElements[1] -isnot [Management.Automation.Language.VariableExpressionAst] -or
+         $call.CommandElements[1].VariablePath.UserPath -cne 'Arguments') {
+        throw 'Result wrapper must forward the original arguments to the actual result producer.'
+      }
+      [pscustomobject]@{objects=@();delegate=$entry.target;error=$null}
+      continue
+    }
     $objects=@(foreach($cast in @($definition.Body.FindAll({param($node)
       $node -is [Management.Automation.Language.ConvertExpressionAst] -and $node.Type.TypeName.FullName -ieq 'pscustomobject'
     },$true))) {
@@ -326,6 +354,7 @@ ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
 
 const projectionFixture = "function ConvertTo-SSEGridTableProjection { [pscustomobject]@{ rows=@(); binding=[pscustomobject]@{nestedOnly=1} } }";
 const closeFixture = "function Invoke-SSEWindowCloseTransaction { if($bad){return [pscustomobject]@{ok=$false;kind='bad';error='bad'}} return ([pscustomobject]@{ok=$true;closed=$true}) }";
+const delegateFixture = "function Invoke-Wrapper($Arguments) { try { Invoke-Producer $Arguments } finally { [void]0 } }";
 const inspectedHelperEntries = [
   { source: gridProjectionSource, name: "ConvertTo-SSEGridTableProjection", mode: "final" },
   { source: windowCloseSource, name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
@@ -335,6 +364,12 @@ const inspectedHelperEntries = [
   { source: closeFixture.replace("return ([pscustomobject]@{ok=$true;closed=$true})", "return $unproved"), name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
   { source: closeFixture.replace("return ([pscustomobject]@{ok=$true;closed=$true})", "function unused { return ([pscustomobject]@{ok=$true;closed=$true}) }"), name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
   { source: closeFixture.replace("return ([pscustomobject]@{ok=$true;closed=$true})", "return ([hashtable]@{ok=$true;closed=$true})"), name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
+  { source: knowledgeSource, name: "Invoke-SSEKnowledgeSearchPhysical", mode: "final" },
+  { source: knowledgeSource, name: "Invoke-SSETaxKnowledgeSearch", mode: "delegate", target: "Invoke-SSEKnowledgeSearchPhysical" },
+  { source: delegateFixture, name: "Invoke-Wrapper", mode: "delegate", target: "Invoke-Producer" },
+  { source: delegateFixture.replace("Invoke-Producer $Arguments", "$unused=Invoke-Producer $Arguments"), name: "Invoke-Wrapper", mode: "delegate", target: "Invoke-Producer" },
+  { source: delegateFixture.replace("Invoke-Producer $Arguments", "Invoke-Producer $other"), name: "Invoke-Wrapper", mode: "delegate", target: "Invoke-Producer" },
+  { source: delegateFixture.replace("Invoke-Producer $Arguments", "return (Invoke-Producer $Arguments)"), name: "Invoke-Wrapper", mode: "delegate", target: "Invoke-Producer" },
 ];
 const inspectedHelpers = inspectPowerShellHelperObjects(inspectedHelperEntries);
 function parsedPowerShellHelperObjects(source, name, mode) {
@@ -359,6 +394,9 @@ assert.deepEqual([...new Set(parsedPowerShellHelperObjects(closeFixture, "Invoke
   .flatMap(result => [...result.fields]))].sort(), ["closed", "error", "kind", "ok"]);
 for (const index of [4, 5, 6, 7]) assert(inspectedHelpers[index].error,
   "Indirect, nested or non-PSCustomObject returns must not satisfy the result producer guard.");
+assert.equal(inspectedHelpers[10].delegate, "Invoke-Producer");
+for (const index of [11, 12, 13]) assert(inspectedHelpers[index].error,
+  "Assigned, rebound or indirectly returned delegation must not satisfy the result producer guard.");
 const projectionCall = "$projected=ConvertTo-SSEGridTableProjection $first $second 2\n" +
   "$nested | Add-Member NoteProperty unrelated 1\n$projected | Add-Member NoteProperty ok $true\nEmit $projected";
 const projectionFields = emittedWorkerHelperObjects(projectionCall, "projected", workerSource)[0].fields;
@@ -504,9 +542,9 @@ assert.deepEqual(dynamicEnvelopeViolations, [],
 function istListenSchema(schema) {
   let current = schema;
   for (let tiefe = 0; tiefe < 6 && current?._def; tiefe += 1) {
-    const typ = current._def.typeName;
-    if (typ === "ZodArray") return true;
-    if (typ !== "ZodOptional" && typ !== "ZodNullable" && typ !== "ZodDefault") return false;
+    const typ = current._def.type;
+    if (typ === "array") return true;
+    if (typ !== "optional" && typ !== "nullable" && typ !== "default") return false;
     current = current._def.innerType;
   }
   return false;

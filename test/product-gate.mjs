@@ -24,6 +24,7 @@ const desktopLauncherSource = readFileSync(join(root, "powershell", "run-on-desk
 const workerTransportSource = readFileSync(join(root, "powershell", "worker-transport-common.ps1"), "utf8");
 const tableRegionSource = readFileSync(join(root, "powershell", "table-region.ps1"), "utf8");
 const tableValuesSource = readFileSync(join(root, "powershell", "table-values.ps1"), "utf8");
+const tableBooleanSource = readFileSync(join(root, "powershell", "table-boolean.ps1"), "utf8");
 const tableComboSource = readFileSync(join(root, "powershell", "table-combobox.ps1"), "utf8");
 const mcpRegistrySource = readFileSync(join(root, "src", "mcp-registry.ts"), "utf8");
 const mcpToolSources = readdirSync(join(root, "src"))
@@ -429,8 +430,16 @@ try {
     workerOpBlock("table_update").includes("$requested -match '^(?i:true|false)$'") &&
     workerOpBlock("table_update").includes("TogglePattern") &&
     workerOpBlock("table_update").includes("$item.entry.mode -eq 'toggle'") &&
-    workerOpBlock("table_update").includes("$mutationMethod = 'verified-cell-click'") &&
-    workerOpBlock("table_update").includes("Click-VerifiedPoint $hwnd $rollbackNode"),
+    workerOpBlock("table_update").includes("Get-SSETableBooleanWriteSupport") &&
+    workerOpBlock("table_update").includes("Invoke-SSETableBooleanWrite $hwnd $entry.cell") &&
+    workerOpBlock("table_update").includes("Invoke-SSETableBooleanWrite $hwnd $item.entry.cell") &&
+    workerOpBlock("table_update").includes("$inputBaseline=$booleanInput.tick") &&
+    workerOpBlock("table_add").includes("Invoke-SSETableBooleanWrite $hwnd $entry.cell") &&
+    tableBooleanSource.includes("-ExpectedRuntimeId ([string]$Cell.rid) -ThrowOnFailure") &&
+    tableBooleanSource.includes("-RequireForeground -ForegroundAttempts 1") &&
+    tableBooleanSource.includes("$InputState.tick=$click.inputTickAfterClick") &&
+    tableBooleanSource.includes("Test-SSETableBooleanBeforeClick") &&
+    tableBooleanSource.includes("[SW]::RestoreDpiContext($previous)"),
   "sse_table_update prueft Zielzellen/Rollback nicht gemeinsam oder kann fremde Werte ueberschreiben.");
   assert(workerSource.includes(". $tableValueHelpers") &&
     tableValuesSource.includes("function ConvertTo-SSETableNumber") &&
@@ -787,12 +796,12 @@ try {
   "sse_table_read vermischt Werte-Info oder mehrere Eingabetabellen weiterhin als scheinbar vollstaendig.");
 
   const notepad = join(process.env.WINDIR ?? "C:\\Windows", "System32", "notepad.exe");
-  await expectError(client, "sse_launch", { exe: notepad, mode: "einur" }, "Expected never");
-  await expectError(client, "sse_desktop_start", { exe: notepad, mode: "einur", name: "SSEVersionGateTest" }, "Expected never");
+  await expectError(client, "sse_launch", { exe: notepad, mode: "einur" }, "expected never");
+  await expectError(client, "sse_desktop_start", { exe: notepad, mode: "einur", name: "SSEVersionGateTest" }, "expected never");
 
   const oldSse = "C:\\Program Files\\Steuertipps\\SteuerSparErklaerung\\Steuerjahr 2024\\SSE.exe";
   if (existsSync(oldSse)) {
-    await expectError(client, "sse_launch", { exe: oldSse, mode: "einur" }, "Expected never");
+    await expectError(client, "sse_launch", { exe: oldSse, mode: "einur" }, "expected never");
   }
   await expectError(client, "sse_launch", { file: "C:\\__sse_mcp_tests__\\fixture.Gew2024", mode: "einur" }, "Unrecognized key");
   await expectError(client, "sse_launch", { file: "C:\\__sse_mcp_tests__\\fixture.ESt2025", mode: "einur" }, "Unrecognized key");

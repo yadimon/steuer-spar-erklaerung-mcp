@@ -203,6 +203,32 @@ try {
     assert.equal(reentryFinalModel.summe, updateSum);
     assert.deepEqual(reentryFinalModel.rowDetails.map(row => row.rowFingerprint), afterUpdate.rowDetails.map(row => row.rowFingerprint));
     current.reentry.status = "passed";
+    // A text-bearing Add can leave the embedded Help document focused. Cover
+    // that natural transition separately from the amount-only Add above.
+    // No intervening snapshot, cursor or focus command repairs its state.
+    const label = `Synthetic labeled transition ${cycle}`;
+    for (const value of ["0,23", "0,29", label]) assert(!reentryFinalModel.zeilen.flat().includes(value));
+    const labeledAddSum = formatCents(baseCents + 19 + 23), labeledUpdateSum = formatCents(baseCents + 19 + 29);
+    const mutationArgs = { hwnd: owned.hwnd, expectedPage: table.heading,
+      sumLabel: table.sumLabel, sumOccurrence: table.sumOccurrence };
+    assert.equal((await call("table_add", { ...mutationArgs,
+      werte: start.kopf.map(column => column === table.amountColumn ? "0,23" : column === "Bezeichnung" ? label : ""),
+      expectedBefore: updateSum, expectedAfter: labeledAddSum })).verified, true);
+    const labeledAdded = stateJourneyInventory(await call("table_read", modelArgs()), "native labeled Add");
+    assertStateMutation(updatedInventory, labeledAdded, { kind: "append", value: "0,23", label }, table.amountColumn, "Labeled Add exact delta");
+    assert.equal(labeledAdded.sum, labeledAddSum);
+    assert.equal((await call("table_update", { ...mutationArgs, text: label,
+      werte: start.kopf.map(column => column === table.amountColumn ? "0,29" : null),
+      expectedBefore: labeledAddSum, expectedAfter: labeledUpdateSum })).verified, true);
+    const labeledUpdated = stateJourneyInventory(await call("table_read", modelArgs()), "native labeled Update");
+    assertStateMutation(labeledAdded, labeledUpdated, { kind: "update", before: "0,23", value: "0,29" }, table.amountColumn, "Labeled Update exact delta");
+    assert.equal(labeledUpdated.sum, labeledUpdateSum);
+    assert.equal((await call("table_delete", { ...mutationArgs, text: label,
+      expectedBefore: labeledUpdateSum, expectedAfter: updateSum })).verified, true);
+    const labeledDeleted = stateJourneyInventory(await call("table_read", modelArgs()), "native labeled Delete");
+    assertStateRowsUnchanged(updatedInventory, labeledDeleted, "Labeled Add/Update/Delete restored every previous cell");
+    assert.equal(labeledDeleted.sum, updateSum);
+    current.labeledMutation = { status: "passed", fullInventoryRestored: true };
     const closed = await call("close", { ...owned, discardChanges: true });
     assert.equal(closed.stillRunning, false); owned = undefined;
     assert.equal((await call("instances")).count, 0);

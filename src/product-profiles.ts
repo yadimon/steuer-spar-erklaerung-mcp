@@ -19,7 +19,7 @@ const profileSchema = z.object({
     installationFolderName: z.string().min(1),
     defaultRelativePath: z.string().min(1),
   }).strict(),
-  startModes: z.record(z.string().min(1)),
+  startModes: z.record(z.string(), z.string().min(1)),
   additionalCaseYears: z.record(
     z.string().min(1),
     z.array(z.number().int().min(2000).max(2200)).min(1),
@@ -163,8 +163,8 @@ const vehicleCostRegionBindingSchema = z.object({
 const pageObjectSchema = z.object({
   heading: z.string().min(1),
   navigationTreeItemName: z.string().regex(/\S/u).optional(),
-  fields: z.record(z.unknown()).optional(),
-  tables: z.record(pageObjectTableSchema).optional(),
+  fields: z.record(z.string(), z.unknown()).optional(),
+  tables: z.record(z.string(), pageObjectTableSchema).optional(),
 }).passthrough();
 
 const pageObjectsCompatibilitySchema = z.object({
@@ -176,7 +176,7 @@ const pageObjectsCompatibilitySchema = z.object({
     executableName: z.string().min(1),
     installationFolderName: z.string().min(1),
   }).passthrough(),
-  windows: z.record(z.unknown()).refine((value) => Object.keys(value).length > 0, "Fensterkatalog darf nicht leer sein."),
+  windows: z.record(z.string(), z.unknown()).refine((value) => Object.keys(value).length > 0, "Fensterkatalog darf nicht leer sein."),
   tableRegionBindings: z.array(vehicleCostRegionBindingSchema).optional(),
   checkerStartBindings: z.array(z.object({
     id: z.string().regex(/^[a-z][a-z0-9_]+$/u),
@@ -214,7 +214,7 @@ const pageObjectsCompatibilitySchema = z.object({
     policy: z.literal("passive-non-editable-help-document-only"),
     providerQtVersion: z.literal("6.9.2"),
   }).strict().optional(),
-  pages: z.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein."),
+  pages: z.record(z.string(), pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein."),
 }).passthrough().superRefine((catalog, context) => {
   const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);
   const checkerIds = (catalog.checkerStartBindings ?? []).map((binding) => binding.id);

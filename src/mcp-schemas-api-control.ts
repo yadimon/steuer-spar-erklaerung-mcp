@@ -4,7 +4,7 @@ export const SSE_MCP_API_CONTROL_SCHEMAS = {
   sse_api_control: z.object({
     action: z.enum(["status", "shutdown", "start"]).describe("Status lesen, API stoppen oder ausdruecklich erneut starten."),
     confirm: z.literal(true).optional().describe("Fuer shutdown/start ausdruecklich true; bei status weglassen."),
-    instanceId: z.string().uuid().optional().describe("Fuer shutdown/start die zuletzt gelesene gebundene API-Instanz; bei status weglassen."),
+    instanceId: z.string().guid().optional().describe("Fuer shutdown/start die zuletzt gelesene gebundene API-Instanz; bei status weglassen."),
   }).strict(),
 } as const;
 
@@ -27,7 +27,7 @@ export function parseApiControlRequest(value: unknown) {
 export const SSE_MCP_API_CONTROL_OUTPUT_SCHEMA = z.object({
   ok: z.boolean(),
   state: z.enum(["running", "stopping", "stopped", "starting", "unknown"]).optional(),
-  instanceId: z.string().uuid().optional(),
+  instanceId: z.string().guid().optional(),
   processId: z.number().int().positive().optional(),
   accepted: z.boolean().nullable().optional(),
   processExited: z.boolean().optional(),

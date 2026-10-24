@@ -3,7 +3,10 @@
 Diese Matrix zählt den implementierten Qt-DLL-Pfad getrennt vom funktionalen
 Live-Stand. Maßgeblich sind [Operationskatalog](../src/api-contract.ts),
 [Executor](../src/api-executor.ts) und [Testledger](../test/operation-coverage.json).
-Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backends.
+Der Live-Stand ist historisch aggregiert. Er belegt weder einen Wechsel des
+Backends noch einen vollständigen erneuten Lauf auf der aktuellen Paketversion.
+Die [Stable-Abnahme](entwicklung/stable-freigabe.md) beschreibt die zusätzlich
+benötigten Nachweise pro Version, Produktbuild und Zugang.
 
 | Kennzahl | Anzahl |
 | --- | ---: |
@@ -12,9 +15,9 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Ohne direkten Qt-DLL-Pfad | 80 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
-| Funktional live belegt, unabhängig vom Backend | 94 |
+| Funktional live belegt, unabhängig vom Backend | 96 |
 | Live nur auf dem Fehlerpfad belegt | 6 |
-| Live ungetestet | 2 |
+| Live ungetestet | 0 |
 
 **Qt optional** bedeutet: Der normale Runtime-Pfad ist implementiert, wird aber
 nur mit `qtNativeRuntime` und einem separat gebauten kompatiblen Paket aktiv.
@@ -94,7 +97,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `menu_close` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `page` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `page_objects` | Dateien und API | Nicht umgestellt | funktional belegt |
-| `position_create` | Felder und Bedienung | Nicht umgestellt | ungetestet |
+| `position_create` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `positions` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `product_info` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `read_full` | Seite und Navigation | Nicht umgestellt | funktional belegt |
@@ -125,7 +128,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `table_delete` | Tabellen | Nicht umgestellt | funktional belegt |
 | `table_read` | Tabellen | **Qt optional** | funktional belegt |
 | `table_update` | Tabellen | Nicht umgestellt | funktional belegt |
-| `tax_knowledge_search` | Prüfen und Steuerwissen | Nicht umgestellt | ungetestet |
+| `tax_knowledge_search` | Prüfen und Steuerwissen | Nicht umgestellt | funktional belegt |
 | `toggle` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `tracked_set_value` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `tree_scroll` | Seite und Navigation | Nicht umgestellt | funktional belegt |

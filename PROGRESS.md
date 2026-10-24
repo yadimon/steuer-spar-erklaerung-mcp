@@ -46,6 +46,16 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische
   Modell-, Auswahl-, Fenster- und Eingabenachweise; Fehler erlauben kein
   Ausweichen auf einen anderen Eingriff.
+- **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
+  mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
+  genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
+  tatsächlichen Punkt vor dem ersten Zellschreiben. Add, Update und Rollback
+  teilen die Zustands-, Fokus-, Eingabe- und DPI-Prüfungen.
+- **Steuerwissen:** die Suche bindet Fenster, Prozesslebensdauer und
+  tatsächliches Eingabefeld. Ein begrenzter MSAA-Baum und die zugehörige
+  Trefferliste unterscheiden Artikel, bestätigte Nulltreffer und fehlende
+  Nachweise. Der optionale Live-Test nutzt eigene Musterkopien und beweist
+  die Zugehörigkeit des gestarteten Helfers über ein Windows Job Object.
 - **Getter und Buildbindung:** die Namensräume `uia` und `qt-object` sind
   explizit wählbar. Widersprüchliche Identitäten werden früh abgewiesen;
   Produktprofil und native Paketbindung werden geprüft.
@@ -57,6 +67,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Versuche ausschließlich bei validiertem HTTP 409 vor Dispatch, mit gleicher
   Instanz und gemeinsamem Zeitbudget. Timeouts, Verbindungsverlust und
   unbekannte Schreibausgänge werden nicht blind wiederholt.
+  Ein nativer Snapshot-Read hat einen eigenen begrenzten Retry nur dann,
+  wenn die Brücke seinen noch nicht gestarteten GUI-Auftrag nachweislich
+  abgesagt hat. Er wiederholt weder eine Aktion noch eine Verbindung.
 - **Qualitätsprozess:** die dokumentierte Main-Regel verlangt einen Pull
   Request, aufgelöste Review-Threads und den erfolgreichen
   `Offline API/MCP and package gate` auf aktuellem Stand. Das Contributor-
@@ -87,6 +100,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Transaktionswege; die Umstellung ist nicht abgeschlossen.
 
 ## Getrennte Folgearbeit
+
+Die konkreten Kriterien für den vollständigen Qualitätsabschluss stehen in der
+[Stable-Abnahme](docs/entwicklung/stable-freigabe.md), einschließlich VaSt,
+realer Unterbrechungen, Persistenz, Leistung und Dauerlauf.
 
 1. Eine konkrete Operation und ihren bisherigen Vertrag auswählen. Für die
    Qt-Umstellung gelten Zweck und Abnahmekriterien der [Roadmap](docs/ROADMAP.md).

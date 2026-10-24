@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const coverage = JSON.parse(readFileSync(new URL("./operation-coverage.json", import.meta.url), "utf8"));
-const verification = readFileSync(new URL("../docs/VERIFIKATION.md", import.meta.url), "utf8");
+const verification = readFileSync(new URL("../docs/VERIFIKATION.md", import.meta.url), "utf8").replace(/\r\n/gu, "\n");
 const operations = Object.entries(coverage.operations ?? {});
 const live = operations.filter(([, value]) => value.live === "functional");
 const missing = operations.filter(([, value]) => value.live !== "functional").map(([name]) => name).sort();
@@ -49,7 +49,9 @@ assert.deepEqual(
   "Dokumentierte Live-Restluecke widerspricht operation-coverage.json",
 );
 
-const missingStart = verification.indexOf("Von keinem automatisierten Suitelauf");
+const missingMarker = "Positive funktionale Nachweise fehlen für";
+assert.equal(verification.split(missingMarker).length, 2, "Die Liste fehlender Nachweise muss genau einmal vorkommen.");
+const missingStart = verification.indexOf(missingMarker);
 const missingEnd = verification.indexOf("\n\n", missingStart);
 assert(missingStart >= 0 && missingEnd > missingStart, "Abschnitt mit fehlenden Live-Operationen ist nicht eindeutig");
 const documentedMissing = [...verification.slice(missingStart, missingEnd).matchAll(/`([a-z][a-z0-9_]*)`/gu)]

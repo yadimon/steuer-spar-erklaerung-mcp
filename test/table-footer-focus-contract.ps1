@@ -1,6 +1,7 @@
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '..\powershell\table-combobox.ps1')
 . (Join-Path $PSScriptRoot '..\powershell\table-values.ps1')
+. (Join-Path $PSScriptRoot '..\powershell\table-number-click.ps1')
 $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$parseErrors)
@@ -30,13 +31,14 @@ namespace System.Windows.Automation {
   public static readonly ControlType Table=new ControlType("Table"),DataGrid=new ControlType("DataGrid"),DataItem=new ControlType("DataItem"),
    Button=new ControlType("Button"),Tree=new ControlType("Tree"),TreeItem=new ControlType("TreeItem"),ComboBox=new ControlType("ComboBox"),
    Edit=new ControlType("Edit"),Window=new ControlType("Window"),Pane=new ControlType("Pane"),Custom=new ControlType("Custom"),Header=new ControlType("Header"),
-   Spinner=new ControlType("Spinner"),List=new ControlType("List"),ListItem=new ControlType("ListItem");
+   Spinner=new ControlType("Spinner"),List=new ControlType("List"),ListItem=new ControlType("ListItem"),Document=new ControlType("Document");
  }
  public static class GridItemPattern {public static object Pattern=new object();}
  public static class ValuePattern {public static object Pattern=new object();}
  public static class SelectionPattern {public static object Pattern=new object();}
  public static class SelectionItemPattern {public static object Pattern=new object();}
  public static class TogglePattern {public static object Pattern=new object();}
+ public static class TextPattern {public static object Pattern=new object();}
 }
 '@
 $AE=[System.Windows.Automation.AutomationElement]
@@ -46,7 +48,7 @@ $footerAid=$prefix+'.ClientFooterSSE.HoverButton'
 $policy=[pscustomobject]@{id='main_footer_next_focus';controlType='Button';name='Weiter';automationIdSuffix='.RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton';action='SetFocus';policy='own-typed-table-editor-only'}
 function New-Element($Node) {
   $controlType=[System.Windows.Automation.ControlType]::Table.GetType().GetField([string]$Node.type).GetValue($null)
-  $element=[pscustomobject]@{rid=$Node.rid;parent=$null;children=@();gridItem=$null;valuePattern=$null;selection=$null;selectionItem=$null;toggle=$null;Current=[pscustomobject]@{ProcessId=7;ControlType=$controlType;
+  $element=[pscustomobject]@{rid=$Node.rid;parent=$null;children=@();gridItem=$null;valuePattern=$null;selection=$null;selectionItem=$null;toggle=$null;textPattern=$null;Current=[pscustomobject]@{ProcessId=7;ControlType=$controlType;
     Name=$Node.name;AutomationId=$Node.aid;HasKeyboardFocus=$true;IsKeyboardFocusable=$true;NativeWindowHandle=111;
     IsEnabled=$true;IsOffscreen=$false;BoundingRectangle=[pscustomobject]@{X=$Node.x;Y=$Node.y;Width=$Node.w;Height=$Node.h}}}
   $element | Add-Member ScriptMethod GetRuntimeId { $this.rid -split '\.' }
@@ -57,6 +59,7 @@ function New-Element($Node) {
     if ($Pattern -eq [System.Windows.Automation.SelectionPattern]::Pattern -and $this.selection) {$Result.Value=$this.selection;return $true}
     if ($Pattern -eq [System.Windows.Automation.SelectionItemPattern]::Pattern -and $this.selectionItem) {$Result.Value=$this.selectionItem;return $true}
     if ($Pattern -eq [System.Windows.Automation.TogglePattern]::Pattern -and $this.toggle) {$Result.Value=$this.toggle;return $true}
+    if ($Pattern -eq [System.Windows.Automation.TextPattern]::Pattern -and $this.textPattern) {$Result.Value=$this.textPattern;return $true}
     $false
   }
   $element | Add-Member ScriptMethod SetFocus {
@@ -76,7 +79,7 @@ $stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr
 $root=[pscustomobject]@{Current=[pscustomobject]@{ProcessId=7;ControlType=[System.Windows.Automation.ControlType]::Window;NativeWindowHandle=111};parent=$null}
 $WLK=[pscustomobject]@{}
 $WLK | Add-Member ScriptMethod GetParent {param($element) $element.parent}
-function Get-SSEPageObjects {[pscustomobject]@{tableComboFocusOut=$policy;tablePositionNameFocusSource=$script:positionPolicy}}
+function Get-SSEPageObjects {[pscustomobject]@{tableComboFocusOut=$policy;tablePositionNameFocusSource=$script:positionPolicy;tableHelpDocumentFocusSource=$script:helpPolicy}}
 function Get-CurrentHeading {if($script:homeHeading){$script:homeHeading}elseif($script:positionHeading){$script:positionHeading}else{'Synthetic page'}}
 function Get-DirtyStateFast {$script:homeDirty}
 function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint=$(if($script:homeWindow){$script:homeWindow}else{'stable'})}}
@@ -897,4 +900,103 @@ foreach($case in @('position-name-success','position-name-late','position-name-l
   if($case -ceq 'position-name-late' -and $result.reason -cne 'footer-position-name-value-changed') {throw 'Late position-name change was not caught before focus.'}
 }
 $script:positionHeading=$null;$script:positionPolicy=$null
+# Native positioning may leave the exact embedded Help document focused after
+# a table write. Exercise the real shared provider/source proof and footer
+# transaction; only UIA/process boundaries are synthetic.
+# Keep local nodes, roots and helper overrides out of the fixture exported to
+# table-typed-editor-contract.ps1, which dot-sources this contract.
+& {
+$helpProfile=(Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\profiles\2025\page-objects.json') -Raw | ConvertFrom-Json).tableHelpDocumentFocusSource
+$originalUncached=(Get-Item Function:Get-SSETableReadUncachedElement).ScriptBlock
+function Get-SSETableReadUncachedElement {
+  param($Window,$ProcessId,$Rid,$Aid,$Type)
+  $resolved=& $originalUncached $Window $ProcessId $Rid $Aid $Type
+  switch ($script:mode) {
+    'help-late-editable' {$script:helpSource.textPattern=[pscustomobject]@{DocumentRange='Synthetic editable document'}}
+    'help-late-root' {$root.Current.NativeWindowHandle=222}
+    'help-late-bounds' {$script:helpSource.Current.BoundingRectangle.Width++}
+    'help-late-focus' {$script:helpSource.Current.HasKeyboardFocus=$false}
+  }
+  $resolved
+}
+function Get-SSETableNumberClickProviderModules {
+  param([int]$ProcessId)
+  if ($ProcessId -ne 7) {throw 'Provider proof inspected a foreign process.'}
+  $script:providerReads++
+  if ($script:mode -ceq 'help-provider-throw') {throw 'Synthetic inaccessible provider modules'}
+  $modules=@('Qt6Core.dll','Qt6WebEngineCore.dll','qwindows.dll' | ForEach-Object {
+    [pscustomobject]@{name=$_;major=[int]6;minor=[int]9;build=[int]2;revision=[int]0}
+  })
+  switch ($script:mode) {
+    'help-provider-missing' {$modules=@($modules | Where-Object {$_.name -cne 'qwindows.dll'})}
+    'help-provider-duplicate' {$modules+=@($modules[0].PSObject.Copy())}
+    'help-provider-version' {$modules[0].build=[int]3}
+    'help-late-provider' {if ($script:providerReads -gt 1) {$modules[0].build=[int]3}}
+  }
+  $modules
+}
+foreach ($case in @('help-success','help-no-authority','help-no-profile','help-wrong-policy','help-wrong-prefix',
+  'help-wrong-snapshot-aid','help-wrong-snapshot-rid','help-incomplete','help-editor-not-free','help-active-editor',
+  'help-duplicate-aid','help-duplicate-rid','help-named-document','help-disabled','help-offscreen','help-unfocused',
+  'help-geometry','help-foreign-pid','help-foreign-window','help-foreign-root','help-editable',
+  'help-provider-missing','help-provider-duplicate','help-provider-version','help-provider-throw',
+  'help-late-editable','help-late-root','help-late-bounds','help-late-focus','help-late-provider',
+  'help-number-authority','help-typed-authority')) {
+  $script:mode=$case;$script:focusCalls=0;$script:providerReads=0;$script:tick=10;$script:sourceSnapshotReads=0
+  $script:helpPolicy=$helpProfile.PSObject.Copy()
+  $helpTableAid='Synthetic.centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogUI./.Synthetic.Table'
+  $helpFooterAid='Synthetic.centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton'
+  $tableNode=[pscustomobject]@{i=0;p=-1;type='Table';name='';aid=$helpTableAid;rid='50.1';on=$true;x=100;y=100;w=600;h=100}
+  $buttonNode=[pscustomobject]@{i=1;p=-1;type='Button';name='Weiter';aid=$helpFooterAid;rid='50.2';on=$true;x=100;y=300;w=80;h=24}
+  $helpNode=[pscustomobject]@{i=2;p=-1;type='Document';name='';aid=('Synthetic'+$helpProfile.automationIdSuffix);rid='50.3';on=$true;x=720;y=100;w=240;h=200}
+  $root=New-Element ([pscustomobject]@{type='Window';name='';aid='Synthetic';rid='49.1';x=0;y=0;w=1000;h=800})
+  $script:table=New-Element $tableNode;$script:table.parent=$root
+  $script:button=New-Element $buttonNode;$script:button.parent=$root
+  $script:helpSource=New-Element $helpNode;$script:helpSource.parent=$root
+  $tree=[pscustomobject]@{nodes=@($tableNode,$buttonNode,$helpNode);stats=$stats.PSObject.Copy()}
+  $snapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRootAid=$helpTableAid;tableRootRid='50.1';complete=$true;editorFree=$true}}
+  switch ($case) {
+    'help-no-authority' {$snapshot=$null}
+    'help-no-profile' {$script:helpPolicy=$null}
+    'help-wrong-policy' {$script:helpPolicy.policy='allow-any-document'}
+    'help-wrong-prefix' {$helpNode.aid='Other'+$helpProfile.automationIdSuffix;$script:helpSource.Current.AutomationId=$helpNode.aid}
+    'help-wrong-snapshot-aid' {$snapshot.navigationBinding.tableRootAid+='Other'}
+    'help-wrong-snapshot-rid' {$snapshot.navigationBinding.tableRootRid='50.99'}
+    'help-incomplete' {$snapshot.navigationBinding.complete=$false}
+    'help-editor-not-free' {$snapshot.navigationBinding.editorFree=$false}
+    'help-active-editor' {$active=$helpNode.PSObject.Copy();$active.i=3;$active.p=0;$active.rid='50.4';$active.aid=$helpTableAid+'.Editor';$active.type='Edit';$tree.nodes+=@($active)}
+    'help-duplicate-aid' {$duplicate=$helpNode.PSObject.Copy();$duplicate.i=3;$duplicate.rid='50.4';$tree.nodes+=@($duplicate)}
+    'help-duplicate-rid' {$duplicate=$helpNode.PSObject.Copy();$duplicate.i=3;$duplicate.aid='Synthetic.Other';$tree.nodes+=@($duplicate)}
+    'help-named-document' {$helpNode.name='Other document';$script:helpSource.Current.Name=$helpNode.name}
+    'help-disabled' {$script:helpSource.Current.IsEnabled=$false}
+    'help-offscreen' {$script:helpSource.Current.IsOffscreen=$true}
+    'help-unfocused' {$script:helpSource.Current.HasKeyboardFocus=$false}
+    'help-geometry' {$script:helpSource.Current.BoundingRectangle.Width++}
+    'help-foreign-pid' {$script:helpSource.Current.ProcessId=8}
+    'help-foreign-window' {$root.Current.NativeWindowHandle=222}
+    'help-foreign-root' {$root.Current.AutomationId='Other'}
+    'help-editable' {$script:helpSource.textPattern=[pscustomobject]@{DocumentRange='Synthetic editable document'}}
+  }
+  $script:freshSourceTree=$tree;$AE::FocusedElement=$script:helpSource
+  $typedAuthority=$(if ($case -ceq 'help-typed-authority') {[pscustomobject]@{synthetic=$true}} else {$null})
+  $result=Invoke-SSETableFooterFocus ([IntPtr]111) 7 $tree $helpTableAid '50.1' 'Synthetic page' 10 'stable' $null `
+    -HelpDocumentSnapshot $snapshot -RequireNumberEditor:($case -ceq 'help-number-authority') -TypedEditorAuthority $typedAuthority
+  $success=$case -ceq 'help-success'
+  if ($result.ok -ne $success -or $script:focusCalls -ne [int]$success -or $result.focusAttempted -ne $success) {
+    throw "$case`: exact Help source must permit exactly one focus action, or reject without action: $($result | ConvertTo-Json -Depth 6 -Compress)"
+  }
+  if ($success -and ($script:providerReads -ne 2 -or $AE::FocusedElement -ne $script:button)) {
+    throw 'Help source/provider was not proved again immediately before the one footer focus action.'
+  }
+  if ($case -in @('help-late-editable','help-late-root','help-late-bounds','help-late-provider') -and $result.reason -cne 'footer-help-source-changed') {
+    throw "$case`: final Help proof did not reject a changed source before focus."
+  }
+  if ($case -ceq 'help-no-authority' -and $script:providerReads -ne 0) {throw 'Generic cursor focus obtained Help authority.'}
+  if ($case -cin @('help-wrong-prefix','help-no-profile','help-editable','help-number-authority','help-typed-authority') -and
+      $result.sourceReason -cne 'source-help-document-unbound') {throw "$case`: rejected Help source lost its explicit non-delegating reason."}
+  if ($case -cin @('help-number-authority','help-typed-authority') -and $script:providerReads -ne 0) {throw 'Editor authority reached the passive Help proof.'}
+  if ($case -ceq 'help-late-focus' -and $result.reason -cne 'footer-source-focus-changed') {throw 'Lost Help focus was not rejected before the final proof.'}
+}
+$script:helpPolicy=$null
+}
 Write-Output 'table-footer-focus-contract: PASS (pure synthetic focus-only/owned-delegate/no-retry/precise-failure-proof)'

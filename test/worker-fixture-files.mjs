@@ -6,6 +6,8 @@ export const WORKER_RUNTIME_FILES = Object.freeze([
   "akad-parser.ps1",
   "table-region.ps1",
   "table-values.ps1",
+  "table-boolean.ps1",
+  "tax-knowledge.ps1",
   "table-grid-read.ps1",
   "window-close.ps1",
   "table-preparation.ps1",

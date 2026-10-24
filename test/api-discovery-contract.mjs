@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
-import { apiOperationDiscovery, SSE_API_DISCOVERY } from "../dist/api-discovery.js";
+import { apiOperationDiscovery, inputJsonSchema, SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { SSE_CAPABILITIES } from "../dist/capabilities.js";
 import { parseApiOperationArgs } from "../dist/operation-catalog.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "../dist/result-contract.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 
 assert.equal(SSE_API_DISCOVERY.schemaVersion, 1);
@@ -52,6 +52,14 @@ assert.equal(resultEnvelope.properties.ok.type, "boolean");
 assert.deepEqual(resultEnvelope.required, ["ok"]);
 assertPropertyDescriptions(resultEnvelope, "OperationResultEnvelope");
 const jsonValidator = new AjvJsonSchemaValidator();
+const objectPolicies = inputJsonSchema(z.object({
+  plain: z.object({ value: z.string() }),
+  strict: z.object({ value: z.string() }).strict(),
+  loose: z.object({ value: z.string() }).passthrough(),
+}));
+assert.equal(objectPolicies.properties.plain.additionalProperties, false);
+assert.equal(objectPolicies.properties.strict.additionalProperties, false);
+assert.equal(objectPolicies.properties.loose.additionalProperties, true);
 const validTraversal = { ok: true, treeWalks: 1, treeWalkMs: 3,
   treeWalkDetail: [{ knoten: 87, grenze: 4000, ms: 1.25 }] };
 const resultSamples = [
@@ -76,9 +84,8 @@ for (const operation of SSE_API_OPERATIONS) {
     required: [...new Set([...resultEnvelope.required, ...(resultSchema.required ?? [])])],
   };
   delete expanded.allOf;
-  assert.deepEqual(expanded, zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
-    target: "jsonSchema7", $refStrategy: "none", effectStrategy: "input",
-  }), `${operation}: Komprimierung aendert den vollstaendigen Ergebnisvertrag.`);
+  assert.deepEqual(expanded, inputJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation]),
+    `${operation}: Komprimierung aendert den vollstaendigen Ergebnisvertrag.`);
   const fullValidator = jsonValidator.getValidator({ ...SSE_API_DISCOVERY, $ref: `#/resultSchemas/${operation}` });
   const singleValidator = jsonValidator.getValidator(apiOperationDiscovery(operation).resultSchema);
   for (const [sample, expected] of resultSamples) {

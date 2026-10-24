@@ -83,9 +83,11 @@ try {
     },
     async () => ({ ok: true }),
   );
-  const invalidLimit = await execute("workspace_file_list", { limit: Number.POSITIVE_INFINITY }, 1_000);
-  assert.equal(invalidLimit.ok, false);
-  assert.match(invalidLimit.error, /ganze Zahl/);
+  for (const limit of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, 1.5]) {
+    const invalidLimit = await execute("workspace_file_list", { limit }, 1_000);
+    assert.equal(invalidLimit.ok, false);
+    assert.match(invalidLimit.error, /ganze Zahl/);
+  }
   process.stdout.write("Workspace-Sandbox: Traversal, Junctions, Leselimits und exklusive Schreibziele bestanden\n");
 } finally {
   rmSync(temporary, { recursive: true, force: true });

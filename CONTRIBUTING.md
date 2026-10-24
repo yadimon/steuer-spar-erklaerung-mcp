@@ -102,6 +102,7 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 | `npm test` | Vollständige Offline-Suite samt C#-Build und Controller-Prüfungen; Windows-Voraussetzungen wie oben, SSE muss geschlossen sein |
 | `npm run test:qt-native` | Gesonderter opt-in Lauf mit gebautem Qt-Paket und passendem SDK; synthetische Qt-Fixture auf eigenem inaktivem Desktop |
 | `npm run test:live` | Installiertes unterstütztes Produkt, Musterfallkopien, aktivierte Live-Konfiguration und unbenutzte entsperrte Windows-Sitzung |
+| `npm run test:live-tax-knowledge` | Eigene kompatible Musterfallkopie, `SSE_KNOWLEDGE_SOURCE_FILE`, Testordner außerhalb des Repositorys und freie sichtbare Sitzung; Details unter [VERIFIKATION.md](docs/VERIFIKATION.md) |
 | `npm run perf:api-mega` | Opt-in Reise durch das installierte Produkt; dieselben Voraussetzungen für Sitzung und Wegwerfdaten wie bei Live-Tests |
 | `npm run check` | Release-Gate mit vollständiger Offline-Suite, installierter Produktidentität und Paketprüfungen |
 

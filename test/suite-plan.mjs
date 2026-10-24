@@ -34,6 +34,7 @@ export const serialBuildSteps = Object.freeze([
 
 export const parallelSteps = Object.freeze([
   nodeFile("suite-runner-contract", "test/suite-runner-contract.mjs"),
+  nodeFile("zod-resource-bounds", "test/zod-resource-bounds.mjs"),
   nodeFile("test-inventory-contract", "test/test-inventory-contract.mjs"),
   nodeFile("with-api-cleanup", "test/with-api-cleanup.mjs"),
   nodeFile("live-state-journey-contract", "test/live-state-journey-contract.mjs"),
@@ -61,6 +62,8 @@ export const parallelSteps = Object.freeze([
   psFile("powershell-syntax", "test/powershell-syntax-contract.ps1"),
   psFile("table-delete-name", "test/table-delete-name-contract.ps1"),
   psFile("position-create", "test/position-create-contract.ps1"),
+  psFile("tax-knowledge-search", "test/tax-knowledge-search-contract.ps1"),
+  psFile("msaa-document", "test/msaa-document-contract.ps1"),
   psFile("cursor-input", "test/cursor-input-contract.ps1"),
   psFile("table-add-seek", "test/table-add-seek-contract.ps1"),
   psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
@@ -123,6 +126,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("qt-native-classification-options", "test/qt-native-classification-options.mjs"),
   nodeFile("qt-native-classify", "test/qt-native-classify.mjs"),
   nodeFile("qt-native-goto", "test/qt-native-goto.mjs"),
+  nodeFile("qt-native-snapshot-retry", "test/qt-native-snapshot-retry.mjs"),
   nodeFile("qt-native-page-projection", "test/qt-native-page-projection.mjs"),
   nodeFile("qt-native-ui-state-projection", "test/qt-native-ui-state-projection.mjs"),
   nodeFile("qt-native-help-projection", "test/qt-native-help-projection.mjs"),
@@ -250,6 +254,7 @@ export const parallelSteps = Object.freeze([
   withApi("mcp-selftest", "dist/index.js", "--selftest"),
   psFile("table-region", "test/table-region-contract.ps1"),
   psFile("table-values", "test/table-values-contract.ps1"),
+  psFile("table-boolean-write", "test/table-boolean-write-contract.ps1"),
   psFile("instance-identity", "test/instance-identity-contract.ps1"),
   psFile("window-scope", "test/window-scope-contract.ps1"),
   psFile("structure-binding", "test/structure-binding-contract.ps1"),

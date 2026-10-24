@@ -21,7 +21,7 @@ export function sameSteppedContext(before: CursorBinding, after: CursorBinding) 
 }
 
 const stepCheckpointSchema = z.object({
-  transactionNonce: z.string().uuid(), stepNonce: z.string().uuid(), parentLeaseNonce: z.string().uuid(),
+  transactionNonce: z.string().guid(), stepNonce: z.string().guid(), parentLeaseNonce: z.string().guid(),
   sequence: z.number().int().nonnegative(), key: z.enum(["home", "down"]),
   modelFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
   row: z.number().int().nonnegative(), column: z.literal(0), rowFullyContained: z.boolean(),

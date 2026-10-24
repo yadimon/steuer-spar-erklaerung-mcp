@@ -146,7 +146,7 @@ Das belegt die Prozess-/Desktopgrenzen, ersetzt aber keinen Herstellerfall-Lauf.
 ## Live-Abdeckung
 
 Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;
-ein Vertragstest hält dieses Dokument dagegen. Dort stehen 94 der 102
+ein Vertragstest hält dieses Dokument dagegen. Dort stehen 96 der 102
 Operationen als live-funktional.
 
 Sechzehn Ledger-Einträge verwenden einen übernommenen separaten Nachweis statt
@@ -164,26 +164,42 @@ weiterhin nur als Fehlerpfad. Die Einteilung stammt aus
 `test/operation-coverage-contract.mjs` und darf nicht als Erfolg jeder Mutation
 gelesen werden.
 
-Noch 8 der 102 Operationen sind nicht live-funktional belegt.
-Diese Bilanz bezieht sich auf den aggregierten Release-Snapshot.
+Noch 6 der 102 Operationen sind nicht live-funktional belegt.
+Diese Bilanz bezieht sich auf den aggregierten Release-Snapshot und ersetzt
+keinen erneuten Nachweis pro Paketversion, Backend und API-/MCP-Zugang.
 
-Von keinem automatisierten Suitelauf in diesem Snapshot funktional ausgeübt wurden
-`position_create`, `tax_knowledge_search`, `vast_apply`, `vast_dialog_read`,
+Positive funktionale Nachweise fehlen für `vast_apply`, `vast_dialog_read`,
 `vast_mapping_options`, `vast_mapping_select`, `vast_row_details` und
 `vast_row_set_expanded`.
 
 Die Bilanz zählt ausschließlich die dort registrierten Suite-Belege.
-Separate automatisierte Entwicklungsprüfungen für Positionsanlage und
-Steuerwissen ändern diesen Snapshot nicht; ihre Einzelbelege bleiben von der
-aggregierten Live-Matrix getrennt. Manuelle Stichproben ersetzen keinen
-automatisierten Nachweis.
+Erfolgreiche automatische Positions- und Steuerwissen-Prüfungen sind darin
+registriert. Ein zusätzlicher Lauf ändert die Bilanz erst durch die reguläre
+Ledger-Regeneration. Manuelle Stichproben ersetzen keinen automatisierten
+Nachweis. Die weiteren Freigabekriterien stehen in der
+[Stable-Abnahme](entwicklung/stable-freigabe.md).
 
-`node test/with-api.mjs node test/live-income-positions.mjs` ist eine separate,
+`position_create` wird durch
+`node test/with-api.mjs node test/live-income-positions.mjs` geprüft: eine separate,
 optionale Live-Prüfung mit einem vollständig neuen synthetischen Folgejahresfall.
 Sie prüft die erste und eine weitere Einnahmenposition, das genaue Inventar,
-Speichern und Wiederöffnen. Sie benötigt eine freie sichtbare Windows-Sitzung.
+Speichern und Wiederöffnen. Falscher Dateihash, fehlendes Backup, ein anderer
+Fall, doppelte Namen und abweichende erwartete Nettobeträge müssen vor einer
+weiteren Anlage abgewiesen werden. Dabei bleiben Inventar und Dateien
+unverändert. Sie benötigt eine freie sichtbare Windows-Sitzung.
 Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
-Schritte; seine Einzelbelege ersetzen nicht die aggregierte Live-Matrix.
+Schritte; seine Einzelbelege ersetzen keine umfassende Paketabnahme.
+
+`npm run test:live-tax-knowledge` prüft `tax_knowledge_search` über API und MCP.
+Vorher müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible Hersteller-
+Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner außerhalb
+des Repositorys gesetzt sein. Alle SSE-/Steuerwissen-Fenster müssen geschlossen
+und die sichtbare Windows-Sitzung frei sein. Der Test kopiert die Musterdatei,
+prüft Treffer, wiederholte Suchbegriffe, bestätigte und wiederholte Nulltreffer,
+den Wechsel zurück zu Treffern sowie eine falsche Fensterbindung und
+beweist die Zugehörigkeit des gestarteten Helfers über ein Windows Job Object.
+Er schließt nur die eigenen Prozesse normal und vergleicht die Dateihashes.
+Mehrfenster-/Interferenz- und Leistungsabnahme bleiben eigene Prüffälle.
 
 `node test/with-api.mjs node test/live-income-table.mjs --rows=60` prüft eine
 weitere neue Einnahmenposition mit vielen synthetischen Buchungen. Nach jeder
@@ -215,7 +231,7 @@ die Seiten-, Hilfe-, Tabellen-, Prüfer- und Zustandsprojektionen der fünf
 zuletzt angeschlossenen Lesepfade gegen synthetische Qt-Bäume; unter Windows
 führt der Differenzorakel-Test dieselben Worker-Zweige über denselben
 Knotenbestand aus.
-Die Zahl 94 funktional live belegter Operationen ist keine Qt-Abdeckung.
+Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
 [Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt
 [NATIVE-QT.md](NATIVE-QT.md). Keine Nachweisstufe wird allein durch einen
@@ -331,6 +347,18 @@ und prüft erneut den geschützten Cursor. Passive vollständige Modellabgleiche
 vor und nach diesem zweiten Cursor vergleichen Werte, Typen, Checkboxzustände,
 Summe und Zeilenfingerprints. Der Seitenwechsel liegt nach der unmittelbaren
 Add-/Read-/Update-Folge; die Reise speichert keine Änderungen.
+
+Anschließend folgt eine zweite Folge mit Bezeichnung und Betrag:
+Add → passives Lesen → Update → passives Lesen → Delete. Sie prüft den
+natürlichen Fokuszustand nach einer Texteingabe, der auch auf der eingebetteten
+Hilfe liegen kann. Kein zusätzlicher Fokusaufruf bereitet das Update vor.
+Nach dem Löschen muss der vollständige vorherige Tabellenbestand wieder
+übereinstimmen. Der native Schreibpfad darf den Fokus nur von der exakt
+profilierten, nicht editierbaren Hilfe mit geprüfter Qt-Provider-Version auf
+den gebundenen Weiter-Button setzen. Dabei wird der Button nicht ausgelöst.
+Fremde oder veränderte Dokumente erhalten diese Berechtigung nicht. Eine
+fehlgeschlagene Help-Prüfung beendet den Versuch vor jeder Fokusaktion; sie
+wird nicht als allgemeine native Fokusquelle weitergereicht.
 
 Nach einem kompatiblen nativen Build, ohne vorhandene SSE-Instanz und in einer
 unbenutzten entsperrten Windows-Sitzung:

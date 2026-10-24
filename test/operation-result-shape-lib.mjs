@@ -105,9 +105,9 @@ export function samplesForResultTypeTagWithSchemaLiteral(tag, schema) {
   // need their declared keys instead of the generic { name } sample.
   const array = /^array-(one|many):object$/u.exec(tag);
   const arraySchema = unwrappedSchema(schema);
-  if (array && arraySchema?._def?.typeName === "ZodArray") {
-    const element = unwrappedSchema(arraySchema._def.type);
-    if (element?._def?.typeName === "ZodObject") {
+  if (array && arraySchema?._def?.type === "array") {
+    const element = unwrappedSchema(arraySchema._def.element);
+    if (element?._def?.type === "object") {
       const record = declaredSchemaSample(element);
       const candidate = array[1] === "one" ? [record] : [record, { ...record }];
       if (resultTypeTag(candidate) === tag && schema.safeParse(candidate).success) samples.push(candidate);
@@ -210,7 +210,7 @@ function unwrappedSchema(schema) {
   const seen = new Set();
   while (current && typeof current === "object" && !seen.has(current)) {
     seen.add(current);
-    if (current._def?.typeName !== "ZodOptional" && current._def?.typeName !== "ZodNullable") break;
+    if (current._def?.type !== "optional" && current._def?.type !== "nullable") break;
     current = current._def.innerType;
   }
   return current;
@@ -218,22 +218,22 @@ function unwrappedSchema(schema) {
 
 function unwrappedSchemaLiteral(schema) {
   const current = unwrappedSchema(schema);
-  return current?._def?.typeName === "ZodLiteral" ? { found: true, value: current._def.value } : { found: false };
+  return current?._def?.type === "literal" ? { found: true, value: current._def.values[0] } : { found: false };
 }
 
 /** Bounded schema samples; unsupported or constrained values still fail the caller's schema check. */
 function declaredSchemaSample(schema, depth = 0) {
   if (depth > 8) return undefined;
   const current = unwrappedSchema(schema);
-  switch (current?._def?.typeName) {
-    case "ZodNumber": return 1;
-    case "ZodString": return "synthetic";
-    case "ZodBoolean": return false;
-    case "ZodLiteral": return current._def.value;
-    case "ZodEnum": return current._def.values[0];
-    case "ZodNull": return null;
-    case "ZodArray": return [];
-    case "ZodObject": return Object.fromEntries(Object.entries(current.shape)
+  switch (current?._def?.type) {
+    case "number": return 1;
+    case "string": return "synthetic";
+    case "boolean": return false;
+    case "literal": return current._def.values[0];
+    case "enum": return Object.values(current._def.entries)[0];
+    case "null": return null;
+    case "array": return [];
+    case "object": return Object.fromEntries(Object.entries(current.shape)
       .filter(([, field]) => !field.isOptional())
       .map(([field, definition]) => [field, declaredSchemaSample(definition, depth + 1)]));
     default: return undefined;

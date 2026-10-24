@@ -57,7 +57,10 @@ export function createMcpRegistry(server: McpServer) {
         outcomeUnknown: true, reconciliationRequired: true, retryable: false });
     }
     if (error instanceof ApiClientError) {
-      const unknown = ["timeout", "aborted", "transport-unknown"].includes(error.kind);
+      // An invalid operation response cannot establish whether a write was
+      // applied. A preflight protocol error occurs before the operation POST.
+      const unknown = ["timeout", "aborted", "transport-unknown"].includes(error.kind) ||
+        (error.kind === "protocol" && error.operationResponseReceived);
       return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message,
         ...(unknown ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}) });
     }
@@ -104,11 +107,13 @@ export function createMcpRegistry(server: McpServer) {
     const firstOperation = operations[0];
     if (!firstOperation) throw new Error(`MCP-Werkzeug '${name}' besitzt keine API-Basisoperation.`);
     const traits = operations.map((operation) => operationAnnotations(operation));
-    return server.registerTool(
+    const { inputSchema: inputShape, ...toolConfig } = config;
+    const strictInputSchema = z.object(inputShape).strict();
+    return server.registerTool<z.ZodType, typeof strictInputSchema>(
       name,
       {
-        ...config,
-        inputSchema: z.object(config.inputSchema).strict(),
+        ...toolConfig,
+        inputSchema: strictInputSchema,
         annotations: {
           readOnlyHint: traits.every((entry) => entry.readOnlyHint),
           destructiveHint: traits.some((entry) => entry.destructiveHint),
@@ -177,7 +182,7 @@ export function createMcpRegistry(server: McpServer) {
     config: ToolConfig,
     options: { timeoutMs?: number; } = {},
   ) {
-    const schema = SSE_MCP_TOOL_SCHEMAS[name] as z.AnyZodObject;
+    const schema = SSE_MCP_TOOL_SCHEMAS[name] as z.ZodObject;
     return registerStrictTool(
       name,
       { ...config, inputSchema: schema.shape, outputSchema: apiResultOutputSchema(SSE_MCP_TOOL_OPERATIONS[name]) },
@@ -191,7 +196,7 @@ export function createMcpRegistry(server: McpServer) {
     shape: ApiResultShape,
     options: { timeoutMs?: number; } = {},
   ) {
-    const schema = SSE_MCP_TOOL_SCHEMAS[name] as z.AnyZodObject;
+    const schema = SSE_MCP_TOOL_SCHEMAS[name] as z.ZodObject;
     return registerStrictTool(
       name,
       { ...config, inputSchema: schema.shape, outputSchema: apiResultOutputSchema(SSE_MCP_TOOL_OPERATIONS[name]) },

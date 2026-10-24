@@ -808,6 +808,14 @@ Ein erfolgreicher Diagnoseread löscht keinen früheren unbekannten
 Mutationsausgang. Ein API-Neustart liefert ebenfalls keinen Nachweis darüber,
 was eine bereits abgesandte Aktion im Produkt bewirkt hat.
 
+Nach einem abgebrochenen Worker kann die erste native Lesung eine aufgegebene
+Controllersperre als `worker-isolation-lost` melden. Ein neuer rein lesender
+Aufruf kann anschließend den Bestand prüfen; der Schreibauftrag wird nicht
+wiederholt. Die Bridge behält ihre Schreibsperre für diese Produktinstanz.
+Erst den vollständigen betroffenen Bestand abgleichen, dann bewusst speichern
+oder verwerfen und die eigene Produktinstanz normal schließen. Ein neuer
+Produktstart benötigt erneut frische Fall-, Fenster- und Vorwertprüfungen.
+
 ## Prüfung
 
 Für interne native Schreibpfade bietet `QtNativeClient.requestAcknowledged`

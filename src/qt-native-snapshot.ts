@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { setTimeout as delay } from "node:timers/promises";
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
@@ -30,6 +31,7 @@ const snapshotSchema = z.object({
   }).strict(),
 });
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
+const MIN_READ_RETRY_BUDGET_MS = 2500;
 
 /** A fresh GUI-thread content tree with UIA-compatible runtime IDs. No UIA client or PowerShell process. */
 export async function readQtNativeSnapshot(
@@ -39,7 +41,7 @@ export async function readQtNativeSnapshot(
     throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
   }
   const maxNodes = typeof args.maxNodes === "number" ? args.maxNodes : 4000;
-  const read = await client.request("accessibility_snapshot", {
+  const request = {
     maxNodes, ...(typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {}),
     ...(typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {}),
     ...(typeof args.allowedModalHwnd === "number" ? { allowedModalHwnd: args.allowedModalHwnd } : {}),
@@ -48,7 +50,30 @@ export async function readQtNativeSnapshot(
     ...(Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {}),
     ...(Array.isArray(args.aidContains) ? { aidContains: args.aidContains } : {}),
     ...(args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}),
-  }, timeoutMs, signal);
+  };
+  const started = performance.now();
+  let nativeDurationMs = 0;
+  let read: Awaited<ReturnType<QtNativeClient["request"]>>;
+  for (let attempt = 1; ; attempt++) {
+    const remaining = attempt === 1 ? timeoutMs : Math.max(1, Math.floor(timeoutMs - (performance.now() - started)));
+    read = await client.request("accessibility_snapshot", request, remaining, signal);
+    nativeDurationMs += read.durationMs;
+    // The bridge atomically cancelled this read while it was still queued.
+    // A busy GUI after an acknowledged action does not justify replaying that
+    // action. Only this exact read, on the same session, may be submitted again.
+    const cancelledRead = read.result.ok === false && read.result.code === "GUI_QUEUE_TIMEOUT"
+      && read.result.mutationAttempted === false && read.result.outcomeUnknown === false;
+    // Leave room for the bridge's fixed 2000-ms queue deadline and its reply.
+    // A shorter retry could retire an otherwise healthy framed connection.
+    if (!cancelledRead || attempt === 3 || timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) break;
+    if (signal?.aborted) throw new QtNativeTransportError("Native snapshot aborted before another read.", "aborted");
+    try { await delay(50, undefined, { signal }); }
+    catch (error) {
+      if (signal?.aborted) throw new QtNativeTransportError("Native snapshot aborted before another read.", "aborted");
+      throw error;
+    }
+    if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS) break;
+  }
   if (!read.result.ok) throw new QtNativeTransportError(String(read.result.error ?? "Native snapshot failed."),
     String(read.result.code ?? "native-read"), read.result.outcomeUnknown === true);
   const parsed = snapshotSchema.parse(read.result);
@@ -70,7 +95,7 @@ export async function readQtNativeSnapshot(
     if (matches && (new Set(matches).size !== matches.length || matches.some(index => index >= parsed.nodes.length)))
       invalid("Invalid native selector comparison indices.");
   }
-  return { ...parsed, nativeDurationMs: read.durationMs };
+  return { ...parsed, nativeDurationMs };
 }
 
 /** The bridge folds its depth bound into `truncated`; a failure names the bound that was hit so the remedy fits. */

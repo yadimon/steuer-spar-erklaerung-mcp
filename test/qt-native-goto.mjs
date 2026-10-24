@@ -102,7 +102,7 @@ try {
 
 function fixture(options = {}) {
   let current = options.start ?? "Start page", searchOpen = false, term = "", reads = 0, targetReads = 0, incompleteNativeReads = 0;
-  let pendingReadObserved = false, pageGeneration = 0;
+  let pendingReadObserved = false, pageGeneration = 0, queuedSearchReads = 0;
   const actions = [], route = [...(options.landings ?? ["Target page"])];
   const nodes = () => {
     const { nodes: value, add } = builder();
@@ -137,6 +137,11 @@ function fixture(options = {}) {
     request: async operation => {
       if (operation === "window_inventory") return { durationMs: 1, result: inventory() };
       assert.equal(operation, "accessibility_snapshot"); reads++;
+      if (searchOpen && queuedSearchReads < (options.queuedSearchReads ?? 0)) {
+        queuedSearchReads++;
+        return { durationMs: 2000, result: { ok: false, code: "GUI_QUEUE_TIMEOUT", error: "Read cancelled before dispatch",
+          mutationAttempted: false, outcomeUnknown: false } };
+      }
       if (actions.at(-1)?.expectedName === "Suche schließen" && incompleteNativeReads < (options.incompleteNativeReads ?? 0)) {
         incompleteNativeReads++;
         return { durationMs: 1, result: { ok: false, code: "NATIVE_ACCESSIBILITY_INCOMPLETE", error: "Validation preview rebuilding" } };
@@ -265,6 +270,14 @@ assert.equal(stationaryResult.outcomeUnknown, true);
 const noHit = fixture({ noHit: true });
 assert.equal((await noHit.run({ maxSteps: 1 })).erreicht, true);
 assert.equal(noHit.actions.filter(action => action.action === "activate-table-cell").length, 0);
+const busySearch = fixture({ queuedSearchReads: 2 });
+assert.equal((await busySearch.run()).erreicht, true);
+assert.deepEqual(busySearch.actions.map(action => action.action),
+  ["replace-edit-text", "press", "activate-table-cell", "press"], "Busy read recovery must not replay a search or activation.");
+const blockedSearch = fixture({ queuedSearchReads: 10 });
+assert.equal((await blockedSearch.run()).kind, "GUI_QUEUE_TIMEOUT");
+assert.equal(blockedSearch.reads, 5, "The queued search read must stop after three attempts.");
+assert.deepEqual(blockedSearch.actions.map(action => action.action), ["replace-edit-text", "press"]);
 const dead = fixture({ deadEnd: true });
 assert.equal((await dead.run({ useSearch: false })).kind, "dead-end"); assert.equal(dead.actions.length, 0);
 const warning = fixture({ warning: true });

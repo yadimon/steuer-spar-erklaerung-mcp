@@ -26,8 +26,10 @@ API-Abdeckung.
 
 ## 1. Stand in Zahlen
 
-102 Operationen sind katalogisiert. 94 davon sind in der Live-Suite belegt,
-sechs nur auf ihrem Fehlerpfad, zwei ohne automatisierten Live-Suiteschritt.
+102 Operationen sind katalogisiert. 96 davon sind funktional live belegt,
+sechs nur auf ihrem Fehlerpfad. Diese Bilanz ist historisch aggregiert; sie
+ersetzt keine aktuelle Abnahme pro Version und Backend. Die zusätzlichen
+Kriterien stehen in der [Stable-Abnahme](entwicklung/stable-freigabe.md).
 Dazu gibt es 102 direkte MCP-Werkzeugnamen, ein zusammengesetztes für den
 Einstieg und ein API-Lebenszykluswerkzeug, zusammen 104. Die direkten Werkzeuge decken 101 Operationen
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt

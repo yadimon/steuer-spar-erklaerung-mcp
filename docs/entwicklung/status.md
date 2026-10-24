@@ -28,7 +28,7 @@ Operationen, nicht alle noch fehlenden Produktfähigkeiten.
 | Seiten (`.dialog`-Dateien) | 672 | generische Lese-/Schreibmechanismen, kein Vollnachweis für alle Seiten; 22 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
-| Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
+| Operationen | – | 102: 96 funktional live belegt, 6 nur Fehlerpfad, 0 live ungetestet; historisch aggregiert |
 | Direkte Qt-DLL-Handler | – | Ausführungsweg und Grenzen je Operation in der [Native-Matrix](../NATIVE-COVERAGE.md) |
 | MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 

@@ -2600,6 +2600,10 @@ if (-not (Test-Path -LiteralPath $profileVerificationHelpers -PathType Leaf)) {
   Fail "Build-Verifikations-Helfer fehlt: $profileVerificationHelpers" 'not-found'
 }
 . $profileVerificationHelpers
+$knowledgeHelpers = Join-Path $PSScriptRoot 'tax-knowledge.ps1'
+if (-not (Test-Path -LiteralPath $knowledgeHelpers -PathType Leaf)) { Fail 'Steuerwissen helper is missing.' 'not-found' }
+. $knowledgeHelpers
+. (Join-Path $PSScriptRoot 'table-boolean.ps1')
 $initProbe.Stop(); $script:INIT_TIMINGS.assembliesMs = $initProbe.ElapsedMilliseconds
 
 # ---------------------------------------------------------- Versteckter Desktop
@@ -7038,13 +7042,20 @@ function Bind-SSEPreparedTableRowAfterCombo([IntPtr]$Hwnd, $Prepared, $Row, $Sna
     $pattern = $null; $element = $null
     if ($pending.mode -ne 'combo') {
       $element = Get-LiveElement $Hwnd $cell.rid $cell.aid
-      if ($pending.mode -ne 'value' -or -not $element -or
-          -not $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -or
-          $pattern.Current.IsReadOnly) {
-        return [pscustomobject]@{ ok=$false; error='Frische Textzelle ist nicht mehr beschreibbar gebunden.' }
+      if ($pending.mode -eq 'toggle') {
+        if (-not $element -or -not $element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$pattern)) {
+          return [pscustomobject]@{ok=$false;error='Frische Checkbox ist nicht mehr typisiert gebunden.'}
+        }
+        $state=Read-SSEToggleState $pattern
+        if ($state -cnotin @('On','Off')) {return [pscustomobject]@{ok=$false;error='Frische Checkbox ist nicht eindeutig lesbar.'}}
+        $current=$(if ($state -ceq 'On') {'true'} else {'false'})
+      } else {
+        if ($pending.mode -ne 'value' -or -not $element -or -not $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -or $pattern.Current.IsReadOnly) {
+          return [pscustomobject]@{ok=$false;error='Frische Textzelle ist nicht mehr beschreibbar gebunden.'}
+        }
+        $current=[string]$pattern.Current.Value
+        if (-not $current) {$current=[string]$element.Current.Name}
       }
-      $current = [string]$pattern.Current.Value
-      if (-not $current) { $current=[string]$element.Current.Name }
       if (-not (Test-SSETableCellEquivalent $current $pending.before)) {
         return [pscustomobject]@{ ok=$false; error='Ein nicht gewaehlter Zellwert aenderte sich nach der typisierten Auswahl.' }
       }
@@ -7868,7 +7879,7 @@ function Get-SSETableTypedEditorFocusProof {
 function Test-SSETableFocusedSource {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,$OwnedCell,$ExpectedSource,
     [ref]$FailureReason,[ref]$FailureEvidence,$NumberAnchor,[ref]$NumberEditorProof,$NumberModel,
-    [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$TypedEditorAuthority,[ref]$TypedEditorProof,$NumberPolicy,[ref]$PositionNameProof,[switch]$AllowPositionNameSource)
+    [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$TypedEditorAuthority,[ref]$TypedEditorProof,$NumberPolicy,[ref]$PositionNameProof,[switch]$AllowPositionNameSource,$HelpDocumentSnapshot)
   if ($FailureReason) {$FailureReason.Value='source-focus-unbound'}
   if ($FailureEvidence) {$FailureEvidence.Value=$null}
   try {
@@ -7886,6 +7897,21 @@ function Test-SSETableFocusedSource {
         processId=[int]$current.ProcessId;nativeWindowHandle=[int64]$current.NativeWindowHandle;
         x=$bounds.X;y=$bounds.Y;w=$bounds.Width;h=$bounds.Height};
         exactMatchCount=[int]$nodes.Count;runtimeIdMatchCount=[int]@($Tree.nodes | Where-Object {$_.rid -ceq $rid}).Count}
+    }
+    if ($HelpDocumentSnapshot -and $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Document) {
+      # Reuse the exact profiled/provider-bound Help proof. This authority is
+      # supplied only by native positioning, never by generic cursor reads.
+      $helpBinding=$HelpDocumentSnapshot.navigationBinding
+      if ($RequireNumberEditor -or $TypedEditorAuthority -or
+          $helpBinding.tableRootAid -cne $TableAid -or $helpBinding.tableRootRid -cne $TableRid) {
+        if ($FailureReason) {$FailureReason.Value='source-help-document-unbound'};return $false
+      }
+      $helpProof=Get-SSETableNumberClickSourceProof $Hwnd $ProcessId $Tree $HelpDocumentSnapshot $ExpectedSource
+      if (-not $helpProof.ok -or $helpProof.kind -cne 'help-document') {
+        if ($FailureReason) {$FailureReason.Value='source-help-document-unbound'};return $false
+      }
+      if ($FailureReason) {$FailureReason.Value=$null}
+      return $true
     }
     if (($nodes.Count -eq 0 -or $RequireNumberEditor) -and $NumberAnchor) {
       $numberProof=Get-SSETableNumberAnchorFocusProof $Hwnd $ProcessId $Tree $TableAid $TableRid `
@@ -8011,7 +8037,7 @@ function Test-SSETableNativePositionMainWindowSource {
 function Invoke-SSETableFooterFocus {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,[string]$ExpectedPage,
     $InputBaseline,[string]$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,[switch]$RequireNumberEditor,
-    [int]$ExpectedNumberRow=-1,$TypedEditorAuthority,$NumberPolicy,[switch]$AllowPositionNameSource)
+    [int]$ExpectedNumberRow=-1,$TypedEditorAuthority,$NumberPolicy,[switch]$AllowPositionNameSource,$HelpDocumentSnapshot)
   $reject=[pscustomobject]@{ok=$false;reason='profiled-footer-focus-unbound';button=$null;
     phase='profile-binding';focusAttempted=$false;sourceReason=$null;uncachedReason=$null;
     exceptionType=$null;exceptionMessage=$null;errorRecord=$null;sourceEvidence=$null}
@@ -8045,7 +8071,7 @@ function Invoke-SSETableFooterFocus {
           ([ref]$sourceProofReason) ([ref]$sourceProofEvidence) $NumberAnchor ([ref]$numberEditorProof) $NumberModel `
           -RequireNumberEditor:$RequireNumberEditor -ExpectedNumberRow $ExpectedNumberRow `
           -TypedEditorAuthority $TypedEditorAuthority -TypedEditorProof ([ref]$typedEditorProof) -NumberPolicy $NumberPolicy `
-          -PositionNameProof ([ref]$positionNameProof) -AllowPositionNameSource:$AllowPositionNameSource)) {
+          -PositionNameProof ([ref]$positionNameProof) -AllowPositionNameSource:$AllowPositionNameSource -HelpDocumentSnapshot $HelpDocumentSnapshot)) {
       $reject.sourceReason=$sourceProofReason
       $reject.sourceEvidence=$sourceProofEvidence
       $reject.reason='footer-source-focus-unbound';return $reject
@@ -8111,6 +8137,14 @@ function Invoke-SSETableFooterFocus {
           ($gridRoot.GetRuntimeId() -join '.') -cne $typedEditorProof.tableRid -or
           [string]$gridRoot.Current.AutomationId -cne $typedEditorProof.tableAid) {
         $reject.reason='footer-typed-editor-model-cell-changed';return $reject
+      }
+    }
+    if ($HelpDocumentSnapshot -and $sourceType -eq [System.Windows.Automation.ControlType]::Document) {
+      # The final source check repeats the same proof before the single action;
+      # changed focus, provider, ancestry or editable-document semantics reject.
+      $helpNow=Get-SSETableNumberClickSourceProof $Hwnd $ProcessId $Tree $HelpDocumentSnapshot $sourceExpected
+      if (-not $helpNow.ok -or $helpNow.kind -cne 'help-document') {
+        $reject.reason='footer-help-source-changed';return $reject
       }
     }
     if (-not (Test-SSELastInputUnchanged $InputBaseline) -or
@@ -12527,167 +12561,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   }
 
   'tax_knowledge_search' {
-    # Das Steuerwissen der SteuerSparErklaerung ist ein EIGENES Programm
-    # (Prozess SteuerBerater, Fenstertitel 'Steuerwissen'), das SSE ueber die
-    # Werkzeugleiste startet. Diese Operation liest dort nach - und nur das.
-    #
-    # Sie ruehrt den Steuerfall nicht an: kein Fenster von SSE wird gebunden,
-    # nichts geschrieben, nichts gespeichert. Getippt wird ausschliesslich in
-    # das Suchfeld des Wissensfensters.
-    #
-    # Warum physisch geklickt und getippt wird: Das Suchfeld liegt in einer
-    # eingebetteten Chromium-Ansicht. SetFocus lehnt sie ab ('Das Zielelement
-    # kann keinen Fokus erhalten'), und ein ValuePattern-Text loest die Suche
-    # nicht aus. Beides ist gemessen. Die Operation braucht deshalb den
-    # sichtbaren Desktop und den Vordergrund; sie ist nichts fuer nebenher.
-    if ($script:DESKTOP_NAME) {
-      Fail ('Steuerwissen braucht den sichtbaren Desktop: Das Suchfeld liegt in einer eingebetteten ' +
-            'Chromium-Ansicht und nimmt weder UIA-Fokus noch ValuePattern an.') 'hidden-desktop'
-    }
-    $begriff = ([string](Arg $a 'begriff')).Trim()
-    if ($begriff.Length -lt 2 -or $begriff.Length -gt 80) {
-      Fail 'begriff braucht 2 bis 80 Zeichen.' 'bad-args'
-    }
-    $mindestLaenge = Get-SSEBoundedIntegerArg $a 'mindestLaenge' 60 20 400
-    $maxAbschnitte = Get-SSEBoundedIntegerArg $a 'maxAbschnitte' 12 1 40
-
-    $wissenProzesse = @(Get-Process -Name 'SteuerBerater' -ErrorAction SilentlyContinue)
-    foreach ($wp in $wissenProzesse) { $wp.Refresh() }
-    $mitFenster = @($wissenProzesse | Where-Object {
-      $_.MainWindowHandle -ne 0 -and [string]$_.MainWindowTitle -eq 'Steuerwissen'
-    })
-    if (-not $mitFenster.Count) {
-      Fail ('Das Steuerwissen-Fenster ist nicht offen. Es wird von der SteuerSparErklaerung selbst ' +
-            "gestartet: sse_click mit name='Steuerwissen' auf der Werkzeugleiste, danach diese " +
-            'Operation erneut aufrufen.') 'not-found'
-    }
-    $wissenHwnd = [IntPtr]$mitFenster[0].MainWindowHandle
-    $wissenPid = [int]$mitFenster[0].Id
-
-    # Das Fenster erscheint, bevor die eingebettete Ansicht ihre Bedienelemente
-    # meldet - deshalb wird darauf gewartet.
-    #
-    # OFFEN, und der Grund, warum diese Operation als live ungetestet gilt:
-    # Chromium legt seinen Bedienbaum nur auf Anforderung an. Gemessen meldete
-    # dasselbe Fenster einmal 31 Knoten samt Suchfeld und ein anderes Mal nur
-    # 15 ohne jeden Inhalt - Warten half dort nicht, auch nach 15 Sekunden
-    # nicht. Was den Baum verlaesslich anfordert, ist noch nicht gefunden;
-    # blosses Lesen ueber UIA genuegt offenbar nicht. Bis dahin scheitert die
-    # Operation in dieser Lage sauber, statt etwas zu behaupten.
-    $suchfeld = $null
-    $wissenCache = New-Object System.Collections.Hashtable
-    $feldUhr = [Diagnostics.Stopwatch]::StartNew()
-    while ($feldUhr.ElapsedMilliseconds -lt 15000) {
-      $vorher = [SSEUiaTree]::Describe($wissenHwnd, 900, 9000, 16, $true, $false)
-      $wissenCache.Clear()
-      $vorherViews = [SSEUiaTree]::ToViews($vorher.Nodes, $wissenCache)
-      $suchfeld = @($vorherViews | Where-Object { $_.type -eq 'Edit' -and [string]$_.name -like '*Suchbegriff*' })[0]
-      if ($suchfeld) { break }
-      Start-Sleep -Milliseconds 700
-    }
-    if (-not $suchfeld) {
-      Fail ("Im Steuerwissen-Fenster ist auch nach $([int]$feldUhr.Elapsed.TotalSeconds) Sekunden kein " +
-            'Suchfeld sichtbar.') 'not-found'
-    }
-    if ([int]$suchfeld.w -le 0 -or [int]$suchfeld.h -le 0) {
-      Fail 'Das Suchfeld des Steuerwissens hat keine sichtbare Flaeche.' 'offscreen'
-    }
-
-    $null = [SW]::SetForegroundWindow($wissenHwnd)
-    Start-Sleep -Milliseconds 500
-    if ([SW]::GetForegroundWindow() -ne $wissenHwnd) {
-      Fail 'Das Steuerwissen-Fenster liess sich nicht in den Vordergrund holen; nichts getippt.' 'precondition-failed'
-    }
-    $klickX = [int]($suchfeld.x + $suchfeld.w / 2)
-    $klickY = [int]($suchfeld.y + $suchfeld.h / 2)
-    Set-SSECursorPoint $klickX $klickY
-    Start-Sleep -Milliseconds 150
-    Assert-SSECursorPoint $klickX $klickY
-    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
-    [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
-    Start-Sleep -Milliseconds 350
-
-    # Vorherigen Suchbegriff ersetzen, nicht ergaenzen.
-    [System.Windows.Forms.SendKeys]::SendWait('^a')
-    Start-Sleep -Milliseconds 120
-    [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $begriff))
-    Start-Sleep -Milliseconds 350
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-
-    # Auf Inhalt warten statt pauschal zu schlafen.
-    $wartenBis = [Diagnostics.Stopwatch]::StartNew()
-    $abschnitte = @()
-    $verweise = @()
-    while ($wartenBis.ElapsedMilliseconds -lt 12000) {
-      Start-Sleep -Milliseconds 600
-      $nachher = [SSEUiaTree]::Describe($wissenHwnd, 2500, 15000, 20, $true, $false)
-      $nachherViews = [SSEUiaTree]::ToViews($nachher.Nodes, $null)
-      # Die eingebettete Ansicht zerlegt einen Absatz in mehrere Textknoten,
-      # und die Trefferhervorhebung schneidet den gesuchten Begriff in eigene,
-      # sehr kurze Knoten. Wer nur lange Knoten nimmt, verliert genau den
-      # Begriff, nach dem gesucht wurde: Aus einem Satz ueber das
-      # Reverse-Charge-Verfahren wurden zwei zusammenhanglose Bruchstuecke,
-      # zwischen denen der Begriff fehlte.
-      #
-      # Deshalb werden zusammengehoerige Knoten - gleicher Elternknoten, in
-      # Baumreihenfolge - zu einem Abschnitt vereint, und erst der ganze
-      # Abschnitt wird an der Mindestlaenge gemessen.
-      #
-      # Verbunden wird ohne Trennzeichen. Die Namen tragen die Wortabstaende
-      # an den Schnittstellen nicht (gemessen: der Knoten vor einer
-      # Hervorhebung endet auf 'tes', nicht auf 'tes '), und ein eingefuegtes
-      # Leerzeichen waere erfunden - es zerrisse 'Reverse-Charge' zu
-      # 'Reverse - Charge'. Ein fehlendes Leerzeichen ist die kleinere
-      # Entstellung als ein zusaetzliches; 'teile' liefert daneben den
-      # unveraenderten Wortlaut jedes einzelnen Knotens.
-      #
-      # Ein TextPattern waere der saubere Weg, den Absatz samt Abstaenden zu
-      # lesen. Dieses Fenster bietet keines: gemessen meldete kein einziger
-      # Knoten IsTextPatternAvailable.
-      $textKnoten = @($nachherViews | Where-Object { $_.type -eq 'Text' -and [string]$_.name })
-      $roheAbschnitte = New-Object System.Collections.ArrayList
-      $gruppenTeile = New-Object System.Collections.ArrayList
-      $gruppenEltern = $null
-      foreach ($knoten in $textKnoten) {
-        if ($gruppenTeile.Count -and [string]$knoten.p -ne [string]$gruppenEltern) {
-          $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray()))
-          $gruppenTeile.Clear()
-        }
-        $gruppenEltern = [string]$knoten.p
-        $null = $gruppenTeile.Add([string]$knoten.name)
-      }
-      if ($gruppenTeile.Count) { $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray())) }
-
-      $abschnitte = @()
-      $gesehenerText = New-Object 'System.Collections.Generic.HashSet[string]'
-      foreach ($teile in $roheAbschnitte) {
-        $verbunden = ($teile -join '')
-        if ($verbunden.Length -lt $mindestLaenge) { continue }
-        if (-not $gesehenerText.Add($verbunden)) { continue }
-        $abschnitte += [pscustomobject]@{ text = $verbunden; teile = @($teile) }
-        if ($abschnitte.Count -ge $maxAbschnitte) { break }
-      }
-      $verweise = @($nachherViews |
-        Where-Object { $_.type -eq 'Hyperlink' -and [string]$_.name } |
-        ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First 25)
-      if ($abschnitte.Count) { break }
-    }
-
-    Emit ([pscustomobject]@{
-      ok = $true
-      begriff = $begriff
-      fenster = [int64]$wissenHwnd
-      pid = $wissenPid
-      abschnitte = @($abschnitte)
-      verweise = @($verweise)
-      wartezeitMs = [int64]$wartenBis.ElapsedMilliseconds
-      hinweis = ('Rein lesend aus dem Steuerwissen der SteuerSparErklaerung. Kein Steuerfall wurde ' +
-                 'gebunden, gelesen oder geaendert. Die Antwort ist Herstellerinhalt, keine ' +
-                 'Steuerberatung und keine Zusage fuer den konkreten Fall. Je Abschnitt ist ' +
-                 "'teile' der unveraenderte Wortlaut der einzelnen Textknoten; 'text' verbindet " +
-                 'sie ohne Trennzeichen. An einer Trefferhervorhebung kann dort ein Wortabstand ' +
-                 'fehlen - die Ansicht gibt ihn nicht heraus.')
-    })
+    Emit (Invoke-SSETaxKnowledgeSearch $a)
   }
 
   'read_table' {
@@ -20291,7 +20165,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $footer=Invoke-SSETableFooterFocus $hwnd $targetPid $latestTableSnapshot.tree `
               $focusedSnapshot.navigationBinding.tableRootAid $focusedSnapshot.navigationBinding.tableRootRid `
               $erst.navigationBinding.heading $navigationState.tick $navigationState.windows.fingerprint $null $focusedSnapshot.ersteZelle `
-              $cursorPlan.numberModel -NumberPolicy $cursorPlan.numberPolicy -AllowPositionNameSource:($cursorPhase -ceq 'native-position-acquire')
+              $cursorPlan.numberModel -NumberPolicy $cursorPlan.numberPolicy -AllowPositionNameSource:($cursorPhase -ceq 'native-position-acquire') `
+              -HelpDocumentSnapshot $(if ($cursorPhase -ceq 'native-position-acquire') {$focusedSnapshot} else {$null})
             $cursorActivation.footerFocus=[pscustomobject]@{ok=[bool]$footer.ok;reason=$footer.reason;phase=$footer.phase;
               focusAttempted=[bool]$footer.focusAttempted;sourceReason=$footer.sourceReason;uncachedReason=$footer.uncachedReason;
               exceptionType=$footer.exceptionType;exceptionMessage=$footer.exceptionMessage;errorRecord=$footer.errorRecord;sourceEvidence=$footer.sourceEvidence}
@@ -21086,6 +20961,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         continue
       }
       $snapshotElement = Get-LiveElement $hwnd $snapshotCell.rid
+      $snapshotToggle = $null
+      if ($snapshotElement -and $snapshotElement.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$snapshotToggle)) {
+        $state=Read-SSEToggleState $snapshotToggle
+        if ($state -cnotin @('On','Off')) { Fail 'Anlegezeile hat keinen eindeutigen Checkbox-Ausgangszustand.' 'precondition-failed' }
+        $value=$(if ($state -ceq 'On') {'true'} else {'false'})
+        $null=$rowSnapshotBefore.Add([pscustomobject]@{spalte=$snapshotColumn;cell=$snapshotCell;mode='toggle';beforeRaw=$value;beforeDisplay=$value})
+        continue
+      }
       $snapshotPattern = $null
       if ($snapshotElement -and
           $snapshotElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$snapshotPattern) -and
@@ -21131,6 +21014,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             rid=$cell.rid; aid=$cell.aid; reason=[string]$columnProfile.reason
           })
         }
+        continue
+      }
+      $toggle=$null
+      if ($requested -match '^(?i:true|false)$' -and $el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$toggle)) {
+        $state=Read-SSEToggleState $toggle
+        if ($state -cnotin @('On','Off')) { Fail "Checkbox-Spalte $i ist nicht eindeutig lesbar; nichts geschrieben." 'precondition-failed' }
+        $old=$(if ($state -ceq 'On') {'true'} else {'false'})
+        $wanted=$requested.ToLowerInvariant()
+        $support=Get-SSETableBooleanWriteSupport $hwnd $cell $old $wanted ([pscustomobject]@{guard=$guardUserInput;tick=$inputBaseline})
+        if (-not $support.ok) {
+          $clipped=[bool]($support.kind -ceq 'offscreen')
+          Emit ([pscustomobject]@{ok=$false;kind=$(if ($clipped) {'not-found'} else {$support.kind})
+            error=$(if ($clipped) {'Keine freie Tabellenzeile mit vollstaendig sichtbarer Checkbox; nichts geschrieben.'} else {$support.error})
+            mutationStarted=$false;resultingState='unchanged';physicalInputAttempted=$false;physicalInputUsed=$false;outcomeUnknown=$false})
+        }
+        $null=$prepared.Add([pscustomobject]@{spalte=$i;requested=$wanted;before=$old;beforeRaw=$old;cell=$cell;mode='toggle'})
         continue
       }
       $vp = $null
@@ -21249,6 +21148,46 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $null = $changed.Add($entry)
         }
         break
+      }
+      if ($entry.mode -eq 'toggle') {
+        try {
+          $bound=$null
+          for ($bindAttempt=1; $bindAttempt -le 3; $bindAttempt++) {
+            if ($guardUserInput -and (-not (Test-SSELastInputUnchanged $inputBaseline) -or [SW]::GetForegroundWindow() -ne $hwnd)) {
+              Throw-SSETableBooleanError 'Fokus oder Eingabe-Epoche ging bei der Checkbox-Zeilenbindung verloren.' 'interference'
+            }
+            $anchor=Get-LiveElement $hwnd $entry.cell.rid $entry.cell.aid
+            if (-not $anchor) { throw 'Urspruengliche Checkbox-Identitaet fehlt nach den Wertschreibungen.' }
+            $freshRowY=[int]$anchor.Current.BoundingRectangle.Y
+            $bound=Read-SSETableComboCellState -Hwnd $hwnd -ExpectedPage $expectedPage -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $freshRowY -ColumnIndex ([int]$entry.spalte) -TableProfile $tableProfile
+            if ($bound.ok -and $bound.rowCellCount -eq $zeile.Count -and $bound.ridMatchCount -eq 1 -and [string]$bound.cell.rid -ceq [string]$entry.cell.rid) { break }
+            if ($bindAttempt -lt 3) { Start-Sleep -Milliseconds 100 }
+          }
+          if (-not $bound.ok -or $bound.rowCellCount -ne $zeile.Count -or $bound.ridMatchCount -ne 1 -or [string]$bound.cell.rid -cne [string]$entry.cell.rid) {
+            throw ('Checkbox-Zeile ist nach den Wertschreibungen nicht eindeutig gebunden: '+[string]$bound.error)
+          }
+          $freie[0]=[int]$bound.cell.y
+          foreach ($own in @($changed)) {
+            $peer=$bound.rowCells[[int]$own.spalte]
+            $peerElement=Get-LiveElement $hwnd $peer.rid $peer.aid
+            if ($own.mode -eq 'combo') { $current=Get-SSETableComboCellValue $peerElement $peer }
+            else { $read=Read-SSETableAddCellValue $peerElement ([string]$own.requested);if (-not $read.ok) {throw 'Geschriebene Zeile ist nicht mehr vollstaendig lesbar.'};$current=$read.value }
+            if (-not (Test-SSETableCellEquivalent $current $own.requested)) { throw 'Geschriebene Zeile aenderte sich vor dem Checkbox-Klick.' }
+          }
+          $entry.cell=$bound.cell
+          foreach ($snapshot in @($rowSnapshotBefore)) {$snapshot.cell=$bound.rowCells[[int]$snapshot.spalte]}
+          $booleanInput=[pscustomobject]@{guard=$guardUserInput;tick=$inputBaseline}
+          $null=$changed.Add($entry)
+          $booleanResult=Invoke-SSETableBooleanWrite $hwnd $entry.cell ([string]$entry.before) ([string]$entry.requested) $booleanInput
+          if ($guardUserInput) {$inputBaseline=$booleanInput.tick}
+          $null=$results.Add([pscustomobject]@{spalte=$entry.spalte;rid=$entry.cell.rid;ok=$true;vorher=$entry.before;gewuenscht=$entry.requested;ist=$booleanResult.after;methode=$booleanResult.method})
+          continue
+        } catch {
+          $failure="Checkbox-Spalte $($entry.spalte) konnte nicht sicher geschrieben werden: $($_.Exception.Message)"
+          $failureKind=$(if ($_.Exception.Data['kind']) {[string]$_.Exception.Data['kind']} else {'row-binding-not-found'})
+          $interference=$failureKind -in @('interference','row-binding-not-found','precondition-failed')
+          break
+        }
       }
       try {
         $null = $changed.Add($entry)
@@ -21449,15 +21388,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         foreach ($entry in $changed) {
           $live = Get-LiveElement $hwnd $entry.cell.rid
           $livePattern = $null
-          if (-not $live -or
-              -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$livePattern) -or
-              $livePattern.Current.IsReadOnly) {
-            $rollbackPreflightError = "Spalte $($entry.spalte) ist vor dem Rollback nicht mehr gebunden."
-            break
+          if ($entry.mode -eq 'toggle') {
+            $read=Read-SSETableAddCellValue $live ([string]$entry.requested)
+            if (-not $read.ok) {$rollbackPreflightError='Checkbox ist vor dem Rollback nicht mehr eindeutig lesbar.';break}
+            $liveRaw=[string]$read.value;$liveDisplay=$liveRaw
+          } else {
+            if (-not $live -or -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$livePattern) -or $livePattern.Current.IsReadOnly) {
+              $rollbackPreflightError = "Spalte $($entry.spalte) ist vor dem Rollback nicht mehr gebunden."
+              break
+            }
+            $liveRaw=[string]$livePattern.Current.Value;$liveDisplay=$liveRaw
+            if (-not $liveDisplay) {try {$liveDisplay=[string]$live.Current.Name} catch {}}
           }
-          $liveRaw = [string]$livePattern.Current.Value
-          $liveDisplay = $liveRaw
-          if (-not $liveDisplay) { try { $liveDisplay = [string]$live.Current.Name } catch { } }
           $ownRequested = Test-SSETableCellEquivalent $liveDisplay $entry.requested
           $stillBefore = $liveRaw -eq [string]$entry.beforeRaw -and
             (Test-SSETableCellEquivalent $liveDisplay $entry.before)
@@ -21533,6 +21475,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $rollbackActions[[int]$snapshot.spalte] = [pscustomobject]@{ attempted=$attempted; error=$null }
             continue
           }
+          if ($snapshot.mode -eq 'toggle') {
+            $live=Get-LiveElement $hwnd $snapshot.cell.rid $snapshot.cell.aid
+            $read=Read-SSETableAddCellValue $live ([string]$snapshot.beforeRaw)
+            if (-not $read.ok) {throw 'Checkbox ist fuer den Rollback nicht eindeutig lesbar.'}
+            $booleanInput=[pscustomobject]@{guard=$guardUserInput;tick=$inputBaseline}
+            $attempted=[string]$read.value -cne [string]$snapshot.beforeRaw
+            $null=Invoke-SSETableBooleanWrite $hwnd $snapshot.cell ([string]$read.value) ([string]$snapshot.beforeRaw) $booleanInput
+            if ($guardUserInput) {$inputBaseline=$booleanInput.tick}
+            $rollbackActions[[int]$snapshot.spalte]=[pscustomobject]@{attempted=$attempted;error=$null}
+            continue
+          }
           $live = Get-LiveElement $hwnd $snapshot.cell.rid
           $livePattern = $null
           if (-not $live -or
@@ -21597,14 +21550,25 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         try {
           if ($snapshot.spalte -ge $rollbackFinalRow.Count) { throw 'Zelle fehlt in der wiederhergestellten Anlegezeile.' }
           $finalCell = $rollbackFinalRow[$snapshot.spalte]
+          if ($snapshot.mode -eq 'toggle') {
+            $ownedRow=@($rollbackRead.byY[$freie[0]] | Sort-Object x)
+            if ($snapshot.spalte -ge $ownedRow.Count) {throw 'Checkbox der urspruenglich beschriebenen Zeile fehlt.'}
+            $finalCell=$ownedRow[$snapshot.spalte]
+          }
           $finalElement = Get-LiveElement $hwnd $finalCell.rid
           $finalPattern = $null
-          if (-not $finalElement -or
-              -not $finalElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$finalPattern)) {
+          if (-not $finalElement -or ($snapshot.mode -ne 'toggle' -and
+              -not $finalElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$finalPattern))) {
             throw 'ValuePattern der wiederhergestellten Zelle fehlt.'
           }
-          $actualRaw = [string]$finalPattern.Current.Value
-          $actualDisplay = [string]$finalElement.Current.Name
+          if ($snapshot.mode -eq 'toggle') {
+            $read=Read-SSETableAddCellValue $finalElement ([string]$snapshot.beforeRaw)
+            if (-not $read.ok) {throw 'Wiederhergestellte Checkbox ist nicht typisiert lesbar.'}
+            $actualRaw=[string]$read.value;$actualDisplay=$actualRaw
+          } else {
+            $actualRaw=[string]$finalPattern.Current.Value
+            $actualDisplay=[string]$finalElement.Current.Name
+          }
         } catch { $readError = $_.Exception.Message }
         $action = $rollbackActions[[int]$snapshot.spalte]
         $restored = [bool](
@@ -21815,6 +21779,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Fail "Spalte $i hat keinen eindeutigen Toggle-Ausgangszustand; nichts geaendert." 'precondition-failed'
         }
         $old = $(if ($toggleBeforeRaw -eq 'On') { 'true' } else { 'false' })
+        $support=Get-SSETableBooleanWriteSupport $hwnd $cell $old ($requested.ToLowerInvariant()) ([pscustomobject]@{guard=$guardUserInput;tick=$inputBaseline})
+        if (-not $support.ok) {Emit ([pscustomobject]@{ok=$false;kind=$support.kind;error=$support.error;mutationStarted=$false;resultingState='unchanged';physicalInputAttempted=$false;physicalInputUsed=$false;outcomeUnknown=$false})}
         $mode = 'toggle'
       } else {
         $vp = $null
@@ -21963,33 +21929,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $entry | Add-Member -NotePropertyName pattern -NotePropertyValue $livePattern
         $null = $changed.Add($entry)
         if ($entry.mode -eq 'toggle') {
-          $mutationMethod = 'noop-already-target'
-          if (-not (Test-SSETableCellEquivalent $liveBefore $entry.requested)) {
-            $livePattern.Toggle(); $mutationMethod = 'toggle-pattern'
-            Start-Sleep -Milliseconds 300
-            # Unlesbar bleibt $null: Dann folgt kein zweiter physischer Klick,
-            # und die Nachbedingung entscheidet.
-            $probeState = switch (Read-SSEToggleState $livePattern) { 'On' { 'true' } 'Off' { 'false' } default { $null } }
-            if (-not (Test-SSETableCellEquivalent $probeState $entry.requested) -and
-                (Test-SSETableCellEquivalent $probeState $liveBefore)) {
-              if ($script:DESKTOP_NAME) {
-                throw 'TogglePattern blieb wirkungslos; verifizierter Zellklick ist auf dem versteckten Desktop nicht verfuegbar.'
-              }
-              if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
-                $failure = 'Fremde Benutzereingabe vor dem verifizierten Toggle-Zellklick erkannt.'
-                $interference = $true; break
-              }
-              $rect = $live.Current.BoundingRectangle
-              $clickNode = [pscustomobject]@{
-                x=[int]$rect.X; y=[int]$rect.Y; w=[int]$rect.Width; h=[int]$rect.Height
-                name=$entry.cell.name; rid=$entry.cell.rid; aid=$entry.cell.aid; source='uia'
-              }
-              $null = Click-VerifiedPoint $hwnd $clickNode
-              if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
-              $mutationMethod = 'verified-cell-click'
-            }
-          }
-          $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue $mutationMethod
+          $booleanInput=[pscustomobject]@{guard=$guardUserInput;tick=$inputBaseline}
+          $booleanResult=Invoke-SSETableBooleanWrite $hwnd $entry.cell ([string]$liveBefore) ([string]$entry.requested) $booleanInput
+          if ($guardUserInput) {$inputBaseline=$booleanInput.tick}
+          $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue $booleanResult.method
         } else {
           $livePattern.SetValue($entry.requested)
           $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue 'value-pattern'
@@ -22179,21 +22122,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               if (-not $comboRollback.ok) { throw $comboRollback.error }
               $actualRollback=[string]$comboRollback.after
             } elseif ($item.entry.mode -eq 'toggle') {
-              if ($item.entry.mutationMethod -eq 'verified-cell-click') {
-                $rollbackLive = Get-LiveElement $hwnd $item.entry.cell.rid
-                if (-not $rollbackLive) { throw 'Toggle-Zelle ist fuer den verifizierten Rollback-Klick verschwunden.' }
-                $rollbackRect = $rollbackLive.Current.BoundingRectangle
-                $rollbackNode = [pscustomobject]@{
-                  x=[int]$rollbackRect.X; y=[int]$rollbackRect.Y; w=[int]$rollbackRect.Width; h=[int]$rollbackRect.Height
-                  name=$item.entry.cell.name; rid=$item.entry.cell.rid; aid=$item.entry.cell.aid; source='uia'
-                }
-                $null = Click-VerifiedPoint $hwnd $rollbackNode
-                if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
-              } else {
-                $item.pattern.Toggle()
-              }
-              Start-Sleep -Milliseconds 250
-              $actualRollback = switch (Read-SSEToggleState $item.pattern) { 'On' { 'true' } 'Off' { 'false' } default { $null } }
+              $booleanInput=[pscustomobject]@{guard=$guardUserInput;tick=$inputBaseline}
+              $booleanResult=Invoke-SSETableBooleanWrite $hwnd $item.entry.cell ([string]$item.current) ([string]$item.entry.before) $booleanInput
+              if ($guardUserInput) {$inputBaseline=$booleanInput.tick}
+              $actualRollback=[string]$booleanResult.after
             } else {
               $item.pattern.SetValue($item.entry.before); Start-Sleep -Milliseconds 250
               $actualRollback=[string]$item.pattern.Current.Value

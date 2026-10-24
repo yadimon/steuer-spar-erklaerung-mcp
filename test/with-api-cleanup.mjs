@@ -3,12 +3,48 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
+import { isFetchablePort } from "./fetchable-port.mjs";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-cleanup-contract-"));
 const environment = { ...process.env };
 for (const key of Object.keys(environment).filter(key => /^SSE_/iu.test(key))) delete environment[key];
 delete environment.NODE_OPTIONS;
 delete environment.NODE_V8_COVERAGE;
+
+function provisionalPortGuard(capturePath, originalCloseName, forceRejectedPort = false) {
+  return `
+    import {isFetchablePort} from ${JSON.stringify(new URL("./fetchable-port.mjs", import.meta.url).href)};
+    const originalAddress=http.Server.prototype.address;
+    let forceNextPort=${forceRejectedPort}, rejectedServer;
+    http.Server.prototype.address=function(){
+      const address=originalAddress.call(this);
+      if(!address||typeof address!=='object')return address;
+      if(forceNextPort||rejectedServer===this){forceNextPort=false;rejectedServer=this;return {...address,port:1};}
+      return address;
+    };
+    function closeProvisionalPort(server,callback){
+      const address=server.address();
+      if(!address||typeof address!=='object'||isFetchablePort(address.port))return false;
+      ${originalCloseName}.call(server,error=>{
+        if(rejectedServer===server)rejectedServer=undefined;
+        fs.appendFileSync(${JSON.stringify(capturePath)},JSON.stringify({phase:'port-retry',port:address.port,closeFailed:Boolean(error)})+'\\n');
+        callback(error);
+      });
+      return true;
+    }
+  `;
+}
+
+function readTeardownCaptures(path, requireRejectedPort = false) {
+  const captures = readFileSync(path, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const provisional = captures.filter(entry => entry.phase === "port-retry");
+  for (const entry of provisional) {
+    assert.equal(isFetchablePort(entry.port), false, "Only a rejected temporary listener belongs to port selection.");
+    assert.equal(entry.closeFailed, false, "Every rejected temporary listener must close successfully.");
+  }
+  if (requireRejectedPort) assert(provisional.length > 0, "The rejected-port cleanup regression must execute.");
+  return captures.filter(entry => entry.phase !== "port-retry");
+}
 
 function removeOwnSandbox(path) {
   const target = resolve(path);
@@ -39,7 +75,8 @@ function run(name, { code = 0, missing = false, removeFailure = false, serverFai
     "const originalRemove=fs.rmSync;",
     `fs.rmSync=(path,...args)=>{record({phase:'sandbox',path});${removeFailure ? "throw Object.assign(new Error('synthetic-sandbox-failure'),{code:'EIO'});" : "return originalRemove(path,...args);"}};`,
     "const originalCloseServer=http.Server.prototype.close;",
-    `http.Server.prototype.close=function(callback){record({phase:'http-server'});const result=originalCloseServer.call(this,error=>callback(${serverFailure ? "error??new Error('synthetic-http-server-failure')" : "error"}));${serverThrow ? "throw new Error('synthetic-http-server-throw');" : "return result;"}};`,
+    provisionalPortGuard(capturePath, "originalCloseServer"),
+    `http.Server.prototype.close=function(callback){if(closeProvisionalPort(this,callback))return this;record({phase:'http-server'});const result=originalCloseServer.call(this,error=>callback(${serverFailure ? "error??new Error('synthetic-http-server-failure')" : "error"}));${serverThrow ? "throw new Error('synthetic-http-server-throw');" : "return result;"}};`,
     "let traceDescriptor;",
     "const originalOpen=fs.openSync;",
     "fs.openSync=(path,...args)=>{const descriptor=originalOpen(path,...args);if(path===traceTarget){traceDescriptor=descriptor;record({phase:'execution-log-open'});}return descriptor;};",
@@ -59,7 +96,7 @@ function run(name, { code = 0, missing = false, removeFailure = false, serverFai
     env: { ...environment, SSE_MEGA_RAW_REPORT: reportPath, SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: preserve ? "1" : "0" },
     encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 1024 * 1024,
   });
-  const captures = readFileSync(capturePath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const captures = readTeardownCaptures(capturePath);
   const created = captures.filter(entry => entry.phase === "created");
   assert.equal(created.length, 1, `${name}: exactly one owned wrapper sandbox is required`);
   const sandbox = created[0].path;
@@ -119,7 +156,9 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
     "const traceTarget=resolve(fs.realpathSync.native(dirname(tracePath)),basename(tracePath));",
     "const originalMkdtemp=fs.mkdtempSync;fs.mkdtempSync=(...args)=>{const path=originalMkdtemp(...args);record({phase:'created',path});return path;};",
     "const originalRemove=fs.rmSync;fs.rmSync=(path,...args)=>{record({phase:'sandbox',path});return originalRemove(path,...args);};",
-    "const originalCloseServer=http.Server.prototype.close;http.Server.prototype.close=function(callback){record({phase:'http-server'});return originalCloseServer.call(this,callback);};",
+    "const originalCloseServer=http.Server.prototype.close;",
+    provisionalPortGuard(capturePath, "originalCloseServer"),
+    "http.Server.prototype.close=function(callback){if(closeProvisionalPort(this,callback))return this;record({phase:'http-server'});return originalCloseServer.call(this,callback);};",
     "let traceDescriptor;const originalOpen=fs.openSync;fs.openSync=(path,...args)=>{const descriptor=originalOpen(path,...args);if(path===traceTarget){traceDescriptor=descriptor;record({phase:'execution-log-open'});}return descriptor;};",
     `const originalCloseFile=fs.closeSync;fs.closeSync=(descriptor)=>{const result=originalCloseFile(descriptor);if(descriptor===traceDescriptor){record({phase:'execution-log'});${traceFailure ? "throw new Error('synthetic trace close failure');" : ""}}return result;};`,
     `registerHooks({load(url,context,nextLoad){if(url.endsWith('/dist/qt-native-runtime.js'))return{format:'module',source:${JSON.stringify(nativeStub)},shortCircuit:true};if(url.endsWith('/dist/worker-prewarm.js'))return{format:'module',source:${JSON.stringify(prewarmStub)},shortCircuit:true};return nextLoad(url,context);}});`,
@@ -135,7 +174,7 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
     encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 1024 * 1024,
   });
   const elapsedMs = performance.now() - started;
-  const captures = readFileSync(capturePath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const captures = readTeardownCaptures(capturePath);
   const created = captures.filter(entry => entry.phase === "created");
   assert.equal(created.length, 1, `${name}: one own sandbox required`);
   const sandbox = resolve(created[0].path);
@@ -165,7 +204,7 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
   }
 }
 
-function runPendingOrStartup(name, { pending, startup, code = 23, holdHandle = true } = {}) {
+function runPendingOrStartup(name, { pending, startup, code = 23, holdHandle = true, forceRejectedPort = false } = {}) {
   const lifecycleTemporary = mkdtempSync(join(temporary, `${name}-`));
   const capturePath = join(temporary, `${name}.jsonl`), markerPath = join(lifecycleTemporary, "sse-mcp-desktop.txt");
   const recordSource = `import fs from 'node:fs';const record=phase=>fs.appendFileSync(${JSON.stringify(capturePath)},JSON.stringify({phase})+'\\n');`;
@@ -201,7 +240,9 @@ function runPendingOrStartup(name, { pending, startup, code = 23, holdHandle = t
     "const originalMkdtemp=fs.mkdtempSync;fs.mkdtempSync=(...args)=>{const path=originalMkdtemp(...args);record({phase:'created',path});return path;};",
     "const originalMkdir=fs.mkdirSync;fs.mkdirSync=(path,...args)=>{if(startup==='mkdir'&&path.endsWith('workspace'))throw new Error('synthetic-startup-mkdir');return originalMkdir(path,...args);};",
     "const originalRemove=fs.rmSync;fs.rmSync=(path,...args)=>{record({phase:'sandbox',path});return originalRemove(path,...args);};",
-    "const originalClose=http.Server.prototype.close;http.Server.prototype.close=function(callback){record({phase:'http-server'});if(pending==='http-server'){originalClose.call(this,()=>{});hang();return this;}return originalClose.call(this,callback);};",
+    "const originalClose=http.Server.prototype.close;",
+    provisionalPortGuard(capturePath, "originalClose", forceRejectedPort),
+    "http.Server.prototype.close=function(callback){if(closeProvisionalPort(this,callback))return this;record({phase:'http-server'});if(pending==='http-server'){originalClose.call(this,()=>{});hang();return this;}return originalClose.call(this,callback);};",
     "const originalListen=http.Server.prototype.listen;http.Server.prototype.listen=function(...args){if(startup==='listen')throw new Error('synthetic-startup-listen');return originalListen.apply(this,args);};",
     ...(pending === "native-shutdown" ? ["const OriginalAbortController=globalThis.AbortController;globalThis.AbortController=class extends OriginalAbortController{abort(...args){super.abort(...args);return hang();}};"] : []),
     `registerHooks({load(url,context,next){if(url.endsWith('/dist/qt-native-runtime.js'))return{format:'module',source:${JSON.stringify(nativeStub)},shortCircuit:true};if(url.endsWith('/dist/worker-prewarm.js'))return{format:'module',source:${JSON.stringify(prewarmStub)},shortCircuit:true};if(url.endsWith('/test/execution-trace-log.mjs'))return{format:'module',source:${JSON.stringify(traceStub)},shortCircuit:true};${pending === "sandbox" ? `if(url.endsWith('/test/remove-when-free.mjs'))return{format:'module',source:${JSON.stringify(sandboxStub)},shortCircuit:true};` : ""}return next(url,context);}});`,
@@ -213,7 +254,7 @@ function runPendingOrStartup(name, { pending, startup, code = 23, holdHandle = t
       SSE_TEST_NATIVE_PACKAGE: lifecycleTemporary, SSE_TEST_NATIVE_MANIFEST_SHA256: "0".repeat(64), SSE_TEST_API_PREWARM: "1", SSE_MEGA_RAW_REPORT: join(temporary, `${name}.report.json`) },
     encoding: "utf8", windowsHide: true, timeout: 25_000, maxBuffer: 1024 * 1024,
   });
-  const captures = readFileSync(capturePath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const captures = readTeardownCaptures(capturePath, forceRejectedPort);
   const created = captures.find(entry => entry.phase === "created");
   assert(created, `${name}: wrapper must record its owned sandbox`);
   const sandbox = resolve(created.path);
@@ -255,7 +296,7 @@ try {
   });
   runPendingOrStartup("pending-http-close", { pending: "http-server" });
   runPendingOrStartup("pending-http-without-handles", { pending: "http-server", code: 0, holdHandle: false });
-  runPendingOrStartup("pending-shutdown", { pending: "native-shutdown" });
+  runPendingOrStartup("pending-shutdown", { pending: "native-shutdown", forceRejectedPort: true });
   runPendingOrStartup("pending-native-close", { pending: "native-runtime" });
   runPendingOrStartup("pending-native-after-success", { pending: "native-runtime", code: 0 });
   runPendingOrStartup("pending-prewarm-close", { pending: "worker-prewarm" });

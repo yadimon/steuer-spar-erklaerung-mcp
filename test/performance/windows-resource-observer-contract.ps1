@@ -299,6 +299,7 @@ try {
   Assert-True ($entry.expectedIdentity.imageNameLower -eq $child.ProcessName.ToLowerInvariant()) 'Initialized image name changed.'
   $first = Measure-OwnedProcess $entry
   Assert-True ($first.alive -and -not $first.sampleError) 'Initial identity-bound sample failed.'
+  Assert-True ($first.threadCount -is [int] -and $first.threadCount -ge 1) 'Initial thread inventory is missing.'
   $pinned = $script:BoundProcesses[[string]$child.Id]
   $retainedHandle = $pinned.Handle
   $script:ForbidLookups = $true
@@ -307,6 +308,7 @@ try {
   Assert-True ($grown.Wait(10000) -and $grown.Result -eq 'grown') 'Owned allocation did not complete.'
   $second = Measure-OwnedProcess $entry
   Assert-True ($second.alive -and -not $second.sampleError) 'Refreshed sample failed.'
+  Assert-True ($second.threadCount -is [int] -and $second.threadCount -ge 1) 'Refreshed thread inventory is missing.'
   Assert-True ($second.workingSetBytes -ge $first.workingSetBytes + 32MB) 'Working set was not refreshed.'
   Assert-True ($second.privateBytes -ge $first.privateBytes + 32MB) 'Private memory was not refreshed.'
   Assert-True ($second.handleCount -ge $first.handleCount + 64) 'Handle count was not refreshed.'

@@ -337,7 +337,7 @@
     "position_create": {
       "offline": "untested",
       "offlineLabels": [],
-      "live": "untested"
+      "live": "functional"
     },
     "product_info": {
       "offline": "functional",
@@ -556,7 +556,7 @@
     "tax_knowledge_search": {
       "offline": "untested",
       "offlineLabels": [],
-      "live": "untested"
+      "live": "functional"
     },
     "toggle": {
       "offline": "functional",

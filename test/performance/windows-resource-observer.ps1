@@ -436,6 +436,7 @@ function Measure-OwnedProcess($Entry) {
       workingSetBytes = [int64]$process.WorkingSet64
       privateBytes = [int64]$process.PrivateMemorySize64
       handleCount = [int]$process.HandleCount
+      threadCount = [int]$process.Threads.Count
       windows = [pscustomobject][ordered]@{
         total = [int]$windows[0]
         visible = [int]$windows[1]

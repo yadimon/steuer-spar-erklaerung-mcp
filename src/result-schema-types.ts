@@ -14,7 +14,7 @@ export const OPTIONAL_TRANSMISSION_STATE = z.union([z.boolean(), z.literal("unkn
   .describe("Sicherer ELSTER-Uebermittlungsstatus: ja, nein oder unbekannt");
 export const OPTIONAL_ARRAY = z.array(z.unknown()).nullable().optional().describe("Optionale Ergebnisliste");
 export const OPTIONAL_STRING_ARRAY = z.array(z.string()).nullable().optional().describe("Optionale Textliste");
-export const OPTIONAL_OBJECT = z.record(z.unknown()).nullable().optional().describe("Optionales Teilresultat");
+export const OPTIONAL_OBJECT = z.record(z.string(), z.unknown()).nullable().optional().describe("Optionales Teilresultat");
 export const OPTIONAL_MUTATION_VALUE = z.union([z.string(), z.number().finite(), z.boolean()]).nullable().optional()
   .describe("Optionaler gelesener oder geschriebener Skalarwert");
 

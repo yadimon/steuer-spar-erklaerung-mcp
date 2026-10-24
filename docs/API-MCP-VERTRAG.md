@@ -743,6 +743,16 @@ eines Operations-POSTs mit `ECONNRESET`, `ECONNABORTED`, `EPIPE`,
 `transport-unknown`: Der Auftrag kann bereits ausgeführt worden sein und darf
 erst nach einem gezielten Zustands-Readback wiederholt werden. Ein verweigerter
 Verbindungsaufbau (`ECONNREFUSED`) bleibt dagegen `network`.
+
+Auch eine unlesbare JSON-Operationsantwort oder ein verletzter Ergebnisvertrag beweist
+nicht, dass die API den Auftrag verworfen hat. MCP kennzeichnet solche
+`protocol`-Fehler deshalb vorsichtig mit `outcomeUnknown=true`,
+`reconciliationRequired=true` und `retryable=false`. Vor einer weiteren
+Schreibaktion muss der betroffene Zustand vollständig gelesen und abgeglichen
+werden; eine ungültige Antwort löst keine automatische Wiederholung aus.
+Protokollfehler der vorgeschalteten Healthz-Prüfung verhindern dagegen bereits
+den Operations-POST und werden nicht als möglicherweise ausgeführter Auftrag markiert.
+
 Die gültigen HTTP-Nullbody-Statuscodes 204, 205 und 304 werden ohne
 synthetischen Web-Stream abgebildet; 304 bleibt bei `redirect=error` dennoch
 vorher gesperrt. Dadurch entstehen an dieser Adaptergrenze keine internen

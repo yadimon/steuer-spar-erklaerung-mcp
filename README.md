@@ -196,6 +196,7 @@ fortgeschrittener npm-Weg verfügbar, ist aber nicht der Nutzerstandard.
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
+- [Kriterien und Prüfschritte für einen stabilen Release](docs/entwicklung/stable-freigabe.md)
 - [Fortschritt der Qt-DLL-Integration](docs/NATIVE-COVERAGE.md)
 - [Skill-Vertrag](skills/steuer-spar-erklaerung/SKILL.md)
 - [Entwicklungsprozess und offene Qualitätsziele](PROGRESS.md)

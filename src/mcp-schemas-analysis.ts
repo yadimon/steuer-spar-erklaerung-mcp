@@ -28,6 +28,7 @@ export const SSE_MCP_ANALYSIS_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_tax_knowledge_search": z.object({
+    fenster: WINDOW_HANDLE.optional().describe("Exaktes HWND des separaten Steuerwissen-Fensters; bei mehreren Fenstern Pflicht"),
     begriff: z.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
     mindestLaenge: z.number().int().min(20).max(400).optional().describe(
       "Mindestlaenge eines zusammengefuegten Abschnitts; Vorgabe 60, trennt Fliesstext von " +

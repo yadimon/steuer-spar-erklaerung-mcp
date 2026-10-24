@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -188,4 +188,84 @@ export class StdioClientTransport { constructor(options) { this.options = option
   rmSync(sandbox, { recursive: true, force: true });
 }
 
-process.stdout.write("Optionale MCP-Liveskripte: Ressourcenreferenzen und enger Eigentums-Cleanup gebunden.\n");
+// Run the actual income journey with a recording API and faults immediately
+// after owned launch or during its own close. A lost close response must never
+// trigger another close or a force kill, and cleanup must retain the first error.
+for (const journey of [
+  { file: "test/live-income-positions.mjs", report: "income-positions-report.json",
+    checkpoint: '  const originalHash = (await call("case_hash", { ref: caseRef })).sha256;' },
+  { file: "test/live-income-table.mjs", report: "income-table-report.json",
+    checkpoint: '  originalHash = (await call("case_hash", { ref: caseRef })).sha256;' },
+]) {
+const incomeSandbox = mkdtempSync(join(tmpdir(), "sse-income-cleanup-contract-"));
+const incomeSource = readFileSync(resolve(journey.file), "utf8");
+const incomeEnvironment = new Map(["SSE_API_URL", "SSE_TEST_CASE_DIR"].map(name => [name, process.env[name]]));
+try {
+  const transportPath = join(incomeSandbox, "recording-api.mjs");
+  writeFileSync(transportPath, `
+export const calls = [];
+let failClose = false;
+export function configure(value) { calls.length = 0; failClose = value; }
+export async function readApiHealthz() { return {instanceId:"owned-income-contract"}; }
+export async function callApiOperationEnvelope(operation, args) {
+  calls.push({operation,args});
+  if(operation === "instances") return {result:{ok:true,count:0}};
+  if(operation === "desktop_status") return {result:{ok:true,aktiv:false}};
+  if(operation === "case_create") return {result:{ok:true,pid:27182,hwnd:31415}};
+  if(operation === "case_hash") throw new Error("income-primary-failure");
+  if(operation === "close") {
+    if(failClose) throw new Error("income-close-transport-failure");
+    return {result:{ok:true,stillRunning:false,killed:false}};
+  }
+  throw new Error("Unexpected operation after income failure: " + operation);
+}
+`, {flag:"wx"});
+  const transport = await import(pathToFileURL(transportPath).href);
+  const importText = 'from "../dist/api-client.js";';
+  assert.equal(incomeSource.split(importText).length - 1, 1);
+  const baseSource = incomeSource.replace(importText, `from ${JSON.stringify(pathToFileURL(transportPath).href)};`)
+    .replaceAll("new URL(file, import.meta.url)", `new URL(file, ${JSON.stringify(pathToFileURL(resolve(journey.file)).href)})`);
+  for (const [index, scenario] of [
+    {failClose:false, closeFirst:false},
+    {failClose:true, closeFirst:false},
+    {failClose:true, closeFirst:true},
+  ].entries()) {
+    const caseDir = join(incomeSandbox, `case-${index}`);
+    mkdirSync(caseDir);
+    Object.assign(process.env, {SSE_API_URL:"http://127.0.0.1:1", SSE_TEST_CASE_DIR:caseDir});
+    transport.configure(scenario.failClose);
+    let source = baseSource;
+    if (scenario.closeFirst) {
+      const checkpoint = journey.checkpoint;
+      assert.equal(source.split(checkpoint).length - 1, 1);
+      source = source.replace(checkpoint, '  await closeOwnedInstance();\n' + checkpoint);
+    }
+    const adaptedPath = join(incomeSandbox, `actual-income-${index}.mjs`);
+    writeFileSync(adaptedPath, source, {flag:"wx"});
+    let failure;
+    try { await import(pathToFileURL(adaptedPath).href); }
+    catch (error) { failure = error; }
+    assert(failure instanceof Error);
+    const closes = transport.calls.filter(call => call.operation === "close");
+    assert.equal(closes.length, 1, "Income cleanup must not replay an uncertain close.");
+    assert.deepEqual(closes[0].args, {pid:27182,hwnd:31415,discardChanges:true});
+    assert.equal(transport.calls.at(-1).operation, "close");
+    if (scenario.failClose && !scenario.closeFirst) {
+      assert(failure instanceof AggregateError);
+      assert.deepEqual(failure.errors.map(error => error.message), ["income-primary-failure", "income-close-transport-failure"]);
+    } else assert.equal(failure.message, scenario.closeFirst ? "income-close-transport-failure" : "income-primary-failure");
+    const report = JSON.parse(readFileSync(join(caseDir, journey.report), "utf8"));
+    assert.equal(report.outcome, "failed");
+    assert.equal(report.ownerUnresolved, scenario.failClose);
+    assert.equal(report.closes.length, scenario.failClose ? 0 : 1);
+    if (scenario.failClose && !scenario.closeFirst) assert.equal(report.failureDetails.length, 2);
+  }
+  assert.equal(readFileSync(resolve(journey.file), "utf8"), incomeSource);
+} finally {
+  for (const [name, value] of incomeEnvironment) value === undefined ? delete process.env[name] : process.env[name] = value;
+  assert(resolve(incomeSandbox).startsWith(resolve(tmpdir()) + sep), "Owned income cleanup sandbox escaped temporary scope.");
+  rmSync(incomeSandbox, {recursive:true,force:true});
+}
+}
+
+process.stdout.write("Optionale Liveskripte: Ressourcen, eigene normale Bereinigung und kein Close-Replay nachgewiesen.\n");

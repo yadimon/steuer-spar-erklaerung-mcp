@@ -63,12 +63,14 @@ const API_INSTANCE_ID = "44444444-4444-4444-8444-444444444444";
 let forcedResult;
 let forcedOperationResults = {};
 let forceTransportReset = false;
+let forceMalformedJson = false;
+let forceIncompatibleHealth = false;
 const api = createServer(async (request, response) => {
   if (request.url === "/healthz") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       ok: true,
-      apiVersion: "v1",
+      apiVersion: forceIncompatibleHealth ? "v0" : "v1",
       packageName: SSE_API_PACKAGE_NAME,
       packageVersion: SSE_PACKAGE_VERSION,
       processId: process.pid,
@@ -137,7 +139,8 @@ const api = createServer(async (request, response) => {
   const result = forcedOperationResults[operation] ?? forcedResult ?? defaultResult;
   forcedResult = undefined;
   const envelope = { apiVersion: "v1", requestId: randomUUID(), operation, durationMs: 0, result };
-  const json = JSON.stringify(envelope);
+  const json = forceMalformedJson ? "{invalid-json" : JSON.stringify(envelope);
+  forceMalformedJson = false;
   response.writeHead(200, {
     "content-type": "application/json",
     "content-length": Buffer.byteLength(json),
@@ -195,7 +198,7 @@ try {
   assert.equal(clickCatalogTool?.outputSchema?.type, "object");
   assert.equal(clickCatalogTool?.outputSchema?.properties?.ok?.type, "boolean");
   assert(clickCatalogTool?.outputSchema?.required?.includes("ok"));
-  assert.equal(clickCatalogTool?.outputSchema?.additionalProperties, true,
+  assert.deepEqual(clickCatalogTool?.outputSchema?.additionalProperties, {},
     "Das generische API-Ergebnisschema muss unbekannte Operationsfelder erhalten.");
   assert(catalog.tools.find((tool) => tool.name === "sse_ustva_change_value")?.outputSchema,
     "Der folgende isError-Test muss wirklich trotz deklariertem Erfolgsschema laufen.");
@@ -329,6 +332,35 @@ try {
     assert.equal(result.structuredContent.outcomeUnknown, failure.outcomeUnknown, JSON.stringify(result.structuredContent));
     assert.deepEqual(calls.slice(before).map((call) => call.operation), ["table_update"],
       "Fallback guidance must not replay a failed write through another tool/backend.");
+  }
+
+  // An incompatible preflight response must prevent the operation POST.
+  const beforeIncompatibleHealth = calls.length;
+  forceIncompatibleHealth = true;
+  const incompatibleHealth = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+  forceIncompatibleHealth = false;
+  assert.equal(incompatibleHealth.isError, true);
+  assert.equal(incompatibleHealth.structuredContent.kind, "protocol");
+  assert.equal(incompatibleHealth.structuredContent.outcomeUnknown, undefined);
+  assert.equal(incompatibleHealth.structuredContent.reconciliationRequired, undefined);
+  assert.match(incompatibleHealth.structuredContent.error, /Healthz/u);
+  assert.equal(calls.length, beforeIncompatibleHealth, "Incompatible health must not dispatch a write.");
+
+  // A POST has already reached the API when its response fails parsing or
+  // result validation. A protocol error cannot prove that no write happened.
+  for (const failureMode of ["result-schema", "json"]) {
+    const before = calls.length;
+    forcedResult = failureMode === "result-schema" ? { ok: true, verified: "invalid-boolean" } : undefined;
+    forceMalformedJson = failureMode === "json";
+    const result = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+    assert.equal(result.isError, true, failureMode);
+    assert.equal(result.structuredContent.kind, "protocol", failureMode);
+    assert.equal(result.structuredContent.outcomeUnknown, true, failureMode);
+    assert.equal(result.structuredContent.reconciliationRequired, true, failureMode);
+    assert.equal(result.structuredContent.retryable, false, failureMode);
+    assert.match(result.structuredContent.hint, /keine automatische Schreibwiederholung/u, failureMode);
+    assert.deepEqual(calls.slice(before).map((call) => call.operation), ["table_update"],
+      `${failureMode}: an invalid response must not replay the already received write.`);
   }
 
   const desktopPeers = [{ pid: 102, hwnd: 43, title: "Synthetic additional instance" }];
