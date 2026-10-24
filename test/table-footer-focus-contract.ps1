@@ -903,6 +903,9 @@ $script:positionHeading=$null;$script:positionPolicy=$null
 # Native positioning may leave the exact embedded Help document focused after
 # a table write. Exercise the real shared provider/source proof and footer
 # transaction; only UIA/process boundaries are synthetic.
+# Keep local nodes, roots and helper overrides out of the fixture exported to
+# table-typed-editor-contract.ps1, which dot-sources this contract.
+& {
 $helpProfile=(Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\profiles\2025\page-objects.json') -Raw | ConvertFrom-Json).tableHelpDocumentFocusSource
 $originalUncached=(Get-Item Function:Get-SSETableReadUncachedElement).ScriptBlock
 function Get-SSETableReadUncachedElement {
@@ -995,4 +998,5 @@ foreach ($case in @('help-success','help-no-authority','help-no-profile','help-w
   if ($case -ceq 'help-late-focus' -and $result.reason -cne 'footer-source-focus-changed') {throw 'Lost Help focus was not rejected before the final proof.'}
 }
 $script:helpPolicy=$null
+}
 Write-Output 'table-footer-focus-contract: PASS (pure synthetic focus-only/owned-delegate/no-retry/precise-failure-proof)'
