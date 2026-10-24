@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { SSE_MCP_UI_SCHEMAS } from "../dist/mcp-schemas-ui.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "../dist/mcp-operation-schemas.js";
 import { SSE_API_OPERATION_SCHEMAS } from "../dist/operation-catalog.js";
+import { inputJsonSchema } from "../dist/api-discovery.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
 const worker = readFileSync(new URL("../powershell/sse-worker.ps1", import.meta.url), "utf8");
@@ -218,8 +219,8 @@ assert(addBlock.includes("profileMismatch=$true"));
 
 const addDescription = SSE_MCP_UI_SCHEMAS.sse_table_add.shape.werte.description ?? "";
 const updateDescription = SSE_MCP_UI_SCHEMAS.sse_table_update.shape.werte.description ?? "";
-const addComboBefore = SSE_MCP_UI_SCHEMAS.sse_table_add.shape.comboExpectedBefore.description ?? "";
-const updateComboBefore = SSE_MCP_UI_SCHEMAS.sse_table_update.shape.comboExpectedBefore.description ?? "";
+const addComboBefore = inputJsonSchema(SSE_MCP_UI_SCHEMAS.sse_table_add).properties.comboExpectedBefore.description ?? "";
+const updateComboBefore = inputJsonSchema(SSE_MCP_UI_SCHEMAS.sse_table_update).properties.comboExpectedBefore.description ?? "";
 assert.match(addDescription, /Produktprofil.*ComboBox.*DataItem.*SelectionItem/i);
 assert.match(updateDescription, /profil.*ComboBox.*DataItem.*SelectionItem/i);
 assert.match(addComboBefore, /Vorwert.*0-basierter ComboBox-Spalte/i);

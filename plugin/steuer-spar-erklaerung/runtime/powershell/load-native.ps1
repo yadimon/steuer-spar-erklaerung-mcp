@@ -63,7 +63,7 @@ function Get-SSENativeReferencedAssemblies {
 function Test-SSENativeSurface {
   $types = @(
     'DSK','SW','SSEWindowNode','SSEWindowEnumerator','SSEProcessCommandLine',
-    'SSEAccessible','SSEAccNode','SSEWorkerControllerLease',
+    'SSEAccessible','SSEAccNode','SSEAccDocumentNode','SSEAccDocumentSnapshot','SSEWorkerControllerLease',
     'SSEUiaTree','SSEUiaNode','SSEUiaScrollState','SSEUiaSnapshot',
     'SSEUiaNodeView','SSEUiaScrollView','SSEWindowView'
   )
@@ -81,11 +81,13 @@ function Test-SSENativeSurface {
       'SetForegroundWindow','SendMessageTimeout','SendMessageTimeoutA','SendMessageTimeoutW','SetCursorPos','GetCursorPos','mouse_event','keybd_event',
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','GetDpiForWindow','GetPhysicalClientOrigin','PostMessage',
       'SendMessage','GetForegroundWindow','GetDoubleClickTime','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
-      'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
+      'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText','EnterPhysicalDpiContext','RestoreDpiContext')
     SSEWindowEnumerator=@('Describe','DescribeIncludingHidden','ToViews')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
-    SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
+    SSEAccessible=@('Describe','DescribeDocument','DescribeDocumentFocus','DescribeDocumentHit','DescribePoint','DescribePointBasic','Invoke')
+    SSEAccDocumentNode=@()
+    SSEAccDocumentSnapshot=@()
     SSEUiaFreshRawResult=@()
     SSEUiaFreshRaw=@('Focus','ModelCells')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')

@@ -165,6 +165,10 @@ public class SW {
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr h,ref PT point);
   [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+  public static IntPtr EnterPhysicalDpiContext() { return SetThreadDpiAwarenessContext(new IntPtr(-4)); }
+  public static bool RestoreDpiContext(IntPtr previous) {
+    return previous != IntPtr.Zero && SetThreadDpiAwarenessContext(previous) != IntPtr.Zero;
+  }
   public static int[] GetPhysicalClientOrigin(IntPtr h) {
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
     if (previous == IntPtr.Zero) return null;
@@ -501,6 +505,18 @@ public sealed class SSEAccNode {
   public int[] Path;
 }
 
+public sealed class SSEAccDocumentNode {
+  public int Index, ParentIndex, Depth, Role, State, X, Y, W, H, ChildCount;
+  public string Name = "", Value = "";
+  public int[] Path;
+}
+
+public sealed class SSEAccDocumentSnapshot {
+  public SSEAccDocumentNode[] Nodes = new SSEAccDocumentNode[0];
+  public int Errors, CycleHits;
+  public bool Truncated, DepthLimited;
+}
+
 public static class SSEAccessible {
   const uint OBJID_CLIENT = 0xFFFFFFFC;
   static readonly Guid IID_IAccessible = new Guid("618736e0-3c3d-11cf-810c-00aa00389b71");
@@ -543,6 +559,166 @@ public static class SSEAccessible {
     if (obtained == result.Length) return result;
     Array.Resize(ref result, obtained);
     return result;
+  }
+
+  // Chromium's UIA compatibility tree can make a sibling-by-sibling walk
+  // expensive. Read its finite MSAA child inventory directly; never fall back
+  // to a partial tree or silently drop failed nodes. Other readers are unchanged.
+  internal interface IDocumentSource {
+    object GetRoot(long hwnd);
+    SSEAccDocumentNode Read(object accessible, int childId);
+    int GetChildCount(object accessible);
+    object[] ReadChildren(object accessible, int start, int count);
+    string Identity(object accessible);
+    object Focus(object accessible);
+    object Hit(object accessible, int x, int y);
+  }
+
+  sealed class DocumentSource : IDocumentSource {
+    public object GetRoot(long hwnd) { return Root(hwnd); }
+    public object Focus(object accessible) { dynamic a = accessible; return a.accFocus; }
+    public object Hit(object accessible, int x, int y) { dynamic a = accessible; return a.accHitTest(x, y); }
+    public int GetChildCount(object accessible) { dynamic a = accessible; return Convert.ToInt32(a.accChildCount); }
+    public SSEAccDocumentNode Read(object accessible, int childId) {
+      dynamic a = accessible;
+      var node = new SSEAccDocumentNode {
+        Name = Convert.ToString(a.accName(childId)) ?? "",
+        Role = Convert.ToInt32(a.accRole(childId)),
+        State = Convert.ToInt32(a.accState(childId)),
+        ChildCount = childId == 0 ? GetChildCount(accessible) : 0
+      };
+      int x, y, w, h;
+      a.accLocation(out x, out y, out w, out h, childId);
+      node.X = x; node.Y = y; node.W = w; node.H = h;
+      if (node.Role == 42) node.Value = Convert.ToString(a.accValue(childId)) ?? "";
+      return node;
+    }
+    public object[] ReadChildren(object accessible, int start, int count) {
+      var children = new object[count];
+      int obtained;
+      int hr = AccessibleChildren(accessible, start, count, children, out obtained);
+      if (hr < 0 || obtained != count) throw new InvalidOperationException("msaa-document-incomplete-children");
+      return children;
+    }
+    public string Identity(object accessible) {
+      if (!Marshal.IsComObject(accessible)) throw new InvalidOperationException("msaa-document-non-com-child");
+      IntPtr identity = Marshal.GetIUnknownForObject(accessible);
+      try { return identity.ToInt64().ToString(System.Globalization.CultureInfo.InvariantCulture); }
+      finally { Marshal.Release(identity); }
+    }
+  }
+
+  public static SSEAccDocumentSnapshot DescribeDocument(long hwnd, int maxNodes, int timeoutMs, int maxDepth) {
+    if (hwnd == 0) throw new ArgumentException("hwnd fehlt.");
+    return DescribeDocumentCore(new DocumentSource(), hwnd, maxNodes, timeoutMs, maxDepth);
+  }
+
+  public static SSEAccDocumentNode DescribeDocumentFocus(long hwnd) {
+    return ResolveDocumentTargetCore(new DocumentSource(), hwnd, true, 0, 0);
+  }
+
+  public static SSEAccDocumentNode DescribeDocumentHit(long hwnd, int x, int y) {
+    return ResolveDocumentTargetCore(new DocumentSource(), hwnd, false, x, y);
+  }
+
+  internal static SSEAccDocumentNode ResolveDocumentTargetCore(
+      IDocumentSource source, long hwnd, bool focus, int x, int y) {
+    if (hwnd == 0) throw new ArgumentException("hwnd fehlt.");
+    object accessible = source.GetRoot(hwnd);
+    var seen = new HashSet<string>(StringComparer.Ordinal);
+    var pins = new List<object>();
+    var watch = Stopwatch.StartNew();
+    try {
+    for (int depth = 0; depth < 24 && watch.ElapsedMilliseconds < 2000; depth++) {
+      if (accessible == null) return null;
+      pins.Add(accessible);
+      if (!seen.Add(source.Identity(accessible))) throw new InvalidOperationException("msaa-target-cycle");
+      object target = focus ? source.Focus(accessible) : source.Hit(accessible, x, y);
+      if (target == null) return null;
+      if (target is int || target is short || target is long) {
+        int childId = Convert.ToInt32(target);
+        if (childId < 0) throw new InvalidOperationException("msaa-target-invalid-child");
+        SSEAccDocumentNode node = source.Read(accessible, childId);
+        if (watch.ElapsedMilliseconds >= 2000) throw new TimeoutException("msaa-target-timeout");
+        return node;
+      }
+      accessible = target;
+    }
+    throw new InvalidOperationException("msaa-target-limited");
+    } finally { GC.KeepAlive(pins); }
+  }
+
+  internal static SSEAccDocumentSnapshot DescribeDocumentCore(
+      IDocumentSource source, long hwnd, int maxNodes, int timeoutMs, int maxDepth) {
+    if (maxNodes <= 0 || maxNodes > 10000 || timeoutMs <= 0 || timeoutMs > 30000 || maxDepth < 0 || maxDepth > 40)
+      throw new ArgumentOutOfRangeException("document budgets");
+    var result = new SSEAccDocumentSnapshot();
+    var output = new List<SSEAccDocumentNode>();
+    var seen = new HashSet<string>(StringComparer.Ordinal);
+    var pins = new List<object>();
+    var watch = Stopwatch.StartNew();
+    try {
+      WalkDocument(source, source.GetRoot(hwnd), 0, -1, new int[0], result, output, seen,
+        pins, watch, maxNodes, timeoutMs, maxDepth);
+    } catch { result.Errors++; }
+    finally { GC.KeepAlive(pins); }
+    result.Nodes = output.ToArray();
+    return result;
+  }
+
+  static bool DocumentLimit(SSEAccDocumentSnapshot result, List<SSEAccDocumentNode> output,
+      Stopwatch watch, int maxNodes, int timeoutMs) {
+    if (output.Count >= maxNodes || watch.ElapsedMilliseconds >= timeoutMs) {
+      result.Truncated = true;
+      return true;
+    }
+    return false;
+  }
+
+  static void WalkDocument(IDocumentSource source, object accessible, int childId, int parent,
+      int[] path, SSEAccDocumentSnapshot result, List<SSEAccDocumentNode> output, HashSet<string> seen,
+      List<object> pins, Stopwatch watch, int maxNodes, int timeoutMs, int maxDepth) {
+    if (DocumentLimit(result, output, watch, maxNodes, timeoutMs)) return;
+    if (accessible == null) { result.Errors++; return; }
+    // Keep the RCWs alive until this complete walk ends: released COM proxy
+    // addresses must not be reused while they remain in the cycle inventory.
+    pins.Add(accessible);
+    try {
+      string identity = source.Identity(accessible) + ":" + childId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+      if (!seen.Add(identity)) { result.CycleHits++; return; }
+      SSEAccDocumentNode node = source.Read(accessible, childId);
+      if (node == null || node.ChildCount < 0) { result.Errors++; return; }
+      node.Index = output.Count; node.ParentIndex = parent; node.Depth = path.Length; node.Path = path;
+      output.Add(node);
+      if (watch.ElapsedMilliseconds >= timeoutMs) { result.Truncated = true; return; }
+      if (node.ChildCount == 0) return;
+      if (path.Length >= maxDepth) { result.DepthLimited = true; return; }
+      if (node.ChildCount > maxNodes - output.Count) { result.Truncated = true; return; }
+      for (int start = 0; start < node.ChildCount; start += 32) {
+        if (DocumentLimit(result, output, watch, maxNodes, timeoutMs)) return;
+        int count = Math.Min(32, node.ChildCount - start);
+        object[] children = source.ReadChildren(accessible, start, count);
+        pins.Add(children);
+        if (children == null || children.Length != count) { result.Errors++; return; }
+        if (watch.ElapsedMilliseconds >= timeoutMs) { result.Truncated = true; return; }
+        for (int index = 0; index < children.Length; index++) {
+          object child = children[index];
+          var childPath = new int[path.Length + 1];
+          Array.Copy(path, childPath, path.Length); childPath[path.Length] = start + index;
+          if (child is int || child is short || child is long) {
+            int id = Convert.ToInt32(child);
+            if (id <= 0) { result.Errors++; continue; }
+            WalkDocument(source, accessible, id, node.Index, childPath, result, output, seen,
+              pins, watch, maxNodes, timeoutMs, maxDepth);
+          } else {
+            WalkDocument(source, child, 0, node.Index, childPath, result, output, seen,
+              pins, watch, maxNodes, timeoutMs, maxDepth);
+          }
+          if (result.Truncated) return;
+        }
+      }
+      if (source.GetChildCount(accessible) != node.ChildCount) result.Errors++;
+    } catch { result.Errors++; }
   }
 
   static void Walk(object parent, List<int> path, List<SSEAccNode> output, int depth) {

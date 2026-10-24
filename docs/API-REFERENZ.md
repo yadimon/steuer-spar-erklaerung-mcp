@@ -11,9 +11,9 @@ Operationsmerkmale in `src/operation-traits.ts`, das Abdeckungsledger
 ## Zahlen
 
 - Operationen insgesamt: **102**
-- davon live belegt: **94**
+- davon live belegt: **96**
 - davon nur auf dem Fehlerpfad belegt: **6**
-- davon live ungetestet: **2**
+- davon live ungetestet: **0**
 - als MCP-Werkzeug veroeffentlicht: **102**
 - zusammengesetzte MCP-Werkzeuge: **1**
 - API-Lebenszykluswerkzeuge: **1**
@@ -85,7 +85,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 | `menu_close` | `sse_menu_close` | Aufraeumen | – | live belegt |
 | `page` | `sse_page` | lesend | – | live belegt |
 | `page_objects` | `sse_page_objects` | lesend | – | live belegt |
-| `position_create` | `sse_position_create` | destruktiv | ja | live: untested |
+| `position_create` | `sse_position_create` | destruktiv | ja | live belegt |
 | `positions` | `sse_positions` | lesend | – | live belegt |
 | `product_info` | `sse_product_info` | lesend | – | live belegt |
 | `read_full` | `sse_read_full` | lesend | – | live belegt |
@@ -116,7 +116,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 | `table_delete` | `sse_table_delete` | destruktiv | ja | live belegt |
 | `table_read` | `sse_table_read` | zustandsaendernd | – | live belegt |
 | `table_update` | `sse_table_update` | destruktiv | ja | live belegt |
-| `tax_knowledge_search` | `sse_tax_knowledge_search` | zustandsaendernd | – | live: untested |
+| `tax_knowledge_search` | `sse_tax_knowledge_search` | zustandsaendernd | – | live belegt |
 | `toggle` | `sse_toggle` | destruktiv | ja | live belegt |
 | `tracked_set_value` | `sse_change_known_field` | destruktiv | ja | live belegt |
 | `tree_scroll` | `sse_tree_scroll` | zustandsaendernd | – | live belegt |

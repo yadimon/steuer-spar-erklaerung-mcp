@@ -195,7 +195,7 @@ try {
   assert.equal(clickCatalogTool?.outputSchema?.type, "object");
   assert.equal(clickCatalogTool?.outputSchema?.properties?.ok?.type, "boolean");
   assert(clickCatalogTool?.outputSchema?.required?.includes("ok"));
-  assert.equal(clickCatalogTool?.outputSchema?.additionalProperties, true,
+  assert.deepEqual(clickCatalogTool?.outputSchema?.additionalProperties, {},
     "Das generische API-Ergebnisschema muss unbekannte Operationsfelder erhalten.");
   assert(catalog.tools.find((tool) => tool.name === "sse_ustva_change_value")?.outputSchema,
     "Der folgende isError-Test muss wirklich trotz deklariertem Erfolgsschema laufen.");

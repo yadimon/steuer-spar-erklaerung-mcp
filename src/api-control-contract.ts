@@ -5,7 +5,7 @@ import { SSE_API_VERSION } from "./api-contract.js";
 export const SSE_API_SHUTDOWN_PATH = `/${SSE_API_VERSION}/control/shutdown`;
 export const API_SHUTDOWN_REQUEST_SCHEMA = z.object({
   confirm: z.literal(true),
-  instanceId: z.string().uuid(),
+  instanceId: z.string().guid(),
 }).strict();
 
 export interface ApiShutdownAccepted {

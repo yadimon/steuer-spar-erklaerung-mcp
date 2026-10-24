@@ -1,4 +1,5 @@
-import { zodToJsonSchema, type JsonSchema7ObjectType, type JsonSchema7Type } from "zod-to-json-schema";
+import { z } from "zod";
+import type { JsonSchema7ObjectType, JsonSchema7Type } from "zod-to-json-schema";
 import { SSE_API_OPERATIONS, SSE_API_VERSION, type SseApiOperation } from "./api-contract.js";
 import { SSE_CAPABILITIES } from "./capabilities.js";
 import { SSE_API_OPERATION_SCHEMAS } from "./operation-catalog.js";
@@ -9,15 +10,25 @@ import {
 } from "./result-contract.js";
 import { API_SHUTDOWN_REQUEST_SCHEMA, SSE_API_SHUTDOWN_PATH } from "./api-control-contract.js";
 
+/** Publish input contracts, including defaults and the input side of transforms. */
+export function inputJsonSchema(schema: z.ZodType): JsonSchema7Type {
+  return z.toJSONSchema(schema, {
+    target: "draft-7", io: "input", reused: "inline",
+    override: ({ zodSchema, jsonSchema }) => {
+      const definition = zodSchema._zod.def;
+      if (definition.type !== "object") return;
+      const catchall = (definition as z.core.$ZodObjectDef).catchall;
+      if (!catchall) jsonSchema.additionalProperties ??= false;
+      else if (catchall._zod.def.type === "unknown") jsonSchema.additionalProperties = true;
+    },
+  }) as JsonSchema7Type;
+}
+
 function createArgumentSchemas(): Readonly<Record<SseApiOperation, JsonSchema7Type>> {
   return Object.freeze(Object.fromEntries(
     SSE_API_OPERATIONS.map((operation) => [
       operation,
-      zodToJsonSchema(SSE_API_OPERATION_SCHEMAS[operation], {
-        target: "jsonSchema7",
-        $refStrategy: "none",
-        effectStrategy: "input",
-      }),
+      inputJsonSchema(SSE_API_OPERATION_SCHEMAS[operation]),
     ]),
   ) as Record<SseApiOperation, JsonSchema7Type>);
 }
@@ -31,13 +42,9 @@ function createOperationTraits(): Readonly<
 }
 
 const inlineResultSchemas = Object.fromEntries(SSE_API_OPERATIONS.map((operation) => [operation,
-  zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
-    target: "jsonSchema7", $refStrategy: "none", effectStrategy: "input",
-  }) as JsonSchema7ObjectType,
+  inputJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation]) as JsonSchema7ObjectType,
 ])) as Record<SseApiOperation, JsonSchema7ObjectType>;
-const commonResultEnvelope = zodToJsonSchema(SSE_API_RESULT_ENVELOPE_SCHEMA, {
-  target: "jsonSchema7", $refStrategy: "none", effectStrategy: "input",
-}) as JsonSchema7ObjectType;
+const commonResultEnvelope = inputJsonSchema(SSE_API_RESULT_ENVELOPE_SCHEMA) as JsonSchema7ObjectType;
 // Einige Operationen besitzen einen eigenen 'kind'-Vertrag. Nur exakt
 // identische Blattvertraege duerfen in den gemeinsamen Umschlag wandern.
 const commonFields = new Set(Object.keys(SSE_API_RESULT_COMMON_FIELDS).filter((field) =>
@@ -82,7 +89,7 @@ export const SSE_API_DISCOVERY = Object.freeze({
       method: "POST", path: SSE_API_SHUTDOWN_PATH,
       instanceHeader: "x-sse-api-instance-id", idleOnly: true,
       acceptanceStatus: 202, acceptanceProvesProcessExit: false,
-      argumentSchema: zodToJsonSchema(API_SHUTDOWN_REQUEST_SCHEMA, { target: "jsonSchema7", $refStrategy: "none" }),
+      argumentSchema: inputJsonSchema(API_SHUTDOWN_REQUEST_SCHEMA),
     }),
   }),
   planning: Object.freeze({

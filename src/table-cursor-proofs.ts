@@ -27,7 +27,7 @@ export const bindingSchema = z.object({
 }).strict();
 export type CursorBinding = z.infer<typeof bindingSchema>;
 export const leaseSchema = z.object({
-  schemaVersion: z.literal(1), nonce: z.string().uuid(), rootHwnd: z.number().int().safe().positive(),
+  schemaVersion: z.literal(1), nonce: z.string().guid(), rootHwnd: z.number().int().safe().positive(),
   targetPid: z.number().int().positive(), inputEpoch: uint,
   previous: z.object({ hwnd: z.number().int().safe().nonnegative(), pid: uint,
     start: z.string().regex(/^(0|[1-9][0-9]{0,19})$/u), class: z.string() }).strict(),

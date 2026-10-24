@@ -5,6 +5,7 @@ import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "../dist/api-openapi.js";
 
 assert.equal(SSE_OPENAPI_DOCUMENT.openapi, "3.1.0");
+assert.equal(SSE_OPENAPI_DOCUMENT.jsonSchemaDialect, "http://json-schema.org/draft-07/schema#");
 // Die API kennt keine Anmeldung. Ein Sicherheitsschema in der Beschreibung
 // wuerde generierten Klienten ein Feld aufdraengen, das es nicht gibt.
 assert.equal(SSE_OPENAPI_DOCUMENT.security, undefined);
@@ -69,7 +70,10 @@ for (const operation of SSE_API_OPERATIONS) {
     post.requestBody.content["application/json"].schema.properties.args.$ref,
     `#/components/schemas/Args_${operation}`,
   );
-  assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas[`Args_${operation}`], SSE_API_DISCOVERY.argumentSchemas[operation]);
+  const component = SSE_OPENAPI_DOCUMENT.components.schemas[`Args_${operation}`];
+  assert.equal(component.$schema, undefined);
+  assert.deepEqual({ $schema: SSE_OPENAPI_DOCUMENT.jsonSchemaDialect, ...component },
+    SSE_API_DISCOVERY.argumentSchemas[operation], `${operation}: Dialektvererbung aendert den Argumentvertrag.`);
   assert.equal(
     SSE_OPENAPI_DOCUMENT.components.schemas[`Result_${operation}`].description,
     SSE_API_DISCOVERY.resultSchemas[operation].description,

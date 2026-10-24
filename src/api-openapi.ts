@@ -10,9 +10,17 @@ import { SSE_API_SHUTDOWN_PATH } from "./api-control-contract.js";
 
 const schemaName = (operation: SseApiOperation): string => `Args_${operation}`;
 const resultSchemaName = (operation: SseApiOperation): string => `Result_${operation}`;
+const JSON_SCHEMA_DIALECT = "http://json-schema.org/draft-07/schema#";
+
+/** Components inherit the document dialect; retain every validation keyword. */
+function inheritSchemaDialect(schema: (typeof SSE_API_DISCOVERY.argumentSchemas)[SseApiOperation]) {
+  const { $schema, ...contract } = schema as typeof schema & { $schema?: string };
+  if ($schema !== JSON_SCHEMA_DIALECT) throw new Error("OpenAPI-Komponente verwendet einen anderen Schema-Dialekt.");
+  return contract;
+}
 
 const argumentComponents = Object.freeze(Object.fromEntries(
-  SSE_API_OPERATIONS.map((operation) => [schemaName(operation), SSE_API_DISCOVERY.argumentSchemas[operation]]),
+  SSE_API_OPERATIONS.map((operation) => [schemaName(operation), inheritSchemaDialect(SSE_API_DISCOVERY.argumentSchemas[operation])]),
 ));
 
 function resultProperty(operation: SseApiOperation, property: string): object {
@@ -159,6 +167,7 @@ const operationPaths = Object.freeze(Object.fromEntries(
 /** Standardisierte, rein aus den produktiven Laufzeitvertraegen erzeugte API-Beschreibung. */
 export const SSE_OPENAPI_DOCUMENT = Object.freeze({
   openapi: "3.1.0",
+  jsonSchemaDialect: JSON_SCHEMA_DIALECT,
   info: {
     title: "Unoffizielle lokale SteuerSparErklaerung API",
     version: SSE_API_VERSION,

@@ -49,9 +49,9 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@yadimon/steuer-spar-erklaerung-api": "0.1.0-beta.51",
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "zod": "^3.25.76",
+    "@yadimon/steuer-spar-erklaerung-api": "0.1.0-beta.51",
+    "zod": "^4.6.7",
     "zod-to-json-schema": "^3.25.2"
   }
 }

@@ -58,10 +58,16 @@ assert.equal(result.safety.elsterAndSubmissionBlocked, true);
 assert.equal(result.safety.directWorkerSubmissionBypass, false);
 assert.deepEqual(result.liveEvidence, SSE_LIVE_EVIDENCE);
 assert.equal(result.liveEvidence.affectsAvailability, false);
-assert.equal(result.liveEvidence.functionalCount, 94);
-assert.equal(result.liveEvidence.errorPathOnlyCount, 6);
-assert.equal(result.liveEvidence.untestedCount, 2);
-assert.deepEqual(result.liveEvidence.untestedOperations, ["position_create", "tax_knowledge_search"]);
+const recordedLiveCoverage = JSON.parse(readFileSync(new URL("operation-coverage.json", import.meta.url), "utf8"));
+for (const [status, field] of [["functional", "functionalCount"], ["error-path-only", "errorPathOnlyCount"], ["untested", "untestedCount"]]) {
+  assert.equal(result.liveEvidence[field],
+    SSE_API_OPERATIONS.filter(operation => recordedLiveCoverage.operations[operation].live === status).length,
+    "Capabilities muessen die erzeugte Live-Bilanz wiedergeben.");
+}
+assert.deepEqual(result.liveEvidence.untestedOperations,
+  SSE_API_OPERATIONS.filter(operation => recordedLiveCoverage.operations[operation].live === "untested"));
+assert.equal(result.liveEvidence.operationStatus.position_create, "functional");
+assert.equal(result.liveEvidence.operationStatus.tax_knowledge_search, "functional");
 assert.equal(result.transport.directApiWithoutMcp, true);
 assert.equal(result.transport.directCliWithoutMcp, true);
 assert.equal(result.transport.discoveryPath, "/v1/operations");

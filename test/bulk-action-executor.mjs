@@ -195,6 +195,25 @@ async function appendWithCursor(cursor, retried = { ok: true, verified: true, su
   return { result: await execute("table_add", appendArgs, 30_000), calls };
 }
 
+test("clipped checkbox preparation seeks once before any write and never loops on a second rejection", async () => {
+  const clipped = { ok: false, kind: "not-found",
+    error: "Keine freie Tabellenzeile mit vollstaendig sichtbarer Checkbox; nichts geschrieben.",
+    mutationStarted: false, resultingState: "unchanged", physicalInputAttempted: false,
+    physicalInputUsed: false, outcomeUnknown: false };
+  const cursor = { ok: true, vollstaendig: true, anzahl: 5, steps: 0, outcomeUnknown: false,
+    cleanupRequired: false, physicalInputAttempted: false, physicalInputUsed: false };
+  const accepted = await appendWithCursor(cursor, undefined, clipped);
+  assert.deepEqual(accepted.calls.map(value => value.operation), ["table_add", "table_read", "table_add"]);
+  assert.equal(accepted.result.ok, true);
+  assert.equal(accepted.result.freeRowSearch.retriedAfterTableWalk, true);
+  const rejected = await appendWithCursor(cursor, clipped, clipped);
+  assert.deepEqual(rejected.calls.map(value => value.operation), ["table_add", "table_read", "table_add"]);
+  assert.equal(rejected.result.ok, false);
+  assert.equal(rejected.result.error, clipped.error);
+  assert.equal(rejected.result.mutationStarted, false);
+  assert.equal(rejected.result.outcomeUnknown, false);
+});
+
 test("append preserves a rejected cursor's bounded diagnosis and unknown cleanup without another write", async () => {
   const { result, calls } = await appendWithCursor({
     ok: false, kind: "interference", phase: "cursor-resume", proofCheck: "native-focus-resume-worker-result",

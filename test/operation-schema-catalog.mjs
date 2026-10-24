@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
+import { formatSchemaArgumentError } from "../dist/operation-argument-errors.js";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import {
@@ -24,6 +26,19 @@ assert.equal(
     Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS).length,
 );
 assert.equal(Object.keys(SSE_MCP_TOOL_OPERATIONS).length, SSE_API_OPERATIONS.length);
+const nestedRecord = z.object({ rows: z.record(z.string().min(2, "Schluessel ist zu kurz."), z.number()) });
+const invalidRecord = nestedRecord.safeParse({ rows: { x: 1 } });
+assert.equal(invalidRecord.success, false);
+assert.match(formatSchemaArgumentError(invalidRecord.error), /'rows\.x' Schluessel ist zu kurz/u,
+  "Record-Schluesselfehler muessen den vollstaendigen Feldpfad behalten.");
+const nestedUnion = z.object({ rows: z.array(z.union([
+  z.object({ value: z.string().min(2, "Text ist zu kurz.") }),
+  z.object({ value: z.number() }),
+])) });
+const invalidUnion = nestedUnion.safeParse({ rows: [{ value: false }] });
+assert.equal(invalidUnion.success, false);
+assert.match(formatSchemaArgumentError(invalidUnion.error), /'rows\.0\.value'/u,
+  "Union-Fehler duerfen den uebergeordneten Listenpfad nicht verlieren.");
 assert.deepEqual(
   Object.keys(SSE_MCP_TOOL_SCHEMAS).sort(),
   [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS),
@@ -34,7 +49,7 @@ assert.deepEqual(Object.keys(SSE_API_OPERATION_SCHEMAS).sort(), [...SSE_API_OPER
 
 const hasUnknownKeyIssue = (issues) => issues.some((issue) =>
   issue.code === "unrecognized_keys" ||
-  (issue.code === "invalid_union" && issue.unionErrors.some((entry) => hasUnknownKeyIssue(entry.issues))));
+  (issue.code === "invalid_union" && issue.errors.some((issues) => hasUnknownKeyIssue(issues))));
 for (const [operation, schema] of Object.entries(SSE_API_OPERATION_SCHEMAS)) {
   const result = schema.safeParse({ __unknown: true });
   assert.equal(result.success, false, `${operation} darf unbekannte API-Argumente nicht akzeptieren`);

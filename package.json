@@ -48,6 +48,7 @@
     "test:atomic-files": "npm run build:ts && node test/atomic-files.mjs",
     "test:case-file": "npm run build:ts && node test/case-file-contract.mjs",
     "test:live-case-file": "npm run build:ts && node test/case-file-live-parity.mjs",
+    "test:live-tax-knowledge": "npm run build && node test/with-api.mjs node test/live-tax-knowledge.mjs",
     "test:backup": "node test/backup-cases-contract.mjs",
     "test:archive-synthetic": "node test/archive-cases-synthetic.mjs",
     "test:worker-output": "node test/worker-output-file-contract.mjs",
@@ -141,7 +142,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "zod": "^3.25.76",
+    "zod": "^4.6.7",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {

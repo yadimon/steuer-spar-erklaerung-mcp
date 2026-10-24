@@ -19,7 +19,7 @@ const TABLE = z.object({
   hiddenColumns: z.array(z.number().int().nonnegative()).max(100), hiddenRows: z.array(z.number().int().nonnegative()).max(1001),
   complete: z.boolean(), canFetchMore: z.boolean(), tableCount: z.number().int().positive(),
   table: z.object({ id: z.number().int().positive(), name: z.string(), class: z.string(), visible: z.literal(true) }).passthrough(),
-  summary: z.string().nullable(), binding: z.record(z.unknown()).nullable(),
+  summary: z.string().nullable(), binding: z.record(z.string(), z.unknown()).nullable(),
   summaries: z.array(z.object({ label: z.string(), vorkommen: z.number().int().positive(), wert: z.string().nullable() })).max(12),
   cursorFocusBinding: QT_TABLE_FOCUS_BINDING.nullable().optional(),
 });

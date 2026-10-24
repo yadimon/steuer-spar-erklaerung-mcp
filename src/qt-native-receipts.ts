@@ -8,10 +8,10 @@ import { powershellCompactJson, processWindowInventorySchema, textSha256 } from 
 export const receiptPolicySchema = z.object({
   title: z.string().min(1).max(4096),
   role: z.literal("nonmodal-tool-window"),
-  states: z.record(z.object({
+  states: z.record(z.string(), z.object({
     requiredAutomationIdSuffixes: z.array(z.string().min(1)).min(1),
   }).passthrough()),
-  actions: z.record(z.object({
+  actions: z.record(z.string(), z.object({
     fromState: z.string().min(1),
     toState: z.string().min(1),
     automationIdSuffix: z.string().min(1),

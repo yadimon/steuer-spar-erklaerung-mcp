@@ -8,6 +8,7 @@ import { SSE_MCP_TOOL_SCHEMAS } from "./mcp-operation-schemas.js";
 import { SSE_API_RECEIPT_MANAGER_LINK_SCHEMA } from "./mcp-schemas-receipts.js";
 import { SSE_API_GOTO_SCHEMA } from "./operation-schema-goto.js";
 import { SSE_API_GET_VALUE_SCHEMA } from "./mcp-schemas-ui.js";
+import { formatSchemaArgumentError } from "./operation-argument-errors.js";
 import {
   BARE_RESOURCE_REF,
   PROCESS_ID,
@@ -167,8 +168,8 @@ const API_LOCAL_PATH = z.string().min(1).refine(
 ).describe("API-only Windows-Pfad; Ressourcenreferenz bevorzugen");
 type AnyOperationSchema = z.ZodType<Record<string, unknown>>;
 
-function withLegacyAlias(schema: z.AnyZodObject, alias: string, legacy: string): AnyOperationSchema {
-  const shape: z.ZodRawShape = { ...schema.shape };
+function withLegacyAlias(schema: z.ZodObject, alias: string, legacy: string): AnyOperationSchema {
+  const shape: Record<string, z.ZodType> = { ...schema.shape };
   shape[alias] = (shape[alias] as z.ZodTypeAny).optional();
   shape[legacy] = API_LOCAL_PATH.optional();
   return z.object(shape).strict().superRefine((value, context) => {
@@ -183,8 +184,8 @@ function withLegacyAlias(schema: z.AnyZodObject, alias: string, legacy: string):
   });
 }
 
-function optionalAliasWithLegacy(schema: z.AnyZodObject, alias: string, legacy: string): AnyOperationSchema {
-  const shape: z.ZodRawShape = { ...schema.shape };
+function optionalAliasWithLegacy(schema: z.ZodObject, alias: string, legacy: string): AnyOperationSchema {
+  const shape: Record<string, z.ZodType> = { ...schema.shape };
   shape[alias] = (shape[alias] as z.ZodTypeAny).optional();
   shape[legacy] = API_LOCAL_PATH.optional();
   return z.object(shape).strict().superRefine((value, context) => {
@@ -198,10 +199,10 @@ function optionalAliasWithLegacy(schema: z.AnyZodObject, alias: string, legacy: 
 }
 
 function withLegacyAliases(
-  schema: z.AnyZodObject,
+  schema: z.ZodObject,
   pairs: ReadonlyArray<readonly [alias: string, legacy: string]>,
 ): AnyOperationSchema {
-  const shape: z.ZodRawShape = { ...schema.shape };
+  const shape: Record<string, z.ZodType> = { ...schema.shape };
   for (const [alias, legacy] of pairs) {
     shape[alias] = (shape[alias] as z.ZodTypeAny).optional();
     shape[legacy] = API_LOCAL_PATH.optional();
@@ -218,7 +219,7 @@ function withLegacyAliases(
   });
 }
 
-function extendStrict(schema: z.AnyZodObject, extension: z.ZodRawShape): z.AnyZodObject {
+function extendStrict(schema: z.ZodObject, extension: z.ZodRawShape): z.ZodObject {
   return z.object({ ...schema.shape, ...extension }).strict();
 }
 
@@ -353,7 +354,8 @@ schemasByOperation.workspace_file_list = z.object({
   ref: z.union([RESOURCE_REF(), BARE_RESOURCE_REF()]).optional()
     .describe("Bereichsreferenz oder relativer Pfad innerhalb von area"),
   area: RESOURCE_AREA.optional(),
-  limit: z.number().int("'limit' muss eine ganze Zahl sein.").min(1).max(2000).optional()
+  limit: z.number({ error: "'limit' muss eine ganze Zahl sein." })
+    .int("'limit' muss eine ganze Zahl sein.").min(1).max(2000).optional()
     .describe("Maximale Zahl gelisteter Dateien; Vorgabe 500, Maximum 2000"),
   includeHashes: z.boolean().optional().describe("SHA256 berechnen; Vorgabe true"),
 }).strict();
@@ -512,58 +514,11 @@ export function parseCheckerReadOnlyClickArgs(args: Record<string, unknown>): Re
   return parsed;
 }
 
-/** Argumentnamen je Operation ueber alle Union-Zweige hinweg. */
-function acceptedArgumentKeys(schema: unknown, keys = new Set<string>()): Set<string> {
-  const def = (schema as { _def?: Record<string, unknown> } | undefined)?._def;
-  if (!def) return keys;
-  if (def.typeName === "ZodObject") {
-    for (const key of Object.keys((schema as z.AnyZodObject).shape)) keys.add(key);
-  } else if (def.typeName === "ZodUnion") {
-    for (const option of def.options as unknown[]) acceptedArgumentKeys(option, keys);
-  } else if (def.typeName === "ZodEffects") {
-    acceptedArgumentKeys(def.schema, keys);
-  } else if (def.typeName === "ZodIntersection") {
-    acceptedArgumentKeys(def.left, keys);
-    acceptedArgumentKeys(def.right, keys);
-  }
-  return keys;
-}
-
-function hasUnrecognizedKey(issues: readonly z.ZodIssue[]): boolean {
-  return issues.some((issue) =>
-    issue.code === z.ZodIssueCode.unrecognized_keys ||
-    (issue.code === z.ZodIssueCode.invalid_union && issue.unionErrors.some((entry) => hasUnrecognizedKey(entry.issues))));
-}
-
 /**
  * Mit `operation` nennt die Meldung bei einem unbekannten Feld gleich die
  * erlaubten Namen. Ohne das kostet jeder Tippfehler eine zusaetzliche Runde
  * ueber `describe`, und genau diese Runde dreht ein Agent nicht immer.
  */
 export function formatOperationArgumentError(error: z.ZodError, operation?: SseApiOperation): string {
-  const containsCustomIssue = (issues: z.ZodIssue[]): boolean => issues.some((issue) =>
-    issue.code === z.ZodIssueCode.custom ||
-    (issue.code === z.ZodIssueCode.invalid_union && issue.unionErrors.some((entry) => containsCustomIssue(entry.issues))));
-  const formatIssue = (issue: z.ZodIssue): string[] => {
-    if (issue.code === z.ZodIssueCode.invalid_union) {
-      const candidates = issue.unionErrors.map((unionError) => ({
-        custom: containsCustomIssue(unionError.issues),
-        messages: unionError.issues.flatMap(formatIssue),
-      }));
-      const preferred = candidates.some((candidate) => candidate.custom)
-        ? candidates.filter((candidate) => candidate.custom)
-        : candidates;
-      const alternatives = preferred
-        .map((candidate) => candidate.messages)
-        .sort((left, right) => left.length - right.length || left.join("; ").length - right.join("; ").length);
-      return alternatives[0] ?? [issue.message];
-    }
-    const path = issue.path.length ? `'${issue.path.join(".")}' ` : "";
-    return [`${path}${issue.message}`];
-  };
-  const message = [...new Set(error.issues.flatMap(formatIssue))].join("; ");
-  if (!operation || !hasUnrecognizedKey(error.issues)) return message;
-  const erlaubt = [...acceptedArgumentKeys(SSE_API_OPERATION_SCHEMAS[operation])].sort();
-  if (!erlaubt.length) return message;
-  return `${message.replace(/\.$/u, "")}. Erlaubt sind: ${erlaubt.join(", ")}`;
+  return formatSchemaArgumentError(error, operation ? SSE_API_OPERATION_SCHEMAS[operation] : undefined);
 }

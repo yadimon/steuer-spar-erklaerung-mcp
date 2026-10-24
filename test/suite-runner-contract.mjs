@@ -55,6 +55,8 @@ const expectedNames = [
   "table-mutation-target-contract", "table-typed-editor-contract",
   "table-add-checkbox-contract",
   "position-create",
+  "tax-knowledge-search", "msaa-document", "table-boolean-write", "qt-native-snapshot-retry",
+  "zod-resource-bounds",
   "cursor-input",
   "table-add-seek",
   "tracked-native-text",

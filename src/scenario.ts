@@ -19,10 +19,10 @@ import { assertApiArgumentBudget, formatOperationArgumentError } from "./operati
 const scenarioStepSchema = z.object({
   id: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/i),
   operation: z.string().min(1),
-  args: z.record(z.unknown()).optional(),
+  args: z.record(z.string(), z.unknown()).optional(),
   timeoutMs: z.number().int().min(200).max(300_000).optional(),
   capture: z.array(z.string().min(1).max(128)).min(1).max(20).optional(),
-  expect: z.record(z.unknown()).optional(),
+  expect: z.record(z.string(), z.unknown()).optional(),
   continueOnError: z.boolean().optional(),
 }).strict().superRefine((step, context) => {
   const expectationPaths = Object.keys(step.expect ?? {});

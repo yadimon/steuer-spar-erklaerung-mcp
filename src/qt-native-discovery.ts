@@ -21,7 +21,7 @@ const discoverySchema = z.object({
   creationTime: z.string().regex(/^[1-9][0-9]{0,19}$/u).refine(value => BigInt(value) <= 0xffffffffffffffffn),
   image: z.string(), desktop: z.string().optional(), sessionId: z.number().int().nonnegative(),
   bindingDiscovered: z.literal(true), binaryIdentityVerified: z.literal(true),
-  loaderBuildIdentity: z.string(), profile: z.record(z.unknown()),
+  loaderBuildIdentity: z.string(), profile: z.record(z.string(), z.unknown()),
 }).passthrough();
 const failure = (kind: string, message: string) => new QtNativeTransportError(message, kind);
 

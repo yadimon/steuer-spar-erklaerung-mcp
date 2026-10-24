@@ -274,7 +274,7 @@ try {
   // schreibt sie als JSON-Zeichenkette - ohne diesen Weg waere sie unerreichbar.
   const alsZahl = await runCli("find", "--name", "2024", "--config", config.configPath);
   assert.equal(alsZahl.code, 2);
-  assert.match(alsZahl.stderr, /Expected string, received number/);
+  assert.match(alsZahl.stderr, /expected string, received number/);
   const alsText = await runCli("find", "--name", '"2024"', "--config", config.configPath);
   assert.equal(alsText.code, 0, alsText.stderr);
   assert.equal(JSON.parse(alsText.stdout).args.name, "2024");

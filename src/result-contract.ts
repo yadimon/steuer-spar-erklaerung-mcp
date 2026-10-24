@@ -91,7 +91,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
       untestedCount: z.number().int().nonnegative().describe("Anzahl noch nie live erfolgreicher Operationen"),
       untestedOperations: z.array(z.string().min(1))
         .describe("Noch nie live erfolgreich belegte Operationsnamen, aggregiert ueber alle Jahresprofile"),
-      operationStatus: z.record(API_OPERATION_NAME_SCHEMA, z.enum(SSE_LIVE_EVIDENCE_STATUSES))
+      operationStatus: z.partialRecord(API_OPERATION_NAME_SCHEMA, z.enum(SSE_LIVE_EVIDENCE_STATUSES))
         .describe("Releasegebundener Live-Status je API-Operation, aggregiert ueber alle Jahresprofile; kein Nachweis fuer das aktuell gebundene profile.id"),
     }).passthrough().optional().describe("Informative und nicht freigabewirksame Live-Evidenzmatrix"),
     profile: OPTIONAL_OBJECT,
@@ -447,7 +447,7 @@ export const SSE_API_RESULT_COMMON_FIELDS = Object.freeze({
 export const SSE_API_RESULT_ENVELOPE_SCHEMA = z.object(SSE_API_RESULT_COMMON_FIELDS).passthrough()
   .describe("Gemeinsamer Transportumschlag jedes Operationsergebnisses");
 
-function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZodObject {
+function createOperationResultOutputSchema(operation: SseApiOperation): z.ZodObject {
   const operationFields = OPERATION_RESULT_FIELDS[operation as keyof typeof OPERATION_RESULT_FIELDS] ?? {};
   return SSE_API_RESULT_ENVELOPE_SCHEMA.extend(operationFields)
     .describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
@@ -455,7 +455,7 @@ function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZod
 
 export const SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(
   SSE_API_OPERATIONS.map((operation) => [operation, createOperationResultOutputSchema(operation)]),
-) as Record<SseApiOperation, z.AnyZodObject>);
+) as Record<SseApiOperation, z.ZodObject>);
 
 function createOperationResultSchema(operation: SseApiOperation): z.ZodType<WorkerResult> {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation].superRefine((result, context) => {
