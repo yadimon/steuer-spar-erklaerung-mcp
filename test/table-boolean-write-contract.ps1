@@ -191,3 +191,65 @@ foreach($scenario in @('visible','noop','clipped','obstructed','stale','hidden',
  }
 }
 Write-Output 'Table checkbox: true/false/no-op, one bound physical click, typed readback, DPI restoration and no uncertain replay checked.'
+# Exercise the production append-loop consumer after another cell was written.
+# Its normal continue/break statements retain their real surrounding loop.
+& {
+ $toggleWrites=@($add[0].FindAll({param($node)
+   $node -is [Management.Automation.Language.IfStatementAst] -and
+   $node.Extent.Text.StartsWith("if (`$entry.mode -eq 'toggle')") -and
+   $node.Extent.Text.Contains('Checkbox-Zeilenbindung')
+ },$true))
+ if($toggleWrites.Count -ne 1){throw 'No unique real append checkbox write consumer.'}
+ $writeConsumer=[scriptblock]::Create('foreach ($entry in $prepared) {'+"`n"+$toggleWrites[0].Extent.Text+"`n"+'}')
+ function Get-LiveElement($Window,$Rid,$Aid) {
+  if($Rid -ceq 'written-text'){return $script:textElement}
+  $script:element
+ }
+ function Read-SSETableComboCellState {
+  [CmdletBinding()]param($Hwnd,$ExpectedPage,$SumLabel,$SumOccurrence,$RowY,$ColumnIndex,$TableProfile)
+  $script:bindReads++
+  if($Hwnd -ne [IntPtr]100 -or $RowY -ne 20 -or $ColumnIndex -ne 1){throw 'Append consumer lost its row/window binding.'}
+  $cell=$(if($script:wrongBoundRow){[pscustomobject]@{rid='wrong-checkbox';y=20}}else{$script:cell})
+  [pscustomobject]@{ok=$true;rowCellCount=2;ridMatchCount=1;cell=$cell;rowCells=@($script:textCell,$cell)}
+ }
+ function Read-SSETableAddCellValue($Element,$Wanted) {
+  if($Element -ne $script:textElement){throw 'Prior text readback used another element.'}
+  [pscustomobject]@{ok=$true;value=$script:ownWrittenText}
+ }
+ function Test-SSETableCellEquivalent($Actual,$Wanted){$Actual -ceq $Wanted}
+ foreach($scenario in @('hidden-noop','isolated-noop','visible-noop','visible-foreign','stale-row','changed-peer','changed-checkbox')) {
+  Reset-Case
+  $script:bindReads=0;$script:wrongBoundRow=$false;$script:ownWrittenText='own-written-value'
+  $script:textCell=[pscustomobject]@{rid='written-text';aid='table';y=20}
+  $script:textElement=[pscustomobject]@{role='synthetic-written-text'}
+  $hwnd=[IntPtr]100;$guardUserInput=$true;$inputBaseline=10
+  $zeile=@($script:textCell,$script:cell);$freie=@(20);$expectedPage='Synthetic table';$sumLabel='Synthetic sum';$sumOccurrence=1;$tableProfile=$null
+  $prepared=New-Object Collections.ArrayList
+  $null=$prepared.Add([pscustomobject]@{mode='toggle';spalte=1;cell=$script:cell;before='false';requested='false'})
+  $changed=New-Object Collections.ArrayList
+  $null=$changed.Add([pscustomobject]@{mode='value';spalte=0;cell=$script:textCell;requested='own-written-value'})
+  $rowSnapshotBefore=New-Object Collections.ArrayList
+  $null=$rowSnapshotBefore.Add([pscustomobject]@{spalte=0;cell=$script:textCell})
+  $null=$rowSnapshotBefore.Add([pscustomobject]@{spalte=1;cell=$script:cell})
+  $results=New-Object Collections.ArrayList;$failure=$null;$failureKind=$null;$interference=$false
+  switch($scenario) {
+   'hidden-noop' {$script:DESKTOP_NAME='owned-hidden';$guardUserInput=$false;$inputBaseline=$null;[SW]::Foreground=999}
+   'isolated-noop' {$guardUserInput=$false;$inputBaseline=$null;[SW]::Foreground=999}
+   'visible-foreign' {[SW]::Foreground=999}
+   'stale-row' {$script:wrongBoundRow=$true}
+   'changed-peer' {$script:ownWrittenText='foreign-value'}
+   'changed-checkbox' {$script:current.ToggleState='On'}
+  }
+  . $writeConsumer
+  if($script:clicks -ne 0 -or [SW]::Entries -ne 0 -or [SW]::Restores -ne 0){throw 'Append no-op consumer performed physical input or changed DPI.'}
+  if($scenario -cin @('hidden-noop','isolated-noop','visible-noop')) {
+   if($failure -or $interference -or $results.Count -ne 1 -or $results[0].methode -cne 'noop-already-target' -or
+      $results[0].ist -cne 'false' -or $script:bindReads -ne 1 -or $script:ownWrittenText -cne 'own-written-value') {
+    throw "Append no-op consumer rejected its bound unchanged checkbox: $scenario; $failure"
+   }
+  } else {
+   if(-not $failure -or -not $interference -or $results.Count -ne 0){throw "Append consumer lost a genuine binding/interference rejection: $scenario"}
+  }
+ }
+}
+Write-Output 'Append checkbox consumer: hidden/isolated/visible no-op, prior own writes and genuine interference verified.'

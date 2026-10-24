@@ -21153,7 +21153,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         try {
           $bound=$null
           for ($bindAttempt=1; $bindAttempt -le 3; $bindAttempt++) {
-            if (-not (Test-SSELastInputUnchanged $inputBaseline) -or [SW]::GetForegroundWindow() -ne $hwnd) {
+            if ($guardUserInput -and (-not (Test-SSELastInputUnchanged $inputBaseline) -or [SW]::GetForegroundWindow() -ne $hwnd)) {
               Throw-SSETableBooleanError 'Fokus oder Eingabe-Epoche ging bei der Checkbox-Zeilenbindung verloren.' 'interference'
             }
             $anchor=Get-LiveElement $hwnd $entry.cell.rid $entry.cell.aid
