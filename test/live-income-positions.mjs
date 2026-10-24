@@ -89,6 +89,25 @@ try {
   }, 120_000, false);
   assert.equal(rejectedHash.kind, "precondition-failed");
   assert.deepEqual((await call("positions", { hwnd: instance.hwnd })).positionen, []);
+  const missingBackup = await call("position_create", {
+    hwnd: instance.hwnd, expectedCaseRef: caseRef, expectedCaseHash: originalHash,
+    backupRef: "backups:missing-income-backup.GewErfass2026", name: "Missing backup must reject", expectedPositions: [],
+  }, 120_000, false);
+  assert.equal(missingBackup.kind, "precondition-failed");
+  assert.deepEqual((await call("positions", { hwnd: instance.hwnd })).positionen, []);
+  assert.equal((await call("case_hash", { ref: caseRef })).sha256, originalHash);
+  const otherRef = "cases:synthetic-income-other.GewErfass2026";
+  assert.equal((await call("make_working_copy", {
+    sourceRef: caseRef, targetRef: otherRef, expectedSourceHash: originalHash,
+  })).verified, true);
+  const wrongCaseWindow = await call("position_create", {
+    hwnd: instance.hwnd, expectedCaseRef: otherRef, expectedCaseHash: originalHash,
+    backupRef, name: "Wrong case window must reject", expectedPositions: [],
+  }, 120_000, false);
+  assert.equal(wrongCaseWindow.kind, "case-mismatch");
+  assert.deepEqual((await call("positions", { hwnd: instance.hwnd })).positionen, []);
+  assert.equal((await call("case_hash", { ref: otherRef })).sha256, originalHash);
+  assert.equal((await call("case_hash", { ref: caseRef })).sha256, originalHash);
   for (const name of names) {
     const position = await call("position_create", {
       hwnd: instance.hwnd, expectedCaseRef: caseRef, expectedCaseHash: originalHash,
@@ -116,6 +135,16 @@ try {
       backupRef, name, expectedPositions: inventory,
     }, 120_000, false);
     assert.equal(rejectedDuplicate.kind, "precondition-failed");
+    assert.deepEqual((await call("positions", { hwnd: instance.hwnd })).positionen, inventory.map(row => row.name));
+    const wrongNet = await call("position_create", {
+      hwnd: instance.hwnd, expectedCaseRef: caseRef, expectedCaseHash: originalHash,
+      backupRef, name: "Wrong net amount must reject",
+      expectedPositions: inventory.map(row => ({ ...row, net: "0,01" })),
+    }, 120_000, false);
+    assert.equal(wrongNet.kind, "position-create-incomplete");
+    assert.equal(wrongNet.mutationStarted, false);
+    assert.equal(wrongNet.cleanupRequired, false);
+    assert.deepEqual(wrongNet.beforePositions, inventory);
     assert.deepEqual((await call("positions", { hwnd: instance.hwnd })).positionen, inventory.map(row => row.name));
   }
 

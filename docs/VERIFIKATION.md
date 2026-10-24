@@ -183,7 +183,10 @@ Nachweis. Die weiteren Freigabekriterien stehen in der
 `node test/with-api.mjs node test/live-income-positions.mjs` geprüft: eine separate,
 optionale Live-Prüfung mit einem vollständig neuen synthetischen Folgejahresfall.
 Sie prüft die erste und eine weitere Einnahmenposition, das genaue Inventar,
-Speichern und Wiederöffnen. Sie benötigt eine freie sichtbare Windows-Sitzung.
+Speichern und Wiederöffnen. Falscher Dateihash, fehlendes Backup, ein anderer
+Fall, doppelte Namen und abweichende erwartete Nettobeträge müssen vor einer
+weiteren Anlage abgewiesen werden. Dabei bleiben Inventar und Dateien
+unverändert. Sie benötigt eine freie sichtbare Windows-Sitzung.
 Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
 Schritte; seine Einzelbelege ersetzen keine umfassende Paketabnahme.
 
@@ -192,7 +195,8 @@ Vorher müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible Hersteller-
 Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner außerhalb
 des Repositorys gesetzt sein. Alle SSE-/Steuerwissen-Fenster müssen geschlossen
 und die sichtbare Windows-Sitzung frei sein. Der Test kopiert die Musterdatei,
-prüft Treffer, bestätigte Nulltreffer und eine falsche Fensterbindung und
+prüft Treffer, wiederholte Suchbegriffe, bestätigte und wiederholte Nulltreffer,
+den Wechsel zurück zu Treffern sowie eine falsche Fensterbindung und
 beweist die Zugehörigkeit des gestarteten Helfers über ein Windows Job Object.
 Er schließt nur die eigenen Prozesse normal und vergleicht die Dateihashes.
 Mehrfenster-/Interferenz- und Leistungsabnahme bleiben eigene Prüffälle.
@@ -343,6 +347,18 @@ und prüft erneut den geschützten Cursor. Passive vollständige Modellabgleiche
 vor und nach diesem zweiten Cursor vergleichen Werte, Typen, Checkboxzustände,
 Summe und Zeilenfingerprints. Der Seitenwechsel liegt nach der unmittelbaren
 Add-/Read-/Update-Folge; die Reise speichert keine Änderungen.
+
+Anschließend folgt eine zweite Folge mit Bezeichnung und Betrag:
+Add → passives Lesen → Update → passives Lesen → Delete. Sie prüft den
+natürlichen Fokuszustand nach einer Texteingabe, der auch auf der eingebetteten
+Hilfe liegen kann. Kein zusätzlicher Fokusaufruf bereitet das Update vor.
+Nach dem Löschen muss der vollständige vorherige Tabellenbestand wieder
+übereinstimmen. Der native Schreibpfad darf den Fokus nur von der exakt
+profilierten, nicht editierbaren Hilfe mit geprüfter Qt-Provider-Version auf
+den gebundenen Weiter-Button setzen. Dabei wird der Button nicht ausgelöst.
+Fremde oder veränderte Dokumente erhalten diese Berechtigung nicht. Eine
+fehlgeschlagene Help-Prüfung beendet den Versuch vor jeder Fokusaktion; sie
+wird nicht als allgemeine native Fokusquelle weitergereicht.
 
 Nach einem kompatiblen nativen Build, ohne vorhandene SSE-Instanz und in einer
 unbenutzten entsperrten Windows-Sitzung:

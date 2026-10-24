@@ -72,17 +72,33 @@ try{
  const wrong=await call('tax_knowledge_search',{fenster:owner.hwnd,begriff:'Arbeitszimmer'},false);assert.equal(wrong.kind,'not-found');
  const positive=await call('tax_knowledge_search',{fenster:helper.hwnd,begriff:'Reverse-Charge',mindestLaenge:20,maxAbschnitte:6});
  assert.equal(positive.trefferAnzahl,1);assert(positive.abschnitte.length>0);assert.equal(positive.pid,helper.pid);
+ assert.equal(positive.fenster,helper.hwnd);
+ const repeated=await call('tax_knowledge_search',{fenster:helper.hwnd,begriff:'Reverse-Charge',mindestLaenge:20,maxAbschnitte:6});
+ assert.equal(repeated.pid,helper.pid);assert.equal(repeated.fenster,helper.hwnd);
+ assert.equal(repeated.trefferAnzahl,positive.trefferAnzahl);assert.deepEqual(repeated.abschnitte,positive.abschnitte);assert.deepEqual(repeated.verweise,positive.verweise);
 
  mcp=new Client({name:'owned-knowledge-acceptance',version:'1.0.0'});
  mcpTransport=new StdioClientTransport({command:process.execPath,args:[join(repo,'dist/index.js')],env:{...process.env}});
  await mcp.connect(mcpTransport);
- const started=performance.now(),args={fenster:helper.hwnd,begriff:'Arbeitszimmer',mindestLaenge:20,maxAbschnitte:6};
- const response=await mcp.callTool({name:'sse_tax_knowledge_search',arguments:args},undefined,{timeout:120000,maxTotalTimeout:120000});
- const result=JSON.parse(response.content.filter(p=>p.type==='text').map(p=>p.text).join('\n'));
- report.calls.push({transport:'mcp',operation:'tax_knowledge_search',args,result,elapsedMs:performance.now()-started});save();
- assert.notEqual(response.isError,true,JSON.stringify(result));assert.equal(result.ok,true);assert(result.trefferAnzahl>0);assert(result.abschnitte.length>0);assert.equal(result.pid,helper.pid);assert.equal(result.fenster,helper.hwnd);
+ async function searchMcp(args){
+  const started=performance.now();
+  const response=await mcp.callTool({name:'sse_tax_knowledge_search',arguments:args},undefined,{timeout:120000,maxTotalTimeout:120000});
+  const result=response.structuredContent;
+  report.calls.push({transport:'mcp',operation:'tax_knowledge_search',args,result,elapsedMs:performance.now()-started});save();
+  assert.notEqual(response.isError,true,JSON.stringify(result));assert(result&&typeof result==='object','MCP must return the complete structured result.');
+  assert.equal(result.ok,true);assert.equal(result.pid,helper.pid);assert.equal(result.fenster,helper.hwnd);return result;
+ }
+ const args={fenster:helper.hwnd,begriff:'Arbeitszimmer',mindestLaenge:20,maxAbschnitte:6};
+ const result=await searchMcp(args);assert(result.trefferAnzahl>0);assert(result.abschnitte.length>0);
+ const repeatedMcp=await searchMcp(args);
+ assert.equal(repeatedMcp.trefferAnzahl,result.trefferAnzahl);assert.deepEqual(repeatedMcp.abschnitte,result.abschnitte);assert.deepEqual(repeatedMcp.verweise,result.verweise);
  const empty=await call('tax_knowledge_search',{fenster:helper.hwnd,begriff:'ssepruefungohnetrefferxyz'});
- assert.equal(empty.trefferAnzahl,0);assert.deepEqual(empty.abschnitte,[]);
+ assert.equal(empty.trefferAnzahl,0);assert.deepEqual(empty.abschnitte,[]);assert.equal(empty.pid,helper.pid);assert.equal(empty.fenster,helper.hwnd);
+ const repeatedEmpty=await searchMcp({fenster:helper.hwnd,begriff:'ssepruefungohnetrefferxyz'});
+ assert.equal(repeatedEmpty.trefferAnzahl,0);assert.deepEqual(repeatedEmpty.abschnitte,[]);
+ const afterEmpty=await call('tax_knowledge_search',{fenster:helper.hwnd,begriff:'Reverse-Charge',mindestLaenge:20,maxAbschnitte:6});
+ assert.equal(afterEmpty.pid,helper.pid);assert.equal(afterEmpty.fenster,helper.hwnd);
+ assert.equal(afterEmpty.trefferAnzahl,positive.trefferAnzahl);assert.deepEqual(afterEmpty.abschnitte,positive.abschnitte);assert.deepEqual(afterEmpty.verweise,positive.verweise);
  report.outcome='passed';
 }catch(error){primary=error;report.outcome='failed';report.failure=String(error.stack??error);}
 finally{
@@ -101,4 +117,4 @@ finally{
  save();
 }
 if(primary)throw primary;
-process.stdout.write('Own job-bound knowledge helper: API/MCP positive search, explicit no hits, wrong window, unchanged cases and normal zero-process cleanup passed.\n');
+process.stdout.write('Own job-bound knowledge helper: API/MCP positive and repeated search, repeated no hits, result transitions, wrong window, unchanged cases and normal zero-process cleanup passed.\n');
