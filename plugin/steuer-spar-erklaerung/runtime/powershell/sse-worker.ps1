@@ -3441,7 +3441,7 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
     [int64]$Window.hwnd -eq [int64]$MainHwnd -or
     (($Window.w -ge 900 -or $Window.minimiert) -and $Window.title -match 'SteuerSparErklärung')
   ) { $kind = 'main' }
-  elseif ($Window.cls -match 'Shadow|PopupDropShadow') { $kind = 'shadow' }
+  elseif ($Window.cls -match 'Shadow|PopupDropShadow' -or (Test-SSESystemOverlayDescriptor $Window)) { $kind = 'shadow' }
   elseif ($Window.cls -eq '#32770') { $kind = 'native-dialog' }
   elseif ($Window.title -eq 'Steuer-Spar-Tipps') { $kind = 'tips' }
   elseif (Resolve-SSEClosableNonmodalWindowPolicy $Window) { $kind = 'known-nonmodal' }
@@ -26285,7 +26285,9 @@ if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
   $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
   $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
   $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
-  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
+  # Die Marke waehlt den Ziel-Desktop, beweist aber keine Isolation.
+  # Die Tabellenvorbereitung prueft dafuer die tatsaechlichen Worker-,
+  # Fenster- und Eingabedesktops. SetThreadDesktop kann allein nicht als
   # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
   # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
   # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon

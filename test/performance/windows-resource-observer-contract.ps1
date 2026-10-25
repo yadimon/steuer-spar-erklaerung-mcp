@@ -302,6 +302,7 @@ try {
   Assert-True ($first.threadCount -is [int] -and $first.threadCount -ge 1) 'Initial thread inventory is missing.'
   $pinned = $script:BoundProcesses[[string]$child.Id]
   $retainedHandle = $pinned.Handle
+  $retainedSafeHandle = $pinned.SafeHandle
   $script:ForbidLookups = $true
   $child.StandardInput.WriteLine('grow')
   $grown = $child.StandardOutput.ReadLineAsync()
@@ -424,6 +425,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   Assert-True ($script:BoundProcesses.ContainsKey($nestedKey)) 'Initial discovery did not pin the child.'
   $discoveredProcess = $script:BoundProcesses[$nestedKey]
   $discoveryHandle = $discoveredProcess.Handle
+  $discoverySafeHandle = $discoveredProcess.SafeHandle
   Assert-True ([object]::ReferenceEquals($discoveredProcess,$script:DiscoveredBindings[$nestedKey])) 'Discovery proof lost its exact process object.'
   $parent.StandardInput.WriteLine('exit')
   Assert-True ($parent.WaitForExit(5000)) 'Owned parent did not exit.'
@@ -438,13 +440,17 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   $script:DescendantOwned = $true
   $flags = [uint32]0
   Assert-True ([SseObserverContractHandles]::GetHandleInformation($retainedHandle, [ref]$flags)) 'Handle was released before observation ended.'
+  Assert-True (-not $retainedSafeHandle.IsClosed -and $retainedSafeHandle.DangerousGetHandle() -eq $retainedHandle) 'Retained SafeHandle was closed or changed before cleanup.'
+  Assert-True (-not $discoverySafeHandle.IsClosed -and $discoverySafeHandle.DangerousGetHandle() -eq $discoveryHandle) 'Discovery SafeHandle was closed or changed before cleanup.'
   Close-ObservedProcesses
   Assert-True ($script:BoundProcesses.Count -eq 0) 'Observer retained process bindings after cleanup.'
-  Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($retainedHandle, [ref]$flags)) 'Cleanup did not close the retained handle.'
+  # Windows may reuse the numeric handle immediately. Its later validity says
+  # nothing about this generation; inspect the exact retained ownership object.
+  Assert-True $retainedSafeHandle.IsClosed 'Cleanup did not close the retained SafeHandle.'
   Assert-True ($script:DiscoveredBindings.Count -eq 0) 'Cleanup retained discovery ownership proofs.'
-  Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($discoveryHandle,[ref]$flags)) 'Cleanup retained the discovery handle.'
+  Assert-True $discoverySafeHandle.IsClosed 'Cleanup retained the discovered SafeHandle.'
   Close-ObservedProcesses
-  '{"passed":true,"checks":54}'
+  '{"passed":true,"checks":56}'
 }
 finally {
   try {

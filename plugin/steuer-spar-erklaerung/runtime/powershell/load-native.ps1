@@ -72,7 +72,7 @@ function Test-SSENativeSurface {
   }
   $required = @{
     DSK=@('CreateDesktop','OpenDesktop','EnumDesktopWindows','ListDesktopWindows','SetLastError',
-      'CloseDesktop','SetThreadDesktop','GetThreadDesktop','GetCurrentThreadId','CloseHandle','TerminateProcess',
+      'CloseDesktop','SetThreadDesktop','GetThreadDesktop','GetCurrentThreadId','IsIsolatedWindowDesktop','CloseHandle','TerminateProcess',
       'WaitForSingleObject','GetExitCodeProcess','CreateJobObject','SetInformationJobObject',
       'AssignProcessToJobObject','ResumeThread','CreateProcess')
     SW=@('PrintWindow','GetWindowRect','GetDlgItem','EnumWindows','EnumChildWindows','GetDlgCtrlID',

@@ -37,6 +37,15 @@ public static class SW {
   return Timeout?IntPtr.Zero:new IntPtr(1);
  }
 }
+public static class DSK {
+ public static bool Isolated=true;
+ public static int IsolationReads;
+ public static bool IsIsolatedWindowDesktop(IntPtr hwnd,string name) {
+  IsolationReads++;
+  if(hwnd.ToInt64()!=101 || name!="OwnSyntheticHidden")throw new InvalidOperationException("Wrong isolated preparation target.");
+  return Isolated;
+ }
+}
 namespace System.Windows.Automation {
  public static class ControlType {public static object Window=new object(),Edit=new object();}
  public static class WindowPattern {public static object Pattern=new object();}
@@ -77,7 +86,7 @@ function Get-SSETablePreparationProcessEpoch {
   if ($script:mode -ceq 'process-reused' -and $script:epochReads -gt 1) {return 124}
   $script:epochValue
 }
-function Get-SSELastInputTick { $script:tick }
+function Get-SSELastInputTick { $script:tickReads++;$script:tick }
 function Test-SSELastInputUnchanged($Expected) { $null -ne $script:tick -and $Expected -eq $script:tick }
 function Walk-BoundTree {
     param([IntPtr]$Hwnd,[switch]$WithValues,[switch]$Strict)
@@ -134,6 +143,8 @@ function Set-FinalTipModalReadAction([scriptblock]$Action) {
   } -Force
 }
 function Reset-Scenario {
+  $script:DESKTOP_NAME=$null;$script:tickReads=0
+  [DSK]::Isolated=$true;[DSK]::IsolationReads=0
   $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
   $script:mode='';$script:tick=10;$script:walks=0;$script:windowReads=0;$script:dialogReads=0;$script:epochReads=0;$script:beforeGuard=$null;$script:guardNodeMutation=$null
   $script:geometrySettled=$false;$script:onWalk=$null;$script:stateMutation=$null;$script:epochValue=123
@@ -625,3 +636,90 @@ foreach ($case in @(
   Assert-True ($script:observerWalks -eq 3) 'Final observer failure caused provider work or replay.'
 }
 Write-Output 'Table preparation observer: exact passive result peer, strict complete state, unchanged peers and one Tips close verified.'
+
+function Reset-HiddenScenario {
+  Reset-Scenario
+  $script:DESKTOP_NAME='OwnSyntheticHidden'
+  $script:tick=$null
+  [SW]::Foreground=[IntPtr]::Zero
+}
+function Assert-NoVisibleInputEpoch {
+  Assert-True ($script:tickReads -eq 0 -and [SW]::ForegroundReads -eq 0) `
+    'Hidden preparation queried a visible input or foreground epoch.'
+}
+Reset-HiddenScenario
+[SW]::OnSend={
+  Assert-True ([DSK]::IsolationReads -eq 3 -and [SW]::OwnerReads -eq 2 -and
+    [SW]::PidReads -eq 3 -and [SW]::ExistsReads -eq 3) 'Hidden dispatch dropped a final isolation, owner, PID or live-window proof.'
+}
+$null=Assert-Preparation 'isolated help close without a visible input epoch' $true 1
+Assert-NoVisibleInputEpoch
+Assert-True ($script:walks -eq 3 -and $script:epochReads -eq 5 -and [DSK]::IsolationReads -eq 5 -and
+  $script:windowReads -eq 8 -and $script:dialogReads -eq 2 -and $AE::MainReads -eq 3 -and $AE::TipReads -eq 2) `
+  'Isolated preparation lost its complete before, dispatch or post-close proofs.'
+
+Reset-HiddenScenario
+[DSK]::Isolated=$false;[SW]::Foreground=[IntPtr]999
+$null=Assert-Preparation 'hidden label with a visible or mismatched desktop' $false 0
+Assert-NoVisibleInputEpoch
+
+foreach ($case in @(
+  @{mode='process-reused';calls=0;unknown=$false},
+  @{mode='value-before-guard';calls=0;unknown=$false},
+  @{mode='owner-during-guard';calls=0;unknown=$false},
+  @{mode='peer-during-guard';calls=0;unknown=$false},
+  @{mode='value-after-close';calls=1;unknown=$true},
+  @{mode='root-during-readback';calls=1;unknown=$true}
+)) {
+  Reset-HiddenScenario
+  $script:mode=$case.mode
+  $null=Assert-Preparation ('isolated '+$case.mode) $false $case.calls $case.unknown
+  Assert-NoVisibleInputEpoch
+}
+foreach ($changedDesktop in @('OtherOwnHidden','')) {
+  Reset-HiddenScenario
+  $script:nextDesktop=$changedDesktop
+  $script:beforeGuard={$script:DESKTOP_NAME=$script:nextDesktop}
+  $result=Assert-Preparation 'isolated desktop authority changed before dispatch' $false 0
+  Assert-True ($result.error -match '\[preparation:guard-environment-before\]$') 'Desktop change lost its exact pre-dispatch failure phase.'
+  Assert-NoVisibleInputEpoch
+}
+foreach ($changedDesktop in @('OtherOwnHidden','')) {
+  Reset-HiddenScenario
+  $script:nextDesktop=$changedDesktop
+  [SW]::OnSend={$script:DESKTOP_NAME=$script:nextDesktop}
+  $result=Assert-Preparation 'isolated desktop authority changed after dispatch' $false 1 $true
+  Assert-True ($result.error -match '\[preparation:after-close-environment\]$') 'Late desktop change lost its unknown close phase.'
+  Assert-NoVisibleInputEpoch
+}
+Reset-HiddenScenario
+[scriptblock]$script:beforeGuard={[DSK]::Isolated=$false}
+$result=Assert-Preparation 'actual isolation lost before dispatch' $false 0
+Assert-True ($result.error -match '\[preparation:guard-environment-before\]$') 'Early isolation loss lost its exact guard phase.'
+Assert-NoVisibleInputEpoch
+Reset-HiddenScenario
+$script:onWalk={param($tree,$index) if ($index -eq 2) {[DSK]::Isolated=$false}}
+$result=Assert-Preparation 'actual isolation lost during guard reads' $false 0
+Assert-True ($result.error -match '\[preparation:guard-environment-after\]$') 'Isolation loss during provider reads escaped the final dispatch guard.'
+Assert-NoVisibleInputEpoch
+Reset-HiddenScenario
+[SW]::OnSend={[DSK]::Isolated=$false}
+$result=Assert-Preparation 'actual isolation lost after dispatch' $false 1 $true
+Assert-True ($result.error -match '\[preparation:after-close-environment\]$') 'Late isolation loss lost its unknown close phase.'
+Reset-HiddenScenario
+Enable-ResultObserver
+$null=Assert-Preparation 'isolated passive result observer' $true 1
+Assert-True ($script:observerWalks -eq 3 -and $AE::ObserverReads -eq 3) 'Isolated observer lost its complete state or root proofs.'
+Assert-NoVisibleInputEpoch
+Reset-HiddenScenario
+Enable-ResultObserver
+[SW]::OnSend={[SW]::ObserverOwner=[IntPtr]999}
+$null=Assert-Preparation 'isolated result observer owner changed after close' $false 1 $true
+Assert-NoVisibleInputEpoch
+Reset-Scenario
+$script:tick=$null
+$null=Assert-Preparation 'visible missing input epoch stays refused' $false 0
+Reset-Scenario
+[SW]::Foreground=[IntPtr]::Zero
+$null=Assert-Preparation 'visible missing foreground stays refused' $false 0
+Write-Output 'Table preparation isolation: no visible input dependency; owner, state, process and desktop authority remain mandatory.'

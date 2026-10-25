@@ -358,6 +358,19 @@ Hauptfenster, Seite, Feldwerte, Auswahl und Dirty-State unverändert sein;
 ein erwarteter Vordergrundübergang vom geschlossenen Hilfsfenster zum
 Hauptfenster wird dabei ausdrücklich gebunden.
 
+Auf dem ausdrücklich gebundenen versteckten Desktop benötigen eigenständige
+Tabellenänderungen dafür keinen sichtbaren Vordergrund und keine Eingabeepoche
+des sichtbaren Desktops. Stattdessen müssen die tatsächlichen Desktops des
+Workers und des Zielfensters mit der gebundenen Desktopkennung übereinstimmen
+und vom Eingabedesktop verschieden sein. Dieser Nachweis und die
+Desktopkennung werden vor und nach dem Close erneut geprüft. Nicht lesbare
+Desktopdaten führen zum Abbruch. Die vollständigen Prozess-, Fenster-,
+Eigentümer- und Zustandsprüfungen gelten weiter. Auf dem sichtbaren Desktop
+bleibt ein nicht lesbarer Eingabe- oder Vordergrundzustand ein Abbruchgrund.
+Bereits als Systemoverlay bekannte kleine Fenster werden auch im
+Dialoginventar als Dekoration behandelt; unbekannte Fenster und nicht
+bestätigte Dialogaktionen erhalten dadurch keine Freigabe.
+
 Weicht vor dem Close ausschließlich die Geometrie der Seitenknoten ab, darf
 genau eine zusätzliche vollständige passive Lesung den neuen Zustand
 bestätigen. Dafür müssen sämtliche anderen projizierten Felder sowie

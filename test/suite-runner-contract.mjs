@@ -29,6 +29,7 @@ const expectedNames = [
   "table-existing-cursor",
   "table-read-keyboard-boundary",
   "table-preparation", "window-close-helper", "get-value-namespace",
+  "desktop-isolation",
   "table-preparation-boundary",
   "table-number-click",
   "table-read-public-input",

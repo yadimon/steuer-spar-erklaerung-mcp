@@ -139,6 +139,7 @@ public static class SseDialogPointFixture {
  public static int Calls,Mode; public static long LastWindow;
  public static SseDialogPointFixtureNode DescribeDocumentHit(long hwnd,int x,int y) {
   Calls++;LastWindow=hwnd;
+  if(Mode==5)return null;
   if(Mode==3)System.Threading.Thread.Sleep(2100);
   if(Mode==1 || (Mode==0 && Calls==2))throw new InvalidOperationException("Synthetic point read failure.");
   if(Mode==0 && Calls>2)return null;
@@ -153,7 +154,37 @@ function ConvertTo-SSEDialogButtonName($Name) { $Name }
 function Get-SSEDialogFingerprint { 'SYNTHETIC-FINGERPRINT' }
 function Test-SSERecoveryPromptDescriptor { $false }
 function Test-SSEUpdatePromptDescriptor { $false }
+Invoke-Expression (Get-FunctionText $workerAst 'Test-SSESystemOverlayDescriptor')
 Invoke-Expression ($dialogText.Replace('[SSEAccessible]::','[SseDialogPointFixture]::'))
+& {
+  $script:overlayTreeReads=0
+  function Walk-Tree {
+    $script:overlayTreeReads++
+    [pscustomobject]@{
+      nodes=@([pscustomobject]@{name='SYN';type='Pane';on=$true;rid='synthetic-language-label'})
+      stats=[pscustomobject]@{truncated=$false;err=0;cyc=0;depthLimited=$false}
+    }
+  }
+  foreach ($class in @('UAC Input Indicator','UAC_InputIndicatorOverlayWnd')) {
+    [SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=5
+    $overlay=[pscustomobject]@{hwnd=77;pid=7;cls=$class;title='';titleFingerprint='synthetic';x=0;y=0;w=40;h=40;minimiert=$false;hung=$false}
+    $descriptor=Get-DialogDescriptor $overlay ([IntPtr]111)
+    Assert-True ($descriptor.kind -ceq 'shadow' -and $script:overlayTreeReads -eq 0 -and [SseDialogPointFixture]::Calls -eq 0 -and
+      $descriptor.buttons.Count -eq 0 -and $null -eq $descriptor.fingerprint) `
+      'A known system overlay became a blocking dialog or triggered an unnecessary provider read.'
+  }
+  foreach ($case in @(
+    @{cls='UnknownSyntheticWindow';w=40;h=40},
+    @{cls='UAC Input Indicator';w=81;h=40},
+    @{cls='UAC Input Indicator';w=40;h=81}
+  )) {
+    [SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=5
+    $window=[pscustomobject]@{hwnd=77;pid=7;cls=$case.cls;title='';titleFingerprint='synthetic';x=0;y=0;w=$case.w;h=$case.h;minimiert=$false;hung=$false}
+    $descriptor=Get-DialogDescriptor $window ([IntPtr]111)
+    Assert-True ($descriptor.kind -ceq 'qt-dialog' -and $descriptor.buttons.Count -eq 0 -and $descriptor.unsupportedButtons -contains 'SYN') `
+      'Unknown or oversized windows lost their conservative unsupported-action guard.'
+  }
+}
 $window=[pscustomobject]@{hwnd=77;pid=7;cls='QtSynthetic';title='Synthetic question';titleFingerprint='synthetic';x=0;y=0;w=180;h=120;minimiert=$false;hung=$false}
 [SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=0
 $partial=Get-DialogDescriptor $window ([IntPtr]111)
