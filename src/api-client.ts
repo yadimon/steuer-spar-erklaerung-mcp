@@ -521,14 +521,14 @@ export async function callApiOperationEnvelope(
     if (settings.signal?.aborted) {
       throw new ApiClientError(
         "API-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",
-        "aborted",
+        "aborted", undefined, operationResponseReceived,
       );
     }
     if (error instanceof Error && error.name === "AbortError") {
       throw new ApiClientError(
         `SSE-API antwortete nicht innerhalb von ${clientTimeoutMs} ms. Der Zustand ist unbekannt; ` +
           "vor jeder Wiederholung zuerst gezielt lesen.",
-        "timeout",
+        "timeout", undefined, operationResponseReceived,
       );
     }
     const rejectedResponse = operationResponseRejection(error);
@@ -538,17 +538,20 @@ export async function callApiOperationEnvelope(
       throw new ApiClientError(
         `SSE-API antwortete nicht innerhalb des HTTP-Transportlimits (${transportCode}). ` +
           "Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
-        "timeout",
+        "timeout", undefined, operationResponseReceived,
       );
     }
     if (transportCode && isUnknownOperationTransportCode(transportCode)) {
       throw new ApiClientError(
         networkErrorMessage("SSE-API-Verbindung brach waehrend des Operationsaufrufs ab", error, transportCode) +
           " Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
-        "transport-unknown",
+        "transport-unknown", undefined, operationResponseReceived,
       );
     }
-    throw new ApiClientError(networkErrorMessage("SSE-API nicht erreichbar", error, transportCode), "network");
+    throw new ApiClientError(
+      networkErrorMessage(operationResponseReceived ? "SSE-API-Antwort brach ab" : "SSE-API nicht erreichbar", error, transportCode),
+      operationResponseReceived ? "transport-unknown" : "network", undefined, operationResponseReceived,
+    );
   } finally {
     clearTimeout(timer);
   }

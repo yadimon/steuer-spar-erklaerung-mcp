@@ -752,6 +752,16 @@ Schreibaktion muss der betroffene Zustand vollständig gelesen und abgeglichen
 werden; eine ungültige Antwort löst keine automatische Wiederholung aus.
 Protokollfehler der vorgeschalteten Healthz-Prüfung verhindern dagegen bereits
 den Operations-POST und werden nicht als möglicherweise ausgeführter Auftrag markiert.
+Auch ein Timeout oder Abbruch innerhalb dieser lesenden Identitätsprüfung
+startet keinen Operations-POST. Solange derselbe MCP-Aufruf noch keine Antwort
+auf eine Schreiboperation erhalten hat, meldet MCP dafür `not-dispatched` ohne
+Ungewissheitsflags. Nach einer Schreibantwort oder einem ungewiss beendeten
+Schreibauftrag verlangen auch spätere Fehler eines Callbacks einen
+Zustandsabgleich; MCP setzt dafür die Ungewissheitsflags.
+Das betrifft den gesamten Werkzeugaufruf: Bereits ausgeführte Teilschritte
+werden durch eine später gescheiterte Vorprüfung nicht rückgängig.
+Ein Abbruch des gesamten MCP-Zeitbudgets bleibt vorsichtig ungewiss, weil
+bereits gestartete Aufträge noch bereinigt werden können.
 
 Dasselbe gilt für HTTP-5xx-Antworten auf einen Operations-POST: Der Server
 kann eine Änderung bereits ausgeführt haben und erst beim Erzeugen oder
@@ -762,6 +772,13 @@ nicht. Gültige HTTP-4xx-Ablehnungen bleiben als Ablehnung erkennbar; eine
 fehlgeschlagene vorgeschaltete Healthz-Prüfung startet keinen Operations-POST.
 `ApiClientError.operationResponseReceived` bezeichnet dabei den Empfang einer
 Operationsantwort unabhängig von ihrer Fehlerart, nicht eine bestätigte Änderung.
+Auch ein Fehler beim Lesen des Antwortbodys oder bei der anschließenden
+MCP-Aufbereitung darf einen bereits ausgeführten Auftrag nicht als sichere
+Ablehnung erscheinen lassen. Solche Fehler verlangen denselben Zustandsabgleich;
+die Operation wird nicht automatisch erneut ausgeführt. Die aktuell
+katalogisierten zusammengesetzten MCP-Werkzeuge bestehen ausschließlich aus
+Leseoperationen. Eine künftige schreibende Komposition braucht zusätzlich eine
+ausdrückliche Bilanz ihrer bereits ausgeführten Teilschritte.
 
 Lehnt der lokale HTTP-Transport die Operationsantwort schon vor der JSON-Prüfung
 ab, etwa wegen eines Redirects oder eines ungültigen HTTP-Status, gelten dieselben

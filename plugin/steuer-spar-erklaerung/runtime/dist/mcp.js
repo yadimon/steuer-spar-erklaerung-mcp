@@ -24347,13 +24347,17 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
     if (settings.signal?.aborted) {
       throw new ApiClientError(
         "API-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",
-        "aborted"
+        "aborted",
+        void 0,
+        operationResponseReceived
       );
     }
     if (error62 instanceof Error && error62.name === "AbortError") {
       throw new ApiClientError(
         `SSE-API antwortete nicht innerhalb von ${clientTimeoutMs} ms. Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.`,
-        "timeout"
+        "timeout",
+        void 0,
+        operationResponseReceived
       );
     }
     const rejectedResponse = operationResponseRejection(error62);
@@ -24362,16 +24366,25 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
     if (transportCode && HTTP_TRANSPORT_TIMEOUT_CODES.has(transportCode)) {
       throw new ApiClientError(
         `SSE-API antwortete nicht innerhalb des HTTP-Transportlimits (${transportCode}). Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.`,
-        "timeout"
+        "timeout",
+        void 0,
+        operationResponseReceived
       );
     }
     if (transportCode && isUnknownOperationTransportCode(transportCode)) {
       throw new ApiClientError(
         networkErrorMessage("SSE-API-Verbindung brach waehrend des Operationsaufrufs ab", error62, transportCode) + " Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
-        "transport-unknown"
+        "transport-unknown",
+        void 0,
+        operationResponseReceived
       );
     }
-    throw new ApiClientError(networkErrorMessage("SSE-API nicht erreichbar", error62, transportCode), "network");
+    throw new ApiClientError(
+      networkErrorMessage(operationResponseReceived ? "SSE-API-Antwort brach ab" : "SSE-API nicht erreichbar", error62, transportCode),
+      operationResponseReceived ? "transport-unknown" : "network",
+      void 0,
+      operationResponseReceived
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -43202,22 +43215,56 @@ var init_mcp_operation_budget = __esm({
 
 // src/mcp-registry.ts
 import { AsyncLocalStorage } from "node:async_hooks";
+function operationOutcomeUnknown(error62) {
+  if (!(error62 instanceof ApiClientError)) return true;
+  const status = error62.httpStatus ?? 0;
+  const knownRejection = error62.kind !== "protocol" && Number.isInteger(status) && status >= 400 && status < 500;
+  return ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.operationResponseReceived && !knownRejection;
+}
 function apiResultOutputSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation];
 }
 function createMcpRegistry(server) {
   const requestBudget = new AsyncLocalStorage();
+  const writeAttempts = /* @__PURE__ */ new WeakSet();
+  function responseProcessingError(error62, received) {
+    return new ApiClientError(
+      `MCP-Aufbereitung fehlgeschlagen nach API-Auftrag: ${String(error62)}`,
+      "protocol",
+      void 0,
+      received
+    );
+  }
   async function callApiOperation2(operation, args = {}, timeoutMs) {
     const budget = requestBudget.getStore();
     budget?.operationTimeout(timeoutMs);
-    const health = await assertApiSingletonIdentity();
+    const health = await assertApiSingletonIdentity().catch((error62) => {
+      if (error62 instanceof ApiClientError && ["timeout", "aborted", "transport-unknown"].includes(error62.kind)) {
+        throw new ApiClientError(
+          `API-Vorpruefung fehlgeschlagen; die naechste Operation wurde nicht gestartet: ${error62.message}`,
+          "not-dispatched",
+          error62.httpStatus
+        );
+      }
+      throw error62;
+    });
     const boundedTimeout = budget?.operationTimeout(timeoutMs) ?? timeoutMs;
-    return callApiOperation(operation, args, boundedTimeout, {
+    const isWrite = !operationAnnotations(operation).readOnlyHint;
+    const result = await callApiOperation(operation, args, boundedTimeout, {
       expectedInstanceId: health.instanceId,
       ...budget ? { signal: budget.signal } : {}
+    }).catch((error62) => {
+      if (budget && isWrite && operationOutcomeUnknown(error62)) writeAttempts.add(budget);
+      throw error62;
     });
+    if (budget && isWrite) writeAttempts.add(budget);
+    return result;
   }
-  function caughtErrorResult(operation, error62) {
+  function caughtErrorResult(operation, error62, budget = requestBudget.getStore()) {
+    const writeMayHaveRun = Boolean(budget && writeAttempts.has(budget));
+    if (writeMayHaveRun && !(error62 instanceof ApiClientError) && !(error62 instanceof McpBudgetError)) {
+      error62 = responseProcessingError(error62, false);
+    }
     if (error62 instanceof McpBudgetError) {
       return apiErrorResult(operation, {
         ok: false,
@@ -43229,7 +43276,7 @@ function createMcpRegistry(server) {
       });
     }
     if (error62 instanceof ApiClientError) {
-      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.operationResponseReceived && (error62.kind === "protocol" || (error62.httpStatus ?? 0) >= 500);
+      const unknown2 = writeMayHaveRun || operationOutcomeUnknown(error62);
       return apiErrorResult(operation, {
         ok: false,
         kind: error62.kind,
@@ -43240,13 +43287,18 @@ function createMcpRegistry(server) {
     return errorResult(String(error62));
   }
   async function run(operation, args = {}, shape, timeoutMs) {
+    let resultReceived = false;
     try {
       const result = await callApiOperation2(operation, args, timeoutMs);
+      resultReceived = true;
       if (result.ok === false) return apiErrorResult(operation, result);
       const shaped = shape ? shape(result) : result;
       const payload = shape && result.focusTelemetry && shaped && typeof shaped === "object" && !Array.isArray(shaped) ? { ...shaped, focusTelemetry: result.focusTelemetry } : shaped;
       return apiSuccessResult(payload, result);
     } catch (error62) {
+      if (resultReceived) {
+        return caughtErrorResult(operation, responseProcessingError(error62, true));
+      }
       return caughtErrorResult(operation, error62);
     }
   }
@@ -43290,7 +43342,7 @@ function createMcpRegistry(server) {
             }
           }));
         } catch (error62) {
-          return caughtErrorResult(firstOperation, error62);
+          return caughtErrorResult(firstOperation, error62, budget);
         }
       }
     );

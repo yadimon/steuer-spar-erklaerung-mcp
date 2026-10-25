@@ -45,6 +45,10 @@ const assertPropertyDescriptions = (schema, path) => {
   }
 };
 const expectedToolCount = Object.keys(SSE_MCP_TOOL_SCHEMAS).length;
+for (const [name, operations] of Object.entries(SSE_MCP_COMPOSED_TOOL_OPERATIONS)) {
+  assert(operations.every(operation => operationAnnotations(operation).readOnlyHint),
+    `${name}: mutating compositions need explicit partial-outcome accounting before registration.`);
+}
 const operationsForTool = (name) => name in SSE_MCP_TOOL_OPERATIONS
   ? [SSE_MCP_TOOL_OPERATIONS[name]]
   : SSE_MCP_COMPOSED_TOOL_OPERATIONS[name];
@@ -69,11 +73,15 @@ let forcedHttpStatus;
 let forcedHealthStatus;
 let forcedApiError;
 let forcedHealthError;
+let stallHealth = false;
+let resetHealth = false;
 let forcedRawResponse;
 let healthProbeCalls = 0;
 const api = createServer(async (request, response) => {
   if (request.url === "/healthz") {
     healthProbeCalls += 1;
+    if (stallHealth) return;
+    if (resetHealth) { request.socket.destroy(); return; }
     if (forcedHealthError) {
       response.writeHead(503, { "content-type": "application/json" });
       response.end(JSON.stringify({ apiVersion: "v1", requestId: randomUUID(),
@@ -398,6 +406,30 @@ try {
   assert.equal(calls.length, beforeHealthError, "Health HTTP 503 must not dispatch a write.");
   assert.equal(healthProbeCalls - beforeHealthErrorProbes, 1,
     "A valid server error is an incompatible health response, not the absent/network retry path.");
+
+  const beforeHealthAbort = calls.length;
+  const probesBeforeHealthAbort = healthProbeCalls;
+  stallHealth = true;
+  const healthAbort = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+  stallHealth = false;
+  assert.equal(healthAbort.isError, true);
+  assert.equal(healthAbort.structuredContent.kind, "not-dispatched");
+  assert.equal(healthAbort.structuredContent.outcomeUnknown, undefined);
+  assert.equal(healthAbort.structuredContent.reconciliationRequired, undefined);
+  assert.match(healthAbort.structuredContent.error, /nicht gestartet/u);
+  assert.equal(calls.length, beforeHealthAbort, "An aborted identity probe must not dispatch a write.");
+  assert.equal(healthProbeCalls - probesBeforeHealthAbort, 1);
+
+  const beforeHealthReset = calls.length, probesBeforeHealthReset = healthProbeCalls;
+  resetHealth = true;
+  const healthReset = await client.callTool({ name: "sse_table_update", arguments: updateArgs });
+  resetHealth = false;
+  assert.equal(healthReset.isError, true);
+  assert.equal(healthReset.structuredContent.kind, "network");
+  assert.equal(healthReset.structuredContent.outcomeUnknown, undefined);
+  assert.equal(healthReset.structuredContent.reconciliationRequired, undefined);
+  assert.equal(calls.length, beforeHealthReset, "A reset identity probe must not dispatch a write.");
+  assert.equal(healthProbeCalls - probesBeforeHealthReset, 2, "Only the existing bounded metadata reprobe is allowed.");
 
   for (const status of [400, 409, 500, 503]) {
     const before = calls.length;
