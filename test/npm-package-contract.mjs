@@ -132,6 +132,7 @@ for (const required of [
   "dist/local-http-transport.js",
   "dist/api-discovery.js",
   "dist/api-openapi.js",
+  "dist/position-inventory.js",
   "dist/jsonl-logger.js",
   "dist/operation-catalog.js",
   ...WORKER_RUNTIME_FILES.map((name) => `powershell/${name}`),

@@ -440,6 +440,12 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Schließ-Readback nicht. Ein unlesbarer eigener Folgezustand wird nach
   einer ausgeführten Antwort ausdrücklich gemeldet und nicht als fehlende
   Dialoge ausgegeben.
+- Die Positionsübersicht braucht zusätzlich zum vollständigen Baum positive
+  fachliche Evidenz: Überschrift, Zeilenaktionen, eindeutige Namen und Beträge
+  sowie Leerzustand und Erfassungsbefehl. Ein generischer unvollständiger
+  Eintrag darf weder als Leerbestand erscheinen noch bei einer weiteren
+  Anlage übersehen werden. Qt- und Worker-Projektion prüfen denselben Vertrag;
+  ein differentieller Test führt dafür den tatsächlichen PowerShell-Parser aus.
 - Operationsargumente liegen in einer exklusiven, auf 8 MiB begrenzten
   UTF-8-Tempdatei. Dadurch gelten weder Windows' Kommandozeilenlimit noch
   Base64-Steuerwerte in der Prozessliste; die Node-Brücke entfernt die Datei

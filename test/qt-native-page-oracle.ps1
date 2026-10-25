@@ -24,7 +24,7 @@ foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsfo
     'Get-CaptionMinX','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
     'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails',
     'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor','New-SSEUiStateRootContext',
-    'Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading')) {
+    'Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading','Read-SSEPositionInventory')) {
     $definitions = @($functionDefinitions | Where-Object { $_.Name -eq $name })
     if ($definitions.Count -ne 1) { throw "Ambiguous worker function $name" }
     $definition = $definitions[0].Extent.Text
@@ -41,7 +41,7 @@ foreach ($variable in @('$script:VERSAND', '$script:SSE_CHECKER_TREE_SUFFIX', '$
     . ([scriptblock]::Create($assignments[0].Extent.Text))
 }
 $branches = @{}
-foreach ($operation in @('read_page','subpages','find','page','help','read_table','checker_results','ui_state')) {
+foreach ($operation in @('read_page','subpages','find','page','help','read_table','checker_results','ui_state','positions')) {
     $matches = @($switchClauses | Where-Object { $_.Item1.Extent.Text -eq "'$operation'" })
     if ($matches.Count -ne 1) { throw "Ambiguous worker operation $operation" }
     $body = $matches[0].Item2.Extent.Text.Trim().Substring(1).TrimEnd().TrimEnd('}')
@@ -71,7 +71,7 @@ function Get-LiveElement($Hwnd, $RuntimeId) {
     if ($matches.Count -ne 1) { return $null }
     $node = $matches[0]
     $element = [pscustomobject]@{
-        Offscreen = $false
+        Offscreen = ($node.w -le 0 -or $node.h -le 0)
         Current = [pscustomobject]@{
             ControlType = [System.Windows.Automation.ControlType]::Text
             AutomationId = [string]$node.aid
@@ -125,7 +125,9 @@ function Read-SSETableCellSemantic($Cell) {
     [pscustomobject]@{ type = 'text'; value = [string]$Cell.name; checkboxState = $null; ok = $true; error = $null }
 }
 function Emit($value) { $value }
-function Fail($message, $kind) { throw "$kind`: $message" }
+function Fail($message, $kind) {
+    $failure = [InvalidOperationException]::new($message); $failure.Data['kind'] = $kind; throw $failure
+}
 $results = @()
 foreach ($case in $inputData.cases) {
     $script:observedTree = [pscustomobject]@{ nodes = @($case.nodes); stats = $case.stats }
@@ -141,7 +143,11 @@ foreach ($case in $inputData.cases) {
     $script:observedPid = 99
     $a = $case.args
     $script:fixtureError = $null
-    $results += & $branches[$case.operation]
+    try { $results += & $branches[$case.operation] }
+    catch {
+        if ($case.operation -ne 'positions' -or $_.Exception.Data['kind'] -ne 'position-inventory-incomplete') { throw }
+        $results += [pscustomobject]@{ ok=$false; kind='position-inventory-incomplete'; error=$_.Exception.Message }
+    }
     if ($script:fixtureError) { throw $script:fixtureError }
 }
 $helpers = @()
@@ -151,6 +157,17 @@ foreach ($case in $inputData.helpers) {
         'checkerResults' { Get-CheckerResults $tree }
         'resultDetails' { Read-ResultDetailsFromTree $tree }
         'windowScope' { Split-SSEWindowScope $tree.nodes }
+        'positionInventory' {
+            try {
+                $parameters = @{ Tree=$tree; Heading=[string]$case.heading }
+                if ($case.PSObject.Properties['allowedHeadings']) { $parameters.AllowedHeadings=[string[]]$case.allowedHeadings }
+                $inventory = Read-SSEPositionInventory @parameters
+                [pscustomobject]@{ ok=$true; rows=@($inventory.rows); createCaption=$inventory.createCaption }
+            } catch {
+                if ($_.Exception.Data['kind'] -ne 'position-inventory-incomplete') { throw }
+                [pscustomobject]@{ ok=$false; error=$_.Exception.Message }
+            }
+        }
         default { throw "Unknown helper oracle $($case.helper)" }
     })
 }
