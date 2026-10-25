@@ -195,9 +195,16 @@ function Invoke-SSETablePreparation {
       $observer=[pscustomobject]@{hwnd=[IntPtr][int64]$observers[0].hwnd;title=[string]$observerEntry.title;root=$null;state=$null}
     }
     $tip=$tips[0];$tipHwnd=[IntPtr][int64]$tip.hwnd
-    $input=Get-SSELastInputTick
-    $foreground=[SW]::GetForegroundWindow()
-    if ($null -eq $input -or $foreground -eq [IntPtr]::Zero) { throw 'Preparation input or foreground epoch is unavailable.' }
+    $desktopName=[string]$script:DESKTOP_NAME
+    $guardInput=-not [bool]$desktopName
+    $input=$null;$foreground=[IntPtr]::Zero
+    if ($guardInput) {
+      $input=Get-SSELastInputTick
+      $foreground=[SW]::GetForegroundWindow()
+      if ($null -eq $input -or $foreground -eq [IntPtr]::Zero) { throw 'Preparation input or foreground epoch is unavailable.' }
+    } elseif (-not [DSK]::IsIsolatedWindowDesktop($MainHwnd,$desktopName)) {
+      throw 'Preparation isolated desktop binding is unavailable.'
+    }
     $creation=Get-SSETablePreparationProcessEpoch $ProcessId
     if ($null -eq $creation -or $creation -le 0) { throw 'Preparation process identity is unavailable.' }
     $mainRoot=Get-SSETablePreparationRoot $MainHwnd $ProcessId
@@ -216,6 +223,7 @@ function Invoke-SSETablePreparation {
     # callback's comparison through PowerShell's dynamic scope.
     $preparationBinding=[pscustomobject]@{
       mainHwnd=$MainHwnd;processId=$ProcessId;tipHwnd=$tipHwnd;input=$input;foreground=$foreground
+      guardInput=$guardInput;desktopName=$desktopName
       creation=$creation;mainRoot=$mainRoot;tipRoot=$tipRoot;tipAid=[string]$policy.automationId
       tipTitle=[string]$entry.title;state=$before;observer=$observer
       windows=(Get-SSETablePreparationWindowSignature $windows)
@@ -226,7 +234,11 @@ function Invoke-SSETablePreparation {
       $boundPid=0
       $null=[SW]::GetWindowThreadProcessId($preparationBinding.mainHwnd,[ref]$boundPid)
       [bool]($boundPid -eq $preparationBinding.processId -and [SW]::IsWindow($preparationBinding.mainHwnd) -and
-        [SW]::GetForegroundWindow() -eq $ExpectedForeground -and (Test-SSELastInputUnchanged $preparationBinding.input) -and
+        [string]$script:DESKTOP_NAME -ceq $preparationBinding.desktopName -and
+        (($preparationBinding.guardInput -and [SW]::GetForegroundWindow() -eq $ExpectedForeground -and
+            (Test-SSELastInputUnchanged $preparationBinding.input)) -or
+          (-not $preparationBinding.guardInput -and
+            [DSK]::IsIsolatedWindowDesktop($preparationBinding.mainHwnd,$preparationBinding.desktopName))) -and
         (Get-SSETablePreparationProcessEpoch $preparationBinding.processId) -eq $preparationBinding.creation)
     }
     $guard={

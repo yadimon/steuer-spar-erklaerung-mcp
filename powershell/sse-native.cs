@@ -42,6 +42,32 @@ public class DSK {
   [DllImport("user32.dll", SetLastError=true)] public static extern bool SetThreadDesktop(IntPtr h);
   [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetThreadDesktop(uint tid);
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll", SetLastError=true)]
+  private static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  private static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder text, uint length, out uint needed);
+  [DllImport("user32.dll", EntryPoint="GetWindowThreadProcessId")]
+  private static extern uint WindowThread(IntPtr window, out uint processId);
+  private static string DesktopObjectName(IntPtr desktop) {
+    if (desktop == IntPtr.Zero) return null;
+    var text = new StringBuilder(256); uint needed;
+    return GetUserObjectInformation(desktop, 2, text, (uint)(text.Capacity * 2), out needed) ? text.ToString() : null;
+  }
+  // A marker label alone cannot prove isolation. Query the actual worker and
+  // target desktops, and keep the input desktop handle alive through its read.
+  public static bool IsIsolatedWindowDesktop(IntPtr window, string expectedName) {
+    if (window == IntPtr.Zero || String.IsNullOrEmpty(expectedName)) return false;
+    uint processId; var thread = WindowThread(window, out processId);
+    if (thread == 0 || processId == 0 ||
+        !String.Equals(DesktopObjectName(GetThreadDesktop(GetCurrentThreadId())), expectedName, StringComparison.Ordinal) ||
+        !String.Equals(DesktopObjectName(GetThreadDesktop(thread)), expectedName, StringComparison.Ordinal)) return false;
+    var input = OpenInputDesktop(0, false, 0x0001); // DESKTOP_READOBJECTS
+    if (input == IntPtr.Zero) return false;
+    try {
+      var inputName = DesktopObjectName(input);
+      return !String.IsNullOrEmpty(inputName) && !String.Equals(inputName, expectedName, StringComparison.Ordinal);
+    } finally { CloseDesktop(input); }
+  }
   [DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr h);
   [DllImport("kernel32.dll", SetLastError=true)] public static extern bool TerminateProcess(IntPtr h, uint exitCode);
   [DllImport("kernel32.dll", SetLastError=true)] public static extern uint WaitForSingleObject(IntPtr h, uint milliseconds);

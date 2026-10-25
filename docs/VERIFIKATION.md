@@ -82,6 +82,28 @@ nichtmodalen Root-, Eigentümer-, Inhalts- und Geometrienachweis. Sie darf kein
 Vordergrundfenster sein. Gegenfälle umfassen doppelte oder falsche Peers,
 späte Änderungen sowie ein nach dem Close verändertes Beobachterfenster;
 entfernt werden darf ausschließlich das Tipps-Fenster.
+Zusätzliche Gegenfälle prüfen die Vorbereitung auf einem ausdrücklich
+isolierten Desktop ohne sichtbare Eingabeepoche: Prozesswiederverwendung,
+Eigentümer-, Peer-, Feld- und Rootänderungen sowie eine veränderte
+Desktopbindung bleiben gesperrt. Eine lediglich gesetzte Desktopkennung ohne
+positiven Windows-Nachweis reicht nicht; ein Verlust der Isolation nach dem
+Close bleibt ein ungewisser Ausgang. Der passive Beobachter wird auch auf dem
+isolierten Desktop vollständig geprüft. Fehlende Eingabe- oder Vordergrunddaten auf
+dem sichtbaren Desktop bleiben Fehler. Der Dialogvertrag prüft außerdem,
+dass bereits bekannte kleine Systemoverlays keine blockierenden Dialoge
+werden; unbekannte oder zu große Fenster behalten ihre Schutzgrenzen.
+`desktop-isolation-contract.ps1` prüft die echte Interop-Signatur und lehnt
+fehlende, bereits zerstörte oder zu einem anderen Desktop gehörende eigene
+Testfenster ab. Das Testfenster besitzt keine sichtbare Fläche. Ein positiver
+Isolationsnachweis mit tatsächlichen Tabellenänderungen benötigt zusätzlich
+den opt-in Lauf gegen einen eigenen Fall auf dem versteckten Desktop.
+Der zusätzliche opt-in Gegenfall
+`powershell.exe -NoLogo -NoProfile -File test/desktop-isolation-input-desktop.ps1`
+verlangt einen lesbaren Eingabedesktop und prüft dort mit einem eigenen
+unsichtbaren Testfenster: Gleiche Worker- und Fensterkennung bedeuten noch
+keine Isolation. Er wechselt keinen Desktop und führt keine Eingabe aus.
+Diese Voraussetzung gehört bewusst nicht zum portablen Offline-Gate;
+fehlende Voraussetzungen führen beim ausdrücklichen Aufruf zum Fehler.
 `table-preparation-boundary-contract.ps1` prüft die echten Dispatcherpräfixe:
 Vorbereitung nur vor öffentlichem Cursorlesen, erstem nativen `prebind` und
 eigenständigen Mutationen; keine Vorbereitung für Grid, `noKeys: true`,
