@@ -18,6 +18,7 @@ import {
   SSE_PLUGIN_NAME,
 } from "./version.js";
 import { configurationFingerprint } from "./configuration-fingerprint.js";
+import { probeFailureState, waitForOwnedApi, type ApiProbeResult as ProbeResult, type OwnedApiChild as StartedApi } from "./api-owned-readiness.js";
 import {
   SSE_EXPECTED_API_BASE_URL,
   SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT,
@@ -26,15 +27,7 @@ import {
 const MAX_API_MANIFEST_BYTES = 64 * 1024;
 const MAX_PLUGIN_RUNTIME_LOCK_BYTES = 1024 * 1024;
 const INITIAL_PROBE_TIMEOUT_MS = 1_500;
-const READINESS_PROBE_TIMEOUT_MS = 750;
-const READINESS_TIMEOUT_MS = 15_000;
-const READINESS_POLL_MS = 100;
 const API_BIN_NAME = "steuer-spar-erklaerung-api";
-
-type ProbeResult =
-  | { state: "compatible"; health: ApiHealthDocument }
-  | { state: "absent"; error: ApiClientError }
-  | { state: "incompatible"; error: ApiClientError };
 
 interface ApiEndpoint {
   baseUrl: string;
@@ -140,9 +133,7 @@ async function probe(
     const apiError = error instanceof ApiClientError
       ? error
       : new ApiClientError("SSE-API ist nicht eindeutig identifizierbar.", "protocol");
-    return apiError.kind === "network"
-      ? { state: "absent", error: apiError }
-      : { state: "incompatible", error: apiError };
+    return { state: probeFailureState(apiError, controller.signal.aborted), error: apiError };
   } finally {
     clearTimeout(timer);
   }
@@ -320,12 +311,6 @@ function cleanApiEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
-interface StartedApi {
-  pid: number | undefined;
-  exited: () => boolean;
-  spawnError: () => Error | undefined;
-}
-
 function startApiDependency(endpoint: ApiEndpoint): StartedApi {
   if (process.platform !== "win32" || process.arch !== "x64") {
     throw new Error("Die automatische SSE-API benoetigt Windows x64.");
@@ -392,7 +377,15 @@ async function ensureApiSingletonInner(
     process.env.SSE_API_URL = endpoint.baseUrl;
     return initial.health;
   }
-  if (initial.state === "incompatible") throw initial.error;
+  if (initial.state === "unresponsive") {
+    const error = new ApiClientError(
+      "Der konfigurierte API-Endpunkt hat innerhalb der Vorpruefungsfrist nicht geantwortet; keine weitere API wurde gestartet.",
+      "api-unresponsive",
+    );
+    error.cause = initial.error;
+    throw error;
+  }
+  if (initial.state !== "absent") throw initial.error;
   if (endpoint.explicitUrl) {
     throw new Error(
       "Die ausdruecklich konfigurierte SSE_API_URL ist nicht erreichbar; " +
@@ -405,33 +398,16 @@ async function ensureApiSingletonInner(
   activeEndpoint = endpoint;
   activeProcessId = started.pid;
   activeInstanceId = undefined;
-  const deadline = performance.now() + READINESS_TIMEOUT_MS;
-  while (performance.now() < deadline) {
-    const startError = started.spawnError();
-    if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
-    const current = await probe(
-      endpoint.baseUrl,
-      READINESS_PROBE_TIMEOUT_MS,
-      endpoint.expectedConfigurationFingerprint,
-    );
-    if (current.state === "compatible") {
-      if (restarting && current.health.processId !== started.pid) {
-        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
-      }
-      activeEndpoint = endpoint;
-      activeProcessId = current.health.processId;
-      activeInstanceId = current.health.instanceId;
-      process.env.SSE_API_URL = endpoint.baseUrl;
-      return current.health;
-    }
-    if (current.state === "incompatible") throw current.error;
-    await delay(READINESS_POLL_MS);
-  }
-  throw new Error(
-    started.exited()
-      ? "Die installierte API-Dependency endete, bevor eine kompatible SSE-API bereit war."
-      : "Die installierte API-Dependency erreichte ihre Readiness nicht rechtzeitig.",
-  );
+  const health = await waitForOwnedApi({
+    child: started,
+    requireOwnProcess: restarting,
+    probe: (timeoutMs) => probe(endpoint.baseUrl, timeoutMs, endpoint.expectedConfigurationFingerprint),
+  });
+  activeEndpoint = endpoint;
+  activeProcessId = health.processId;
+  activeInstanceId = health.instanceId;
+  process.env.SSE_API_URL = endpoint.baseUrl;
+  return health;
 }
 
 export function ensureApiSingleton(): Promise<ApiHealthDocument> {

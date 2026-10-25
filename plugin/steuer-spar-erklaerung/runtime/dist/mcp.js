@@ -24731,6 +24731,65 @@ var init_configuration_fingerprint = __esm({
   }
 });
 
+// src/api-owned-readiness.ts
+import { performance as performance2 } from "node:perf_hooks";
+function probeFailureState(error62, ownTimerFired) {
+  if (error62.httpStatus !== void 0) return "incompatible";
+  if (error62.kind === "network") return "absent";
+  if (ownTimerFired && error62.kind === "aborted" || error62.kind === "timeout") return "unresponsive";
+  return "incompatible";
+}
+async function waitForOwnedApi(options) {
+  const { child, requireOwnProcess, probe: probe2 } = options;
+  const now = options.now ?? (() => performance2.now());
+  const sleep = options.sleep ?? ((ms) => new Promise((resolve5) => setTimeout(resolve5, ms)));
+  const deadline = now() + 15e3;
+  let lastError;
+  const checkSpawnError = () => {
+    const error62 = child.spawnError();
+    if (!error62) return;
+    const code = error62.code && ["EACCES", "EAGAIN", "ENOENT", "ENOEXEC", "ENOMEM", "ENOTDIR", "EPERM", "UNKNOWN"].includes(error62.code) ? error62.code : "UNKNOWN";
+    throw new Error(
+      "Die installierte API-Dependency konnte nicht gestartet werden.",
+      { cause: new Error(`API-Prozessstart: ${code}.`) }
+    );
+  };
+  const ended = () => new Error(
+    child.exited() ? "Die installierte API-Dependency endete, bevor eine kompatible SSE-API bereit war." : "Die installierte API-Dependency erreichte ihre Readiness nicht rechtzeitig.",
+    { cause: lastError }
+  );
+  while (now() < deadline) {
+    checkSpawnError();
+    if (requireOwnProcess && child.exited()) throw ended();
+    const remaining = deadline - now();
+    if (remaining <= 0) break;
+    const current = await probe2(Math.max(1, Math.min(750, Math.ceil(remaining))));
+    checkSpawnError();
+    if (current.state === "compatible") {
+      if (requireOwnProcess && current.health.processId !== child.pid) {
+        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
+      }
+      if (requireOwnProcess && child.exited()) throw ended();
+      if (now() >= deadline) break;
+      return current.health;
+    }
+    lastError = current.error;
+    if (current.state === "incompatible") throw current.error;
+    if (requireOwnProcess && child.exited()) throw ended();
+    const wait = Math.min(100, deadline - now());
+    if (wait <= 0) break;
+    await sleep(wait);
+  }
+  checkSpawnError();
+  throw ended();
+}
+var init_api_owned_readiness = __esm({
+  "src/api-owned-readiness.ts"() {
+    "use strict";
+    init_api_client_error();
+  }
+});
+
 // src/mcp-api-supervisor.ts
 var mcp_api_supervisor_exports = {};
 __export(mcp_api_supervisor_exports, {
@@ -24744,7 +24803,7 @@ import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute3, relative, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { performance as performance2 } from "node:perf_hooks";
+import { performance as performance3 } from "node:perf_hooks";
 function loopbackBaseUrl(raw) {
   let parsed;
   try {
@@ -24799,7 +24858,7 @@ async function probe(baseUrl, timeoutMs, expectedConfigurationFingerprint) {
     return { state: "compatible", health };
   } catch (error62) {
     const apiError = error62 instanceof ApiClientError ? error62 : new ApiClientError("SSE-API ist nicht eindeutig identifizierbar.", "protocol");
-    return apiError.kind === "network" ? { state: "absent", error: apiError } : { state: "incompatible", error: apiError };
+    return { state: probeFailureState(apiError, controller.signal.aborted), error: apiError };
   } finally {
     clearTimeout(timer);
   }
@@ -24997,7 +25056,15 @@ async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env
     process.env.SSE_API_URL = endpoint.baseUrl;
     return initial.health;
   }
-  if (initial.state === "incompatible") throw initial.error;
+  if (initial.state === "unresponsive") {
+    const error62 = new ApiClientError(
+      "Der konfigurierte API-Endpunkt hat innerhalb der Vorpruefungsfrist nicht geantwortet; keine weitere API wurde gestartet.",
+      "api-unresponsive"
+    );
+    error62.cause = initial.error;
+    throw error62;
+  }
+  if (initial.state !== "absent") throw initial.error;
   if (endpoint.explicitUrl) {
     throw new Error(
       "Die ausdruecklich konfigurierte SSE_API_URL ist nicht erreichbar; es wird keine API auf dem Standardport gestartet."
@@ -25008,31 +25075,16 @@ async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env
   activeEndpoint = endpoint;
   activeProcessId = started.pid;
   activeInstanceId = void 0;
-  const deadline = performance2.now() + READINESS_TIMEOUT_MS;
-  while (performance2.now() < deadline) {
-    const startError = started.spawnError();
-    if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
-    const current = await probe(
-      endpoint.baseUrl,
-      READINESS_PROBE_TIMEOUT_MS,
-      endpoint.expectedConfigurationFingerprint
-    );
-    if (current.state === "compatible") {
-      if (restarting && current.health.processId !== started.pid) {
-        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
-      }
-      activeEndpoint = endpoint;
-      activeProcessId = current.health.processId;
-      activeInstanceId = current.health.instanceId;
-      process.env.SSE_API_URL = endpoint.baseUrl;
-      return current.health;
-    }
-    if (current.state === "incompatible") throw current.error;
-    await delay(READINESS_POLL_MS);
-  }
-  throw new Error(
-    started.exited() ? "Die installierte API-Dependency endete, bevor eine kompatible SSE-API bereit war." : "Die installierte API-Dependency erreichte ihre Readiness nicht rechtzeitig."
-  );
+  const health = await waitForOwnedApi({
+    child: started,
+    requireOwnProcess: restarting,
+    probe: (timeoutMs) => probe(endpoint.baseUrl, timeoutMs, endpoint.expectedConfigurationFingerprint)
+  });
+  activeEndpoint = endpoint;
+  activeProcessId = health.processId;
+  activeInstanceId = health.instanceId;
+  process.env.SSE_API_URL = endpoint.baseUrl;
+  return health;
 }
 function ensureApiSingleton() {
   assertApiRunningIntent();
@@ -25199,8 +25251,8 @@ async function controlApiSingleton(request2) {
         error: error62 instanceof Error ? error62.message : "Shutdown-Ausgang ist unbekannt."
       });
     }
-    const deadline = performance2.now() + 1e4;
-    while (performance2.now() < deadline) {
+    const deadline = performance3.now() + 1e4;
+    while (performance3.now() < deadline) {
       if (boundProcessExited()) {
         controlState = "stopped";
         return controlSnapshot();
@@ -25212,7 +25264,7 @@ async function controlApiSingleton(request2) {
     controlBusy = false;
   }
 }
-var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, READINESS_PROBE_TIMEOUT_MS, READINESS_TIMEOUT_MS, READINESS_POLL_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId, activeChild, controlState, controlBusy, pendingRestart, shutdownAccepted;
+var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId, activeChild, controlState, controlBusy, pendingRestart, shutdownAccepted;
 var init_mcp_api_supervisor = __esm({
   "src/mcp-api-supervisor.ts"() {
     "use strict";
@@ -25221,13 +25273,11 @@ var init_mcp_api_supervisor = __esm({
     init_api_control_client();
     init_version();
     init_configuration_fingerprint();
+    init_api_owned_readiness();
     init_api_supervisor_contract();
     MAX_API_MANIFEST_BYTES = 64 * 1024;
     MAX_PLUGIN_RUNTIME_LOCK_BYTES = 1024 * 1024;
     INITIAL_PROBE_TIMEOUT_MS = 1500;
-    READINESS_PROBE_TIMEOUT_MS = 750;
-    READINESS_TIMEOUT_MS = 15e3;
-    READINESS_POLL_MS = 100;
     API_BIN_NAME = "steuer-spar-erklaerung-api";
     controlState = "running";
     controlBusy = false;

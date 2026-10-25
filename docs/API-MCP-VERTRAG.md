@@ -42,6 +42,16 @@ Konfigurationsdatei auch die Ressourcenpfade und hasht sie; Inhalte aus
 Steuerfällen, Belegen oder Arbeitsbereichen liest er nicht und gibt die Pfade
 nicht über MCP aus.
 
+Nach einem freigegebenen eigenen API-Start prüft der Supervisor die Bereitschaft
+höchstens 15 Sekunden lang. Kurze lokale Health-Timeouts dürfen innerhalb dieses
+Budgets erneut gelesen werden; das wiederholt ausschließlich Health-GETs.
+Ein nicht rechtzeitig antwortender Endpunkt vor dem Start erlaubt
+keinen zweiten API-Prozess. Versions- oder Konfigurationsabweichungen brechen
+sofort ab. Gleichzeitige Erststarts dürfen den verifizierten gemeinsamen
+API-Prozess verwenden; bei einem ausdrücklichen Neustart muss die Antwort
+von der gerade gestarteten PID stammen. Ein Scheitern der Startprüfung
+startet keine weitere API und beendet keinen fremden Prozess.
+
 Die normativen Laufzeitquellen sind:
 
 - `GET /v1/operations` und `GET /v1/operations/{operation}` für

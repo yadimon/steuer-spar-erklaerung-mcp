@@ -163,6 +163,7 @@ for (const required of [
   "dist/local-http-transport.js",
   "dist/mcp-main.js",
   "dist/mcp-api-supervisor.js",
+  "dist/api-owned-readiness.js",
   "dist/mcp-registry.js",
   "dist/mcp-response.js",
   "dist/mcp-tools.js",
