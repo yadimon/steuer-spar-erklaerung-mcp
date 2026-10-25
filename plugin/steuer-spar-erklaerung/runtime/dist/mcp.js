@@ -20625,7 +20625,7 @@ var init_api_client_error = __esm({
       httpStatus;
       operationResponseReceived;
       withOperationResponse(received) {
-        return this.kind === "protocol" && received ? new _ApiClientError(this.message, this.kind, this.httpStatus, true) : this;
+        return received && !this.operationResponseReceived ? new _ApiClientError(this.message, this.kind, this.httpStatus, true) : this;
       }
     };
   }
@@ -25314,8 +25314,8 @@ function apiErrorResult(operation, result) {
   };
 }
 function apiErrorHint(operation, result) {
-  if (result.kind === "protocol" && result.outcomeUnknown === true) {
-    return "Die API-Antwort konnte nicht verlaesslich ausgewertet werden. Der Auftrag kann bereits ausgefuehrt sein. Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
+  if (result.outcomeUnknown === true && result.reconciliationRequired === true) {
+    return "Der Ausgang des API-Auftrags ist ungewiss. Der Auftrag kann bereits ausgefuehrt sein. Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
   }
   if (result.reason === "foreground-required-operation-disabled") {
     return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";
@@ -43229,7 +43229,7 @@ function createMcpRegistry(server) {
       });
     }
     if (error62 instanceof ApiClientError) {
-      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.kind === "protocol" && error62.operationResponseReceived;
+      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.operationResponseReceived && (error62.kind === "protocol" || (error62.httpStatus ?? 0) >= 500);
       return apiErrorResult(operation, {
         ok: false,
         kind: error62.kind,

@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createSseApiServer } from "../dist/api-server.js";
+import { callApiOperation } from "../dist/api-client.js";
+import { callApiOperationWithBusyRetry } from "../dist/api-busy-retry.js";
+import { MAX_API_RESPONSE_BYTES } from "../dist/api-contract.js";
 import { MCP_PREFLIGHT_OUTPUT_SCHEMA } from "../dist/mcp-preflight.js";
 import {
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
@@ -16,9 +19,18 @@ import { sampleJsonSchema } from "./json-schema-samples.mjs";
 
 const expectedToolCount = Object.keys(SSE_MCP_TOOL_SCHEMAS).length;
 const calls = [];
+let postExecutionFailure;
+let committedWrites = 0;
+let receivedPosts = 0;
 const api = createSseApiServer({
   execute: async (operation, args) => {
     calls.push({ operation, args });
+    if (postExecutionFailure) {
+      committedWrites += 1;
+      if (postExecutionFailure === "worker-failed") throw new Error("Synthetic failure after commit.");
+      if (postExecutionFailure === "response-too-large") return { ok: true, value: "x".repeat(MAX_API_RESPONSE_BYTES) };
+      return { ok: "invalid worker result" };
+    }
     return {
       ok: true,
       operation,
@@ -42,6 +54,7 @@ const api = createSseApiServer({
     };
   },
 });
+api.on("request", (request) => { if (request.method === "POST") receivedPosts += 1; });
 api.listen(0, "127.0.0.1");
 await once(api, "listening");
 const address = api.address();
@@ -133,6 +146,34 @@ try {
   }
   assert.equal(directTools.length + Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS).length + controlTools.length, tools.length);
   assert.equal(calls.length, directTools.length + SSE_MCP_COMPOSED_TOOL_OPERATIONS.sse_preflight.length);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const writeArgs = { name: "Synthetic post-execution failure" };
+  for (const kind of ["invalid-operation-result", "worker-failed", "response-too-large"]) {
+    postExecutionFailure = kind;
+    for (const call of [callApiOperation, callApiOperationWithBusyRetry]) {
+      const before = { posts: receivedPosts, executions: calls.length, commits: committedWrites };
+      await assert.rejects(call("click", writeArgs, 2_000, { baseUrl }), (error) => {
+        assert.equal(error.kind, kind);
+        assert.equal(error.httpStatus, 502);
+        assert.equal(error.operationResponseReceived, true, `${kind}: the operation response was received.`);
+        return true;
+      });
+      assert.equal(receivedPosts - before.posts, 1, `${kind}: no POST replay, including the busy-retry client.`);
+      assert.equal(calls.length - before.executions, 1);
+      assert.equal(committedWrites - before.commits, 1);
+    }
+    const before = { posts: receivedPosts, executions: calls.length, commits: committedWrites };
+    const result = await client.callTool({ name: "sse_click", arguments: writeArgs });
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent?.kind, kind);
+    assert.equal(result.structuredContent?.outcomeUnknown, true);
+    assert.equal(result.structuredContent?.reconciliationRequired, true);
+    assert.equal(result.structuredContent?.retryable, false);
+    assert.match(result.structuredContent?.hint, /keine automatische Schreibwiederholung/u);
+    assert.equal(receivedPosts - before.posts, 1);
+    assert.equal(calls.length - before.executions, 1);
+    assert.equal(committedWrites - before.commits, 1);
+  }
   process.stdout.write(`MCP/API-End-to-End-Matrix: ${expectedToolCount} Werkzeuge validiert, redigiert und ausgefuehrt\n`);
 } finally {
   await client.close();

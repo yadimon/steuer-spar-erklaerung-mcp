@@ -57,10 +57,10 @@ export function createMcpRegistry(server: McpServer) {
         outcomeUnknown: true, reconciliationRequired: true, retryable: false });
     }
     if (error instanceof ApiClientError) {
-      // An invalid operation response cannot establish whether a write was
-      // applied. A preflight protocol error occurs before the operation POST.
+      // Invalid responses and server errors cannot establish whether a write
+      // was applied. Metadata failures occur before the operation POST.
       const unknown = ["timeout", "aborted", "transport-unknown"].includes(error.kind) ||
-        (error.kind === "protocol" && error.operationResponseReceived);
+        (error.operationResponseReceived && (error.kind === "protocol" || (error.httpStatus ?? 0) >= 500));
       return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message,
         ...(unknown ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}) });
     }

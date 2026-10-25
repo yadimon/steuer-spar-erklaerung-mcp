@@ -753,6 +753,16 @@ werden; eine ungültige Antwort löst keine automatische Wiederholung aus.
 Protokollfehler der vorgeschalteten Healthz-Prüfung verhindern dagegen bereits
 den Operations-POST und werden nicht als möglicherweise ausgeführter Auftrag markiert.
 
+Dasselbe gilt für HTTP-5xx-Antworten auf einen Operations-POST: Der Server
+kann eine Änderung bereits ausgeführt haben und erst beim Erzeugen oder
+Prüfen des Ergebnisses scheitern. MCP erhält die Fehlerart des Servers und
+ergänzt `outcomeUnknown=true`, `reconciliationRequired=true` und
+`retryable=false`. Auch der Busy-Retry-Client wiederholt solche Aufträge
+nicht. Gültige HTTP-4xx-Ablehnungen bleiben als Ablehnung erkennbar; eine
+fehlgeschlagene vorgeschaltete Healthz-Prüfung startet keinen Operations-POST.
+`ApiClientError.operationResponseReceived` bezeichnet dabei den Empfang einer
+Operationsantwort unabhängig von ihrer Fehlerart, nicht eine bestätigte Änderung.
+
 Lehnt der lokale HTTP-Transport die Operationsantwort schon vor der JSON-Prüfung
 ab, etwa wegen eines Redirects oder eines ungültigen HTTP-Status, gelten dieselben
 Ungewissheitsregeln. HTTP-Parserfehler (`HPE_*`) während eines Operationsaufrufs

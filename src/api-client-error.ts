@@ -10,7 +10,7 @@ export class ApiClientError extends Error {
   }
 
   withOperationResponse(received: boolean): ApiClientError {
-    return this.kind === "protocol" && received
+    return received && !this.operationResponseReceived
       ? new ApiClientError(this.message, this.kind, this.httpStatus, true)
       : this;
   }
