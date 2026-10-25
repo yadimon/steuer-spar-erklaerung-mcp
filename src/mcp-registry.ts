@@ -25,6 +25,14 @@ import { McpBudgetError, McpOperationBudget } from "./mcp-operation-budget.js";
 type ToolConfig = { title: string; description: string; };
 type ApiResultShape = (result: Record<string, unknown>) => unknown;
 
+function operationOutcomeUnknown(error: unknown): boolean {
+  if (!(error instanceof ApiClientError)) return true;
+  const status = error.httpStatus ?? 0;
+  const knownRejection = error.kind !== "protocol" && Number.isInteger(status) && status >= 400 && status < 500;
+  return ["timeout", "aborted", "transport-unknown"].includes(error.kind) ||
+    (error.operationResponseReceived && !knownRejection);
+}
+
 export function apiResultOutputSchema(operation: SseApiOperation): z.ZodTypeAny {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation];
 }
@@ -35,6 +43,14 @@ export function apiResultOutputSchema(operation: SseApiOperation): z.ZodTypeAny 
  */
 export function createMcpRegistry(server: McpServer) {
   const requestBudget = new AsyncLocalStorage<McpOperationBudget>();
+  const writeAttempts = new WeakSet<McpOperationBudget>();
+
+  function responseProcessingError(error: unknown, received: boolean): ApiClientError {
+    return new ApiClientError(
+      `MCP-Aufbereitung fehlgeschlagen nach API-Auftrag: ${String(error)}`,
+      "protocol", undefined, received,
+    );
+  }
 
   async function callApiOperation(
     operation: SseApiOperation,
@@ -43,24 +59,41 @@ export function createMcpRegistry(server: McpServer) {
   ) {
     const budget = requestBudget.getStore();
     budget?.operationTimeout(timeoutMs);
-    const health = await assertApiSingletonIdentity();
+    const health = await assertApiSingletonIdentity().catch((error: unknown) => {
+      if (error instanceof ApiClientError && ["timeout", "aborted", "transport-unknown"].includes(error.kind)) {
+        throw new ApiClientError(
+          `API-Vorpruefung fehlgeschlagen; die naechste Operation wurde nicht gestartet: ${error.message}`,
+          "not-dispatched", error.httpStatus,
+        );
+      }
+      throw error;
+    });
     const boundedTimeout = budget?.operationTimeout(timeoutMs) ?? timeoutMs;
-    return callApiOperationDirect(operation, args, boundedTimeout, {
+    const isWrite = !operationAnnotations(operation).readOnlyHint;
+    const result = await callApiOperationDirect(operation, args, boundedTimeout, {
       expectedInstanceId: health.instanceId,
       ...(budget ? { signal: budget.signal } : {}),
+    }).catch((error: unknown) => {
+      if (budget && isWrite && operationOutcomeUnknown(error)) writeAttempts.add(budget);
+      throw error;
     });
+    if (budget && isWrite) writeAttempts.add(budget);
+    return result;
   }
 
-  function caughtErrorResult(operation: SseApiOperation, error: unknown): CallToolResult {
+  function caughtErrorResult(operation: SseApiOperation, error: unknown, budget = requestBudget.getStore()): CallToolResult {
+    const writeMayHaveRun = Boolean(budget && writeAttempts.has(budget));
+    if (writeMayHaveRun && !(error instanceof ApiClientError) && !(error instanceof McpBudgetError)) {
+      error = responseProcessingError(error, false);
+    }
     if (error instanceof McpBudgetError) {
       return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message,
         outcomeUnknown: true, reconciliationRequired: true, retryable: false });
     }
     if (error instanceof ApiClientError) {
-      // An invalid operation response cannot establish whether a write was
-      // applied. A preflight protocol error occurs before the operation POST.
-      const unknown = ["timeout", "aborted", "transport-unknown"].includes(error.kind) ||
-        (error.kind === "protocol" && error.operationResponseReceived);
+      // Invalid responses and server errors cannot establish whether a write
+      // was applied. Metadata failures occur before the operation POST.
+      const unknown = writeMayHaveRun || operationOutcomeUnknown(error);
       return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message,
         ...(unknown ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}) });
     }
@@ -73,8 +106,10 @@ export function createMcpRegistry(server: McpServer) {
     shape?: ApiResultShape,
     timeoutMs?: number,
   ): Promise<CallToolResult> {
+    let resultReceived = false;
     try {
       const result = await callApiOperation(operation, args, timeoutMs);
+      resultReceived = true;
       if (result.ok === false) return apiErrorResult(operation, result);
       const shaped = shape ? shape(result) : result;
       // Focus-Telemetrie gehoert zum Sicherheits-/Performancevertrag jeder
@@ -85,6 +120,9 @@ export function createMcpRegistry(server: McpServer) {
         : shaped;
       return apiSuccessResult(payload, result);
     } catch (error) {
+      if (resultReceived) {
+        return caughtErrorResult(operation, responseProcessingError(error, true));
+      }
       return caughtErrorResult(operation, error);
     }
   }
@@ -145,7 +183,7 @@ export function createMcpRegistry(server: McpServer) {
             }
           }));
         } catch (error) {
-          return caughtErrorResult(firstOperation, error);
+          return caughtErrorResult(firstOperation, error, budget);
         }
       },
     );

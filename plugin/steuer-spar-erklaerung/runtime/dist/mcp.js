@@ -20625,7 +20625,7 @@ var init_api_client_error = __esm({
       httpStatus;
       operationResponseReceived;
       withOperationResponse(received) {
-        return this.kind === "protocol" && received ? new _ApiClientError(this.message, this.kind, this.httpStatus, true) : this;
+        return received && !this.operationResponseReceived ? new _ApiClientError(this.message, this.kind, this.httpStatus, true) : this;
       }
     };
   }
@@ -24347,13 +24347,17 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
     if (settings.signal?.aborted) {
       throw new ApiClientError(
         "API-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",
-        "aborted"
+        "aborted",
+        void 0,
+        operationResponseReceived
       );
     }
     if (error62 instanceof Error && error62.name === "AbortError") {
       throw new ApiClientError(
         `SSE-API antwortete nicht innerhalb von ${clientTimeoutMs} ms. Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.`,
-        "timeout"
+        "timeout",
+        void 0,
+        operationResponseReceived
       );
     }
     const rejectedResponse = operationResponseRejection(error62);
@@ -24362,16 +24366,25 @@ async function callApiOperationEnvelope(operation, args = {}, timeoutMs = 9e4, o
     if (transportCode && HTTP_TRANSPORT_TIMEOUT_CODES.has(transportCode)) {
       throw new ApiClientError(
         `SSE-API antwortete nicht innerhalb des HTTP-Transportlimits (${transportCode}). Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.`,
-        "timeout"
+        "timeout",
+        void 0,
+        operationResponseReceived
       );
     }
     if (transportCode && isUnknownOperationTransportCode(transportCode)) {
       throw new ApiClientError(
         networkErrorMessage("SSE-API-Verbindung brach waehrend des Operationsaufrufs ab", error62, transportCode) + " Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
-        "transport-unknown"
+        "transport-unknown",
+        void 0,
+        operationResponseReceived
       );
     }
-    throw new ApiClientError(networkErrorMessage("SSE-API nicht erreichbar", error62, transportCode), "network");
+    throw new ApiClientError(
+      networkErrorMessage(operationResponseReceived ? "SSE-API-Antwort brach ab" : "SSE-API nicht erreichbar", error62, transportCode),
+      operationResponseReceived ? "transport-unknown" : "network",
+      void 0,
+      operationResponseReceived
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -24718,6 +24731,65 @@ var init_configuration_fingerprint = __esm({
   }
 });
 
+// src/api-owned-readiness.ts
+import { performance as performance2 } from "node:perf_hooks";
+function probeFailureState(error62, ownTimerFired) {
+  if (error62.httpStatus !== void 0) return "incompatible";
+  if (error62.kind === "network") return "absent";
+  if (ownTimerFired && error62.kind === "aborted" || error62.kind === "timeout") return "unresponsive";
+  return "incompatible";
+}
+async function waitForOwnedApi(options) {
+  const { child, requireOwnProcess, probe: probe2 } = options;
+  const now = options.now ?? (() => performance2.now());
+  const sleep = options.sleep ?? ((ms) => new Promise((resolve5) => setTimeout(resolve5, ms)));
+  const deadline = now() + 15e3;
+  let lastError;
+  const checkSpawnError = () => {
+    const error62 = child.spawnError();
+    if (!error62) return;
+    const code = error62.code && ["EACCES", "EAGAIN", "ENOENT", "ENOEXEC", "ENOMEM", "ENOTDIR", "EPERM", "UNKNOWN"].includes(error62.code) ? error62.code : "UNKNOWN";
+    throw new Error(
+      "Die installierte API-Dependency konnte nicht gestartet werden.",
+      { cause: new Error(`API-Prozessstart: ${code}.`) }
+    );
+  };
+  const ended = () => new Error(
+    child.exited() ? "Die installierte API-Dependency endete, bevor eine kompatible SSE-API bereit war." : "Die installierte API-Dependency erreichte ihre Readiness nicht rechtzeitig.",
+    { cause: lastError }
+  );
+  while (now() < deadline) {
+    checkSpawnError();
+    if (requireOwnProcess && child.exited()) throw ended();
+    const remaining = deadline - now();
+    if (remaining <= 0) break;
+    const current = await probe2(Math.max(1, Math.min(750, Math.ceil(remaining))));
+    checkSpawnError();
+    if (current.state === "compatible") {
+      if (requireOwnProcess && current.health.processId !== child.pid) {
+        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
+      }
+      if (requireOwnProcess && child.exited()) throw ended();
+      if (now() >= deadline) break;
+      return current.health;
+    }
+    lastError = current.error;
+    if (current.state === "incompatible") throw current.error;
+    if (requireOwnProcess && child.exited()) throw ended();
+    const wait = Math.min(100, deadline - now());
+    if (wait <= 0) break;
+    await sleep(wait);
+  }
+  checkSpawnError();
+  throw ended();
+}
+var init_api_owned_readiness = __esm({
+  "src/api-owned-readiness.ts"() {
+    "use strict";
+    init_api_client_error();
+  }
+});
+
 // src/mcp-api-supervisor.ts
 var mcp_api_supervisor_exports = {};
 __export(mcp_api_supervisor_exports, {
@@ -24731,7 +24803,7 @@ import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute3, relative, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { performance as performance2 } from "node:perf_hooks";
+import { performance as performance3 } from "node:perf_hooks";
 function loopbackBaseUrl(raw) {
   let parsed;
   try {
@@ -24786,7 +24858,7 @@ async function probe(baseUrl, timeoutMs, expectedConfigurationFingerprint) {
     return { state: "compatible", health };
   } catch (error62) {
     const apiError = error62 instanceof ApiClientError ? error62 : new ApiClientError("SSE-API ist nicht eindeutig identifizierbar.", "protocol");
-    return apiError.kind === "network" ? { state: "absent", error: apiError } : { state: "incompatible", error: apiError };
+    return { state: probeFailureState(apiError, controller.signal.aborted), error: apiError };
   } finally {
     clearTimeout(timer);
   }
@@ -24984,7 +25056,15 @@ async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env
     process.env.SSE_API_URL = endpoint.baseUrl;
     return initial.health;
   }
-  if (initial.state === "incompatible") throw initial.error;
+  if (initial.state === "unresponsive") {
+    const error62 = new ApiClientError(
+      "Der konfigurierte API-Endpunkt hat innerhalb der Vorpruefungsfrist nicht geantwortet; keine weitere API wurde gestartet.",
+      "api-unresponsive"
+    );
+    error62.cause = initial.error;
+    throw error62;
+  }
+  if (initial.state !== "absent") throw initial.error;
   if (endpoint.explicitUrl) {
     throw new Error(
       "Die ausdruecklich konfigurierte SSE_API_URL ist nicht erreichbar; es wird keine API auf dem Standardport gestartet."
@@ -24995,31 +25075,16 @@ async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env
   activeEndpoint = endpoint;
   activeProcessId = started.pid;
   activeInstanceId = void 0;
-  const deadline = performance2.now() + READINESS_TIMEOUT_MS;
-  while (performance2.now() < deadline) {
-    const startError = started.spawnError();
-    if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
-    const current = await probe(
-      endpoint.baseUrl,
-      READINESS_PROBE_TIMEOUT_MS,
-      endpoint.expectedConfigurationFingerprint
-    );
-    if (current.state === "compatible") {
-      if (restarting && current.health.processId !== started.pid) {
-        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
-      }
-      activeEndpoint = endpoint;
-      activeProcessId = current.health.processId;
-      activeInstanceId = current.health.instanceId;
-      process.env.SSE_API_URL = endpoint.baseUrl;
-      return current.health;
-    }
-    if (current.state === "incompatible") throw current.error;
-    await delay(READINESS_POLL_MS);
-  }
-  throw new Error(
-    started.exited() ? "Die installierte API-Dependency endete, bevor eine kompatible SSE-API bereit war." : "Die installierte API-Dependency erreichte ihre Readiness nicht rechtzeitig."
-  );
+  const health = await waitForOwnedApi({
+    child: started,
+    requireOwnProcess: restarting,
+    probe: (timeoutMs) => probe(endpoint.baseUrl, timeoutMs, endpoint.expectedConfigurationFingerprint)
+  });
+  activeEndpoint = endpoint;
+  activeProcessId = health.processId;
+  activeInstanceId = health.instanceId;
+  process.env.SSE_API_URL = endpoint.baseUrl;
+  return health;
 }
 function ensureApiSingleton() {
   assertApiRunningIntent();
@@ -25186,8 +25251,8 @@ async function controlApiSingleton(request2) {
         error: error62 instanceof Error ? error62.message : "Shutdown-Ausgang ist unbekannt."
       });
     }
-    const deadline = performance2.now() + 1e4;
-    while (performance2.now() < deadline) {
+    const deadline = performance3.now() + 1e4;
+    while (performance3.now() < deadline) {
       if (boundProcessExited()) {
         controlState = "stopped";
         return controlSnapshot();
@@ -25199,7 +25264,7 @@ async function controlApiSingleton(request2) {
     controlBusy = false;
   }
 }
-var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, READINESS_PROBE_TIMEOUT_MS, READINESS_TIMEOUT_MS, READINESS_POLL_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId, activeChild, controlState, controlBusy, pendingRestart, shutdownAccepted;
+var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId, activeChild, controlState, controlBusy, pendingRestart, shutdownAccepted;
 var init_mcp_api_supervisor = __esm({
   "src/mcp-api-supervisor.ts"() {
     "use strict";
@@ -25208,13 +25273,11 @@ var init_mcp_api_supervisor = __esm({
     init_api_control_client();
     init_version();
     init_configuration_fingerprint();
+    init_api_owned_readiness();
     init_api_supervisor_contract();
     MAX_API_MANIFEST_BYTES = 64 * 1024;
     MAX_PLUGIN_RUNTIME_LOCK_BYTES = 1024 * 1024;
     INITIAL_PROBE_TIMEOUT_MS = 1500;
-    READINESS_PROBE_TIMEOUT_MS = 750;
-    READINESS_TIMEOUT_MS = 15e3;
-    READINESS_POLL_MS = 100;
     API_BIN_NAME = "steuer-spar-erklaerung-api";
     controlState = "running";
     controlBusy = false;
@@ -25314,8 +25377,8 @@ function apiErrorResult(operation, result) {
   };
 }
 function apiErrorHint(operation, result) {
-  if (result.kind === "protocol" && result.outcomeUnknown === true) {
-    return "Die API-Antwort konnte nicht verlaesslich ausgewertet werden. Der Auftrag kann bereits ausgefuehrt sein. Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
+  if (result.outcomeUnknown === true && result.reconciliationRequired === true) {
+    return "Der Ausgang des API-Auftrags ist ungewiss. Der Auftrag kann bereits ausgefuehrt sein. Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
   }
   if (result.reason === "foreground-required-operation-disabled") {
     return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";
@@ -43202,22 +43265,56 @@ var init_mcp_operation_budget = __esm({
 
 // src/mcp-registry.ts
 import { AsyncLocalStorage } from "node:async_hooks";
+function operationOutcomeUnknown(error62) {
+  if (!(error62 instanceof ApiClientError)) return true;
+  const status = error62.httpStatus ?? 0;
+  const knownRejection = error62.kind !== "protocol" && Number.isInteger(status) && status >= 400 && status < 500;
+  return ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.operationResponseReceived && !knownRejection;
+}
 function apiResultOutputSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation];
 }
 function createMcpRegistry(server) {
   const requestBudget = new AsyncLocalStorage();
+  const writeAttempts = /* @__PURE__ */ new WeakSet();
+  function responseProcessingError(error62, received) {
+    return new ApiClientError(
+      `MCP-Aufbereitung fehlgeschlagen nach API-Auftrag: ${String(error62)}`,
+      "protocol",
+      void 0,
+      received
+    );
+  }
   async function callApiOperation2(operation, args = {}, timeoutMs) {
     const budget = requestBudget.getStore();
     budget?.operationTimeout(timeoutMs);
-    const health = await assertApiSingletonIdentity();
+    const health = await assertApiSingletonIdentity().catch((error62) => {
+      if (error62 instanceof ApiClientError && ["timeout", "aborted", "transport-unknown"].includes(error62.kind)) {
+        throw new ApiClientError(
+          `API-Vorpruefung fehlgeschlagen; die naechste Operation wurde nicht gestartet: ${error62.message}`,
+          "not-dispatched",
+          error62.httpStatus
+        );
+      }
+      throw error62;
+    });
     const boundedTimeout = budget?.operationTimeout(timeoutMs) ?? timeoutMs;
-    return callApiOperation(operation, args, boundedTimeout, {
+    const isWrite = !operationAnnotations(operation).readOnlyHint;
+    const result = await callApiOperation(operation, args, boundedTimeout, {
       expectedInstanceId: health.instanceId,
       ...budget ? { signal: budget.signal } : {}
+    }).catch((error62) => {
+      if (budget && isWrite && operationOutcomeUnknown(error62)) writeAttempts.add(budget);
+      throw error62;
     });
+    if (budget && isWrite) writeAttempts.add(budget);
+    return result;
   }
-  function caughtErrorResult(operation, error62) {
+  function caughtErrorResult(operation, error62, budget = requestBudget.getStore()) {
+    const writeMayHaveRun = Boolean(budget && writeAttempts.has(budget));
+    if (writeMayHaveRun && !(error62 instanceof ApiClientError) && !(error62 instanceof McpBudgetError)) {
+      error62 = responseProcessingError(error62, false);
+    }
     if (error62 instanceof McpBudgetError) {
       return apiErrorResult(operation, {
         ok: false,
@@ -43229,7 +43326,7 @@ function createMcpRegistry(server) {
       });
     }
     if (error62 instanceof ApiClientError) {
-      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error62.kind) || error62.kind === "protocol" && error62.operationResponseReceived;
+      const unknown2 = writeMayHaveRun || operationOutcomeUnknown(error62);
       return apiErrorResult(operation, {
         ok: false,
         kind: error62.kind,
@@ -43240,13 +43337,18 @@ function createMcpRegistry(server) {
     return errorResult(String(error62));
   }
   async function run(operation, args = {}, shape, timeoutMs) {
+    let resultReceived = false;
     try {
       const result = await callApiOperation2(operation, args, timeoutMs);
+      resultReceived = true;
       if (result.ok === false) return apiErrorResult(operation, result);
       const shaped = shape ? shape(result) : result;
       const payload = shape && result.focusTelemetry && shaped && typeof shaped === "object" && !Array.isArray(shaped) ? { ...shaped, focusTelemetry: result.focusTelemetry } : shaped;
       return apiSuccessResult(payload, result);
     } catch (error62) {
+      if (resultReceived) {
+        return caughtErrorResult(operation, responseProcessingError(error62, true));
+      }
       return caughtErrorResult(operation, error62);
     }
   }
@@ -43290,7 +43392,7 @@ function createMcpRegistry(server) {
             }
           }));
         } catch (error62) {
-          return caughtErrorResult(firstOperation, error62);
+          return caughtErrorResult(firstOperation, error62, budget);
         }
       }
     );
@@ -44528,7 +44630,7 @@ function registerLifecycleTools(registry2) {
     "sse_close",
     {
       title: "Programm beenden",
-      description: "Beendet das Programm nur nach einem ausdruecklichen menschlichen Auftrag zum Schliessen. Eine Bitte, Werte zu aendern oder zu pruefen, erlaubt weder Schliessen noch Verwerfen. Vorher sse_instances frisch lesen und den exakten Fall per hwnd/pid binden. Versucht zuerst ein normales Schliessen; haengt das Fenster oder ist force=true gesetzt, darf genau die gebundene PID nur mit discardChanges=true hart beendet werden. Speichern gehoert in den hashgebundenen Schritt sse_save; sse_close save=true wird verweigert. Ohne discardChanges=true wird kein neu auftauchender Speicherdialog mit Nein/Verwerfen beantwortet. Offene Dialoge muessen vorher separat gelesen und beantwortet werden. force ist teuer: ein hart beendetes Programm hinterlaesst eine Wiederherstellungsdatei, und der naechste Start fragt danach - sse_launch endet dann mit kind='startup-question' und laesst sich ohne Antwort im Programm nicht aufloesen. Deshalb erst ohne force schliessen und dem Programm Zeit lassen; force nur bei einem haengenden Fenster."
+      description: "Beendet das Programm nur nach einem ausdruecklichen menschlichen Auftrag zum Schliessen. Eine Bitte, Werte zu aendern oder zu pruefen, erlaubt weder Schliessen noch Verwerfen. Vorher sse_instances frisch lesen und den exakten Fall per hwnd/pid binden. Versucht zuerst ein normales Schliessen; haengt das Fenster oder ist force=true gesetzt, darf genau die gebundene PID nur mit discardChanges=true hart beendet werden. Speichern gehoert in den hashgebundenen Schritt sse_save; sse_close save=true wird verweigert. Ohne discardChanges=true wird kein neu auftauchender Speicherdialog mit Nein/Verwerfen beantwortet. Offene Dialoge muessen vorher separat gelesen und beantwortet werden. Ein erst nach dem Schliessbefehl erscheinender Dialog liefert dialog-open mit closeRequested=true und bleibt ohne ausdrueckliches Verwerfen offen; dann den aktuellen Dialog frisch lesen und fingerprintgebunden beantworten, statt den Schliessbefehl zu wiederholen. force ist teuer: ein hart beendetes Programm hinterlaesst eine Wiederherstellungsdatei, und der naechste Start fragt danach - sse_launch endet dann mit kind='startup-question' und laesst sich ohne Antwort im Programm nicht aufloesen. Deshalb erst ohne force schliessen und dem Programm Zeit lassen; force nur bei einem haengenden Fenster."
     },
     { timeoutMs: 6e4 }
   );

@@ -10,6 +10,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 import { listenOnFetchablePort } from "./fetchable-port.mjs";
 import { resolveWindowsPowerShell } from "../dist/windows-runtime.js";
+import { probeFailureState, waitForOwnedApi } from "../dist/api-owned-readiness.js";
+import { ApiClientError } from "../dist/api-client-error.js";
+import { readApiHealthz } from "../dist/api-client.js";
 
 // Dieselbe Aufloesung wie im Produkt: Windows PowerShell 5.1 aus dem
 // Systemordner. Ein hart verdrahteter Aufruf von PowerShell 7 wuerde eine
@@ -19,6 +22,108 @@ const windowsPowerShell = resolveWindowsPowerShell();
 
 assert.equal(process.platform, "win32", "MCP-Autostart ist ein Windows-Vertrag.");
 assert.equal(process.arch, "x64", "MCP-Autostart ist ein Windows-x64-Vertrag.");
+
+// Model the real startup policy without sleeping or creating a process.
+function readinessModel(outcomes, requireOwnProcess = true) {
+  const queue = [...outcomes], calls = [], sleeps = [];
+  const state = { now: 0, exited: false, spawnError: undefined };
+  const child = { pid: 4242, exited: () => state.exited, spawnError: () => state.spawnError };
+  return { state, calls, sleeps, run: () => waitForOwnedApi({
+    child, requireOwnProcess, now: () => state.now,
+    sleep: async ms => { assert(ms > 0 && ms <= 100); sleeps.push(ms); state.now += ms; },
+    probe: async timeoutMs => {
+      assert(timeoutMs > 0 && timeoutMs <= 750 && timeoutMs <= 15000 - state.now);
+      calls.push(timeoutMs);
+      const next = queue.shift(); assert(next, "Unexpected extra readiness probe.");
+      state.now += next.spendBudget ? timeoutMs : (next.elapsed ?? 0);
+      state.exited = next.exited ?? state.exited;
+      state.spawnError = next.spawnError ?? state.spawnError;
+      return next.result;
+    },
+  }) };
+}
+const ownHealth = { processId: 4242 }, peerHealth = { processId: 4343 };
+const localAbort = new ApiClientError("Synthetic local probe deadline.", "aborted");
+const unresponsive = { state: "unresponsive", error: localAbort };
+const absent = { state: "absent", error: new ApiClientError("Synthetic not-yet-listening endpoint.", "network") };
+const compatible = { state: "compatible", health: ownHealth };
+const delayedReady = readinessModel([{ result: unresponsive, spendBudget: true }, { result: compatible }]);
+assert.equal(await delayedReady.run(), ownHealth);
+assert.deepEqual(delayedReady.calls, [750, 750]); assert.deepEqual(delayedReady.sleeps, [100]);
+assert.equal(delayedReady.state.now, 850);
+const notYetListening = readinessModel([{ result: absent }, { result: absent }, { result: absent }, { result: compatible }]);
+assert.equal(await notYetListening.run(), ownHealth); assert.equal(notYetListening.calls.length, 4);
+const incompatibleError = new ApiClientError("Synthetic version/configuration mismatch.", "protocol");
+const incompatibleReady = readinessModel([{ result: { state: "incompatible", error: incompatibleError } }]);
+await assert.rejects(incompatibleReady.run(), error => error === incompatibleError);
+assert.equal(incompatibleReady.calls.length, 1); assert.equal(incompatibleReady.sleeps.length, 0);
+const replacementReady = readinessModel([{ result: { state: "compatible", health: peerHealth } }]);
+await assert.rejects(replacementReady.run(), error => error.kind === "api-replaced");
+assert.equal(replacementReady.calls.length, 1); assert.equal(replacementReady.sleeps.length, 0);
+const initialWinner = readinessModel([{ result: unresponsive, exited: true, spendBudget: true },
+  { result: { state: "compatible", health: peerHealth } }], false);
+assert.equal(await initialWinner.run(), peerHealth, "An initial losing contender must still await its verified winner.");
+assert.equal(initialWinner.calls.length, 2);
+const initialAbsentWinner = readinessModel([{ result: absent, exited: true }, { result: { state: "compatible", health: peerHealth } }], false);
+assert.equal(await initialAbsentWinner.run(), peerHealth);
+const exitedReady = readinessModel([{ result: unresponsive, exited: true, spendBudget: true }]);
+await assert.rejects(exitedReady.run(), error => /endete/u.test(error.message) && error.cause === localAbort);
+assert.equal(exitedReady.calls.length, 1); assert.equal(exitedReady.sleeps.length, 0);
+const alreadyExited = readinessModel([]); alreadyExited.state.exited = true;
+await assert.rejects(alreadyExited.run(), /endete/u); assert.equal(alreadyExited.calls.length, 0);
+const exitedAfterReply = readinessModel([{ result: compatible, exited: true }]);
+await assert.rejects(exitedAfterReply.run(), /endete/u); assert.equal(exitedAfterReply.calls.length, 1);
+const failedSpawn = readinessModel([]); failedSpawn.state.spawnError = new Error("Synthetic spawn failure.");
+await assert.rejects(failedSpawn.run(), error => /konnte nicht gestartet/u.test(error.message)
+  && error.cause.message === "API-Prozessstart: UNKNOWN." && !JSON.stringify(error.cause).includes("Synthetic"));
+assert.equal(failedSpawn.calls.length, 0);
+const spawnFailure = Object.assign(new Error("Synthetic private installation path."), { code: "EACCES" });
+const failedDuringProbe = readinessModel([{ result: unresponsive, elapsed: 15000, spawnError: spawnFailure }]);
+await assert.rejects(failedDuringProbe.run(), error => /konnte nicht gestartet/u.test(error.message)
+  && error.cause.message === "API-Prozessstart: EACCES." && error.cause !== spawnFailure);
+assert.equal(failedDuringProbe.calls.length, 1); assert.equal(failedDuringProbe.sleeps.length, 0);
+const exhaustedReady = readinessModel(Array.from({ length: 18 }, () => ({ result: unresponsive, spendBudget: true })));
+await assert.rejects(exhaustedReady.run(), error => /nicht rechtzeitig/u.test(error.message) && error.cause === localAbort);
+assert.equal(exhaustedReady.state.now, 15000); assert.equal(exhaustedReady.calls.length, 18);
+assert.equal(exhaustedReady.calls.at(-1), 550); assert.equal(exhaustedReady.sleeps.length, 17);
+const lateReady = readinessModel([{ result: compatible, elapsed: 15000 }]);
+await assert.rejects(lateReady.run(), /nicht rechtzeitig/u); assert.equal(lateReady.calls.length, 1);
+for (const scenario of [
+  { kind: "aborted", timer: true, state: "unresponsive" },
+  { kind: "aborted", timer: false, state: "incompatible" },
+  { kind: "aborted", timer: true, status: 503, state: "incompatible" },
+  { kind: "timeout", timer: false, state: "unresponsive" },
+  { kind: "timeout", timer: true, status: 503, state: "incompatible" },
+  { kind: "network", timer: false, state: "absent" },
+  { kind: "network", timer: false, status: 503, state: "incompatible" },
+  { kind: "protocol", timer: true, state: "incompatible" },
+]) {
+  assert.equal(probeFailureState(new ApiClientError("Synthetic probe classification.", scenario.kind, scenario.status), scenario.timer), scenario.state);
+}
+process.stdout.write("API-Readiness: begrenzte lokale Probe-Wiederholung, PID-Bindung, Startrace und Fehlerursachen bestanden\n");
+
+function cleanupOwnedApis(knownPids, discover, stop, remove) {
+  const failures = [];
+  const stopAll = pids => {
+    for (const pid of new Set(pids)) {
+      try { stop(pid); } catch (error) { failures.push(error); }
+    }
+  };
+  stopAll(knownPids);
+  try { stopAll(discover()); } catch (error) { failures.push(error); }
+  try { remove(); } catch (error) { failures.push(error); }
+  return failures;
+}
+const cleanupOrder = [], inventoryFailure = new Error("Synthetic inventory failure.");
+assert.deepEqual(cleanupOwnedApis([1, 1, 2], () => { cleanupOrder.push("discover"); throw inventoryFailure; },
+  pid => cleanupOrder.push(`stop:${pid}`), () => cleanupOrder.push("remove")), [inventoryFailure]);
+assert.deepEqual(cleanupOrder, ["stop:1", "stop:2", "discover", "remove"]);
+const stopFailure = new Error("Synthetic stop failure."), removeFailure = new Error("Synthetic removal failure.");
+const stopped = [];
+assert.deepEqual(cleanupOwnedApis([1], () => [2, 2, 3], pid => {
+  stopped.push(pid); if (pid === 2) throw stopFailure;
+}, () => { throw removeFailure; }), [stopFailure, removeFailure]);
+assert.deepEqual(stopped, [1, 2, 3]);
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-mcp-api-supervisor-"));
 const ownedApiPids = new Set();
@@ -108,26 +213,26 @@ async function closeServer(server) {
   await new Promise((resolveClose) => server.close(resolveClose));
 }
 
-function discoverOwnedApiPids() {
+function discoverOwnedApiPids(configRoot = temporary) {
   const script = [
+    "$ErrorActionPreference='Stop'",
     "$root=$env:SSE_TEST_CONFIG_ROOT",
     "$pids=@(Get-CimInstance Win32_Process | Where-Object {",
     "  $_.CommandLine -and $_.CommandLine.Contains($root) -and $_.CommandLine.Contains('api-main.js')",
     "} | Select-Object -ExpandProperty ProcessId)",
-    "[Console]::Out.WriteLine(($pids | ConvertTo-Json -Compress))",
+    "[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($pids) -Compress))",
   ].join("\n");
   const result = spawnSync(windowsPowerShell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
     encoding: "utf8",
     windowsHide: true,
-    env: { ...process.env, SSE_TEST_CONFIG_ROOT: temporary },
+    env: { ...process.env, SSE_TEST_CONFIG_ROOT: configRoot },
   });
-  if (result.status !== 0 || !result.stdout.trim()) return [];
-  try {
-    const parsed = JSON.parse(result.stdout);
-    return (Array.isArray(parsed) ? parsed : [parsed]).filter(Number.isInteger);
-  } catch {
-    return [];
-  }
+  assert.equal(result.error, undefined, "Owned-process discovery could not start.");
+  assert.equal(result.status, 0, "Owned-process discovery failed.");
+  const parsed = JSON.parse(result.stdout);
+  assert(Array.isArray(parsed) && parsed.every(pid => Number.isInteger(pid) && pid > 0),
+    "Owned-process discovery returned an invalid inventory.");
+  return parsed;
 }
 
 function identityServer(
@@ -165,6 +270,7 @@ function identityServer(
   });
 }
 
+let primaryFailure;
 try {
   const singletonPort = await freePort();
   const singletonConfig = configFor("singleton", singletonPort);
@@ -177,6 +283,8 @@ try {
   const firstClient = await connectMcp(singletonEnv);
   const firstHealth = await health(singletonPort);
   ownedApiPids.add(firstHealth.processId);
+  assert(discoverOwnedApiPids(singletonConfig).includes(firstHealth.processId),
+    "Owned-process discovery must find a real API before its empty result can be trusted.");
   await firstClient.close();
 
   const afterClientExit = await health(singletonPort);
@@ -266,6 +374,28 @@ try {
   await Promise.all([raceClientA.close(), raceClientB.close()]);
   assert.equal((await health(racePort)).processId, raceHealth.processId,
     "Race hinterliess keinen stabil wiederverwendbaren API-Singleton.");
+
+  const stalledRequests = [];
+  const stalledEndpoint = createServer((request) => {
+    stalledRequests.push(request.url);
+  });
+  const stalledPort = await listenOnFetchablePort(stalledEndpoint);
+  const stalledConfig = configFor("occupied-unresponsive", stalledPort);
+  try {
+    const controller = new AbortController();
+    const accepted = once(stalledEndpoint, "request", { signal: AbortSignal.timeout(5000) });
+    const abortedHealth = assert.rejects(readApiHealthz({
+      baseUrl: `http://127.0.0.1:${stalledPort}`, signal: controller.signal,
+    }), error => error instanceof ApiClientError && error.kind === "aborted"
+      && error.httpStatus === undefined && probeFailureState(error, controller.signal.aborted) === "unresponsive");
+    try { await accepted; } finally { controller.abort(); await abortedHealth; }
+    assert.deepEqual(stalledRequests, ["/healthz"], "The real local abort must have reached Healthz exactly once.");
+    const blocked = await runMcp(["--selftest"], { ...process.env, SSE_API_URL: "", SSE_API_CONFIG: stalledConfig });
+    assert.equal(blocked.code, 1); assert.equal(blocked.stdout, "");
+    assert.match(blocked.stderr, /API-Endpunkt hat innerhalb der Vorpruefungsfrist nicht geantwortet; keine weitere API wurde gestartet/u);
+    assert.deepEqual(stalledRequests, ["/healthz", "/healthz"], "An unresponsive pre-spawn endpoint must not enter owned-child readiness.");
+    assert.deepEqual(discoverOwnedApiPids(stalledConfig), [], "An occupied unresponsive endpoint must never authorize another API.");
+  } finally { await closeServer(stalledEndpoint); }
 
   const foreign = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/plain" });
@@ -465,12 +595,17 @@ try {
   process.stdout.write(
     "MCP-API-Supervisor: Autostart, Wiederverwendung, Config-Identitaet, eindeutige Umgebungswahl, Default-Config-Port, Zwei-Start-Race, API-Tod, Fremddienst, Versionsdrift, Prozesswechsel und URL-No-Fallback bestanden\n",
   );
+} catch (error) {
+  primaryFailure = error;
+  throw error;
 } finally {
-  for (const pid of new Set([...ownedApiPids, ...discoverOwnedApiPids()])) {
-    spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+  const failures = cleanupOwnedApis(ownedApiPids, discoverOwnedApiPids, pid => {
+    const stopped = spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
       windowsHide: true,
       stdio: "ignore",
     });
-  }
-  rmSync(resolve(temporary), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    if (stopped.error) throw stopped.error;
+  }, () => rmSync(resolve(temporary), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  if (failures.length) throw new AggregateError(primaryFailure ? [primaryFailure, ...failures] : failures,
+    "Owned test-API cleanup failed; all known processes and scratch removal were attempted.");
 }

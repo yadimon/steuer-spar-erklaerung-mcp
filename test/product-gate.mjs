@@ -570,6 +570,7 @@ try {
     executorSource.indexOf("parseApiOperationArgs(operation, args)") < executorSource.indexOf(catalogMutationCall),
   "Native Tabellenmutation muss den geladenen Serverkatalog nach strikter Argumentpruefung binden; kein Caller-Katalog ist zulaessig.");
   const closeBlock = workerOpBlock("close");
+  const closeOutcome = workerHelperBlock("Wait-SSECloseOutcome");
   assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
     workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&
     workerSource.includes("$ProcessHandle.DangerousAddRef([ref]$handleReferenceAdded)") &&
@@ -580,7 +581,12 @@ try {
     closeBlock.includes("$dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("$dismissDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("[SW]::IsWindow($h)") &&
-    closeBlock.includes("Wait-SSEProcessExit $targetProcessHandle $(if ($force -or $hung) { 0 } else { 20000 })") &&
+    /Wait-SSECloseOutcome\(\[Microsoft\.Win32\.SafeHandles\.SafeProcessHandle\]\$ProcessHandle/u.test(closeOutcome) &&
+    closeOutcome.includes("Get-DialogInventory $TargetPid -RejectHung") &&
+    closeOutcome.match(/Wait-SSEProcessExit \$ProcessHandle /gu)?.length === 2 &&
+    !/Get-Process|Stop-Process|Start-Sleep|\.WaitForExit\(/u.test(closeOutcome) &&
+    /if \(\$force -or \$hung\) \{\s*\$still = Wait-SSEProcessExit \$targetProcessHandle 0\s*\} else \{\s*\$closeOutcome = Wait-SSECloseOutcome \$targetProcessHandle \$targetPid 20000/u.test(closeBlock) &&
+    closeBlock.match(/Wait-SSEProcessExit \$targetProcessHandle /gu)?.length === 4 &&
     !closeBlock.includes("$targetProcess.WaitForExit(") &&
     !closeBlock.includes("Start-Sleep -Milliseconds 1500") &&
     !closeBlock.includes("Start-Sleep -Seconds 2"),
@@ -728,7 +734,12 @@ try {
   assert(nativeSourceText.includes("GetLastActivePopup") &&
     workerSource.includes("function Get-SSEDeepestLastActivePopup") &&
     dialogAnswerBlock.includes("non-topmost-dialog") &&
-    dialogAnswerBlock.includes("$newWindows = @($windowsAfter") &&
+    dialogAnswerBlock.includes("Get-SSEDialogFollowupInventory $windowsAfter $beforeHandles ([int]$dialog.pid) $mainBeforeHwnd") &&
+    dialogAnswerBlock.includes("if ($targetWindows[0].hung)") &&
+    dialogAnswerBlock.indexOf("if ($targetWindows[0].hung)") < dialogAnswerBlock.indexOf("$dialog = Get-DialogDescriptor") &&
+    workerSource.includes("function Get-SSEDialogFollowupInventory") &&
+    workerSource.includes("(Test-SSEDialogWindowCurrent $_ $TargetPid)") &&
+    dialogAnswerBlock.includes("newDialogsComplete=$false") &&
     !dialogAnswerBlock.includes("$afterInventory = @(Get-DialogInventory") &&
     dialogAnswerBlock.includes("advancedToChildDialog") &&
     dialogAnswerBlock.includes("$buttonName = 'Datei neu zuordnen'") &&

@@ -68,7 +68,7 @@ try{
     await assert.rejects(callApiOperationWithBusyRetry('workspace_file_write_text',original,2000,{
       ...pinned,fetchImpl:async()=>{attempts++;return new Response(JSON.stringify(errorEnvelope('busy')),
         {status,headers:{'content-type':'application/json'}});},
-    }),error=>error.kind==='busy'&&error.httpStatus===status);
+    }),error=>error.kind==='busy'&&error.httpStatus===status&&error.operationResponseReceived===true);
     assert.equal(attempts,1,'A busy code without HTTP409 is not proof of non-dispatch.');
   }
   attempts=0;

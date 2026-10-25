@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { McpBudgetError, McpOperationBudget, MCP_RESPONSE_BUDGET_MS, MCP_API_CLEANUP_MARGIN_MS }
   from "../dist/mcp-operation-budget.js";
 import { createMcpRegistry } from "../dist/mcp-registry.js";
@@ -54,8 +55,60 @@ const exhausted = create(); exhausted.advance(259_801);
 assert.throws(() => exhausted.budget.operationTimeout(), McpBudgetError);
 
 const registry = readFileSync("src/mcp-registry.ts", "utf8");
-assert.match(registry, /await assertApiSingletonIdentity\(\);\s*const boundedTimeout = budget\?\.operationTimeout\(timeoutMs\)/u,
-  "The API dispatch budget must be recomputed after identity verification.");
+const registryAst = ts.createSourceFile("mcp-registry.ts", registry, ts.ScriptTarget.Latest, true);
+let operationBody;
+function findOperation(node) {
+  if (ts.isFunctionDeclaration(node) && node.name?.text === "callApiOperation") {
+    assert.equal(operationBody, undefined, "The registry dispatch function must be unique.");
+    operationBody = node.body;
+  }
+  ts.forEachChild(node, findOperation);
+}
+findOperation(registryAst);
+assert(operationBody);
+const statements = [...operationBody.statements];
+const declaration = name => statements.flatMap((statement, index) => ts.isVariableStatement(statement)
+  ? [...statement.declarationList.declarations].filter(item => item.name.getText() === name)
+    .map(item => ({ index, initializer: item.initializer })) : []);
+const [health] = declaration("health"), [bounded] = declaration("boundedTimeout");
+assert(health && bounded && ts.isAwaitExpression(health.initializer));
+const identityCatch = health.initializer.expression;
+assert(ts.isCallExpression(identityCatch) && ts.isPropertyAccessExpression(identityCatch.expression));
+assert.equal(identityCatch.expression.name.text, "catch");
+assert.equal(identityCatch.expression.expression.getText(), "assertApiSingletonIdentity()");
+assert.equal(identityCatch.arguments.length, 1);
+const failureHandler = identityCatch.arguments[0];
+assert(ts.isArrowFunction(failureHandler) && ts.isBlock(failureHandler.body));
+assert(ts.isThrowStatement(failureHandler.body.statements.at(-1)), "Every completed identity-error path must throw.");
+function rejectIdentityRecovery(node) {
+  assert(!ts.isReturnStatement(node), "The identity catch must never recover an unverified API identity.");
+  ts.forEachChild(node, rejectIdentityRecovery);
+}
+rejectIdentityRecovery(failureHandler.body);
+assert(bounded.index > health.index, "Recompute the budget only after the awaited identity check completes.");
+assert.equal(bounded.initializer.getText(), "budget?.operationTimeout(timeoutMs) ?? timeoutMs");
+const [dispatched] = declaration("result");
+assert(dispatched && dispatched.index > bounded.index && ts.isAwaitExpression(dispatched.initializer),
+  "Dispatch must follow the refreshed budget on the normal control-flow path.");
+const guardedDispatch = dispatched.initializer.expression;
+assert(ts.isCallExpression(guardedDispatch) && ts.isPropertyAccessExpression(guardedDispatch.expression));
+assert.equal(guardedDispatch.expression.name.text, "catch");
+assert.equal(guardedDispatch.arguments.length, 1);
+const dispatchFailure = guardedDispatch.arguments[0];
+assert(ts.isArrowFunction(dispatchFailure) && ts.isBlock(dispatchFailure.body));
+assert(ts.isThrowStatement(dispatchFailure.body.statements.at(-1)), "The dispatch catch must rethrow, never retry or fabricate a result.");
+rejectIdentityRecovery(dispatchFailure.body);
+const dispatch = guardedDispatch.expression.expression;
+assert(ts.isCallExpression(dispatch));
+assert.equal(dispatch.expression.getText(), "callApiOperationDirect");
+assert.equal(dispatch.arguments[2].getText(), "boundedTimeout");
+assert(ts.isReturnStatement(statements.at(-1)) && statements.at(-1).expression.getText() === "result");
+const dispatchOptions = dispatch.arguments[3];
+assert(ts.isObjectLiteralExpression(dispatchOptions));
+const identityBindings = dispatchOptions.properties.filter(property => ts.isPropertyAssignment(property) &&
+  property.name.getText() === "expectedInstanceId");
+assert.equal(identityBindings.length, 1);
+assert.equal(identityBindings[0].initializer.getText(), "health.instanceId", "Dispatch must use the verified identity.");
 assert.match(registry, /outcomeUnknown: true, reconciliationRequired: true, retryable: false/u);
 assert(!registry.includes("mutationStarted: false"), "A transport deadline cannot prove no mutation.");
 const boundary = createMcpRegistry({ registerTool() { throw new Error("No tool registration needed"); } });

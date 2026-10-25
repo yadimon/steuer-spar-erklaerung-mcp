@@ -47,6 +47,17 @@ await assert.rejects(
 );
 
 let resetOperationReceived = false;
+let brokenBodyAttempts = 0;
+await assert.rejects(callApiOperation("click", { name: "Synthetic body failure after headers" }, 1_000, {
+  baseUrl,
+  fetchImpl: async () => {
+    brokenBodyAttempts += 1;
+    return new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("Synthetic response reader failure.")); } }),
+      { headers: { "content-type": "application/json" } });
+  },
+}), error => error?.kind === "transport-unknown" && error.operationResponseReceived === true,
+"An unclassified body-read error after received headers cannot claim the endpoint was never reached.");
+assert.equal(brokenBodyAttempts, 1, "The client must not replay an operation after response-reader failure.");
 const resetServer = createServer((request, response) => {
   request.resume();
   request.once("end", () => {
@@ -67,6 +78,7 @@ const resetBaseUrl = `http://127.0.0.1:${resetAddress.port}`;
 await assert.rejects(
   callApiOperation("click", { name: "synthetische Mutation" }, 1_000, { baseUrl: resetBaseUrl }),
   (error) => error?.kind === "transport-unknown" &&
+    error.operationResponseReceived === true &&
     error.message.includes("ECONNRESET") &&
     /Zustand ist unbekannt/u.test(error.message),
   "Ein Antwortabbruch nach empfangenem POST muss als zustandsunklar statt als Unerreichbarkeit gelten.",
@@ -85,16 +97,16 @@ await assert.rejects(
 // Parser failures have no valid HTTP status; receiving bytes still rules out a
 // claim that the endpoint simply could not be reached.
 const responseCases = [
-  { name: "redirect", response: 302, kind: "protocol", status: 302, message: /Redirectstatus 302/u },
-  { name: "not-modified", response: 304, kind: "protocol", status: 304, message: /Redirectstatus 304/u },
-  { name: "invalid-status", response: 601, kind: "protocol", status: 601, message: /ungueltigen Status 601/u },
+  { name: "redirect", response: 302, kind: "protocol", status: 302, received: true, message: /Redirectstatus 302/u },
+  { name: "not-modified", response: 304, kind: "protocol", status: 304, received: true, message: /Redirectstatus 304/u },
+  { name: "invalid-status", response: 601, kind: "protocol", status: 601, received: true, message: /ungueltigen Status 601/u },
   { name: "bad-header", kind: "transport-unknown", message: /HPE_INVALID_HEADER_TOKEN/u,
     response: "HTTP/1.1 200 OK\r\nBad Header: value\r\nContent-Length: 0\r\n\r\n" },
   { name: "bad-status-line", kind: "transport-unknown", message: /HPE_INVALID_STATUS/u,
     response: "HTTP/1.1 XXX Bad\r\nContent-Length: 0\r\n\r\n" },
   { name: "bad-version", kind: "transport-unknown", message: /HPE_INVALID_VERSION/u,
     response: "HTTP/1.2 200 OK\r\nContent-Length: 0\r\n\r\n" },
-  { name: "bad-chunk", kind: "transport-unknown", message: /ECONNRESET/u,
+  { name: "bad-chunk", kind: "transport-unknown", received: true, message: /ECONNRESET/u,
     response: "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\nZZZ\r\n" },
 ];
 for (const scenario of responseCases) {
@@ -127,7 +139,7 @@ for (const scenario of responseCases) {
     await assert.rejects(
       callApiOperation("click", { name: "synthetic response boundary" }, 1_000, { baseUrl: responseUrl }),
       error => error?.kind === scenario.kind && scenario.message.test(error.message) &&
-        error.httpStatus === scenario.status && error.operationResponseReceived === (scenario.kind === "protocol"),
+        error.httpStatus === scenario.status && error.operationResponseReceived === (scenario.received ?? false),
       scenario.name,
     );
     assert.equal(receivedPosts, 1, `${scenario.name}: received POST must not be replayed.`);
