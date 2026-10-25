@@ -535,7 +535,7 @@ Operation: `position_create` (destruktiv, drift-gesperrt).
 
 **Positionen auflisten**
 
-Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen.
+Listet Positionen auf der vollstaendig gelesenen Uebersicht 'Erloese Lieferungen/Leistungen' oder 'Betriebsausgaben: Eigene Positionen'.
 
 Operation: `positions` (lesend).
 

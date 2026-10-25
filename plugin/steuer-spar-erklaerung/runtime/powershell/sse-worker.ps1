@@ -6624,6 +6624,61 @@ function Get-SSEVisibleHeadingNode([IntPtr]$Hwnd, $Tree) {
   $null
 }
 
+# Reine Bestandsprojektion: auch generische, noch unbenannte Zeilen muessen
+# erkannt werden, bevor ein Leser einen Leerbestand oder eine Mutation bestaetigt.
+function Read-SSEPositionInventory($Tree, [string]$Heading,
+    [string[]]$AllowedHeadings = @('Erlöse Lieferungen/Leistungen','Betriebsausgaben: Eigene Positionen')) {
+  $incomplete = {
+    param([string]$Message)
+    $failure = [InvalidOperationException]::new($Message)
+    $failure.Data['kind'] = 'position-inventory-incomplete'
+    throw $failure
+  }
+  if (-not $Tree -or -not $Tree.stats -or $Tree.stats.truncated -or $Tree.stats.err -or $Tree.stats.cyc -or
+      $Tree.stats.valErr -or $Tree.stats.depthLimited -or $AllowedHeadings -cnotcontains $Heading) {
+    & $incomplete 'Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.'
+  }
+  $links = @($Tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.aid -clike '*.GuideViewer.*' })
+  $edits = @($links | Where-Object { $_.name -cmatch '^»(.*)« bearbeiten\z' } | ForEach-Object {
+    [pscustomobject]@{ node=$_; label=($_.name -creplace '^»(.*)« bearbeiten\z', '$1') }
+  })
+  $deletes = @($links | Where-Object { $_.name -cmatch '^»(.*)« löschen\z' } | ForEach-Object {
+    [pscustomobject]@{ node=$_; label=($_.name -creplace '^»(.*)« löschen\z', '$1') }
+  })
+  if (@($links | Where-Object { $_.name -cmatch '^».*« erfassen\z' -or
+      (([string]$_.name).StartsWith('»') -and $_.name -match '[\r\n\u2028\u2029]') }).Count -or
+      @($edits + $deletes | Where-Object { -not $_.label -or -not $_.node.on }).Count) {
+    & $incomplete 'Die Uebersicht enthaelt eine unvollstaendige oder nicht lesbare Position; kein vollstaendiges Inventar.'
+  }
+  $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $deleteNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($row in $edits) {
+    if (-not $names.Add([string]$row.label)) { & $incomplete 'Positionsnamen oder Zeilenaktionen sind nicht eindeutig und vollstaendig zugeordnet.' }
+  }
+  foreach ($row in $deletes) {
+    if (-not $deleteNames.Add([string]$row.label) -or -not $names.Contains([string]$row.label)) {
+      & $incomplete 'Positionsnamen oder Zeilenaktionen sind nicht eindeutig und vollstaendig zugeordnet.'
+    }
+  }
+  $rows = @($edits | ForEach-Object {
+    $row = $_
+    $amounts = @($Tree.nodes | Where-Object {
+      $_.type -eq 'Text' -and $_.on -and $_.aid -clike '*.GuideViewer.*' -and
+      [Math]::Abs($_.y - $row.node.y) -lt 10 -and $_.name -match '^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}\z'
+    })
+    if ($amounts.Count -ne 1) { & $incomplete 'Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.' }
+    [pscustomobject]@{ name=[string]$row.label; net=[string]$amounts[0].name }
+  })
+  $empty = @($Tree.nodes | Where-Object { $_.type -eq 'Text' -and $_.on -and
+    $_.aid -clike '*.GuideViewer.*' -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
+  $caption = $(if ($rows.Count) { 'Weitere Position erfassen' } else { 'Position erfassen' })
+  $commands = @($links | Where-Object { $_.on -and $_.name -cin @('Position erfassen','Weitere Position erfassen') })
+  if ($empty.Count -ne $(if ($rows.Count) {0} else {1}) -or $commands.Count -ne 1 -or $commands[0].name -cne $caption) {
+    & $incomplete 'Positionsinventar und Erfassungsbefehl sind nicht vollstaendig geladen und eindeutig gebunden.'
+  }
+  [pscustomobject]@{ tree=$Tree; rows=@($rows); createCaption=$caption }
+}
+
 function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallback) {
   # Hat der Aufrufer den Baum ohnehin gelesen, bleibt das Ergebnis wie bisher.
   # In Engine 31 bindet derselbe Lauf zusaetzlich den Ueberschriftenknoten:
@@ -17281,36 +17336,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     function Read-PositionOverview {
       $tree = Walk-Tree $hwnd -WithValues
-      if ($tree.stats.truncated -or $tree.stats.err -or $tree.stats.cyc -or $tree.stats.valErr -or
-          $tree.stats.depthLimited -or (Get-CurrentHeading $hwnd $tree) -ne 'Erlöse Lieferungen/Leistungen') {
-        throw 'Vollstaendige Einnahmen-Uebersicht wird erwartet.'
-      }
-      $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.on -and
-        $_.aid -like '*.GuideViewer.*' -and $_.name -match '^»(.+)« bearbeiten$' })
-      $rows = @($buttons | ForEach-Object {
-        $button = $_
-        $amount = @($tree.nodes | Where-Object {
-          $_.type -eq 'Text' -and $_.on -and $_.aid -like '*.GuideViewer.*' -and
-          [Math]::Abs($_.y - $button.y) -lt 10 -and $_.name -match '^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$'
-        })
-        if ($amount.Count -ne 1) { throw 'Positionssumme fehlt oder ist mehrdeutig.' }
-        [pscustomobject]@{ name=($button.name -replace '^»|« bearbeiten$', ''); net=[string]$amount[0].name }
-      })
-      if (@($rows | Group-Object name | Where-Object Count -ne 1).Count) { throw 'Doppelte Positionen in der Uebersicht.' }
-      # Die erste Position hat einen anderen Befehl als eine weitere. Eine
-      # fruehe Ueberschrift ohne HTML-Inhalt darf dabei kein leeres Inventar
-      # vortaeuschen: Leermeldung und genau ein sichtbarer GuideViewer-Befehl
-      # muessen dieselbe vollstaendige Uebersicht belegen.
-      $empty = @($tree.nodes | Where-Object { $_.type -eq 'Text' -and $_.on -and
-        $_.aid -like '*.GuideViewer.*' -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
-      $caption = $(if ($rows.Count) { 'Weitere Position erfassen' } else { 'Position erfassen' })
-      $commands = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.on -and
-        $_.aid -like '*.GuideViewer.*' -and $_.name -in @('Position erfassen','Weitere Position erfassen') })
-      if (($rows.Count -eq 0 -and $empty.Count -ne 1) -or ($rows.Count -gt 0 -and $empty.Count -ne 0) -or
-          $commands.Count -ne 1 -or [string]$commands[0].name -cne $caption) {
-        throw 'Positionsinventar und Erfassungsbefehl sind nicht vollstaendig und eindeutig gebunden.'
-      }
-      [pscustomobject]@{ tree=$tree; rows=@($rows); createCaption=$caption }
+      Read-SSEPositionInventory $tree (Get-CurrentHeading $hwnd $tree) @('Erlöse Lieferungen/Leistungen')
     }
     function Assert-PositionRows($Actual, $ExpectedRows) {
       if (@($Actual).Count -ne @($ExpectedRows).Count) { throw 'Anzahl der Positionen stimmt nicht.' }
@@ -17425,15 +17451,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($was -ne 'list') { Fail "Unbekannte aktion '$was' (erlaubt: list)" 'bad-args' }
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $t = Walk-Tree $hwnd -WithValues
-    # Auf der Uebersichtsseite steht je Position eine Zeile mit Summe und dem
-    # Verweis "»X« bearbeiten". Diese Abfrage ist rein lesend.
-    $namen = @($t.nodes | Where-Object { $_.name -match '^»(.+)« bearbeiten$' } |
-               ForEach-Object { ($_.name -replace '^»', '') -replace '« bearbeiten$', '' } | Select-Object -Unique)
+    try { $inventory = Read-SSEPositionInventory $t (Get-CurrentHeading $hwnd $t) }
+    catch {
+      if ($_.Exception.Data['kind'] -ne 'position-inventory-incomplete') { throw }
+      Fail $_.Exception.Message 'position-inventory-incomplete'
+    }
+    $namen = @($inventory.rows | ForEach-Object { [string]$_.name })
     Emit ([pscustomobject]@{
       ok = $true; positionen = $namen; anzahl = $namen.Count
       hinweis = $(if (-not $namen.Count) {
-        "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. " +
-        "'Betriebsausgaben: Eigene Positionen') navigieren."
+        'Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.'
       } else { $null })
     })
   }

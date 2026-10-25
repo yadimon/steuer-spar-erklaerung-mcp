@@ -4,6 +4,7 @@ import type { WorkerResult } from "./api-contract.js";
 import { resolvePageObjectDefinition, type ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { readPositionInventory } from "./position-inventory.js";
 
 const byPosition = (a: QtSnapshotNode, b: QtSnapshotNode) => a.y - b.y || a.x - b.x;
 // PowerShell's [int] conversion uses midpoint-to-even rounding, including negative coordinates.
@@ -18,7 +19,7 @@ function contentBounds(nodes: QtSnapshotNode[], rect: { x: number; w: number }) 
     .sort((a, b) => a.x - b.x)[0];
   return { minX, maxX: help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79), winX: rect.x, winW: rect.w, navErkannt: !!nav };
 }
-function heading(nodes: QtSnapshotNode[], profile?: ProductProfile): string | null {
+function heading(nodes: QtSnapshotNode[], profile?: ProductProfile, visibleOnly = false): string | null {
   const parsed = z.object({ headingContainerAutomationIdSuffix: z.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
   if (!parsed.success) throw new QtNativeTransportError("Page catalogue has no heading container selector.", "invalid-catalog");
   const containers = nodes.filter(node => node.aid.endsWith(parsed.data.headingContainerAutomationIdSuffix));
@@ -28,7 +29,7 @@ function heading(nodes: QtSnapshotNode[], profile?: ProductProfile): string | nu
   for (const node of nodes) {
     if (descendants.has(node.p)) {
       descendants.add(node.i);
-      if (node.type === "Text") texts.push(node);
+      if (node.type === "Text" && (!visibleOnly || (node.w > 0 && node.h > 0))) texts.push(node);
     }
   }
   return texts.sort(byPosition)[0]?.name ?? null;
@@ -223,7 +224,7 @@ export async function executeQtNativeSubpages(
 
 /** Read the catalogue overview's visible position links without a worker. */
 export async function executeQtNativePositions(
-  client: QtNativeClient, args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal,
+  client: QtNativeClient, args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal, profile?: ProductProfile,
 ): Promise<WorkerResult> {
   const action = args.aktion === undefined ? "list" : String(args.aktion);
   if (action !== "list") {
@@ -234,18 +235,16 @@ export async function executeQtNativePositions(
   }
   const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, timeoutMs, signal);
   if (!result.windowEnabled || result.modalBlocked) return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-  if (result.stats.truncated) return fail("native-incomplete", "The current native tree exceeds the native read bound.");
-  const positionen = [...new Set(result.nodes.flatMap(node => {
-    const match = /^»(.+)« bearbeiten$/u.exec(node.name);
-    return match?.[1] ? [match[1]] : [];
-  }))];
+  const inventory = readPositionInventory(result.nodes, result.stats, heading(result.nodes, profile, true));
+  if (!inventory.ok) return fail("position-inventory-incomplete", inventory.error);
+  const positionen = inventory.rows.map(row => row.name);
   return {
     ok: true,
     backend: "qt",
     positionen,
     anzahl: positionen.length,
     hinweis: positionen.length ? null
-      : "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. 'Betriebsausgaben: Eigene Positionen') navigieren.",
+      : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
     nativeDurationMs: result.nativeDurationMs,
   };
 }

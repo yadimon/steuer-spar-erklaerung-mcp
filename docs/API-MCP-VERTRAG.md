@@ -73,6 +73,22 @@ Fehlerantwort die bereits ausgeführte Antwort und meldet
 `newDialogsComplete=false`. Das erlaubt keine Wiederholung der Antwort;
 zuerst den aktuellen eigenen Fensterzustand prüfen.
 
+`positions` bestätigt einen leeren Bestand nur auf einer vollständig gelesenen
+Positionenübersicht „Erlöse Lieferungen/Leistungen“ oder „Betriebsausgaben:
+Eigene Positionen“. Überschrift, sichtbare Zeilenaktionen, eindeutige Namen,
+zugeordnete Beträge und Erfassungsbefehl müssen zusammenpassen. Eine noch nicht
+aufgebaute Seite oder ein unvollständiger Eintrag mit „»…« erfassen“ liefert
+`position-inventory-incomplete`. Das gilt auch für einen Löschverweis ohne
+passenden Bearbeiten-Verweis und doppelte Namen. Ein abgeschlossener roher
+Baumdurchlauf allein beweist keine fachliche Seitenbereitschaft.
+
+Dieselbe Bestandsprüfung schützt `position_create` vor dem ersten Klick.
+Ein vorhandener Teilbestand wird nicht durch eine weitere Anlage verdeckt.
+Nach einem tatsächlich begonnenen, unterbrochenen Schreibschritt bleiben
+`mutationStarted` und `cleanupRequired` maßgeblich: zuerst den eigenen Zustand
+frisch prüfen und gezielt entscheiden, wie der Teilstand behandelt wird.
+Das Werkzeug ergänzt oder löscht keine Position automatisch.
+
 Die normativen Laufzeitquellen sind:
 
 - `GET /v1/operations` und `GET /v1/operations/{operation}` für

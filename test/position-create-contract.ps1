@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'))
 $tokens = $null; $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors)
-foreach ($name in @('Read-PositionOverview','Assert-PositionRows','Read-NewPosition','Invoke-PositionButton',
+foreach ($name in @('Read-SSEPositionInventory','Read-PositionOverview','Assert-PositionRows','Read-NewPosition','Invoke-PositionButton',
   'Set-SSECursorPoint','Assert-SSECursorPoint')) {
   $functions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
   if ($functions.Count -ne 1) { throw "Funktionsvertrag fehlt: $name" }
@@ -23,6 +23,7 @@ $hwnd = [IntPtr]1
 $heading = 'Erl' + [char]246 + 'se Lieferungen/Leistungen'
 $tree = @{ stats=@{ truncated=$false; err=0 }; nodes=@(
   @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Link'; name=([string][char]187 + 'Example' + [char]171 + ' bearbeiten'); y=300 },
+  @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Delete'; name=([string][char]187 + 'Example' + [char]171 + ' l' + [char]246 + 'schen'); y=300 },
   @{ type='Text'; on=$true; aid='SSE.GuideViewer.Amount'; name='100,00'; y=300 },
   @{ type='Custom'; on=$true; aid='SSE.GuideViewer.Amount'; name='100,00'; y=300 },
   @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Create'; name='Weitere Position erfassen'; y=400 }
@@ -32,6 +33,74 @@ if ($overview.createCaption -cne 'Weitere Position erfassen') { throw 'Gefuellte
 Assert-PositionRows $overview.rows @(@{ name='Example'; net='100,00' })
 Must-Fail { Assert-PositionRows $overview.rows @(@{ name='Example'; net='99,00' }) }
 Must-Fail { Assert-PositionRows $overview.rows @() }
+$namedNodes=@($tree.nodes)
+$tree.nodes+=@(
+  @{type='Hyperlink';on=$true;aid='SSE.GuideViewer.Draft';name=([string][char]187+'Synthetic draft'+[char]171+' erfassen');y=350},
+  @{type='Text';on=$true;aid='SSE.GuideViewer.DraftAmount';name='0,00';y=350}
+)
+$draftError='Die Uebersicht enthaelt eine unvollstaendige oder nicht lesbare Position; kein vollstaendiges Inventar.'
+try { Read-PositionOverview | Out-Null; throw 'Teilbestand wurde akzeptiert.' } catch {
+  if($_.Exception.Message -cne $draftError){throw}
+}
+$partialNodes=@($tree.nodes)
+$operationSwitches=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.SwitchStatementAst]},$true))
+$positionClauses=@($operationSwitches | ForEach-Object {$_.Clauses} | Where-Object {$_.Item1.Extent.Text -ceq "'positions'"})
+if($positionClauses.Count -ne 1){throw 'Positionslese ist nicht eindeutig auffindbar.'}
+$positionBody=$positionClauses[0].Item2.Extent.Text
+$positionRead=[scriptblock]::Create($positionBody.Substring(1,$positionBody.Length-2))
+function Invoke-FixturePositionRead {
+  $state=[pscustomobject]@{result=$null};$sentinel=[OperationCanceledException]::new('Synthetic terminal Emit.')
+  $a=[pscustomobject]@{aktion='list'}
+  function Arg($Object,$Key,$Default=$null){if($Object.PSObject.Properties[$Key]){$Object.$Key}else{$Default}}
+  function Resolve-SSEMainWindowDescriptor {[pscustomobject]@{hwnd=1}}
+  function Emit($Result){$state.result=$Result;throw $sentinel}
+  function Fail($Message,$Kind){Emit ([pscustomobject]@{ok=$false;kind=$Kind;error=$Message})}
+  try{& $positionRead;throw 'Positionslese lieferte kein terminales Ergebnis.'}catch{if(-not[object]::ReferenceEquals($_.Exception,$sentinel)){throw}}
+  $state.result
+}
+$partialResult=Invoke-FixturePositionRead
+if($partialResult.ok -or $partialResult.kind -cne 'position-inventory-incomplete' -or $partialResult.error -cne $draftError){
+  throw 'Tatsaechlicher Positionszweig verschweigt den generischen Teilbestand.'
+}
+foreach($validHeading in @($heading,('Betriebsausgaben: Eigene Positionen'))){
+  $heading=$validHeading;$tree.nodes=$namedNodes
+  $listed=Invoke-FixturePositionRead
+  if(-not $listed.ok -or @($listed.positionen).Count -ne 1 -or $listed.positionen[0] -cne 'Example' -or
+     $listed.anzahl -ne 1 -or $null -ne $listed.hinweis){throw 'Tatsaechlicher Positionszweig liest den gueltigen Bestand nicht vollstaendig.'}
+}
+$heading='Erl'+[char]246+'se Lieferungen/Leistungen'
+$tree.nodes=@(
+  @{type='Text';on=$true;aid='SSE.GuideViewer.Empty';name='Sie haben noch keine Angaben erfasst'},
+  @{type='Hyperlink';on=$true;aid='SSE.GuideViewer.Create';name='Position erfassen'}
+)
+$listed=Invoke-FixturePositionRead
+if(-not $listed.ok -or @($listed.positionen).Count -ne 0 -or $listed.anzahl -ne 0 -or
+   $listed.hinweis -cne 'Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.'){
+  throw 'Tatsaechlicher Positionszweig belegt den Leerbestand nicht.'
+}
+$tree.nodes=$partialNodes
+$createClauses=@($operationSwitches | ForEach-Object {$_.Clauses} | Where-Object {$_.Item1.Extent.Text -ceq "'position_create'"})
+if($createClauses.Count -ne 1){throw 'Positionsanlage ist nicht eindeutig auffindbar.'}
+$createTries=@($createClauses[0].Item2.FindAll({param($node)
+  $node -is [Management.Automation.Language.TryStatementAst] -and
+  @($node.CatchClauses | Where-Object {$_.Body.Extent.Text.Contains("kind='position-create-incomplete'")}).Count -eq 1
+},$true))
+if($createTries.Count -ne 1){throw 'Tatsaechlicher Transaktionskoerper fehlt.'}
+$createBody=[scriptblock]::Create($createTries[0].Extent.Text)
+& {
+  $state=[pscustomobject]@{result=$null;actions=0};$sentinel=[OperationCanceledException]::new('Synthetic terminal Emit.')
+  $started=$false;$beforePositions=@();$afterPositions=@();$name='Must not be created'
+  $expected=@([pscustomobject]@{name='Example';net='100,00'})
+  function Invoke-PositionButton {$state.actions++;throw 'Unexpected mutation attempt.'}
+  function Emit($Result){$state.result=$Result;throw $sentinel}
+  try{& $createBody;throw 'Transaktion lieferte kein terminales Ergebnis.'}catch{if(-not[object]::ReferenceEquals($_.Exception,$sentinel)){throw}}
+  if($state.actions -ne 0 -or $state.result.ok -or $state.result.kind -cne 'position-create-incomplete' -or
+     $state.result.mutationStarted -or $state.result.cleanupRequired -or $state.result.rollback.attempted -or
+     $state.result.error -cne $draftError){
+    throw 'Ein versteckter Teilbestand erreichte die Mutation oder veraenderte den Fehlervertrag.'
+  }
+}
+$tree.nodes=$namedNodes
 $tree.stats.truncated = $true
 Must-Fail { Read-PositionOverview }
 $tree.stats.truncated = $false

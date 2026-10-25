@@ -29601,6 +29601,51 @@ var init_qt_native_snapshot = __esm({
   }
 });
 
+// src/position-inventory.ts
+function readPositionInventory(nodes, stats, heading2, allowedHeadings = POSITION_OVERVIEW_HEADINGS) {
+  const fail12 = (error62) => ({ ok: false, error: error62 });
+  if (!stats || stats.truncated || stats.err || stats.cyc || stats.valErr || stats.depthLimited || heading2 === null || !allowedHeadings.includes(heading2)) {
+    return fail12("Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.");
+  }
+  const links = nodes.filter((node2) => node2.type === "Hyperlink" && node2.aid.includes(".GuideViewer."));
+  const edits = links.flatMap((node2) => {
+    const match = /^»(.*)« bearbeiten$/u.exec(node2.name);
+    return match ? [{ node: node2, label: match[1] }] : [];
+  });
+  const deletes = links.flatMap((node2) => {
+    const match = /^»(.*)« löschen$/u.exec(node2.name);
+    return match ? [{ node: node2, label: match[1] }] : [];
+  });
+  if (links.some((node2) => /^».*« erfassen$/u.test(node2.name) || node2.name.startsWith("»") && /[\r\n\u2028\u2029]/u.test(node2.name)) || edits.some((row) => !row.label || !row.node.on) || deletes.some((row) => !row.label || !row.node.on)) {
+    return fail12("Die Uebersicht enthaelt eine unvollstaendige oder nicht lesbare Position; kein vollstaendiges Inventar.");
+  }
+  const names = new Set(edits.map((row) => row.label));
+  const deleteNames = new Set(deletes.map((row) => row.label));
+  if (names.size !== edits.length || deleteNames.size !== deletes.length || deletes.some((row) => !names.has(row.label))) {
+    return fail12("Positionsnamen oder Zeilenaktionen sind nicht eindeutig und vollstaendig zugeordnet.");
+  }
+  const rows = [];
+  for (const row of edits) {
+    const amounts = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.aid.includes(".GuideViewer.") && Math.abs(node2.y - row.node.y) < 10 && /^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}$/u.test(node2.name));
+    if (amounts.length !== 1) return fail12("Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.");
+    rows.push({ name: row.label, net: amounts[0].name });
+  }
+  const empty = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.aid.includes(".GuideViewer.") && node2.name === "Sie haben noch keine Angaben erfasst");
+  const createCaption = rows.length ? "Weitere Position erfassen" : "Position erfassen";
+  const commands = links.filter((node2) => node2.on && ["Position erfassen", "Weitere Position erfassen"].includes(node2.name));
+  if (empty.length !== (rows.length ? 0 : 1) || commands.length !== 1 || commands[0].name !== createCaption) {
+    return fail12("Positionsinventar und Erfassungsbefehl sind nicht vollstaendig geladen und eindeutig gebunden.");
+  }
+  return { ok: true, rows, createCaption };
+}
+var POSITION_OVERVIEW_HEADINGS;
+var init_position_inventory = __esm({
+  "src/position-inventory.ts"() {
+    "use strict";
+    POSITION_OVERVIEW_HEADINGS = ["Erlöse Lieferungen/Leistungen", "Betriebsausgaben: Eigene Positionen"];
+  }
+});
+
 // src/qt-native-pages.ts
 import { createHash as createHash12 } from "node:crypto";
 function roundEven(value) {
@@ -29613,7 +29658,7 @@ function contentBounds(nodes, rect2) {
   const help = nodes.filter((node2) => ["eingabehilfe", "steuertipps"].includes(node2.name.toLowerCase()) && node2.x > minX).sort((a, b) => a.x - b.x)[0];
   return { minX, maxX: help ? help.x - 10 : roundEven(rect2.x + rect2.w * 0.79), winX: rect2.x, winW: rect2.w, navErkannt: !!nav };
 }
-function heading(nodes, profile) {
+function heading(nodes, profile, visibleOnly = false) {
   const parsed = external_exports.object({ headingContainerAutomationIdSuffix: external_exports.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
   if (!parsed.success) throw new QtNativeTransportError("Page catalogue has no heading container selector.", "invalid-catalog");
   const containers = nodes.filter((node2) => node2.aid.endsWith(parsed.data.headingContainerAutomationIdSuffix));
@@ -29623,7 +29668,7 @@ function heading(nodes, profile) {
   for (const node2 of nodes) {
     if (descendants.has(node2.p)) {
       descendants.add(node2.i);
-      if (node2.type === "Text") texts.push(node2);
+      if (node2.type === "Text" && (!visibleOnly || node2.w > 0 && node2.h > 0)) texts.push(node2);
     }
   }
   return texts.sort(byPosition)[0]?.name ?? null;
@@ -29794,7 +29839,7 @@ async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
     hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad."
   };
 }
-async function executeQtNativePositions(client, args, timeoutMs, signal) {
+async function executeQtNativePositions(client, args, timeoutMs, signal, profile) {
   const action = args.aktion === void 0 ? "list" : String(args.aktion);
   if (action !== "list") {
     if (action === "add" || action === "delete") {
@@ -29804,17 +29849,15 @@ async function executeQtNativePositions(client, args, timeoutMs, signal) {
   }
   const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, timeoutMs, signal);
   if (!result.windowEnabled || result.modalBlocked) return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-  if (result.stats.truncated) return fail4("native-incomplete", "The current native tree exceeds the native read bound.");
-  const positionen = [...new Set(result.nodes.flatMap((node2) => {
-    const match = /^»(.+)« bearbeiten$/u.exec(node2.name);
-    return match?.[1] ? [match[1]] : [];
-  }))];
+  const inventory = readPositionInventory(result.nodes, result.stats, heading(result.nodes, profile, true));
+  if (!inventory.ok) return fail4("position-inventory-incomplete", inventory.error);
+  const positionen = inventory.rows.map((row) => row.name);
   return {
     ok: true,
     backend: "qt",
     positionen,
     anzahl: positionen.length,
-    hinweis: positionen.length ? null : "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. 'Betriebsausgaben: Eigene Positionen') navigieren.",
+    hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
     nativeDurationMs: result.nativeDurationMs
   };
 }
@@ -29826,6 +29869,7 @@ var init_qt_native_pages = __esm({
     init_product_profiles();
     init_qt_native_client();
     init_qt_native_snapshot();
+    init_position_inventory();
     byPosition = (a, b) => a.y - b.y || a.x - b.x;
     fail4 = (kind, error62) => ({ ok: false, backend: "qt", kind, error: error62 });
   }

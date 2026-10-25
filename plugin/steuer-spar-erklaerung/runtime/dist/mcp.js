@@ -43740,12 +43740,12 @@ function registerDesktopTools(registry2) {
     "sse_positions",
     {
       title: "Positionen auflisten",
-      description: "Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen. Eine neue Einnahmenposition mit 19 % wird separat ueber sse_position_create angelegt. Das Loeschen ganzer Positionen bleibt gesperrt."
+      description: "Listet Positionen auf der vollstaendig gelesenen Uebersicht 'Erloese Lieferungen/Leistungen' oder 'Betriebsausgaben: Eigene Positionen'. Unvollstaendige, unbenannte oder mehrdeutige Zeilen sowie ein noch fehlender Seiteninhalt liefern position-inventory-incomplete statt eines scheinbar leeren Bestands. Dann den Zustand frisch lesen und die betroffene Position gezielt in SSE pruefen. Eine neue Einnahmenposition mit 19 % wird separat ueber sse_position_create angelegt. Das Loeschen ganzer Positionen bleibt gesperrt."
     }
   );
   registerApiTool("sse_position_create", {
     title: "Einnahmenposition anlegen",
-    description: "Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an. Bindet Fenster, Falldatei, Hash, bytegleiche Sicherung sowie alle vorhandenen Namen und Nettosummen. Prueft danach Name, leere Tabelle und unveraenderte Altpositionen. Speichert nicht. Bei einem Fehler nach Beginn bleiben Teilstand und cleanupRequired sichtbar; keine blinde Wiederholung und kein automatisches Loeschen einer moeglicherweise bearbeiteten Position."
+    description: "Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an. Bindet Fenster, Falldatei, Hash, bytegleiche Sicherung sowie alle vorhandenen Namen und Nettosummen. Ein vorhandener unvollstaendiger Teilbestand sperrt die Anlage vor dem ersten Klick. Prueft danach Name, leere Tabelle und unveraenderte Altpositionen. Speichert nicht. Bei einem Fehler nach Beginn bleiben Teilstand und cleanupRequired sichtbar; keine blinde Wiederholung und kein automatisches Loeschen einer moeglicherweise bearbeiteten Position."
   });
   registerApiTool(
     "sse_export_csv",
