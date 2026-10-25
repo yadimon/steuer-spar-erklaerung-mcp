@@ -420,6 +420,26 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   ungültige Handles, Wait-Fehler und unbekannte Rückgabewerte bleiben
   fail-closed. PID-Wiederverwendung kann dadurch weder Erfolg noch den
   Fortbestand eines anderen Prozesses vortäuschen.
+  Nach einer regulären Schließanforderung wird das Kernel-Signal in kurzen
+  Abschnitten beobachtet. Ein neuer Dialog derselben PID liefert früh
+  `dialog-open` mit `closeRequested=true` und Fingerprint; er wird ohne
+  ausdrückliches Verwerfen nicht beantwortet. Scheitert die zusätzliche
+  Dialoglese, bleibt ihr Fehlertyp sichtbar und nur das Kernel-Signal kann
+  ein Ende belegen. Force-/Hängerpfade führen diese Dialoglese nicht aus.
+- Interne MSAA-Proben für Dialoge und verifizierte Schaltflächen lesen über
+  das gebundene Fensterobjekt. Eine überdeckende Anwendung darf ihre Texte
+  nicht in die Zielbeschreibung einschleusen. Die ausdrücklich angeforderte
+  globale Accessibility-Diagnose behält ihren separaten Punktlesevertrag.
+  Kompakte MSAA-Raster stoppen nach dem ersten Lesefehler oder ihrem
+  Startbudget für weitere Proben. Bereits erkannte Schalter bleiben als
+  Diagnose erhalten; nur ein vollständiger Leseweg erzeugt den
+  Antwort-Fingerprint. Eine einzelne blockierende Providerabfrage bleibt
+  zusätzlich durch das äußere Workerbudget begrenzt.
+  Neue Folgefenster werden vor jeder tiefen Lese an dieselbe PID und ein
+  noch aktuelles HWND gebunden. Verschwundene Nebenfenster vergiften den
+  Schließ-Readback nicht. Ein unlesbarer eigener Folgezustand wird nach
+  einer ausgeführten Antwort ausdrücklich gemeldet und nicht als fehlende
+  Dialoge ausgegeben.
 - Operationsargumente liegen in einer exklusiven, auf 8 MiB begrenzten
   UTF-8-Tempdatei. Dadurch gelten weder Windows' Kommandozeilenlimit noch
   Base64-Steuerwerte in der Prozessliste; die Node-Brücke entfernt die Datei

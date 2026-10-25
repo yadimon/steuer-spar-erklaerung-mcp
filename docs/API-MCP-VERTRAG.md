@@ -52,6 +52,27 @@ API-Prozess verwenden; bei einem ausdrücklichen Neustart muss die Antwort
 von der gerade gestarteten PID stammen. Ein Scheitern der Startprüfung
 startet keine weitere API und beendet keinen fremden Prozess.
 
+Beim regulären `close` bleibt die Endeprüfung an den verifizierten
+Prozesshandle gebunden. Ein nach dem Schließbefehl erscheinender eigener
+Dialog liefert `dialog-open`, `closeRequested=true`, `stillRunning=true`
+und dessen Fingerprint. Der Befehl wurde bereits gesendet; zuerst
+`sse_dialog_list` frisch lesen und die Frage ausdrücklich mit
+`sse_dialog_answer` beantworten. Ohne ausdrückliches Verwerfen beantwortet
+`close` keine neue Rückfrage. Der normale Wartepfad beendet den Prozess
+nicht hart. Ein Fehler der zusätzlichen Dialoglese wird ausschließlich als
+Typ unter `dialogInspectionError` mit der Ursache unter
+`dialogInspectionKind` gemeldet; ein leeres Dialogfeld beweist
+in diesem Fall keine vollständig gelesene Dialogfreiheit.
+Bereits erkannte Dialoge bleiben auch bei einer fehlerhaften Punktlese
+sichtbar. Unvollständige Punktinventare erhalten keinen Antwort-Fingerprint;
+die Frage muss zuerst vollständig neu gelesen werden. Bekannt nicht
+antwortende Fenster werden im Schließpfad nicht tief abgefragt.
+Nach einer Dialogantwort werden nur neue Fenster der gebundenen Instanz
+tief gelesen. Ist deren Zustand nicht vollständig lesbar, nennt die
+Fehlerantwort die bereits ausgeführte Antwort und meldet
+`newDialogsComplete=false`. Das erlaubt keine Wiederholung der Antwort;
+zuerst den aktuellen eigenen Fensterzustand prüfen.
+
 Die normativen Laufzeitquellen sind:
 
 - `GET /v1/operations` und `GET /v1/operations/{operation}` für

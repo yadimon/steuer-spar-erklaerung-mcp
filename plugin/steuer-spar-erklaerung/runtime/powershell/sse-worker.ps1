@@ -3189,7 +3189,11 @@ function Click-VerifiedPoint(
       ([pscustomobject]@{ obstruction=$obstruction })
   }
   if ($Node.source -eq 'msaa-point') {
-    $fresh = [SSEAccessible]::DescribePointBasic($px, $py)
+    try { $fresh = [SSEAccessible]::DescribeDocumentHit([int64]$Window, $px, $py) }
+    catch {
+      Hide-SSETopmost $Window
+      & $pointFailure 'Gebundene MSAA-Schaltflaeche konnte nicht frisch gelesen werden. NICHT geklickt.' 'stale'
+    }
     if (-not $fresh -or [int]$fresh.Role -ne 43 -or [string]$fresh.Name -ne [string]$Node.name) {
       Hide-SSETopmost $Window
       & $pointFailure "MSAA-Schaltflaeche '$($Node.name)' ist unmittelbar vor dem Klick nicht mehr identisch. NICHT geklickt." 'stale'
@@ -3337,6 +3341,7 @@ function Test-SSERecoveryPromptWindowCandidate($Dialog) {
 }
 
 function Test-SSERecoveryPromptDescriptor($Dialog) {
+  if (($Dialog.msaaError -or $Dialog.uiaError) -and -not $Dialog.msaaReadOk) { return $false }
   if (-not (Test-SSERecoveryPromptWindowCandidate $Dialog) -or [string]$Dialog.kind -cne 'qt-dialog') {
     return $false
   }
@@ -3372,6 +3377,7 @@ function Test-SSERecoveryPromptDescriptor($Dialog) {
 # meldet die API nur einen namenlosen Qt-Dialog, und der Aufrufer muesste den
 # deutschen Fliesstext auswerten, um zu verstehen, warum der Start haengt.
 function Test-SSEUpdatePromptDescriptor($Dialog) {
+  if (($Dialog.msaaError -or $Dialog.uiaError) -and -not $Dialog.msaaReadOk) { return $false }
   if ([string]$Dialog.kind -cne 'qt-dialog') { return $false }
   if ([string]$Dialog.title -cne 'Online Update') { return $false }
   # 'Weiter' ist kein unterstuetzter Schalter und landet deshalb in
@@ -3458,7 +3464,8 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
       )) {
         $px = [int]($Window.x + $Window.w * $relative.x)
         $py = [int]($Window.y + $Window.h * $relative.y)
-        $item = [SSEAccessible]::DescribePointBasic($px, $py)
+        try { $item = [SSEAccessible]::DescribeDocumentHit([int64]$Window.hwnd, $px, $py) }
+        catch { $msaaError = $_.Exception.GetType().FullName; break }
         if ($item -and $item.Role -eq 43 -and $item.Name -in $script:DIALOG_BUTTONS -and
             $item.W -gt 0 -and $item.H -gt 0 -and
             $px -ge $item.X -and $py -ge $item.Y -and $px -lt ($item.X + $item.W) -and $py -lt ($item.Y + $item.H)) {
@@ -3479,12 +3486,15 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
         })
         $msaaReadOk = $true; $skipUia = $true; $kind = 'qt-dialog'
       }
-    } catch { $msaaError = $_.Exception.Message }
+    } catch { $msaaError = $_.Exception.GetType().FullName }
   }
   if ($kind -notin @('main','tips','known-nonmodal','shadow')) {
     if (-not $skipUia) {
       try {
         $tree = Walk-Tree ([IntPtr][int64]$Window.hwnd) 1200 12
+        if (-not $tree -or -not $tree.stats -or $tree.stats.truncated -or $tree.stats.err -or $tree.stats.cyc -or $tree.stats.depthLimited) {
+          throw [InvalidOperationException]::new('Dialogbaum konnte nicht vollstaendig gelesen werden.')
+        }
         $uiaReadOk = $true
         $observedButtonNames = @($tree.nodes | Where-Object {
           $_.name -and $_.type -in @('Button','Pane')
@@ -3512,11 +3522,17 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
       try {
         $acc = New-Object System.Collections.ArrayList
         $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+        $pointReadFailed = $false; $msaaError = $null
+        $pointTimer = [Diagnostics.Stopwatch]::StartNew()
         $stepX = [Math]::Max(18, [int]($Window.w / 24))
         $stepY = [Math]::Max(18, [int]($Window.h / 18))
-        for ($px = $Window.x + 8; $px -lt ($Window.x + $Window.w - 7); $px += $stepX) {
+        :dialogPointRaster for ($px = $Window.x + 8; $px -lt ($Window.x + $Window.w - 7); $px += $stepX) {
           for ($py = $Window.y + 8; $py -lt ($Window.y + $Window.h - 7); $py += $stepY) {
-            $item = [SSEAccessible]::DescribePointBasic([int]$px, [int]$py)
+            if ($pointTimer.ElapsedMilliseconds -ge 2000) {
+              $pointReadFailed = $true; $msaaError = 'System.TimeoutException'; break dialogPointRaster
+            }
+            try { $item = [SSEAccessible]::DescribeDocumentHit([int64]$Window.hwnd, [int]$px, [int]$py) }
+            catch { $pointReadFailed = $true; $msaaError = $_.Exception.GetType().FullName; break dialogPointRaster }
             if (-not $item) { continue }
             $key = "$($item.Role)|$($item.X)|$($item.Y)|$($item.W)|$($item.H)|$($item.Name)|$($item.Value)"
             if ($seen.Add($key)) { $null = $acc.Add($item) }
@@ -3535,14 +3551,14 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
         } | ForEach-Object { ($_.Name -replace '\s+', ' ').Trim() }) | Select-Object -Unique)
         $texts = @($acc | Where-Object { $_.Role -eq 41 -and $_.Name } |
           ForEach-Object { ($_.Name -replace '\s+', ' ').Trim() } | Where-Object { $_ } | Select-Object -Unique)
-        $msaaReadOk = $true
-      } catch { $msaaError = $_.Exception.Message }
+        $msaaReadOk = (-not $pointReadFailed)
+      } catch { $msaaReadOk = $false; $msaaError = $_.Exception.GetType().FullName }
     }
     $unsupportedButtons = @($observedButtonNames | Where-Object { $_ -notin $script:DIALOG_BUTTONS } | Select-Object -Unique)
     if ($kind -eq 'other' -and ($buttons.Count -or $unsupportedButtons.Count)) { $kind = 'qt-dialog' }
   }
   $fingerprint = $null
-  if ($kind -in @('native-dialog','qt-dialog')) {
+  if ($kind -in @('native-dialog','qt-dialog') -and (-not ($msaaError -or $uiaError) -or $msaaReadOk)) {
     $fingerprint = Get-SSEDialogFingerprint $Window.title $buttons $unsupportedButtons $texts
   }
   $descriptor = [pscustomobject]@{
@@ -3559,16 +3575,59 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   $descriptor
 }
 
-function Get-DialogInventory([int]$TargetPid = 0) {
+function Get-DialogInventory([int]$TargetPid = 0, [switch]$RejectHung) {
   $windows = @(Get-Windows 'SSE')
   if ($TargetPid) { $windows = @($windows | Where-Object { [int]$_.pid -eq $TargetPid }) }
   if (-not $windows.Count) { return @() }
+  if ($RejectHung -and @($windows | Where-Object { $_.hung }).Count) {
+    $failure = [InvalidOperationException]::new('Ein eigenes Fenster reagiert nicht; keine tiefe Dialoglese ausgefuehrt.')
+    $failure.Data['kind'] = 'hung'
+    throw $failure
+  }
   # Der gemeinsame Hauptfensterresolver erkennt auch minimierte Fallfenster,
   # deren Ersatzgeometrie bei -32000 sonst wie ein kompakter Qt-Dialog wirkt.
   # Die 518x260-Recovery-Frage mit Produkt-/Jahrestitel bleibt dagegen bewusst draussen.
   $main = @(Get-SSEMainWindowCandidates $windows | Select-Object -First 1)
   $mainHwnd = $(if ($main.Count) { [IntPtr][int64]$main[0].hwnd } else { [IntPtr]::Zero })
   @($windows | ForEach-Object { Get-DialogDescriptor $_ $mainHwnd })
+}
+
+function Test-SSEDialogWindowCurrent($Window, [int]$TargetPid) {
+  if (-not $Window -or $TargetPid -le 0 -or [int]$Window.pid -ne $TargetPid -or [int64]$Window.hwnd -le 0) { return $false }
+  $handle = [IntPtr][int64]$Window.hwnd
+  if (-not [SW]::IsWindow($handle)) { return $false }
+  $windowPid = [uint32]0
+  [SW]::GetWindowThreadProcessId($handle, [ref]$windowPid) | Out-Null
+  [bool]($windowPid -eq $TargetPid)
+}
+
+function Get-SSEDialogFollowupInventory($Windows, $BeforeHandles, [int]$TargetPid, [IntPtr]$MainHwnd) {
+  $current = @($Windows | Where-Object {
+    [int]$_.pid -eq $TargetPid -and -not $BeforeHandles.ContainsKey([int64]$_.hwnd) -and
+    (Test-SSEDialogWindowCurrent $_ $TargetPid)
+  })
+  $unreadable = New-Object System.Collections.ArrayList
+  $dialogs = New-Object System.Collections.ArrayList
+  $hung = @($current | Where-Object { $_.hung })
+  if ($hung.Count) {
+    return [pscustomobject]@{ complete=$false; dialogs=@(); unreadableWindows=@($hung) }
+  }
+  foreach ($window in $current) {
+    $described = Get-DialogDescriptor $window $MainHwnd
+    if (-not (Test-SSEDialogWindowCurrent $window $TargetPid)) { continue }
+    $isDialog = $described.kind -in @('native-dialog','qt-dialog')
+    if (((($described.msaaError -or $described.uiaError) -and -not $described.msaaReadOk)) -or ($isDialog -and -not [string]$described.fingerprint)) {
+      $null=$unreadable.Add($window)
+    }
+    if ($isDialog) {
+      $null=$dialogs.Add([pscustomobject]@{
+        hwnd=$described.hwnd; pid=$described.pid; cls=$described.cls; title=$described.title; kind=$described.kind
+        buttons=$described.buttons; texts=$described.texts; fingerprint=$described.fingerprint
+        uiaReadOk=$described.uiaReadOk; uiaError=$described.uiaError; msaaReadOk=$described.msaaReadOk; msaaError=$described.msaaError
+      })
+    }
+  }
+  [pscustomobject]@{ complete=($unreadable.Count -eq 0); dialogs=@($dialogs); unreadableWindows=@($unreadable) }
 }
 
 function Get-SSEDeepestLastActivePopup([IntPtr]$Hwnd) {
@@ -3780,6 +3839,9 @@ function Test-SSEDismissibleAuxiliaryDescriptor($Descriptor) {
 
 function Invoke-DialogButtonInfo($Dialog, $ButtonInfo) {
   if (-not $Dialog -or -not $ButtonInfo) { throw 'Dialog oder Schaltflaeche fehlt.' }
+  if (-not [string]$Dialog.fingerprint -or (($Dialog.msaaError -or $Dialog.uiaError) -and -not $Dialog.msaaReadOk)) {
+    throw 'Dialogbeschreibung ist nicht vollstaendig mit Fingerprint gelesen; NICHT beantwortet.'
+  }
   if (-not $ButtonInfo.enabled) { throw "Dialogschaltflaeche '$($ButtonInfo.name)' ist deaktiviert." }
   if ($ButtonInfo.source -eq 'msaa-point') {
     $null = Click-VerifiedPoint ([IntPtr][int64]$Dialog.hwnd) $ButtonInfo
@@ -9681,6 +9743,46 @@ function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$Pro
   }
 }
 
+# Beobachtet nach genau einer Schliessanforderung Ende oder eigenen Dialog.
+# Nur das Kernel-Signal belegt ein Ende; ein Inventarfehler bleibt erkennbar.
+function Wait-SSECloseOutcome([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle,
+    [int]$TargetPid, [int]$TimeoutMs) {
+  if ($TargetPid -le 0) { throw [ArgumentOutOfRangeException]::new('TargetPid') }
+  $timer = [Diagnostics.Stopwatch]::StartNew()
+  $inspectionError = $null
+  $hungError = $null
+  do {
+    $remaining = [int][Math]::Max(0, $TimeoutMs - $timer.ElapsedMilliseconds)
+    if (-not (Wait-SSEProcessExit $ProcessHandle ([Math]::Min(250, $remaining)))) {
+      return [pscustomobject]@{ stillRunning=$false; dialogs=@(); inspectionError=$inspectionError; inspectionKind=$(if ($inspectionError) {'unreadable'} else {$null}) }
+    }
+    if ($timer.ElapsedMilliseconds -ge $TimeoutMs) {
+      return [pscustomobject]@{ stillRunning=$true; dialogs=@(); inspectionError=$(if ($inspectionError) {$inspectionError} else {$hungError}); inspectionKind=$(if ($inspectionError) {'unreadable'} elseif ($hungError) {'hung'} else {$null}) }
+    }
+    if ($null -eq $inspectionError) {
+      $dialogs = @()
+      try {
+        $inventory = @(Get-DialogInventory $TargetPid -RejectHung | Where-Object { Test-SSEDialogWindowCurrent $_ $TargetPid })
+        $hungError = $null
+        if (@($inventory | Where-Object { $_.kind -eq 'other' -and ($_.uiaError -or $_.msaaError) -and -not $_.msaaReadOk }).Count) {
+          throw [InvalidOperationException]::new('Ein eigenes Nebenfenster konnte nicht sicher als dialogfrei gelesen werden.')
+        }
+        $dialogs = @($inventory | Where-Object {
+          [int]$_.pid -eq $TargetPid -and $_.kind -in @('native-dialog','qt-dialog')
+        })
+      } catch {
+        if ($_.Exception.Data['kind'] -eq 'hung') { $hungError = $_.Exception.GetType().FullName }
+        else { $inspectionError = $_.Exception.GetType().FullName }
+        $dialogs = @()
+      }
+      if (-not (Wait-SSEProcessExit $ProcessHandle 0)) {
+        return [pscustomobject]@{ stillRunning=$false; dialogs=@(); inspectionError=$inspectionError; inspectionKind=$(if ($inspectionError) {'unreadable'} else {$null}) }
+      }
+      if ($dialogs.Count) { return [pscustomobject]@{ stillRunning=$true; dialogs=@($dialogs); inspectionError=$null; inspectionKind=$null } }
+    }
+  } while ($true)
+}
+
 function Test-SSEPointInRect([int]$X, [int]$Y, [int]$Left, [int]$Top, [int]$Width, [int]$Height) {
   $X -ge $Left -and $X -lt ($Left + $Width) -and $Y -ge $Top -and $Y -lt ($Top + $Height)
 }
@@ -12084,6 +12186,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       [int]$_.pid -eq [int]$targetWindows[0].pid
     } | Select-Object -First 1)
     $mainBeforeHwnd = $(if ($mainBeforeWindow.Count) { [IntPtr][int64]$mainBeforeWindow[0].hwnd } else { [IntPtr]::Zero })
+    if (-not (Test-SSEDialogWindowCurrent $targetWindows[0] ([int]$targetWindows[0].pid))) {
+      Fail 'Dialogfenster ist nicht mehr an die gelesene SSE-Instanz gebunden; NICHT beantwortet.' 'stale'
+    }
+    if ($targetWindows[0].hung) { Fail 'Das gebundene Dialogfenster reagiert nicht; keine tiefe Lese oder Antwort ausgefuehrt.' 'hung' }
     $dialog = Get-DialogDescriptor $targetWindows[0] $mainBeforeHwnd
     if ($dialog.kind -notin @('native-dialog','qt-dialog')) { Fail "Fensterart '$($dialog.kind)' ist kein beantwortbarer Dialog." 'blocked' }
     if ($dialog.fingerprint -ne $fingerprint) {
@@ -12255,22 +12361,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $closed = -not [SW]::IsWindow([IntPtr][int64]$dialog.hwnd)
     $windowsAfter = @(Get-Windows 'SSE')
-    $newWindows = @($windowsAfter | Where-Object { -not $beforeHandles.ContainsKey([int64]$_.hwnd) })
     $mainAfterWindow = @($windowsAfter | Where-Object {
       [int64]$_.hwnd -eq [int64]$mainBeforeHwnd -and [int]$_.pid -eq [int]$dialog.pid
     } | Select-Object -First 1)
-    $newDialogs = @($newWindows | ForEach-Object {
-      $described = Get-DialogDescriptor $_ $mainBeforeHwnd
-      if ($described.kind -in @('native-dialog','qt-dialog')) {
-        [pscustomobject]@{
-          hwnd = $described.hwnd; pid = $described.pid; cls = $described.cls; title = $described.title; kind = $described.kind
-          buttons = $described.buttons; texts = $described.texts; fingerprint = $described.fingerprint
-          uiaReadOk = $described.uiaReadOk; uiaError = $described.uiaError; msaaReadOk = $described.msaaReadOk; msaaError = $described.msaaError
-        }
-      }
-    })
-    $dirtyAfter = $(if ($mainAfterWindow.Count) { Get-DirtyStateFast $mainBeforeHwnd } else { $null })
-    $dirtyIntroduced = $(if ($null -ne $dirtyBefore -and $null -ne $dirtyAfter) { -not [bool]$dirtyBefore -and [bool]$dirtyAfter } else { $null })
     $recoveryBindingModeAfter = $null
     $recoveryHashAfter = $null
     if ($isRecoveryPrompt) {
@@ -12303,10 +12396,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $recoveryBindingModeAfter = [string]$recoveryBindingAfter.mode
       }
     }
+    $followups = Get-SSEDialogFollowupInventory $windowsAfter $beforeHandles ([int]$dialog.pid) $mainBeforeHwnd
+    $newDialogs = @($followups.dialogs)
+    if (-not $followups.complete) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='dialog-unreadable'; answered=$buttonName; method=$method; hwnd=[int64]$dialog.hwnd; closed=[bool]$closed
+        error='Antwort ausgefuehrt, aber eigene Folgefenster sind nicht vollstaendig lesbar; keine Wiederholung. Zustand frisch pruefen.'
+        newDialogs=$newDialogs; newDialogsComplete=$false
+        caseHashUnchanged=$(if ($isRecoveryPrompt -and -not $recoveryFileLess) { [bool]($recoveryHashAfter -eq $expectedCaseHash) } else {$null})
+        caseBindingModeAfter=$recoveryBindingModeAfter; recoveryDiscarded=[bool]$isRecoveryPrompt
+        unreadableWindows=@($followups.unreadableWindows | ForEach-Object { [pscustomobject]@{hwnd=$_.hwnd;pid=$_.pid;cls=$_.cls;title=$_.title;hung=[bool]$_.hung} })
+      })
+    }
+    $dirtyAfter = $(if ($mainAfterWindow.Count -and -not $mainAfterWindow[0].hung) { Get-DirtyStateFast $mainBeforeHwnd } else { $null })
+    $dirtyIntroduced = $(if ($null -ne $dirtyBefore -and $null -ne $dirtyAfter) { -not [bool]$dirtyBefore -and [bool]$dirtyAfter } else { $null })
     $allowsChildDialog = $expectsExportFolder
     if (-not $closed -and -not ($allowsChildDialog -and $newDialogs.Count -eq 1)) {
-      $currentWindow = @($windowsAfter | Where-Object { [int64]$_.hwnd -eq [int64]$dialog.hwnd } | Select-Object -First 1)
+      $currentWindow = @($windowsAfter | Where-Object {
+        [int64]$_.hwnd -eq [int64]$dialog.hwnd -and -not $_.hung -and (Test-SSEDialogWindowCurrent $_ ([int]$dialog.pid))
+      } | Select-Object -First 1)
       $current = $(if ($currentWindow.Count) { Get-DialogDescriptor $currentWindow[0] $mainBeforeHwnd } else { $null })
+      if ($current -and -not (Test-SSEDialogWindowCurrent $currentWindow[0] ([int]$dialog.pid))) { $current = $null }
       Emit ([pscustomobject]@{
         ok = $false; kind = 'postcondition-failed'; error = 'Dialog blieb nach der Antwort offen; keine Wiederholung.'
         button = $buttonName; method = $method; dialog = $current; newDialogs = $newDialogs
@@ -15408,9 +15518,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   }
 
   'close' {
-    # Beendet das Programm und beantwortet dabei die Speichern-Rueckfrage.
-    # save=false ist die Vorgabe: bei Untersuchungen soll nichts ungewollt
-    # in die Steuerdatei geschrieben werden.
+    # Genau eine gebundene Schliessanforderung. Ohne ausdrueckliches Verwerfen
+    # bleiben neue Rueckfragen offen und werden mit Fingerprint gemeldet.
     $force  = ((Arg $a 'force') -eq $true)
     $save   = ((Arg $a 'save') -eq $true)
     $discard = ((Arg $a 'discardChanges') -eq $true)
@@ -15490,7 +15599,20 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     if (-not $force -and -not $hung -and $wins.Count) {
       if (-not $mainWindow.Count) { Fail 'Eindeutiges SSE-Hauptfenster fehlt; nichts geschlossen.' 'ownership' }
-      $openDialogs = @(Get-DialogInventory | Where-Object { [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog') })
+      try { $closeInventory = @(Get-DialogInventory $targetPid -RejectHung | Where-Object { Test-SSEDialogWindowCurrent $_ $targetPid }) }
+      catch {
+        Emit ([pscustomobject]@{
+          ok=$false; kind=$(if ($_.Exception.Data['kind'] -eq 'hung') {'hung'} else {'state-unknown'}); pid=$targetPid; closeRequested=$false
+          error='Fensterzustand vor dem Schliessen nicht sicher lesbar; NICHT geschlossen.'; dialogInspectionError=$_.Exception.GetType().FullName
+        })
+      }
+      if (@($closeInventory | Where-Object { $_.kind -eq 'other' -and ($_.uiaError -or $_.msaaError) -and -not $_.msaaReadOk }).Count) {
+        Emit ([pscustomobject]@{
+          ok=$false; kind='state-unknown'; pid=$targetPid
+          error='Ein eigenes Nebenfenster konnte nicht sicher gelesen werden; vor dem Schliessen mit sse_dialog_list pruefen. NICHT geschlossen.'
+        })
+      }
+      $openDialogs = @($closeInventory | Where-Object { [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog') })
       if ($openDialogs.Count) {
         Emit ([pscustomobject]@{
           ok = $false; kind = 'dialog-open'; error = 'Vor dem Schliessen ist bereits ein Dialog offen; zuerst mit sse_dialog_list/sse_dialog_answer bearbeiten.'
@@ -15568,7 +15690,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Sekunden spaeter regulaer weg war - ein Fehlschlag, den es nicht gab.
     # Force und Haenger senden oben keinen regulären Schliessbefehl. Dort
     # gibt es keinen ausstehenden Exit, auf den gewartet werden koennte.
-    $still = Wait-SSEProcessExit $targetProcessHandle $(if ($force -or $hung) { 0 } else { 20000 })
+    $closeOutcome = $null
+    if ($force -or $hung) {
+      $still = Wait-SSEProcessExit $targetProcessHandle 0
+    } else {
+      $closeOutcome = Wait-SSECloseOutcome $targetProcessHandle $targetPid 20000
+      if ($closeOutcome.dialogs.Count) {
+        Emit ([pscustomobject]@{
+          ok=$false; kind='dialog-open'; closeRequested=$true; pid=$targetPid; stillRunning=$true; killed=$false
+          speichernAntwort=$antwort; discardChanges=$discard
+          error='Nach dem Schliessbefehl ist ein neuer Dialog offen; mit sse_dialog_list frisch lesen und mit sse_dialog_answer ausdruecklich bearbeiten.'
+          dialogs=@($closeOutcome.dialogs | ForEach-Object { [pscustomobject]@{ hwnd=$_.hwnd; title=$_.title; kind=$_.kind; buttons=$_.buttons; texts=$_.texts; fingerprint=$_.fingerprint } })
+        })
+      }
+      $still = $closeOutcome.stillRunning
+    }
     $killed = $false
     if ($still -and ($force -or $hung) -and $discard) {
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
@@ -15582,6 +15718,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       error = $(if ($laeuftNoch) { 'Programm laeuft nach dem Schliessversuch noch; Dialogzustand mit sse_ui_state pruefen.' } else { $null })
       speichernAntwort = $antwort; sollteSpeichern = $save
       discardChanges = $discard; pid = $targetPid
+      dialogInspectionError = $(if ($closeOutcome) { $closeOutcome.inspectionError } else { $null })
+      dialogInspectionKind = $(if ($closeOutcome) { $closeOutcome.inspectionKind } else { $null })
       note = $(if ($laeuftNoch) { 'Laeuft noch - vermutlich steht ein Dialog offen. sse_ui_state ansehen.' }
                elseif ($killed) { 'Exakt gebundener SSE-Prozess wurde ohne Speichern hart beendet.' }
                elseif ($antwort) { "Rueckfrage mit '$antwort' beantwortet." }

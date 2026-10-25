@@ -1,7 +1,7 @@
-# Der schnelle MSAA-Punktpfad darf nur die Felder abfragen, welche die drei
-# internen Sicherheitsproben wirklich auswerten. Der oeffentliche Diagnosepfad
-# behaelt dagegen die vollstaendige Projektion inklusive der vier teureren
-# COM-Eigenschaften.
+# Interne MSAA-Proben bleiben am Ziel-HWND gebunden: eine globale Punktabfrage
+# koennte Werte eines ueberdeckenden Fensters lesen. Der ausdrueckliche
+# Diagnosepfad behaelt seine volle globale Punktprojektion; die alte native
+# Basic-Signatur bleibt kompatibel und ohne teure Extended-Getter.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
@@ -43,16 +43,23 @@ $dialogText = Get-FunctionText $workerAst 'Get-DialogDescriptor'
 $diagnosticText = Get-FunctionText $workerAst 'Get-AccessibilityProbeData'
 $workerText = [IO.File]::ReadAllText($workerPath)
 
-Assert-True ((Get-CallCount $clickText 'DescribePointBasic') -eq 1 -and
+Assert-True ((Get-CallCount $clickText 'DescribeDocumentHit') -eq 1 -and
+  (Get-CallCount $clickText 'DescribePointBasic') -eq 0 -and
   (Get-CallCount $clickText 'DescribePoint') -eq 0) `
-  'Die verifizierte Klickprobe nutzt nicht exakt einmal den Basic-Punktpfad.'
-Assert-True ((Get-CallCount $dialogText 'DescribePointBasic') -eq 2 -and
+  'Die verifizierte Klickprobe nutzt nicht exakt einmal den gebundenen MSAA-Hit-Pfad.'
+Assert-True ($clickText.Contains('[SSEAccessible]::DescribeDocumentHit([int64]$Window, $px, $py)')) `
+  'Die Klickprobe verliert das gebundene Ziel-HWND.'
+Assert-True ((Get-CallCount $dialogText 'DescribeDocumentHit') -eq 2 -and
+  (Get-CallCount $dialogText 'DescribePointBasic') -eq 0 -and
   (Get-CallCount $dialogText 'DescribePoint') -eq 0) `
-  'CSV-Fastprobe und kompakter Dialograster nutzen nicht exakt den Basic-Punktpfad.'
+  'CSV-Fastprobe und kompakter Dialograster nutzen nicht exakt den gebundenen MSAA-Hit-Pfad.'
+Assert-True ([regex]::Matches($dialogText, '\[SSEAccessible\]::DescribeDocumentHit\(\[int64\]\$Window\.hwnd,').Count -eq 2) `
+  'Eine Dialogprobe verliert ihr gebundenes Ziel-HWND.'
 Assert-True ((Get-CallCount $diagnosticText 'DescribePoint') -eq 1 -and
   (Get-CallCount $diagnosticText 'DescribePointBasic') -eq 0) `
   'Der Accessibility-Diagnosepfad behaelt nicht exakt eine volle Punktabfrage.'
-Assert-True ((Get-CallCount $workerText 'DescribePointBasic') -eq 3 -and
+Assert-True ((Get-CallCount $workerText 'DescribePointBasic') -eq 0 -and
+  (Get-CallCount $workerText 'DescribeDocumentHit') -eq 3 -and
   (Get-CallCount $workerText 'DescribePoint') -eq 1) `
   'Ausserhalb des geprueften Katalogs existieren weitere oder fehlende MSAA-Punktabfragen.'
 
@@ -121,4 +128,108 @@ foreach ($method in @($fullMethods[0], $basicMethods[0])) {
     $parameters[0].ParameterType -eq [int] -and $parameters[1].ParameterType -eq [int]) `
     "Native Punktmethode $($method.Name) verlor Rueckgabetyp oder int/int-Signatur."
 }
-Write-Output 'OK: DescribePointBasic bleibt call-site-, form- und surface-sicher.'
+# Nur die statische Lesedependenz wird ersetzt; der Descriptor-Koerper bleibt
+# exakt der geparsten Produktionsfunktion entnommen. Keine Produkt-Fixture.
+Add-Type @'
+using System;
+public class SseDialogPointFixtureNode {
+ public string Name="",Value=""; public int Role=43,State=0,X,Y,W=2,H=2;
+}
+public static class SseDialogPointFixture {
+ public static int Calls,Mode; public static long LastWindow;
+ public static SseDialogPointFixtureNode DescribeDocumentHit(long hwnd,int x,int y) {
+  Calls++;LastWindow=hwnd;
+  if(Mode==3)System.Threading.Thread.Sleep(2100);
+  if(Mode==1 || (Mode==0 && Calls==2))throw new InvalidOperationException("Synthetic point read failure.");
+  if(Mode==0 && Calls>2)return null;
+  return new SseDialogPointFixtureNode {Name=Mode==2?(Calls==1?"Klicken Sie hier, um Ihre Daten zu exportieren":"Schlie\u00DFen"):"Nein",X=Mode==4?0:x-1,Y=Mode==4?0:y-1,W=Mode==4?180:2,H=Mode==4?120:2};
+ }
+}
+'@
+$script:DIALOG_BUTTONS=@('Ja','Nein','Abbrechen','Klicken Sie hier, um Ihre Daten zu exportieren',('Schlie'+[char]0x00DF+'en'))
+function Resolve-SSEClosableNonmodalWindowPolicy { $null }
+function Walk-Tree { [pscustomobject]@{nodes=@();stats=[pscustomobject]@{}} }
+function ConvertTo-SSEDialogButtonName($Name) { $Name }
+function Get-SSEDialogFingerprint { 'SYNTHETIC-FINGERPRINT' }
+function Test-SSERecoveryPromptDescriptor { $false }
+function Test-SSEUpdatePromptDescriptor { $false }
+Invoke-Expression ($dialogText.Replace('[SSEAccessible]::','[SseDialogPointFixture]::'))
+$window=[pscustomobject]@{hwnd=77;pid=7;cls='QtSynthetic';title='Synthetic question';titleFingerprint='synthetic';x=0;y=0;w=180;h=120;minimiert=$false;hung=$false}
+[SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=0
+$partial=Get-DialogDescriptor $window ([IntPtr]111)
+Assert-True ($partial.kind -ceq 'qt-dialog' -and $partial.buttons.Count -eq 1) 'Ein einzelner defekter Punkt verwarf bereits erkannte Dialogschalter.'
+Assert-True (-not $partial.msaaReadOk -and $partial.msaaError -and $null -eq $partial.fingerprint) 'Teilweise gelesener Dialog erhielt einen verwendbaren Antwortfingerprint.'
+Assert-True ([SseDialogPointFixture]::Calls -eq 2 -and [SseDialogPointFixture]::LastWindow -eq 77) 'Fehlerhafter Raster wurde weiter abgefragt oder verlor das Ziel-HWND.'
+[SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=3
+$slow=Get-DialogDescriptor $window ([IntPtr]111)
+Assert-True ([SseDialogPointFixture]::Calls -eq 1 -and $slow.msaaError -ceq 'System.TimeoutException' -and -not $slow.msaaReadOk -and $null -eq $slow.fingerprint) 'Langsame Punktlese startete nach dem Rasterbudget eine weitere Probe oder erfand Vollstaendigkeit.'
+# Die Fixture-Namen bleiben an den tatsaechlichen Snapshot-Produzenten gebunden.
+$walkText=Get-FunctionText $workerAst 'Walk-Tree'
+$snapshotText=Get-FunctionText $workerAst 'Get-UiSnapshot'
+Assert-True ($walkText.Contains('Get-UiSnapshot $hwnd')) 'Walk-Tree delegiert nicht mehr an den geprueften Snapshot-Produzenten.'
+Assert-True ($snapshotText -match 'err=\$native.WalkErrors; cyc=\$native.CycleHits' -and
+  $snapshotText -match 'truncated=\$native.Truncated; depthLimited=\[bool\]\$native.DepthLimited') 'Snapshot-Statistik verlor die tatsaechlichen Fehler-/Vollstaendigkeitsfelder.'
+$buttonNodes=@([pscustomobject]@{name='Nein';type='Button';on=$true;rid='synthetic'})
+$invalidTrees=@(
+  [pscustomobject]@{name='missing-tree';tree=$null},
+  [pscustomobject]@{name='missing-stats';tree=[pscustomobject]@{nodes=$buttonNodes}},
+  [pscustomobject]@{name='truncated';tree=[pscustomobject]@{nodes=$buttonNodes;stats=[pscustomobject]@{truncated=$true;err=0;cyc=0;depthLimited=$false}}},
+  [pscustomobject]@{name='error';tree=[pscustomobject]@{nodes=$buttonNodes;stats=[pscustomobject]@{truncated=$false;err=1;cyc=0;depthLimited=$false}}},
+  [pscustomobject]@{name='cycle';tree=[pscustomobject]@{nodes=$buttonNodes;stats=[pscustomobject]@{truncated=$false;err=0;cyc=1;depthLimited=$false}}},
+  [pscustomobject]@{name='depth';tree=[pscustomobject]@{nodes=$buttonNodes;stats=[pscustomobject]@{truncated=$false;err=0;cyc=0;depthLimited=$true}}}
+)
+foreach($invalidTree in $invalidTrees) {
+  & {
+    function Walk-Tree { $invalidTree.tree }
+    [SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=1
+    $incomplete=Get-DialogDescriptor $window ([IntPtr]111)
+    Assert-True (-not $incomplete.uiaReadOk -and $incomplete.uiaError -and $null -eq $incomplete.fingerprint) "Unvollstaendiger UIA-Baum ($($invalidTree.name)) erhielt einen Antwortfingerprint."
+    [SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=4
+    $recovered=Get-DialogDescriptor $window ([IntPtr]111)
+    Assert-True (-not $recovered.uiaReadOk -and $recovered.uiaError -and $recovered.msaaReadOk -and $recovered.fingerprint -ceq 'SYNTHETIC-FINGERPRINT') "Vollstaendiges MSAA-Inventar nach UIA-Fehler ($($invalidTree.name)) wurde verworfen."
+  }
+}
+$window.title='Export f'+[char]0x00FC+'r das Finanzamt (*.csv)';$window.w=600;$window.h=400
+[SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=1
+$unreadable=Get-DialogDescriptor $window ([IntPtr]111)
+Assert-True (-not $unreadable.msaaReadOk -and $unreadable.msaaError -and $null -eq $unreadable.fingerprint) 'Defekte CSV-Probe erfand ein bestaetigbares Inventar.'
+[SseDialogPointFixture]::Calls=0;[SseDialogPointFixture]::Mode=2
+$csv=Get-DialogDescriptor $window ([IntPtr]111)
+Assert-True ($csv.kind -ceq 'qt-dialog' -and $csv.msaaReadOk -and $csv.buttons.Count -eq 2 -and $csv.fingerprint -ceq 'SYNTHETIC-FINGERPRINT') 'Vollstaendige CSV-Fastprobe verlor ihren gueltigen Readback.'
+Assert-True ([SseDialogPointFixture]::Calls -eq 2) 'Vollstaendige CSV-Fastprobe fiel unnoetig in einen tiefen Raster zurueck.'
+$inventoryText=Get-FunctionText $workerAst 'Get-DialogInventory'
+Invoke-Expression $inventoryText
+Invoke-Expression (Get-FunctionText $workerAst 'Invoke-DialogButtonInfo')
+& {
+  $clicks=New-Object Collections.ArrayList
+  function Click-VerifiedPoint($Window,$Button) { $null=$clicks.Add([int64]$Window) }
+  $button=[pscustomobject]@{enabled=$true;source='msaa-point';name='Nein'}
+  $dialog=[pscustomobject]@{hwnd=77;fingerprint=$null;msaaError='Synthetic.Type';msaaReadOk=$false;uiaError=$null}
+  $caught=$null
+  try {$null=Invoke-DialogButtonInfo $dialog $button} catch {$caught=$_}
+  Assert-True ($caught -and $clicks.Count -eq 0) 'Interne Antwort auf unvollstaendigen Dialog erreichte einen Klick.'
+  $dialog.fingerprint='synthetic-fingerprint';$caught=$null
+  try {$null=Invoke-DialogButtonInfo $dialog $button} catch {$caught=$_}
+  Assert-True ($caught -and $clicks.Count -eq 0) 'Vorhandener Fingerprint ueberstimmte einen unvollstaendigen Readback.'
+  $dialog.msaaError=$null;$dialog.fingerprint=$null;$caught=$null
+  try {$null=Invoke-DialogButtonInfo $dialog $button} catch {$caught=$_}
+  Assert-True ($caught -and $clicks.Count -eq 0) 'Interne Antwort ohne Fingerprint wurde erlaubt.'
+  $dialog.fingerprint='synthetic-fingerprint'
+  Assert-True ((Invoke-DialogButtonInfo $dialog $button) -ceq 'msaa-verified-point' -and $clicks.Count -eq 1 -and $clicks[0] -eq 77) 'Vollstaendige gebundene interne Antwort wurde gesperrt oder umgebunden.'
+}
+& {
+  $reads=New-Object Collections.ArrayList
+  function Get-Windows { @([pscustomobject]@{pid=8;hwnd=88;hung=$true},[pscustomobject]@{pid=7;hwnd=77;hung=$false}) }
+  function Get-SSEMainWindowCandidates { @() }
+  function Get-DialogDescriptor($Window,$MainHwnd) { $null=$reads.Add($Window.pid);[pscustomobject]@{pid=$Window.pid;kind='main'} }
+  $bound=@(Get-DialogInventory 7 -RejectHung)
+  Assert-True ($bound.Count -eq 1 -and $reads.Count -eq 1 -and $reads[0] -eq 7) 'Fremder haengender Peer wurde tief gelesen oder blockierte das gebundene Inventar.'
+}
+& {
+  function Get-Windows { @([pscustomobject]@{pid=7;hwnd=77;hung=$true}) }
+  function Get-DialogDescriptor { throw 'Bekannt haengendes Fenster darf nicht tief gelesen werden.' }
+  $caught=$null
+  try { $null=@(Get-DialogInventory 7 -RejectHung) } catch { $caught=$_ }
+  Assert-True ($caught -and $caught.Exception -is [InvalidOperationException] -and $caught.Exception.Data['kind'] -ceq 'hung') 'Bekannt haengendes eigenes Fenster erreichte die tiefe Lese oder verlor seinen Fehlergrund.'
+}
+Write-Output 'OK: HWND-gebundene MSAA-Proben, unvollstaendige Dialoge, CSV-Fastprobe und native Basic-Signatur bestanden.'

@@ -52,6 +52,13 @@ function New-Dialog {
 
 # 1 Der beobachtete Dialog wird erkannt.
 Assert-Equal (Test-SSEUpdatePromptDescriptor (New-Dialog)) $true 'Beobachteter Update-Dialog'
+$partialUpdate=New-Dialog
+$partialUpdate|Add-Member -NotePropertyName msaaError -NotePropertyValue 'Synthetic.Type'
+$partialUpdate|Add-Member -NotePropertyName msaaReadOk -NotePropertyValue $false
+Assert-Equal (Test-SSEUpdatePromptDescriptor $partialUpdate) $false 'Unvollstaendiger Updatedialog'
+$partialUpdate.msaaError=$null; $partialUpdate.msaaReadOk=$true
+$partialUpdate|Add-Member -NotePropertyName uiaError -NotePropertyValue 'Synthetic.Type'
+Assert-Equal (Test-SSEUpdatePromptDescriptor $partialUpdate) $true 'Vollstaendige alternative MSAA-Lese'
 
 # 2 Die Beschriftung der Kontrollkaestchen-Zeile darf die Erkennung nicht stoeren,
 #   und zusaetzliche Absaetze ebenfalls nicht.

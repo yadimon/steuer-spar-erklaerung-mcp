@@ -78,6 +78,13 @@ $recoveryText = (
 $recoveryDialog = RecoveryDialog $recoveryText
 Assert-True (Test-SSERecoveryPromptDescriptor $recoveryDialog) `
   'Die exakt live gemessene Wiederherstellungsfrage wurde nicht erkannt.'
+$partialRecovery = RecoveryDialog $recoveryText
+$partialRecovery | Add-Member -NotePropertyName msaaError -NotePropertyValue 'Synthetic.Type'
+$partialRecovery | Add-Member -NotePropertyName msaaReadOk -NotePropertyValue $false
+Assert-True (-not (Test-SSERecoveryPromptDescriptor $partialRecovery)) 'Unvollstaendige Wiederherstellungsfrage wurde als bekannte Frage markiert.'
+$partialRecovery.msaaError=$null; $partialRecovery.msaaReadOk=$true
+$partialRecovery | Add-Member -NotePropertyName uiaError -NotePropertyValue 'Synthetic.Type'
+Assert-True (Test-SSERecoveryPromptDescriptor $partialRecovery) 'Vollstaendige alternative MSAA-Lese wurde wegen eines UIA-Fehlers verworfen.'
 Assert-True (-not (Test-SSERecoveryPromptDescriptor (RecoveryDialog ($recoveryText + ' Zusatz')))) `
   'Recovery-Dialog mit driftendem Text wurde akzeptiert.'
 Assert-True (-not (Test-SSERecoveryPromptDescriptor (RecoveryDialog $recoveryText @('Ja', 'Nein', 'Abbrechen')))) `
