@@ -6,9 +6,12 @@ import { once } from "node:events";
 import { globalAgent } from "node:http";
 import {
   appendFileSync,
+  closeSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -160,6 +163,29 @@ function assertDirectoryIdentity(path, expected) {
   if (realpathSync(path).toLocaleLowerCase("en-US") !== resolve(path).toLocaleLowerCase("en-US")) {
     throw new Error("External output directory now resolves through an alias.");
   }
+}
+
+function writeArtifactIndex(artifact, entries, beforeWrite) {
+  const content = `${JSON.stringify(entries, null, 2)}\n`;
+  const descriptor = openSync(artifact.path, "wx");
+  const errors = [];
+  try {
+    artifact.identity = fstatSync(descriptor, { bigint: true });
+    beforeWrite?.(descriptor);
+    writeFileSync(descriptor, content, "utf8");
+  } catch (error) { errors.push(error); }
+  try { closeSync(descriptor); } catch (error) { errors.push(error); }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "Artifact index write and descriptor cleanup failed.");
+}
+
+function removeIncompleteArtifactIndex(outputRoot, outputIdentity, artifact) {
+  assertDirectoryIdentity(outputRoot, outputIdentity);
+  if (!artifact.identity) return;
+  const current = lstatSync(artifact.path, { bigint: true });
+  if (!current.isFile() || current.isSymbolicLink() || current.dev !== artifact.identity.dev ||
+      current.ino !== artifact.identity.ino) throw new Error("Incomplete artifact index ownership changed.");
+  rmSync(artifact.path);
 }
 
 function removeOwnedScratch(outputRoot, outputIdentity, scratchRoot) {
@@ -815,7 +841,26 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
   let lifecycleSequence = 0;
   let operationSequence = 0;
   let primaryError;
+  let primaryFailureStage;
+  let primaryErrorName;
+  const cleanupFailureStages = [];
+  let apiForcedRelease = "not-needed";
+  let mcpForcedRelease = "not-needed";
   let failureStage = "preflight";
+  const safeErrorName = error => {
+    try {
+      return error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/u.test(error.name) ? error.name : "UnknownError";
+    } catch { return "UnknownError"; }
+  };
+  const recordCleanupFailure = (error, stage, message, reportedStage = stage) => {
+    if (!primaryError) {
+      primaryFailureStage = stage;
+      primaryErrorName = safeErrorName(error);
+    }
+    primaryError = primaryError ? new AggregateError([primaryError, error], message) : error;
+    failureStage = reportedStage;
+    cleanupFailureStages.push(stage);
+  };
   let summary;
   let finalQuiescence = null;
   let lastObserverState = null;
@@ -889,18 +934,22 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
       throw error;
     }
   };
-  const stopApi = async () => {
-    if (!api) return;
-    const current = api;
-    if (failApiCloseOnce) {
-      failApiCloseOnce = false;
-      throw new Error("Injected API close failure before ownership release.");
-    }
+  const closeOwnedApi = async (current) => {
     current.lifecycle.requestShutdown();
     await current.lifecycle.closed;
     current.lifecycle.dispose();
     if (current.server.listening) throw new Error("API remained listening after shutdown.");
     api = null;
+  };
+  const stopApi = async () => {
+    if (!api) return;
+    const current = api;
+    testOnly.beforeApiClose?.();
+    if (failApiCloseOnce) {
+      failApiCloseOnce = false;
+      throw new Error("Injected API close failure before ownership release.");
+    }
+    await closeOwnedApi(current);
   };
   const startMcp = async () => {
     if (mcp) throw new Error("MCP is already running.");
@@ -957,13 +1006,7 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
       throw cleanupErrors.length ? new AggregateError([error, ...cleanupErrors], "MCP startup and cleanup failed.") : error;
     }
   };
-  const stopMcp = async () => {
-    if (!mcp) return;
-    const current = mcp;
-    if (failMcpCloseOnce) {
-      failMcpCloseOnce = false;
-      throw new Error("Injected MCP close failure before ownership release.");
-    }
+  const closeOwnedMcp = async (current) => {
     const errors = [];
     let clientClosed = false;
     try {
@@ -989,6 +1032,16 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     if (!Number.isSafeInteger(current.pid) || current.pid < 1 ||
         (current.identity ? !identityMatchedAlive : !pidExists(current.pid))) mcp = null;
     if (errors.length) throw new AggregateError(errors, "MCP close required cleanup recovery.");
+  };
+  const stopMcp = async () => {
+    if (!mcp) return;
+    const current = mcp;
+    testOnly.beforeMcpClose?.();
+    if (failMcpCloseOnce) {
+      failMcpCloseOnce = false;
+      throw new Error("Injected MCP close failure before ownership release.");
+    }
+    await closeOwnedMcp(current);
   };
   const dispatch = async (job, clientQueueWaitMs = 0) => {
     const rawRecord = job.transport === "http"
@@ -1032,6 +1085,7 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     await startApi();
     if (testOnly.failAfterApiStartOnce === true) throw new Error("Injected API workload startup failure.");
     await startMcp();
+    if (testOnly.failAfterMcpStartOnce === true) throw new Error("Injected MCP workload startup failure.");
     nextLifecycle("synthetic-cold", "started");
 
     const cold = await dispatch(nextJob("synthetic-cold", "control", 1, "http"));
@@ -1462,19 +1516,34 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     writeJson(join(outputRoot, "summary.json"), summary);
   } catch (error) {
     primaryError = error;
+    primaryFailureStage = failureStage;
+    primaryErrorName = safeErrorName(error);
   } finally {
     process.off("SIGINT", onSigint);
     process.off("SIGTERM", onSigterm);
     eventLoop.disable();
     try { await stopMcp(); } catch (error) {
-      primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and MCP cleanup failed.") : error;
-      failureStage = "mcp-cleanup";
+      recordCleanupFailure(error, "mcp-cleanup", "Load workload and MCP cleanup failed.");
+      try { await stopMcp(); } catch (retryError) {
+        recordCleanupFailure(retryError, "mcp-cleanup-retry", "MCP cleanup recovery failed.", "mcp-cleanup");
+        if (mcp) {
+          try { await closeOwnedMcp(mcp); } catch (releaseError) {
+            recordCleanupFailure(releaseError, "mcp-forced-release", "MCP final ownership release failed.", "mcp-cleanup");
+          }
+          mcpForcedRelease = mcp === null ? "released" : "failed";
+        }
+      }
     }
     try { await stopApi(); } catch (error) {
-      primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and API cleanup failed.") : error;
-      failureStage = "api-cleanup";
+      recordCleanupFailure(error, "api-cleanup", "Load workload and API cleanup failed.");
       try { await stopApi(); } catch (retryError) {
-        primaryError = new AggregateError([primaryError, retryError], "API cleanup recovery failed.");
+        recordCleanupFailure(retryError, "api-cleanup-retry", "API cleanup recovery failed.", "api-cleanup");
+        if (api) {
+          try { await closeOwnedApi(api); } catch (releaseError) {
+            recordCleanupFailure(releaseError, "api-forced-release", "API final ownership release failed.", "api-cleanup");
+          }
+          apiForcedRelease = api === null ? "released" : "failed";
+        }
       }
     }
     if (observer && !observer.stopped) {
@@ -1482,12 +1551,10 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
         await executor.waitForIdle();
         await observeOwnedQuiescence();
       } catch (error) {
-        primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and owned-process quiescence failed.") : error;
-        failureStage = "owned-quiescence";
+        recordCleanupFailure(error, "owned-quiescence", "Load workload and owned-process quiescence failed.");
       }
       try { await observer.stop(); } catch (error) {
-        primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and observer cleanup failed.") : error;
-        failureStage = "observer-cleanup";
+        recordCleanupFailure(error, "observer-cleanup", "Load workload and observer cleanup failed.");
       }
     }
     lastObserverState = compactQuiescenceSample(observer?.samples.at(-1));
@@ -1506,14 +1573,12 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
         writeJsonLines(join(outputRoot, "windows-resources.jsonl"), observer.samples);
       }
     } catch (error) {
-      primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and partial evidence persistence failed.") : error;
-      failureStage = "partial-evidence";
+      recordCleanupFailure(error, "partial-evidence", "Load workload and partial evidence persistence failed.");
     }
     try {
       removeOwnedScratch(outputRoot, outputIdentity, scratchRoot);
     } catch (error) {
-      primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and scratch cleanup failed.") : error;
-      failureStage = "scratch-cleanup";
+      recordCleanupFailure(error, "scratch-cleanup", "Load workload and scratch cleanup failed.");
     }
   }
 
@@ -1521,11 +1586,18 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     schemaVersion: API_LOAD_SCHEMA_VERSION,
     completionStatus: status,
     ...(stage ? { failureStage: stage } : {}),
+    ...(status === "failed" ? {
+      primaryFailureStage: primaryFailureStage ?? stage,
+      ...(primaryErrorName ? { primaryErrorName } : {}),
+      cleanupFailureStages: [...cleanupFailureStages],
+    } : {}),
     scratchRemoved: !existsSync(scratchRoot),
     apiOwnershipRetained: api !== null,
     apiListening: api?.server?.listening === true,
+    apiForcedRelease,
     mcpOwnershipRetained: mcp !== null,
     mcpClientActive: mcp !== null,
+    mcpForcedRelease,
     executorActive: executor.snapshot().active,
     observerStopped: observer?.stopped === true,
     ownedMcpPids,
@@ -1552,35 +1624,49 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     } catch (identityError) {
       throw new AggregateError([primaryError, identityError], "Load failed and external output ownership was lost.");
     }
+    const failureArtifact = { path: join(outputRoot, "failure-artifacts.json"), identity: null };
     try {
-      writeJson(join(outputRoot, "failure-artifacts.json"), topLevelArtifactIndex(
+      testOnly.beforeFailureArtifactIndex?.();
+      assertDirectoryIdentity(outputRoot, outputIdentity);
+      const failureIndex = topLevelArtifactIndex(
         outputRoot,
         new Set(["cleanup.json", "failure-artifacts.json", "artifacts.json"]),
-      ));
+      );
+      writeArtifactIndex(failureArtifact, failureIndex, testOnly.beforeFailureArtifactIndexWrite);
     } catch (error) {
-      primaryError = new AggregateError([primaryError, error], "Load failure and failure-artifact indexing failed.");
-      failureStage = "failure-artifact-index";
+      recordCleanupFailure(error, "failure-artifact-index", "Load failure and failure-artifact indexing failed.");
+      try { removeIncompleteArtifactIndex(outputRoot, outputIdentity, failureArtifact); } catch (cleanupError) {
+        recordCleanupFailure(cleanupError, "failure-artifact-cleanup", "Failure index cleanup was refused or failed.");
+      }
     }
-    writeJson(cleanupPath, cleanupRecord("failed", failureStage));
+    try {
+      assertDirectoryIdentity(outputRoot, outputIdentity);
+      writeJson(cleanupPath, cleanupRecord("failed", failureStage));
+    } catch (writeError) {
+      throw new AggregateError([primaryError, writeError], "Load failed and failure cleanup record could not be written.");
+    }
     throw primaryError;
   }
   assertDirectoryIdentity(outputRoot, outputIdentity);
   writeJson(cleanupPath, cleanupRecord("pending-artifact-index"));
+  const successArtifact = { path: join(outputRoot, "artifacts.json"), identity: null };
   try {
     testOnly.beforeArtifactIndex?.();
     assertDirectoryIdentity(outputRoot, outputIdentity);
-    writeJson(join(outputRoot, "artifacts.json"), filesBelow(outputRoot)
+    writeArtifactIndex(successArtifact, filesBelow(outputRoot)
       .filter((entry) => !["artifacts.json", "cleanup.json"].includes(entry.relativePath))
-      .sort((left, right) => left.relativePath.localeCompare(right.relativePath)));
+      .sort((left, right) => left.relativePath.localeCompare(right.relativePath)), testOnly.beforeArtifactIndexWrite);
     assertDirectoryIdentity(outputRoot, outputIdentity);
     replaceJson(cleanupPath, cleanupRecord("passed"));
   } catch (error) {
+    primaryFailureStage = "artifact-index";
+    primaryErrorName = safeErrorName(error);
     try {
       assertDirectoryIdentity(outputRoot, outputIdentity);
-      rmSync(join(outputRoot, "artifacts.json"), { force: true });
+      removeIncompleteArtifactIndex(outputRoot, outputIdentity, successArtifact);
       replaceJson(cleanupPath, cleanupRecord("failed", "artifact-index"));
     } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], "Artifact indexing failed after output ownership changed.");
+      throw new AggregateError([error, cleanupError], "Artifact indexing and failure-report cleanup failed.");
     }
     throw error;
   }
