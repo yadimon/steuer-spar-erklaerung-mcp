@@ -4,18 +4,34 @@ import { DEFAULT_OPERATION_TIMEOUT_MS, type WorkerResult } from "./api-contract.
 import type { ScenarioExecutor } from "./scenario.js";
 import type { QtNativeExecutorDependencies } from "./qt-native-executor.js";
 import type { PageObjectsCatalog } from "./product-profiles.js";
-import { findQtNativeTableTarget, readQtNativeCompleteTable } from "./qt-native-tables.js";
+import { findQtNativeTableTarget, findQtNativeTableTargets, readQtNativeCompleteTable } from "./qt-native-tables.js";
 import { bindingSchema, numberPolicy, publicCursorResult, rejectProof, tableCursorModelFingerprint, CursorProofFailure,
   type CursorPhase, type CompleteModel } from "./table-cursor-proofs.js";
 import { executeNativeTargetPosition } from "./table-cursor-position.js";
 import { amountEqual, bindRequestedNativeEditRoles } from "./table-cursor-edit-roles.js";
 import { TABLE_WRITE_MINIMUM_BUDGET_MS, TABLE_NATIVE_POSTCONDITION_RESERVE_MS, TABLE_TARGET_SEEK_ALLOWANCE_MS } from "./table-write-budget.js";
 
+function unprovenMutationOutcome(operation: "table_update" | "table_delete", result: WorkerResult): WorkerResult {
+  return { ...publicCursorResult(result), ok: false, verified: false,
+    mutationStarted: result.mutationStarted === true ? true : null, outcomeUnknown: true,
+    resultingState: "unknown", reconciliationRequired: true, retryable: false,
+    ...(operation === "table_delete" ? { geloescht: null, nochVorhanden: null } : {}) };
+}
+
 /** Server-private row seek before exactly one existing mutation worker. */
 export async function executeTableCursorMutation(operation: "table_update" | "table_delete", args: Record<string, unknown>,
   worker: ScenarioExecutor, dependencies: QtNativeExecutorDependencies,
   timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal, pageObjectsCatalog?: PageObjectsCatalog): Promise<WorkerResult> {
-  if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) return publicCursorResult(await worker(operation, args, timeoutMs, signal));
+  if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) {
+    const result = await worker(operation, args, timeoutMs, signal);
+    const pendingProof = result.mutationPostProof;
+    const nativePending = pendingProof !== null && typeof pendingProof === "object" && Object.hasOwn(pendingProof, "nativeVerificationPending");
+    if (operation === "table_delete" && result.ok && (result.verified !== true || nativePending)) {
+      return unprovenMutationOutcome(operation, { ...result, kind: "cursor-proof-failed", phase: "mutation-worker",
+        proofCheck: "mutation-worker-verified-readback", error: "Loeschergebnis ist ohne vollstaendigen Nachweis nicht bestaetigt." });
+    }
+    return publicCursorResult(result);
+  }
   const started = performance.now();
   const remaining = () => {
     const value = Math.floor(timeoutMs - (performance.now() - started));
@@ -50,9 +66,33 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
     const before = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
     if (Object.hasOwn(before.table, "rows") && before.table.rows !== before.rows) rejectProof("mutation-native-table-row-count");
     if (!amountEqual(before.summary, args.expectedBefore)) rejectProof("mutation-native-summary-before");
-    const matched = findQtNativeTableTarget(before, String(args.text)) ?? rejectProof("mutation-unique-native-target");
+    let matched = findQtNativeTableTarget(before, String(args.text));
+    const duplicateText = matched === null;
+    if (!matched) {
+      const candidates = findQtNativeTableTargets(before, String(args.text));
+      const callerRid = typeof args.targetRid === "string" ? args.targetRid : "";
+      if (candidates.length < 2 || !callerRid) rejectProof("mutation-unique-native-target");
+      stage = "mutation-rid-location";
+      const located = await phase("mutation-target-locate", binding, { text: args.text, targetRid: callerRid });
+      if (!located.ok) return { ...publicCursorResult(located), mutationStarted: false, retryable: false };
+      const location = z.object({ row: z.number().int().min(0).max(999), column: z.number().int().min(0).max(99),
+        targetRid: z.literal(callerRid) }).strict().parse(located.mutationTarget);
+      const eligible = candidates.filter(candidate => candidate.row === location.row && candidate.column === location.column);
+      if (eligible.length !== 1) rejectProof("mutation-rid-native-target");
+      matched = eligible[0]!;
+    }
     const fingerprint = tableCursorModelFingerprint(before);
     const columns = Array.from({ length: before.columns }, (_, column) => column).filter(column => !before.hiddenColumns.includes(column));
+    if (duplicateText) {
+      const visibleRow = (row: number) => JSON.stringify(columns.map(column => {
+        const cell = before.values[row]![column]!;
+        return [String(cell.display ?? "").replace(/[\r\n\t]/gu, " ").trim(), cell.checkState];
+      }));
+      const wantedRow = visibleRow(matched.row);
+      if (before.values.some((_, row) => row !== matched.row && !before.hiddenRows.includes(row) && visibleRow(row) === wantedRow)) {
+        rejectProof("mutation-rid-visible-row-ambiguous");
+      }
+    }
     stage = "mutation-requested-role-preflight";
     const requestedRoles = operation === "table_update"
       ? bindRequestedNativeEditRoles(before, matched.row, columns, args, binding.snapshot.navigationBinding.tableRootAid, pageObjectsCatalog) : new Map();
@@ -68,6 +108,9 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
       if (!supplied.ok) return { ...publicCursorResult(supplied), mutationStarted: false, retryable: false };
       const proof = z.object({ row: z.literal(matched.row), column: z.literal(matched.column), targetRid: z.literal(String(args.targetRid)) }).strict();
       proof.parse(supplied.mutationTarget);
+    }
+    if (duplicateText && tableCursorModelFingerprint(await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal)) !== fingerprint) {
+      rejectProof("mutation-rid-target-model");
     }
     const ping = await client.request("ping", {}, remaining(), signal);
     if (ping.result.ok !== true || ping.result.pid !== binding.pid || ping.result.hwnd !== binding.hwnd
@@ -104,9 +147,21 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
       targetRid: args.targetRid ?? proof.targetRid,
       __tableMutationBinding: { schemaVersion: 1, operation, binding, target },
     }, mutationTimeout, signal);
-    if (!result.ok) return { ...publicCursorResult(result), retryable: false };
-    if (result.verified !== true) rejectProof("mutation-worker-verified-readback");
-    const postProof = z.object({ inputEpoch: z.number().int().min(0).max(0xffff_ffff), dirty: z.boolean() }).strict().parse(result.mutationPostProof);
+    if (!result.ok) {
+      if (result.mutationStarted === false && result.outcomeUnknown !== true) return { ...publicCursorResult(result), retryable: false };
+      return unprovenMutationOutcome(operation, result);
+    }
+    const epochProof = { inputEpoch: z.number().int().min(0).max(0xffff_ffff), dirty: z.boolean() };
+    // A native delete is only pending here. Text presence cannot distinguish
+    // its removed row from a retained duplicate; the complete model below can.
+    if (operation === "table_delete") {
+      if (result.verified !== false || result.geloescht !== null || result.nochVorhanden !== null) {
+        rejectProof("mutation-worker-native-delete-pending");
+      }
+    } else if (result.verified !== true) rejectProof("mutation-worker-verified-readback");
+    const postProof = operation === "table_delete"
+      ? z.object({ ...epochProof, nativeVerificationPending: z.literal(true) }).strict().parse(result.mutationPostProof)
+      : z.object(epochProof).strict().parse(result.mutationPostProof);
     stage = "mutation-native-postcondition";
     const after = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
     if (Object.hasOwn(before.table, "rows") !== Object.hasOwn(after.table, "rows")
@@ -158,12 +213,13 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
       }
     }
     stage = "mutation-passive-final-checkpoint";
-    const finalBinding = { ...binding, ...postProof, snapshot: { ...binding.snapshot, navigationBinding: {
+    const finalBinding = { ...binding, inputEpoch: postProof.inputEpoch, dirty: postProof.dirty, snapshot: { ...binding.snapshot, navigationBinding: {
       ...binding.snapshot.navigationBinding, summaryValue: String(after.summary),
     } } };
     const finalCheckpoint = await phase("mutation-checkpoint", finalBinding);
     if (!finalCheckpoint.ok || finalCheckpoint.cursorCheckpoint !== true) rejectProof("mutation-final-epoch-window");
-    return { ...publicCursorResult(result), nativeTargetRowVerified: true,
+    return { ...publicCursorResult(result), verified: true,
+      ...(operation === "table_delete" ? { geloescht: true, nochVorhanden: false } : {}), nativeTargetRowVerified: true,
       nativeUntouchedRowsVerified: true, cursorSteps: cursorResult.steps, retryable: false };
   } catch (error) {
     return { ok: false, kind: "cursor-proof-failed", phase: stage,

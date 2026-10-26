@@ -213,6 +213,40 @@ Im nativen Änderungsweg benötigen `table_add`, `table_update` und
 Bindung und ihren Vorwert selbst und positionieren die gebundene Zielzeile
 direkt. Ein passiver Modell- oder Gridread erteilt keine Schreibberechtigung.
 
+Bei gleichen Zeilentexten benötigen native `table_update`- und
+`table_delete`-Aufrufe zusätzlich `targetRid` aus einer frischen sichtbaren
+Zielzelle. Eine einmalige passive Abfrage ordnet diese Runtime-ID über das
+tatsächliche GridItem der Modellzeile und -spalte zu. Danach bleiben der
+vollständige Zeilenabgleich und ein frischer Nachweis des gesamten Modells
+vor der ersten Positionierung erforderlich. Fehlende, leere oder veraltete
+IDs sowie nicht passende Koordinaten führen vor einer Aktion zum Abbruch.
+Auch vollständig gleiche sichtbare Zeilen erhalten keine Freigabe. Die
+zusätzliche Zuordnung wird nur bei mehrdeutigem Text ausgeführt.
+
+Vor der Lösch-Tastenkombination wird die aktuelle Auswahl erneut gelesen.
+Sie muss ausschließlich eindeutige Zellen der vollständig geprüften
+Modellzeile einschließlich der Zielzelle enthalten. Die frische Zielzelle,
+alle ausgewählten GridItems und die zuvor gebundene Zeile müssen auch in
+der sichtbaren Zeilenlage übereinstimmen. Auch der aktuelle Tastaturfokus muss
+zu einer bewiesenen Zelle derselben Modellzeile gehören. Meldet Qt die Tabelle
+als fokussiert, muss deren genaue Identität stimmen und genau eine frisch
+gelesene Zelle der geprüften Zeile den Tastaturfokus bestätigen.
+Ein fokussierter Editor bleibt gesperrt, auch wenn die zugehörige Datenzelle
+zusätzlich einen Fokushinweis meldet. Der native Pfad verwendet den bereits
+geprüften Tabellenfokus und klickt die ausgewählte Zelle nicht erneut an.
+Ein verlorener Nachweis erlaubt keinen weiteren Klick oder Schreibversuch.
+
+Nach einem nativen Löschen beweist erst der vollständige Modellvergleich,
+dass genau die Zielzeile fehlt und alle anderen Zeilen unverändert sind.
+Ein verbliebener gleicher Zeilentext gilt deshalb nicht als fehlgeschlagenes
+Löschen und löst kein automatisches Rückgängigmachen aus. Auch Summe,
+Tabellenstruktur und abschließende Eingabe-Epoche müssen stimmen, bevor
+`verified: true` gemeldet wird. Ein fehlender Nachweis verlangt einen frischen
+Zustandsabgleich; die Löschung wird nicht automatisch wiederholt.
+Bei einer Störung nach dem Löschbefehl bleiben Löschung und Zielpräsenz
+ungewiss; `outcomeUnknown` und `reconciliationRequired` verlangen Klärung.
+Ein anderer gleicher Zeilentext wird dabei nicht als verbliebenes Ziel gemeldet.
+
 Im nichtnativen UIA-Pfad verlangt `table_update` eine bereits sichtbare
 Zielzeile und führt keinen eigenen Suchlauf aus. Ein vollständiger Gridread
 beweist die Daten, aber keine Sichtbarkeit oder Materialisierung der

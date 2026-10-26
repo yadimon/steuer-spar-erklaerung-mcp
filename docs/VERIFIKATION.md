@@ -70,6 +70,39 @@ Fensterresolvergrenze aus. `qt-native-client.mjs` prüft zusätzlich die
 framed Fake-Peer-Grenze. Diese Tests belegen weder reale Feldbedienung noch
 eine allgemeine Gleichheit der QObject-Labelauflösung mit UIA-Schreibzielen.
 
+`table-native-mutation-contract.mjs` prüft die zusätzliche passive
+Runtime-ID-Zuordnung bei gleichen Zeilentexten vor jeder Fokus- oder
+Positionsaktion: ein Zuordnungsaufruf, weiterhin beide vollständigen
+Zeilennachweise und höchstens ein Schreibaufruf. Zehn passende Modellzellen
+benötigen keine wiederholten Worker-Versuche. Gegenfälle umfassen fehlende,
+leere und falsche IDs, unzulässige Koordinaten, geänderte Modelle,
+Abbruch, vollständig gleiche sichtbare Zeilen und private Ergebnisfelder.
+Ausgeblendete, deaktivierte und Checkbox-Zellen liefern keine Zielautorität.
+Löschfälle behalten eine andere gleich benannte Zeile bei und prüfen auch
+eine falsch gelöschte Zeile, veränderte Restwerte und verlorene Endprüfungen.
+Ein vorläufiges Worker-Ergebnis darf erst nach vollständigem Modellvergleich
+als verifiziert erscheinen; interne Nachweisfelder bleiben verborgen.
+Falsche Summen und Fehler nach begonnenem Schreibauftrag müssen einen
+ungewissen Ausgang ohne Wiederholung melden. Private Nachweisargumente werden
+in API und MCP abgewiesen; auch der Kompatibilitätspfad darf ein vorläufiges
+natives Löschergebnis nicht als Erfolg ausgeben.
+
+`table-mutation-target-contract.ps1` führt die tatsächliche
+Lokalisierungsfunktion, private Planschemata und Ergebnisprojektion aus.
+Der Raw-Resolver verlangt wie die kompilierte Grenze mindestens zwei
+Zell-IDs; deshalb wird eine vollständige sichtbare Zeile aufgelöst.
+Zusätzliche Auswahlgegenfälle prüfen die frische Löschbindung, einschließlich
+fremder, doppelter, fehlender und inzwischen verschobener Auswahlzellen.
+Der Tastaturfokus muss zur geprüften Zeile gehören. Für einen fokussierten
+Tabellencontainer werden zusätzlich dessen Identität und genau eine aktuell
+fokussierte Zeilenzelle geprüft; fremde, fehlende oder mehrere Fokuszellen
+bleiben gesperrt.
+Ein fokussierter Edit-Delegate bleibt auch bei gleichzeitigem Fokushinweis
+der Datenzelle gesperrt. Der Vertrag prüft außerdem, dass der native Löschpfad
+keinen zusätzlichen Zellklick ausführt und sein vorläufiges Ergebnis vor dem
+textbasierten Rückgängigmachen des Kompatibilitätspfads übergibt.
+Diese synthetischen Verträge ersetzen keinen Lauf gegen das reale Produkt.
+
 `table-preparation-contract.ps1` prüft die tatsächlichen Vorbereitungs- und
 Schließfunktionen mit synthetischen Fenster-/Providergrenzen: exakte eigene
 nichtmodale Tips-Identität, fehlende Richtlinie, unbekannte oder zusätzliche

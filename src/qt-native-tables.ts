@@ -82,8 +82,8 @@ export function projectQtNativeCompleteTable(raw: Awaited<ReturnType<typeof read
   return normalizeTable(raw, maxRows);
 }
 
-/** Exact, unique enabled/selectable model cell; hidden, disabled and checkbox cells cannot be targets. */
-export function findQtNativeTableTarget(raw: Awaited<ReturnType<typeof readQtNativeCompleteTable>>, wanted: string) {
+/** Eligible exact model cells; hidden, disabled and checkbox cells cannot be targets. */
+export function findQtNativeTableTargets(raw: Awaited<ReturnType<typeof readQtNativeCompleteTable>>, wanted: string) {
   const matches: { row: number; column: number }[] = [];
   for (let row = 0; row < raw.rows; row++) {
     if (raw.hiddenRows.includes(row)) continue;
@@ -93,6 +93,12 @@ export function findQtNativeTableTarget(raw: Awaited<ReturnType<typeof readQtNat
         && text(value.display) === wanted) matches.push({ row, column });
     }
   }
+  return matches;
+}
+
+/** Text alone supplies authority only for one eligible model cell. */
+export function findQtNativeTableTarget(raw: Awaited<ReturnType<typeof readQtNativeCompleteTable>>, wanted: string) {
+  const matches = findQtNativeTableTargets(raw, wanted);
   return matches.length === 1 ? matches[0]! : null;
 }
 
