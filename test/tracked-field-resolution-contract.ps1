@@ -7,7 +7,7 @@ $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tok
 if ($errors.Count) { throw "Worker parse failed: $($errors[0].Message)" }
 . (Join-Path $root 'powershell\load-native.ps1')
 $null = Import-SSENativeInterop
-foreach ($name in @('Arg','Resolve-Nodes','Resolve-Node','Resolve-TrackedFieldNode')) {
+foreach ($name in @('Arg','Resolve-Nodes','Resolve-Node','Resolve-TrackedFieldNode','Test-SSETrackedFieldValue')) {
   $definitions = @($ast.FindAll({ param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
   }, $true))

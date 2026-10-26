@@ -57,6 +57,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   kein neuer Rollback-Schritt. Eine unbewiesene Rücknahme beendet auch eine
   bereits laufende Rücknahmekette. Der passive Abschlussreadback bleibt
   erhalten; ungewisse Ergebnisse verlangen weiterhin einen frischen Abgleich.
+- **Feldrücknahmen:** Rohwert und UIA-Name werden konsistent getrennt geprüft.
+  Ein leeres Namensfeld erzeugt keinen falschen Rücknahmefehler für einen
+  vorhandenen Edit-Wert. Fehlende Nachher- oder Rücknahme-Lesungen bestätigen
+  auch bei leeren Werten keinen Erfolg und verwenden keine alte Wertprobe.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den

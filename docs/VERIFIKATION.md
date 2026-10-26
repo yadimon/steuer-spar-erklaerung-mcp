@@ -237,6 +237,31 @@ Antwort und eine abgewiesene Worker-Promise getrennt bis zu Ergebnisschema
 und MCP-Fehlerhülle: unbekannter Ausgang, kein erfundener Readback und genau
 ein Workeraufruf.
 
+`tracked-rollback-display-contract.ps1` führt den tatsächlichen
+`tracked_set_value`-Handler mit zustandsbehafteten, produktfreien
+Providergrenzen aus. Er prüft leere und konstante Edit-Namen, unveränderte
+Rohwerte, streng gleiche Namen, unbewiesene Commit-Methoden sowie fehlende
+Nachher- und Rücknahme-Lesungen. Auch ein leerer Ausgangs-/Sollwert darf eine
+fehlende Probe nicht als Erfolg erscheinen lassen. Ein gültiger
+Vorwärtserfolg über den UIA-Namen bleibt erhalten, wenn dessen Rohwert eine
+andere Darstellung liefert. Datumsantworten werden aus der tatsächlich
+angeforderten Eingabe abgeleitet; eine Rücknahme mit leerem Raw und leerer
+Anzeige bleibt ausdrücklich unbewiesen. Der Vertrag gehört zum Voll- und
+Schnellplan und ersetzt keine reale Feld- oder Datumsabnahme. Abgewiesenes
+Leeren darf bei unverändertem Rohwert keinen Erfolg melden; ein dritter
+Rohwert bleibt vor einer Rücknahme erhalten. Textunterschiede allein in
+Groß-/Kleinschreibung oder Leerzeichen dürfen nicht als Wiederherstellung
+verschwinden. Edit-Beschriftungen und leere DataItem-Raw-Platzhalter werden
+auch bei der Vorbedingung vom tatsächlichen Feldwert unterschieden.
+Ein vorhandenes ValuePattern mit `null` als Wert zählt ebenfalls als fehlende
+Probe; die Typumwandlung in einen leeren Text darf daraus keinen Erfolg machen.
+Zusätzlich werden Formatvertrags-Schreibweisen, Datums-/Dezimalverwechslungen,
+widersprechende ausdrücklich gelesene Jahre und passive Interferenzproben
+mit fehlenden beziehungsweise alternativ dargestellten Werten geprüft.
+Das schließt Jahreswidersprüche bei einer Vorgabe ohne Jahr und veraltete
+DataItem-Namen im allgemeinen Feldzugriff ein: Die Störungsprobe muss einen
+frischen Namen lesen, ohne eine weitere Eingabe auszulösen.
+
 ## Live-Abdeckung
 
 Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;
