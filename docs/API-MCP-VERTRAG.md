@@ -156,7 +156,27 @@ Das ist keine ACID-Transaktion und keine Garantie, dass jeder Teilstand
 zurückgenommen werden kann.
 
 Fremdeingaben, geänderte Bindungen und unbekannte Schreibausgänge verlangen
-Zustandsklärung. Auch eine Rücknahme darf fremde Änderungen nicht überschreiben.
+Zustandsklärung. Meldet ein Kindschritt einen solchen Kontextverlust, beginnt
+der Bulk-Plan keine weiteren Rücknahmen. Auch eine bereits laufende
+Rollback-Kette endet beim ersten fehlgeschlagenen oder unbewiesenen Ergebnis.
+`rollback.skippedReason` nennt den Abbruchgrund. Der abschließende passive
+Readback bleibt erhalten; selbst ursprüngliche sichtbare Werte heben einen
+erkannten Kontextverlust nicht auf. Der Ausgang bleibt dann `unknown` und
+abgleichpflichtig. Auch ein unbewiesenes Vorwärtsergebnis erlaubt keine
+Fortsetzung. Nur bekannte gewöhnliche Vor-/Nachbedingungs- und Feldfehler
+lassen eine weitere abgesicherte Rücknahme zu. Bei bereits erledigten Schritten
+führt eine unbekannte Fehlerart deshalb ebenfalls zum Abgleich; eine bekannte klare
+Ablehnung vor dem ersten geänderten Feld behält dagegen ihre ursprüngliche
+Fehlerart, soweit der Readback den unveränderten Stand bestätigt. Leere oder
+unbekannte erste Fehler bleiben ungewiss. Ein Nachbedingungsfehler erlaubt
+Fortsetzung nur nach bestätigter eigener Rücknahme des fehlgeschlagenen Kindes.
+Auch unerwartete Workerfehler mit strukturierter Fehlerantwort bleiben nach
+dem Planaufruf `unknown`; sie erfinden weder einen Abschlussreadback noch
+einen unveränderten Zustand und erlauben keine Wiederholung.
+Ohne Teilergebnisse ist auch kein einzelner Schritt als `skipped` belegt.
+`failed-action-lost-context` bezeichnet die verweigerte Rücknahme nach einem
+Kindfehler, `rollback-lost-context` den Abbruch einer Rücknahmekette.
+Auch eine Rücknahme darf fremde Änderungen nicht überschreiben.
 Keine dieser Operationen speichert den Fall automatisch. Speichern benötigt
 einen eigenen ausdrücklichen Auftrag. Eine erneute Änderung ist kein allgemeiner
 Fehlerbehandler; die enge [Busy-Wiederholung](#optionale-wiederholung-bei-belegter-api)

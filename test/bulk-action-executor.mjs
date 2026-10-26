@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { performance } from "node:perf_hooks";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { parseApiOperationResult } from "../dist/result-contract.js";
+import { apiErrorResult } from "../dist/mcp-response.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-bulk-action-"));
 const config = {
@@ -22,6 +24,41 @@ const config = {
 mkdirSync(config.documentsDir, { recursive: true });
 
 test.after(() => rmSync(temporary, { recursive: true, force: true }));
+
+test("bulk context-loss reasons survive the actual result schema and MCP error envelope", async () => {
+  const calls = [];
+  const stopped = {
+    ok: false, verified: false, kind: "state-unknown", error: "Synthetic lost field context; reconcile first.",
+    schemaVersion: 1, planKind: "fill-fields", stopOnError: true, completed: [{ id: "field-01", index: 0, operation: "tracked_set_value", status: "completed", result: { ok: true, verified: true } }], failedIndex: 1,
+    failedAction: { id: "field-02", index: 1, operation: "tracked_set_value", status: "failed", result: { ok: false, kind: "interference" } },
+    skipped: [{ id: "field-03", index: 2, operation: "tracked_set_value", status: "skipped" }],
+    rollback: { mode: "best-effort", attempted: false, ok: null, entries: [], skippedReason: "failed-action-lost-context" },
+    cleanupRequired: true, finalReadback: { ok: true, onExpectedPage: true, fields: [] },
+    finalReadbackVerified: false, resultingState: "unknown", performance: { workerProcessCount: 1 },
+  };
+  const execute = createApiExecutor(config, async (operation, args) => { calls.push({ operation, args }); return stopped; });
+  const result = await execute("fill_fields", {
+    pageId: "gew_erfass.allgemeine_angaben_unternehmen", fields: [
+      { fieldId: "name_unternehmer", expectedBefore: "Alt", value: "Neu", expectedAfter: "Neu" },
+      { fieldId: "vorname_unternehmer", expectedBefore: "Alt", value: "Neu", expectedAfter: "Neu" },
+      { fieldId: "firmenname", expectedBefore: "Alt", value: "Neu", expectedAfter: "Neu" },
+    ],
+    hwnd: 4242,
+  });
+  assert.equal(calls.length, 1, "A lost-context bulk must not trigger another executor request.");
+  assert.deepEqual(parseApiOperationResult("fill_fields", result), result);
+  const mcp = apiErrorResult("fill_fields", result);
+  assert.equal(mcp.isError, true);
+  assert.equal(mcp.structuredContent.resultingState, "unknown");
+  assert.equal(mcp.structuredContent.rollback.skippedReason, "failed-action-lost-context");
+  assert.equal(mcp.structuredContent.verified, false);
+  const chain = { ...result, completed: [result.completed[0], { ...result.completed[0], id: "field-02", index: 1 }],
+    failedIndex: 2, failedAction: { ...result.failedAction, id: "field-03", index: 2,
+      result: { ok: false, verified: false, kind: "postcondition-failed", rollback: { versucht: true, ok: true } } }, skipped: [],
+    rollback: { ...result.rollback, attempted: true, ok: false, entries: [{ id: "field-02", index: 1, ok: false, result: { ok: false, kind: "interference" } }], skippedReason: "rollback-lost-context" } };
+  assert.deepEqual(parseApiOperationResult("fill_fields", chain), chain);
+  assert.equal(apiErrorResult("fill_fields", chain).structuredContent.rollback.skippedReason, "rollback-lost-context");
+});
 
 test("fill_fields compiles the complete typed plan into one internal worker call", async () => {
   const calls = [];
@@ -115,7 +152,53 @@ test("fill_fields reports unknown after worker cancellation instead of allowing 
   assert.equal(result.cleanupRequired, true);
   assert.equal(result.verified, false);
   assert.equal(result.performance.workerProcessCount, 1);
+  assert.deepEqual(result.skipped, [], "Unknown execution cannot prove which actions were skipped.");
   assert.equal(workerCalls, 1);
+});
+
+test("an unhandled bulk worker throw stays unknown without a fabricated clean readback", async () => {
+  let workerCalls = 0;
+  const execute = createApiExecutor(config, async () => { workerCalls++; throw new Error("Synthetic unhandled child failure."); });
+  const result = await execute("fill_fields", {
+    pageId: "gew.fahrzeug", fields: [{ fieldId: "bezeichnung", expectedBefore: "Alt", value: "Neu", expectedAfter: "Neu" }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.resultingState, "unknown");
+  assert.equal(result.verified, false);
+  assert.equal(result.cleanupRequired, true);
+  assert.equal(result.finalReadback, null);
+  assert.equal(result.finalReadbackVerified, false);
+  assert.equal(result.rollback.attempted, false);
+  assert.deepEqual(result.skipped, []);
+  assert.equal(workerCalls, 1);
+});
+
+test("the structured global worker trap stays unknown after bulk dispatch", async () => {
+  let workerCalls = 0;
+  const execute = createApiExecutor(config, async () => {
+    workerCalls++;
+    return { ok: false, kind: "worker-init", error: "Synthetic unhandled child failure.", position: "Synthetic worker location." };
+  });
+  const result = await execute("fill_fields", {
+    pageId: "gew.fahrzeug", fields: [{ fieldId: "bezeichnung", expectedBefore: "Alt", value: "Neu", expectedAfter: "Neu" }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "worker-init");
+  assert.equal(result.error, "Synthetic unhandled child failure.");
+  assert.equal(result.position, "Synthetic worker location.");
+  assert.equal(result.resultingState, "unknown");
+  assert.equal(result.cleanupRequired, true);
+  assert.equal(result.verified, false);
+  assert.equal(result.finalReadback, null);
+  assert.equal(result.finalReadbackVerified, false);
+  assert.equal(result.rollback.attempted, false);
+  assert.deepEqual(result.skipped, [], "The trap may occur after a write; no action is proven skipped.");
+  assert.equal(workerCalls, 1);
+  assert.deepEqual(parseApiOperationResult("fill_fields", result), result);
+  const mcp = apiErrorResult("fill_fields", result);
+  assert.equal(mcp.isError, true);
+  assert.equal(mcp.structuredContent.resultingState, "unknown");
+  assert.equal(mcp.structuredContent.cleanupRequired, true);
 });
 
 test("receipt bulk blocks before a timeout-capable worker can start", async () => {

@@ -109,11 +109,7 @@ export async function executeFillFieldsPlan(
     finalReadback: true,
     finalReadbackPlan: { operation: "known_page_state", args: finalReadbackArgs },
   };
-  try {
-    const result = await dependencies.worker("bulk_action" as SseApiOperation, plan, timeoutMs, signal);
-    return dependencies.finish(result, resourceRefs);
-  } catch (error) {
-    const failed = dependencies.executionError("fill_fields", error);
+  const finishUnknown = (failed: WorkerResult): WorkerResult => {
     return dependencies.finish({
       ...failed,
       schemaVersion: 1,
@@ -121,7 +117,7 @@ export async function executeFillFieldsPlan(
       completed: [],
       failedAction: null,
       failedIndex: null,
-      skipped: actions.map((action, index) => ({ ...action, index, status: "skipped" })),
+      skipped: [],
       rollback: { mode: "best-effort", attempted: false, ok: null, entries: [] },
       cleanupRequired: true,
       finalReadback: null,
@@ -130,6 +126,15 @@ export async function executeFillFieldsPlan(
       verified: false,
       performance: { workerProcessCount: 1 },
     }, resourceRefs);
+  };
+  try {
+    const result = await dependencies.worker("bulk_action" as SseApiOperation, plan, timeoutMs, signal);
+    // The global PowerShell trap serializes unexpected exceptions instead of
+    // rejecting the worker request, including exceptions after a field write.
+    if (result.ok === false && result.kind === "worker-init") return finishUnknown(result);
+    return dependencies.finish(result, resourceRefs);
+  } catch (error) {
+    return finishUnknown(dependencies.executionError("fill_fields", error));
   }
 }
 

@@ -53,6 +53,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Weder eine unveränderte Summe noch eine ausbleibende beobachtete Wirkung
   erlauben Erfolg, Rollbackbehauptung oder Wiederholung. Ein Undo benötigt
   genau die eigene Einerentfernung und erneut bewiesenen Tabellenfokus.
+- **Mehrfeldpläne:** Nach erkanntem Eingabe-/Fensterkontextverlust beginnt
+  kein neuer Rollback-Schritt. Eine unbewiesene Rücknahme beendet auch eine
+  bereits laufende Rücknahmekette. Der passive Abschlussreadback bleibt
+  erhalten; ungewisse Ergebnisse verlangen weiterhin einen frischen Abgleich.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
