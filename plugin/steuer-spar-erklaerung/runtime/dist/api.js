@@ -21769,7 +21769,7 @@ var init_mcp_schemas_interaction = __esm({
         value: external_exports.string().describe("Zu setzender Wert"),
         expectedAfter: external_exports.string().describe("Exakter erwarteter Wert nach Qt-Formatierung/Commit"),
         valueKind: external_exports.enum(["text", "currency", "date"]).optional().describe(
-          "Optionaler Formatvertrag; date akzeptiert ein von SSE bewusst ohne Jahr angezeigtes TT.MM"
+          "Ohne Formatvertrag oder mit text gilt exakter Textvergleich. currency erlaubt Zahlenformatierung; date akzeptiert ein von SSE bewusst ohne Jahr angezeigtes TT.MM"
         ),
         sumChecks: external_exports.array(external_exports.object({
           label: external_exports.string().describe("Exakte Beschriftung der Kontrollsumme"),

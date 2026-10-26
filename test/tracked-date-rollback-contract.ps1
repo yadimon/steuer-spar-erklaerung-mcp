@@ -42,9 +42,11 @@ if ($start -lt 0) { throw 'tracked_set_value fehlt.' }
 $next = $worker.IndexOf("`n  '", $start + $marker.Length, [StringComparison]::Ordinal)
 $block = $worker.Substring($start, $(if ($next -ge 0) { $next - $start } else { $worker.Length - $start }))
 foreach ($required in @(
-  '$beforeRaw = [string]$vp.Current.Value',
+  '$beforeRaw = $vp.Current.Value',
+  'if ($null -eq $beforeRaw)',
   'Commit-TrackedValue $hwnd $liveNode $requested $beforeRaw',
-  '$afterRaw = [string]$afterVp.Current.Value',
+  '$afterValue = $afterVp.Current.Value',
+  'if ($null -ne $afterValue)',
   'Commit-TrackedValue $hwnd $rollbackNode $beforeRaw $rollbackCurrentRaw',
   'Test-SSEScalarEqual $restoredRaw $beforeRaw',
   'Rollback zum rohen Ausgangswert ist NICHT bewiesen'

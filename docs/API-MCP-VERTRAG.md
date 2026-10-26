@@ -143,6 +143,39 @@ Direktzugriff auf Steuerdaten.
 Feldänderungen gilt der geprüfte Änderungsweg; ein ähnlicher Name oder eine
 passende Bildschirmposition ersetzt keine frische Zielbindung.
 
+Feldänderungen brauchen auch für einen leeren Sollwert einen frischen
+`ValuePattern`-Readback. Ohne Formatvertrag oder mit `valueKind: "text"`
+bleiben Groß-/Kleinschreibung und Leerzeichen maßgeblich. Die ausdrücklich
+gewählten Verträge `currency` und `date` behalten ihren Formatabgleich.
+Ein fehlender oder `null` liefernder Wertzugriff bestätigt weder Erfolg noch
+einen unveränderten Ausgang. Nach einer Rücknahme werden der Rohwert nach dem
+bestehenden Wertvertrag, der daraus abgeleitete Anzeigewert und der
+unveränderte UIA-Name getrennt geprüft. Ein leeres UIA-Namensfeld eines
+Edit-Elements wird dabei nicht mit seinem vorhandenen Rohwert verwechselt.
+Bei Edit-Feldern ist der lesbare Rohwert maßgeblich; ihr UIA-Name kann eine
+Beschriftung sein. Ein leerer Name bestätigt deshalb weder das Leeren noch
+die Eigentümerschaft eines abweichenden Rohwertes vor der Rücknahme.
+DataItem-Zellen können ihren tatsächlichen formatierten Wert dagegen über
+den Namen liefern; ein leerer Raw-Platzhalter verdeckt diese Anzeige nicht.
+Ein ausdrücklich widersprechendes Datum oder Jahr im lesbaren Rohwert oder
+Anzeigenamen darf dabei nicht durch eine Anzeige ohne Jahr überstimmt werden.
+Auch bei einer Vorgabe ohne Jahr müssen ausdrücklich gelesene Jahre in
+Rohwert und Anzeige zueinander passen. Eine passive Störungsprobe liest den
+Anzeigenamen am lebenden Element erneut, auch beim allgemeinen Feldzugriff.
+Der Datumsvergleich trennt Tag und Monat; eine Zahlengleichheit wie `10.10`
+und `10.1` ist keine Datumsgleichheit.
+Fehlende Nachweise können als Bindungs-/Interferenzfehler enden; sie erlauben
+keine zusätzliche Eingabe allein zur Bestätigung.
+
+`feld.nachherAnzeige` bleibt der tatsächliche UIA-Name. `rollback.wert`
+bezeichnet dagegen wie der Ausgangswert den Rohwert des Edit-Feldes,
+bei DataItems den vorhandenen Rohwert oder sonst ihren Anzeigennamen.
+Bei einem fehlenden Rücknahme-Read bleiben `rollback.rawWert` und
+`rollback.wert` unbekannt; ein alter Nachwert ersetzt diese Probe nicht.
+Datumsfelder mit leerem Rohwert müssen weiterhin ihren tatsächlichen
+Wiederherstellungsnachweis liefern. Eine leere Rücknahme-Eingabe beweist keine
+erneut sichtbare Datumsanzeige.
+
 `fill_fields` akzeptiert ein bis zwanzig eindeutige Felder einer bereits
 geöffneten katalogisierten Seite. Der vollständige Plan wird vor der ersten
 Änderung geprüft. Beim ersten Fehler endet die Vorwärtsausführung; bereits

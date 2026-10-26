@@ -111,7 +111,8 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     value: z.string().describe("Zu setzender Wert"),
     expectedAfter: z.string().describe("Exakter erwarteter Wert nach Qt-Formatierung/Commit"),
     valueKind: z.enum(["text", "currency", "date"]).optional().describe(
-      "Optionaler Formatvertrag; date akzeptiert ein von SSE bewusst ohne Jahr angezeigtes TT.MM",
+      "Ohne Formatvertrag oder mit text gilt exakter Textvergleich. currency erlaubt Zahlenformatierung; " +
+      "date akzeptiert ein von SSE bewusst ohne Jahr angezeigtes TT.MM",
     ),
     sumChecks: z.array(z.object({
       label: z.string().describe("Exakte Beschriftung der Kontrollsumme"),

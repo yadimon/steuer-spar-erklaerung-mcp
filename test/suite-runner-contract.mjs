@@ -62,6 +62,7 @@ const expectedNames = [
   "table-add-seek",
   "tracked-native-text",
   "tracked-field-resolution",
+  "tracked-rollback-display",
   "qt-native-receipt-update",
   "qt-native-receipt-link",
   "qt-native-classification-options",

@@ -10567,16 +10567,33 @@ function Get-SSETrackedDateParts([string]$Value) {
 }
 
 function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind = '') {
-  if (Test-SSEScalarEqual $Actual $Expected) { return $true }
-  if ($ValueKind -ne 'date') { return $false }
+  if ($ValueKind -ceq '' -or $ValueKind -ceq 'text') { return [bool]([string]$Actual -ceq [string]$Expected) }
+  if ($ValueKind -ceq 'currency') { return Test-SSEScalarEqual $Actual $Expected }
+  if ($ValueKind -cne 'date') { return $false }
   $actualDate = Get-SSETrackedDateParts ([string]$Actual)
   $expectedDate = Get-SSETrackedDateParts ([string]$Expected)
-  if (-not $actualDate -or -not $expectedDate) { return $false }
+  if (-not $actualDate -or -not $expectedDate) { return [bool]([string]$Actual -ceq [string]$Expected) }
   if ($actualDate.day -ne $expectedDate.day -or $actualDate.month -ne $expectedDate.month) { return $false }
   # SSE blendet auf einigen Seiten das im Fallkontext eindeutige Jahr aus
   # ('15.07' statt '15.07.2026'). Sind beide Jahre sichtbar, muessen sie
   # trotzdem exakt uebereinstimmen.
   [bool]($null -eq $actualDate.year -or $null -eq $expectedDate.year -or $actualDate.year -eq $expectedDate.year)
+}
+
+function Test-SSETrackedFieldValue($Raw, $Name, $Expected, [string]$ValueKind, [string]$ControlType) {
+  # Edit Name is an accessibility label, not another field value. DataItem
+  # providers may expose their actual formatted value through Name instead.
+  if ($ControlType -cne 'DataItem') { return Test-SSETrackedValueEquivalent $Raw $Expected $ValueKind }
+  if ($ValueKind -ceq 'date' -and (Get-SSETrackedDateParts ([string]$Raw))) {
+    if (-not (Test-SSETrackedValueEquivalent $Raw $Expected $ValueKind)) { return $false }
+    if ((Get-SSETrackedDateParts ([string]$Name)) -and
+        (-not (Test-SSETrackedValueEquivalent $Name $Expected $ValueKind) -or
+         -not (Test-SSETrackedValueEquivalent $Raw $Name $ValueKind))) { return $false }
+    return $true
+  }
+  if ([string]$Raw -cne '' -and (Test-SSETrackedValueEquivalent $Raw $Expected $ValueKind)) { return $true }
+  if ([string]$Name -cne '' -and (Test-SSETrackedValueEquivalent $Name $Expected $ValueKind)) { return $true }
+  [bool]([string]$Raw -ceq '' -and [string]$Name -ceq '' -and [string]$Expected -ceq '')
 }
 
 # Vergleicht zwei unmittelbar nacheinander gelesene UIA-Baeume, ohne private
@@ -13637,7 +13654,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $name = $(if ($known) { [string]$known.field.label } else { [string](Arg $a 'name') })
     $valueKind = $(if ($known) { [string]$known.field.valueKind } else { [string](Arg $a 'valueKind') })
-    if ($valueKind -and $valueKind -notin @('text','currency','date')) {
+    if ($valueKind -and $valueKind -cnotin @('text','currency','date')) {
       Fail "valueKind '$valueKind' ist fuer tracked_set_value nicht unterstuetzt." 'bad-args'
     }
     if (-not $name -and -not (Arg $a 'aid') -and -not (Arg $a 'rid')) {
@@ -13707,14 +13724,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail 'Zielfeld bietet kein ValuePattern.' 'no-value-pattern'
     }
     if ($vp.Current.IsReadOnly) { Fail 'Zielfeld ist schreibgeschuetzt.' 'readonly' }
-    $beforeRaw = [string]$vp.Current.Value
-    $beforeDisplay = $beforeRaw
-    if (-not $beforeDisplay) { $beforeDisplay = [string]$node.name }
+    $beforeRaw = $vp.Current.Value
+    if ($null -eq $beforeRaw) { Fail 'Zielfeld liefert keinen lesbaren Rohwert; NICHT geschrieben.' 'no-value-pattern' }
+    $beforeRaw = [string]$beforeRaw
+    $beforeName = [string]$node.name
+    $beforeDisplay = $(if ($node.type -ceq 'DataItem' -and -not $beforeRaw) { [string]$node.name } else { $beforeRaw })
     $before = $beforeDisplay
-    $beforeMatches = [bool](
-      (Test-SSETrackedValueEquivalent $beforeRaw $expectedBefore $valueKind) -or
-      (Test-SSETrackedValueEquivalent $beforeDisplay $expectedBefore $valueKind)
-    )
+    $beforeMatches = Test-SSETrackedFieldValue $beforeRaw $beforeName $expectedBefore $valueKind ([string]$node.type)
     if (-not $beforeMatches) {
       Fail "Vorwert ist '$before', erwartet '$expectedBefore'. NICHT geaendert." 'precondition-failed'
     }
@@ -13808,22 +13824,24 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Nutzerwert noch einen moeglichen Qt-Dialog durch Rollback ueberfahren.
       # Nur den Zielwert bestmoeglich lesen und den gesamten Zustand zur
       # bewussten Neusynchronisierung stehen lassen.
-      $observedAfterInterference = $null
+      $observedAfterInterference = $null; $probeRaw = $null; $probeName = $null; $probeValueRead = $false
       try {
         $probeNode = $(if ($known) { Resolve-KnownFieldNode $hwnd $known } else { $liveNode })
         $probeElement = $(if ($probeNode) { Get-LiveElement $hwnd $probeNode.rid $probeNode.aid } else { $null })
         $probeVp = $null
         if ($probeElement -and $probeElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$probeVp)) {
-          $observedAfterInterference = $probeVp.Current.Value
-        }
-        if (($null -eq $observedAfterInterference -or $observedAfterInterference -eq '') -and $probeNode) {
-          $observedAfterInterference = $probeNode.name
+          $value = $probeVp.Current.Value
+          if ($null -ne $value) {
+            $probeRaw = [string]$value; $probeName = [string]$probeElement.Current.Name; $probeValueRead = $true
+            $observedAfterInterference = $(if ($probeNode.type -ceq 'DataItem' -and -not $probeRaw) { $probeName } else { $probeRaw })
+          }
         }
       } catch { }
       $mutationState = $(
-        if ($null -eq $observedAfterInterference) { 'unknown' }
-        elseif (Test-SSETrackedValueEquivalent $observedAfterInterference $before $valueKind) { 'unchanged' }
-        elseif (Test-SSETrackedValueEquivalent $observedAfterInterference $expectedAfter $valueKind) { 'requested-value-visible' }
+        if (-not $probeValueRead) { 'unknown' }
+        elseif ((Test-SSETrackedFieldValue $probeRaw $probeName $before $valueKind ([string]$probeNode.type)) -and
+          ($probeNode.type -cne 'DataItem' -or $probeName -ceq $beforeName)) { 'unchanged' }
+        elseif (Test-SSETrackedFieldValue $probeRaw $probeName $expectedAfter $valueKind ([string]$probeNode.type)) { 'requested-value-visible' }
         else { 'different-value-visible' }
       )
       # 'epoch-obstructed' heisst gerade nicht 'fremde Eingabe': Ueber dem
@@ -13881,15 +13899,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Complete-SSEPhase $phaseLog 'afterTree'
     $afterNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $afterTree $selectorArgs $hwnd })
     $knownStateAfter = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
-    $after = $null; $afterRaw = $null; $afterDisplay = $null
+    $after = $null; $afterRaw = $null; $afterDisplay = $null; $afterComparisonDisplay = $null; $afterValueRead = $false
     if ($afterNode) {
       $afterElement = Get-LiveElement $hwnd $afterNode.rid $afterNode.aid
       $afterVp = $null
       if ($afterElement -and $afterElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$afterVp)) {
-        $afterRaw = [string]$afterVp.Current.Value
+        $afterValue = $afterVp.Current.Value
+        if ($null -ne $afterValue) { $afterRaw = [string]$afterValue; $afterValueRead = $true }
       }
       $afterDisplay = [string]$afterNode.name
-      $after = $(if ($afterRaw) { $afterRaw } elseif ($afterDisplay) { $afterDisplay } else { '' })
+      $afterComparisonDisplay = $(if ($afterNode.type -ceq 'DataItem' -and -not $afterRaw) { $afterDisplay } else { $afterRaw })
+      $after = $(if (-not $afterValueRead) { $null } elseif ($afterNode.type -ceq 'DataItem' -and -not $afterRaw) { $afterDisplay } else { $afterRaw })
     }
     $sumAfter = New-Object System.Collections.ArrayList
     $sumOk = $true
@@ -13913,10 +13933,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
     }
 
-    $fieldOk = [bool](
-      (Test-SSETrackedValueEquivalent $afterRaw $expectedAfter $valueKind) -or
-      (Test-SSETrackedValueEquivalent $afterDisplay $expectedAfter $valueKind)
-    )
+    $fieldOk = [bool]($afterValueRead -and
+      (Test-SSETrackedFieldValue $afterRaw $afterDisplay $expectedAfter $valueKind ([string]$afterNode.type)))
     $commitOk = ($commitMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab'))
     $allOk = [bool]($fieldOk -and $sumOk -and $resultOk -and $commitOk)
     if (-not $allOk) {
@@ -13924,10 +13942,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $rollbackAttempted = $false
       $rollbackReason = $null
       $restoredRaw = $afterRaw
-      $restoredDisplay = $afterDisplay
+      $restoredDisplay = $afterComparisonDisplay
       $rollbackOk = [bool](
+        $afterValueRead -and
         (Test-SSEScalarEqual $afterRaw $beforeRaw) -and
-        (Test-SSETrackedValueEquivalent $afterDisplay $beforeDisplay $valueKind)
+        (Test-SSETrackedValueEquivalent $afterComparisonDisplay $beforeDisplay $valueKind) -and
+        ([string]$afterDisplay -ceq [string]$beforeName)
       )
       if ($rollbackOk) {
         # Fokus-/Epochabbruch geschah vor der Wertmutation. Ein erneutes
@@ -13939,24 +13959,26 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $rollbackNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $rollbackTree $selectorArgs $hwnd })
         $rollbackElement = $(if ($rollbackNode) { Get-LiveElement $hwnd $rollbackNode.rid $rollbackNode.aid } else { $null })
         $rollbackVp = $null
-        $rollbackCurrentRaw = $null; $rollbackCurrentDisplay = $null
+        $rollbackCurrentRaw = $null; $rollbackCurrentDisplay = $null; $rollbackValueRead = $false
         if ($rollbackElement -and
             $rollbackElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackVp) -and
             -not $rollbackVp.Current.IsReadOnly) {
-          $rollbackCurrentRaw = [string]$rollbackVp.Current.Value
-          $rollbackCurrentDisplay = [string]$rollbackNode.name
+          $rollbackValue = $rollbackVp.Current.Value
+          if ($null -ne $rollbackValue) {
+            $rollbackCurrentRaw = [string]$rollbackValue
+            $rollbackCurrentDisplay = [string]$rollbackNode.name
+            $rollbackValueRead = $true
+          }
         }
         $rollbackWindowsBefore = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
         $rollbackInputBefore = Get-SSELastInputTick
         $rollbackHeading = $(if ($known) { (Get-KnownPageState $hwnd $known).heading } else { Get-CurrentHeading $hwnd $rollbackTree })
         $rollbackOwnValue = [bool](
-          (Test-SSETrackedValueEquivalent $rollbackCurrentRaw $requested $valueKind) -or
-          (Test-SSETrackedValueEquivalent $rollbackCurrentRaw $expectedAfter $valueKind) -or
-          (Test-SSETrackedValueEquivalent $rollbackCurrentDisplay $requested $valueKind) -or
-          (Test-SSETrackedValueEquivalent $rollbackCurrentDisplay $expectedAfter $valueKind)
+          (Test-SSETrackedFieldValue $rollbackCurrentRaw $rollbackCurrentDisplay $requested $valueKind ([string]$rollbackNode.type)) -or
+          (Test-SSETrackedFieldValue $rollbackCurrentRaw $rollbackCurrentDisplay $expectedAfter $valueKind ([string]$rollbackNode.type))
         )
         $rollbackPreflightOk = [bool](
-          $rollbackNode -and $rollbackVp -and $rollbackOwnValue -and
+          $rollbackNode -and $rollbackVp -and $rollbackValueRead -and $rollbackOwnValue -and
           (Test-KnownPageHeading $rollbackHeading $(if ($known) { $known.page } else { [pscustomobject]@{ heading=$expectedPage } })) -and
           $rollbackWindowsBefore.fingerprint -eq $interactionWindowsAfter.fingerprint -and
           ($null -eq $commitResult.inputAfter -or
@@ -14004,14 +14026,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $verifyNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $verifyTree $selectorArgs $hwnd })
         $verifyElement = $(if ($verifyNode) { Get-LiveElement $hwnd $verifyNode.rid $verifyNode.aid } else { $null })
         $verifyVp = $null
+        $verifyValueRead = $false; $restoredRaw = $null; $restoredDisplay = $null; $restoredName = $null
         if ($verifyElement -and $verifyElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$verifyVp)) {
-          $restoredRaw = [string]$verifyVp.Current.Value
-          $restoredDisplay = [string]$verifyNode.name
+          $verifyValue = $verifyVp.Current.Value
+          if ($null -ne $verifyValue) {
+            $restoredRaw = [string]$verifyValue
+            $restoredName = [string]$verifyNode.name
+            $restoredDisplay = $(if ($verifyNode.type -ceq 'DataItem' -and -not $restoredRaw) { $restoredName } else { $restoredRaw })
+            $verifyValueRead = $true
+          }
         }
         $rollbackOk = [bool](
           $rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab') -and
+          $verifyValueRead -and
           (Test-SSEScalarEqual $restoredRaw $beforeRaw) -and
-          (Test-SSETrackedValueEquivalent $restoredDisplay $beforeDisplay $valueKind)
+          (Test-SSETrackedValueEquivalent $restoredDisplay $beforeDisplay $valueKind) -and
+          ([string]$restoredName -ceq [string]$beforeName)
         )
         if (-not $rollbackOk -and -not $rollbackReason) {
           $rollbackReason = 'Roher Ausgangswert und Anzeige wurden nach dem Rollback nicht exakt bestaetigt.'
