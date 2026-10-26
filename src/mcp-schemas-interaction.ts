@@ -174,8 +174,10 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     expectedEpoch: SHA256().optional().describe(
       "Optionale Anfangsepoche aus sse_page_state; sie bindet den ersten Schritt, danach gelten dessen unmittelbare Readbacks",
     ),
-    stopOnError: z.literal(true).optional().describe("Fail-fast ist fest; nach dem ersten Fehler folgen nur Rollback und Readback"),
-    rollback: z.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
+    stopOnError: z.literal(true).optional().describe("Beim ersten Fehler endet die Vorwaertsausfuehrung; Rollback nur bei erhaltenem Kontext, danach Readback"),
+    rollback: z.literal("best-effort").optional().describe(
+      "Erfolgreiche Feldschritte werden bei erhaltenem Kontext rueckwaerts zurueckgesetzt; erkannte Interferenz oder unbewiesene Ruecknahme stoppt weitere Eingaben",
+    ),
     finalReadback: z.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
     trackResults: z.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
     resultLabels: z.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(

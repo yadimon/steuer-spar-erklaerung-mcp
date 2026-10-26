@@ -149,9 +149,10 @@ export function registerInteractionTools(registry: McpRegistry): void {
         "Befuellt ein bis 20 katalogisierte pageId/fieldId-Felder derselben bereits geoeffneten Seite in genau " +
         "einem frischen PowerShell-Worker. Der komplette Plan wird vor dem ersten UI-Zugriff validiert; freie " +
         "AutomationIds, Selektoren, Schaltertexte und Koordinaten sind nicht zulaessig. Jeder Schritt prueft " +
-        "seinen Vorwert und unmittelbaren Nachwert. Beim ersten Fehler werden weitere Mutationen uebersprungen, " +
-        "bereits abgeschlossene Felder best-effort rueckwaerts wiederhergestellt und die ganze katalogisierte " +
-        "Seite abschliessend gelesen. resultingState=unknown verbietet einen blinden Retry.",
+        "seinen Vorwert und unmittelbaren Nachwert. Beim ersten Fehler endet die Vorwaertsausfuehrung. " +
+        "Bereits abgeschlossene Felder werden bei erhaltenem Kontext best-effort rueckwaerts wiederhergestellt; " +
+        "erkannte Interferenz oder eine unbewiesene Ruecknahme stoppt weitere Eingaben. Die ganze katalogisierte " +
+        "Seite wird abschliessend gelesen. resultingState=unknown verbietet einen blinden Retry.",
     },
     (r) => ({
       schemaVersion: r.schemaVersion,

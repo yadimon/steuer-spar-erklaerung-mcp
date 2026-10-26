@@ -11531,7 +11531,35 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $rollbackEntries = New-Object System.Collections.ArrayList
     $rollbackOk = $true
-    if ($null -ne $failedIndex -and $completed.Count) {
+    $rollbackStopReason = $null
+    $contextExplicitlyLost = {
+      param($Result)
+      if (-not $Result -or $Result.outcomeUnknown -eq $true -or $Result.cleanupRequired -eq $true -or
+          [string]$Result.resultingState -ceq 'unknown' -or
+          ($Result.inputGuard -and $Result.inputGuard.eingriffErkannt -eq $true) -or
+          ($Result.fensterGuard -and $Result.fensterGuard.geaendert -eq $true) -or
+          ($Result.rollback -and ($Result.rollback.ok -eq $false -or
+            [string]$Result.rollback.methode -ceq 'not-attempted-after-interference'))) { return $true }
+      [bool]([string]$Result.kind -cin @('interference','stale','state-unknown') -or
+        ($Result.ok -eq $true -and $Result.verified -ne $true))
+    }
+    $contextAllowsContinuation = {
+      param($Result)
+      if (& $contextExplicitlyLost $Result) { return $false }
+      if ($Result.ok -eq $true) { return [bool]($Result.verified -eq $true) }
+      if ([string]$Result.kind -ceq 'postcondition-failed' -and
+          (-not $Result.rollback -or $Result.rollback.ok -ne $true)) { return $false }
+      # Only known ordinary failures can permit another guarded own write.
+      [bool]([string]$Result.kind -cin @('postcondition-failed','precondition-failed','not-found','bad-target','no-value-pattern','readonly'))
+    }
+    $firstRefusalKnown = [bool]($null -ne $failedIndex -and $completed.Count -eq 0 -and
+      [string]$failedAction.result.kind -cin @('case-mismatch','build-drift','bad-args','hidden-desktop','degraded'))
+    $rollbackContextLost = [bool]($null -ne $failedIndex -and (
+      (& $contextExplicitlyLost $failedAction.result) -or
+      (-not (& $contextAllowsContinuation $failedAction.result) -and -not $firstRefusalKnown)
+    ))
+    if ($rollbackContextLost -and $completed.Count -gt 0) { $rollbackStopReason = 'failed-action-lost-context' }
+    if ($null -ne $failedIndex -and $completed.Count -and -not $rollbackContextLost) {
       $reverse = @($completed)
       [array]::Reverse($reverse)
       foreach ($entry in $reverse) {
@@ -11562,11 +11590,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $internalOperationCount++
         $sseActionMs += $rollbackWatch.ElapsedMilliseconds
         if ($rollbackResult.focusTelemetry) { $foregroundRaiseCount += [int](Arg $rollbackResult.focusTelemetry 'acquisitions' 0) }
-        $entryOk = [bool]($rollbackResult.ok -eq $true -and $rollbackResult.verified -eq $true)
+        $entryOk = [bool]($rollbackResult.ok -eq $true -and $rollbackResult.verified -eq $true -and
+          (& $contextAllowsContinuation $rollbackResult))
         if (-not $entryOk) { $rollbackOk = $false }
         $null = $rollbackEntries.Add([pscustomobject]@{
           id=[string]$entry.action.id; index=[int]$entry.index; ok=$entryOk; result=$rollbackResult
         })
+        if (-not $entryOk) {
+          $rollbackContextLost = $true
+          $rollbackStopReason = 'rollback-lost-context'
+          break
+        }
       }
     }
 
@@ -11591,12 +11625,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $resultingState = $(
-      if (-not $readbackValuesVerified) { 'unknown' }
+      if ($rollbackContextLost -or -not $readbackValuesVerified) { 'unknown' }
       elseif ($null -eq $failedIndex) { 'completed-verified' }
       elseif (-not $completed.Count) { 'unchanged' }
       elseif ($rollbackOk -and $rollbackEntries.Count -eq $completed.Count) { 'rolled-back-verified' }
       else { 'partially-mutated-verified' }
     )
+    $rollbackSummary = [ordered]@{
+      mode='best-effort'; attempted=[bool]($rollbackEntries.Count -gt 0)
+      ok=$(if ($rollbackEntries.Count) { $rollbackOk } else { $null }); entries=@($rollbackEntries)
+    }
+    if ($rollbackStopReason) { $rollbackSummary.skippedReason = $rollbackStopReason }
     $planWatch.Stop()
     $ok = [bool]($null -eq $failedIndex -and $readbackValuesVerified)
     Emit ([pscustomobject]@{
@@ -11608,10 +11647,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       schemaVersion=1; planKind=$planKind; stopOnError=$true
       completed=@($actionRecords | Where-Object { $_.status -eq 'completed' })
       failedAction=$failedAction; failedIndex=$failedIndex; skipped=@($skipped)
-      rollback=[pscustomobject]@{
-        mode='best-effort'; attempted=[bool]($rollbackEntries.Count -gt 0); ok=$(if ($rollbackEntries.Count) { $rollbackOk } else { $null })
-        entries=@($rollbackEntries)
-      }
+      rollback=[pscustomobject]$rollbackSummary
       cleanupRequired=[bool]($resultingState -in @('partially-mutated-verified','unknown'))
       finalReadback=$finalReadback; finalReadbackVerified=$readbackValuesVerified
       resultingState=$resultingState; verified=[bool]($resultingState -ne 'unknown')

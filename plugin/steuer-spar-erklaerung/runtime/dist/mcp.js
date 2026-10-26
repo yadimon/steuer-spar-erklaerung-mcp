@@ -21317,8 +21317,10 @@ var init_mcp_schemas_interaction = __esm({
         expectedEpoch: SHA256().optional().describe(
           "Optionale Anfangsepoche aus sse_page_state; sie bindet den ersten Schritt, danach gelten dessen unmittelbare Readbacks"
         ),
-        stopOnError: external_exports.literal(true).optional().describe("Fail-fast ist fest; nach dem ersten Fehler folgen nur Rollback und Readback"),
-        rollback: external_exports.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
+        stopOnError: external_exports.literal(true).optional().describe("Beim ersten Fehler endet die Vorwaertsausfuehrung; Rollback nur bei erhaltenem Kontext, danach Readback"),
+        rollback: external_exports.literal("best-effort").optional().describe(
+          "Erfolgreiche Feldschritte werden bei erhaltenem Kontext rueckwaerts zurueckgesetzt; erkannte Interferenz oder unbewiesene Ruecknahme stoppt weitere Eingaben"
+        ),
         finalReadback: external_exports.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
         resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
@@ -44486,7 +44488,7 @@ function registerInteractionTools(registry2) {
     "sse_fill_fields",
     {
       title: "Mehrere bekannte Felder in einem Worker befuellen",
-      description: "Befuellt ein bis 20 katalogisierte pageId/fieldId-Felder derselben bereits geoeffneten Seite in genau einem frischen PowerShell-Worker. Der komplette Plan wird vor dem ersten UI-Zugriff validiert; freie AutomationIds, Selektoren, Schaltertexte und Koordinaten sind nicht zulaessig. Jeder Schritt prueft seinen Vorwert und unmittelbaren Nachwert. Beim ersten Fehler werden weitere Mutationen uebersprungen, bereits abgeschlossene Felder best-effort rueckwaerts wiederhergestellt und die ganze katalogisierte Seite abschliessend gelesen. resultingState=unknown verbietet einen blinden Retry."
+      description: "Befuellt ein bis 20 katalogisierte pageId/fieldId-Felder derselben bereits geoeffneten Seite in genau einem frischen PowerShell-Worker. Der komplette Plan wird vor dem ersten UI-Zugriff validiert; freie AutomationIds, Selektoren, Schaltertexte und Koordinaten sind nicht zulaessig. Jeder Schritt prueft seinen Vorwert und unmittelbaren Nachwert. Beim ersten Fehler endet die Vorwaertsausfuehrung. Bereits abgeschlossene Felder werden bei erhaltenem Kontext best-effort rueckwaerts wiederhergestellt; erkannte Interferenz oder eine unbewiesene Ruecknahme stoppt weitere Eingaben. Die ganze katalogisierte Seite wird abschliessend gelesen. resultingState=unknown verbietet einen blinden Retry."
     },
     (r) => ({
       schemaVersion: r.schemaVersion,

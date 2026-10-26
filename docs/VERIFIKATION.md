@@ -221,6 +221,22 @@ Ressourcenreferenz. Die produktive Helferdatei akzeptiert keine synthetische
 Startidentität; dafür wird ein gesondertes, nicht verpacktes Testprogramm gebaut.
 Das belegt die Prozess-/Desktopgrenzen, ersetzt aber keinen Herstellerfall-Lauf.
 
+`bulk-action-interruption-contract.ps1` führt den tatsächlichen
+Mehrfeld-Planexecutor mit synthetischen Kindgrenzen aus. Gewöhnliche
+Vor-/Nachbedingungsfehler müssen eine weiterhin gebundene Rücknahme erlauben.
+Erkannte Eingabe-/Fensterinterferenz, eine vom Kind verweigerte Rücknahme,
+unbekannte Ausgänge und unlesbare oder neue Fehlerarten dürfen keine weitere
+Schreiboperation auslösen. Der passive Abschlussreadback bleibt erforderlich.
+Auch ein Fehler während der umgekehrten Rücknahmefolge muss deren weitere
+Schritte beenden. Selbst wieder sichtbar gewordene ursprüngliche Werte heben
+einen erkannten Kontextverlust nicht auf. Der Vertrag ist Teil des Voll- und
+Schnellplans und startet kein Produkt und keine Eingabe.
+Er führt außerdem den tatsächlichen globalen Worker-Trap mit einem
+synthetischen Fehler aus. Der Executor-Vertrag prüft dessen strukturierte
+Antwort und eine abgewiesene Worker-Promise getrennt bis zu Ergebnisschema
+und MCP-Fehlerhülle: unbekannter Ausgang, kein erfundener Readback und genau
+ein Workeraufruf.
+
 ## Live-Abdeckung
 
 Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;

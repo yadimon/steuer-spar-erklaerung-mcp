@@ -25,7 +25,7 @@ const expectedNames = [
   "test-inventory-contract",
   "with-api-cleanup",
   "live-state-journey-contract", "table-grid-read-contract", "fresh-raw-resolver-contract",
-  "table-grid-api", "table-uia-delete-contract",
+  "table-grid-api", "table-uia-delete-contract", "bulk-action-interruption-contract",
   "table-existing-cursor",
   "table-read-keyboard-boundary",
   "table-preparation", "window-close-helper", "get-value-namespace",

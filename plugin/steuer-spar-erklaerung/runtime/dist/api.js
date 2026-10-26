@@ -21830,8 +21830,10 @@ var init_mcp_schemas_interaction = __esm({
         expectedEpoch: SHA256().optional().describe(
           "Optionale Anfangsepoche aus sse_page_state; sie bindet den ersten Schritt, danach gelten dessen unmittelbare Readbacks"
         ),
-        stopOnError: external_exports.literal(true).optional().describe("Fail-fast ist fest; nach dem ersten Fehler folgen nur Rollback und Readback"),
-        rollback: external_exports.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
+        stopOnError: external_exports.literal(true).optional().describe("Beim ersten Fehler endet die Vorwaertsausfuehrung; Rollback nur bei erhaltenem Kontext, danach Readback"),
+        rollback: external_exports.literal("best-effort").optional().describe(
+          "Erfolgreiche Feldschritte werden bei erhaltenem Kontext rueckwaerts zurueckgesetzt; erkannte Interferenz oder unbewiesene Ruecknahme stoppt weitere Eingaben"
+        ),
         finalReadback: external_exports.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
         resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
@@ -24199,11 +24201,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
     finalReadback: true,
     finalReadbackPlan: { operation: "known_page_state", args: finalReadbackArgs }
   };
-  try {
-    const result = await dependencies.worker("bulk_action", plan, timeoutMs, signal);
-    return dependencies.finish(result, resourceRefs);
-  } catch (error62) {
-    const failed = dependencies.executionError("fill_fields", error62);
+  const finishUnknown = (failed) => {
     return dependencies.finish({
       ...failed,
       schemaVersion: 1,
@@ -24211,7 +24209,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
       completed: [],
       failedAction: null,
       failedIndex: null,
-      skipped: actions.map((action, index) => ({ ...action, index, status: "skipped" })),
+      skipped: [],
       rollback: { mode: "best-effort", attempted: false, ok: null, entries: [] },
       cleanupRequired: true,
       finalReadback: null,
@@ -24220,6 +24218,13 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
       verified: false,
       performance: { workerProcessCount: 1 }
     }, resourceRefs);
+  };
+  try {
+    const result = await dependencies.worker("bulk_action", plan, timeoutMs, signal);
+    if (result.ok === false && result.kind === "worker-init") return finishUnknown(result);
+    return dependencies.finish(result, resourceRefs);
+  } catch (error62) {
+    return finishUnknown(dependencies.executionError("fill_fields", error62));
   }
 }
 async function executeReceiptManagerBulkPlan(args, configured, timeoutMs, signal, dependencies) {

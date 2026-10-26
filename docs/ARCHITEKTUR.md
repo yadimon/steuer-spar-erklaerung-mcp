@@ -548,12 +548,28 @@ einen geschlossenen Operationskatalog und exakte Argumentfelder.
 Innerhalb des Workers fängt der Planexecutor die kanonischen strukturierten
 Ergebnisse bestehender Operationen ab, statt nach jedem `Emit` den Prozess zu
 beenden. Jeder Feldschritt behält Vorwert-, Page-Object-, Build-, Case- und
-Nachwert-Guards. Nach dem ersten Fehler folgen keine weiteren Mutationen:
+Nachwert-Guards. Nach dem ersten Fehler endet die Vorwärtsausführung:
 restliche Schritte werden `skipped`, reversible Feldänderungen laufen in
-umgekehrter Reihenfolge best effort zurück, und ein vollständiger Readback
-bestimmt `unchanged`, `completed-verified`, `rolled-back-verified`,
+umgekehrter Reihenfolge best effort zurück. Bei erkannter Fremdeingabe,
+veränderter Fensterbindung oder unbekanntem Ausgang beginnt keine neue
+Rücknahme; beim ersten unbewiesenen Rücknahme-Ergebnis endet auch die
+Rollback-Kette. Ein solcher Kontextverlust bleibt trotz passivem Readback
+`unknown`. Andernfalls bestimmt der vollständige Readback
+`unchanged`, `completed-verified`, `rolled-back-verified`,
 `partially-mutated-verified` oder `unknown`. Timeout und Cancellation werden
 immer als `unknown` ohne automatischen Retry zurückgegeben.
+Das gilt auch für die strukturierte Antwort des globalen PowerShell-Traps:
+Der API-Planexecutor erhält Fehlerart und Diagnose, ergänzt aber ausdrücklich
+`unknown`, `cleanupRequired` und den fehlenden Abschlussreadback.
+Die Fortsetzung ist auf bekannte gewöhnliche Fehlerarten begrenzt. Ein
+unbewiesenes Vorwärtsergebnis oder eine unbekannte Fehlerart nach erledigten
+Schritten verlangt Abgleich. Bekannte klare Ablehnungen vor dem ersten geänderten Feld
+bleiben bei bestätigtem unverändertem Readback präzise. Die optionalen Gründe
+`failed-action-lost-context` und `rollback-lost-context` unterscheiden die
+verweigerte Rücknahme vom Abbruch einer schon begonnenen Rücknahmekette.
+Leere oder nicht klassifizierte erste Fehler bleiben ebenfalls ungewiss;
+ein Nachbedingungsfehler braucht einen bestätigten eigenen Kind-Rollback,
+bevor weitere Schritte zurückgenommen werden dürfen.
 
 `receipt_manager_bulk_upsert` nutzt denselben Ein-Prozess-Grundsatz für
 vollständige Liste, fachliche Identitätsprüfung, Import oder Update, optionale
