@@ -4,7 +4,7 @@ $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worke
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$errors)
 if (@($errors).Count) {throw 'Worker source does not parse.'}
-foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-SSETableMutationTargetProof',
+foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-SSETableMutationTargetProof','Get-SSETableMutationTargetLocation','Get-SSEInputEpochEvidence',
   'Test-SSETableMutationInheritedContext','Test-SSETableMutationActionEpoch','Initialize-SSETableMutationFocus')) {
   $found=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if ($found.Count -ne 1) {throw 'Private mutation proof must be unique.'}
@@ -20,10 +20,11 @@ public static class SW {
  public static int[] GetPhysicalClientOrigin(IntPtr h){return new[]{100,200};}
 }
 namespace System.Windows.Automation {
- public static class AutomationElement {public static object Root;public static object FromHandle(IntPtr h){return Root;}}
+ public static class AutomationElement {public static object Root,FocusedElement;public static object FromHandle(IntPtr h){return Root;}}
  public static class ControlType {public const string Table="Table",DataGrid="DataGrid",DataItem="DataItem",Window="Window";}
  public static class GridItemPattern {public static object Pattern=new object();}
  public static class TogglePattern {public static object Pattern=new object();}
+ public static class SelectionPattern {public static object Pattern=new object();}
 }
 '@
 $AE=[System.Windows.Automation.AutomationElement]
@@ -51,10 +52,11 @@ function Get-SSETableReadOnlyModelCells {
     @($Rids | Where-Object {-not $script:elements.ContainsKey($_)}).Count -eq 0);elements=$script:elements}
 }
 function New-SyntheticCellElement($Cell,$Container,$Column) {
-  $element=[pscustomobject]@{Current=[pscustomobject]@{Name=$Cell.name;IsEnabled=[bool]($Column -ne 6);BoundingRectangle=[pscustomobject]@{
+  $element=[pscustomobject]@{Current=[pscustomobject]@{Name=$Cell.name;ControlType='DataItem';ProcessId=7;HasKeyboardFocus=$false;IsEnabled=[bool]($Column -ne 6);BoundingRectangle=[pscustomobject]@{
     X=$Cell.x;Y=$Cell.y;Width=$Cell.w;Height=$Cell.h}};
     grid=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]7;Column=[int]$Column;ContainingGrid=$Container}};
-    toggle=$(if ($Column -eq 4) {[pscustomobject]@{Current=[pscustomobject]@{ToggleState='Off'}}} else {$null})}
+    toggle=$(if ($Column -eq 4) {[pscustomobject]@{Current=[pscustomobject]@{ToggleState='Off'}}} else {$null});runtimeId=$Cell.rid}
+  $element | Add-Member ScriptMethod GetRuntimeId {$this.runtimeId -split '\.'}
   $element | Add-Member ScriptMethod TryGetCurrentPattern {
     param($Pattern,$Result)
     if ($Pattern -eq [System.Windows.Automation.GridItemPattern]::Pattern -and $this.grid) {$Result.Value=$this.grid;return $true}
@@ -110,7 +112,8 @@ $allowedChecks=@('schema-exact','row-type','row-lower-bound','row-upper-bound','
   'table-bottom-contained','live-x-equal','live-y-equal','live-width-equal','live-height-equal','live-name-equal','grid-pattern-present',
   'grid-row-equal','grid-column-equal','grid-present','grid-pid-equal','grid-type-bound','grid-rid-equal','grid-aid-equal',
   'toggle-state-valid','toggle-pattern-present','toggle-value-equal','display-equal','target-rid-equal','target-display-equal',
-  'target-flags-enabled-selectable','target-enabled','target-not-toggle','target-check-state-absent','target-column-bound')
+  'target-flags-enabled-selectable','target-enabled','target-not-toggle','target-check-state-absent','target-column-bound',
+  'selection-pattern-present','selection-count-bounded','selection-row-members','selection-target-present','selection-grid-row','selection-keyboard-focus')
 function Assert-SafeTargetDiagnostic($Proof) {
   if (@($Proof.diagnostic.PSObject.Properties.Name | Sort-Object) -join ',' -cne 'checks,columnIndex,counts,phase') {
     throw 'Target diagnostics contain undeclared fields.'
@@ -134,7 +137,7 @@ function Assert-SafeTargetDiagnostic($Proof) {
     throw 'Target diagnostic reason contains free text.'
   }
   if ($Proof.diagnostic.phase -cnotin @('target-schema','table-editor','header-count','target-unique','shared-row','raw-resolve',
-      'cell-schema-geometry','live-metadata','grid-pattern','grid-identity','toggle','display','target-capability','target-column')) {
+      'cell-schema-geometry','live-metadata','grid-pattern','grid-identity','toggle','display','target-capability','target-column','selection')) {
     throw 'Target diagnostic phase contains free text.'
   }
   $safe=[pscustomobject]@{reason=$Proof.reason;diagnostic=$Proof.diagnostic} | ConvertTo-Json -Depth 8 -Compress
@@ -364,4 +367,311 @@ foreach ($case in @('stable','foreign-before-acquisition')) {
 # fresh-raw-resolver-contract.ps1, including disabled passive calculated cells.
 # The independent row/grid/model/context proof tests above retain this boundary
 # stub and all zero-action rejection assertions.
-Write-Output 'table-mutation-target-contract: PASS (actual helpers/response, bounded private diagnostics, strict grid/model/context guards)'
+function Reset-LocationFixture {
+  $script:editorFree=$true;$script:requestedRawCells=0;$script:selectionSupported=$true
+  $script:container=[pscustomobject]@{Current=[pscustomobject]@{ProcessId=7;ControlType='Table';AutomationId=$tableAid;HasKeyboardFocus=$true};rid='10.1'}
+  $script:container | Add-Member ScriptMethod GetRuntimeId {$this.rid -split '\.'}
+  $script:container | Add-Member ScriptMethod TryGetCurrentPattern {
+    param($Pattern,$Result)
+    if($Pattern -eq [System.Windows.Automation.SelectionPattern]::Pattern -and $script:selectionSupported){
+      $selection=[pscustomobject]@{Current=[pscustomobject]@{}}
+      $selection.Current | Add-Member ScriptMethod GetSelection {$script:selectionEntries}
+      $Result.Value=$selection;return $true
+    }
+    $false
+  }
+  $script:rowSeven=Copy-Json $baseCells
+  $script:rowEight=Copy-Json $baseCells
+  foreach($cell in $script:rowEight){$cell.y=188;$cell.rid='20.'+(($cell.i-10)+60);$cell.i+=100}
+  $script:elements=@{}
+  foreach($row in @(@($script:rowSeven),@($script:rowEight))){
+    for($column=0;$column -lt $row.Count;$column++){
+      $element=New-SyntheticCellElement $row[$column] $script:container $column
+      $element.grid.Current.Row=[int]$(if($row[$column].y -eq 188){8}else{7})
+      $script:elements[$row[$column].rid]=$element
+    }
+  }
+  $script:tree=[pscustomobject]@{nodes=@($table)+@($headerNodes)+@($script:rowSeven)+@($script:rowEight)}
+  $script:binding=[pscustomobject]@{snapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRootAid=$tableAid;tableRootRid='10.1'}}}
+  $script:selectionEntries=@($script:rowSeven | ForEach-Object {$script:elements[$_.rid]})
+  $script:elements[$script:rowSeven[0].rid].Current.HasKeyboardFocus=$true
+  $AE::FocusedElement=$script:elements[$script:rowSeven[0].rid]
+}
+function Get-SSETableReadOnlyModelCells {
+  param($Window,$ProcessId,$Aid,$Rids)
+  $script:requestedRawCells=@($Rids).Count
+  if (@($Rids).Count -lt 2) {throw 'Actual production raw resolver requires at least two cells.'}
+  [pscustomobject]@{ok=[bool]($Window -eq [IntPtr]111 -and $ProcessId -eq 7 -and $Aid -ceq $tableAid -and
+    @($Rids | Where-Object {-not $script:elements.ContainsKey($_)}).Count -eq 0);elements=$script:elements}
+}
+Reset-LocationFixture
+$location=Get-SSETableMutationTargetLocation ([IntPtr]111) 7 $script:tree $script:binding 'Target' $script:rowEight[2].rid
+if(-not $location.ok -or $location.row -ne 8 -or $location.column -ne 2 -or $location.targetRid -cne $script:rowEight[2].rid -or $script:requestedRawCells -ne 7){throw 'Exact duplicate RID did not locate the second model row via a complete raw row.'}
+$checks=1
+foreach($case in @('empty-rid','wrong-text','snapshot-disabled','incomplete-row','disabled','toggle','missing-grid','foreign-pid','wrong-grid-rid','wrong-grid-aid','duplicate-rid','foreign-table','invalid-row','changed-bounds')){
+  Reset-LocationFixture
+  $rid=$script:rowEight[2].rid;$wanted='Target'
+  switch($case){
+    'empty-rid' {$rid=''}
+    'wrong-text' {$wanted='Other'}
+    'snapshot-disabled' {$script:rowEight[2].on=$false}
+    'incomplete-row' {$script:tree.nodes=@($script:tree.nodes|Where-Object rid -CNE $script:rowEight[6].rid)}
+    'disabled' {$script:elements[$rid].Current.IsEnabled=$false}
+    'toggle' {$script:elements[$rid].toggle=[pscustomobject]@{}}
+    'missing-grid' {$script:elements[$rid].grid=$null}
+    'foreign-pid' {$script:container.Current.ProcessId=8}
+    'wrong-grid-rid' {$script:container.rid='10.9'}
+    'wrong-grid-aid' {$script:container.Current.AutomationId='Other'}
+    'duplicate-rid' {$script:tree.nodes+=@(Copy-Json $script:rowEight[2])}
+    'foreign-table' {$script:rowEight[2].p=99}
+    'invalid-row' {$script:elements[$rid].grid.Current.Row=1000}
+    'changed-bounds' {$script:elements[$rid].Current.BoundingRectangle.Y=189}
+  }
+  $result=Get-SSETableMutationTargetLocation ([IntPtr]111) 7 $script:tree $script:binding $wanted $rid
+  if($result.ok -or @($result.PSObject.Properties.Name | Sort-Object) -join ',' -cne 'ok,reason' -or $result.reason -cne 'native-mutation-location-unbound'){throw ('Unsafe preliminary location: '+$case)}
+  $checks++
+}
+Reset-LocationFixture
+foreach($row in @($script:rowSeven,$script:rowEight)){
+  for($index=0;$index -lt $row.Count;$index++){$script:elements[$row[$index].rid].grid.Current.Column=[int](@(0,2,3,4,5,6,7)[$index])}
+}
+$hiddenLocation=Get-SSETableMutationTargetLocation ([IntPtr]111) 7 $script:tree $script:binding 'Target' $script:rowEight[2].rid
+if(-not $hiddenLocation.ok -or $hiddenLocation.column -ne 3){throw 'Location confused visible header order with a native column after a hidden column.'}
+$selectionRejects=@{
+  'missing-pattern'='selection-pattern-present';'empty'='selection-count-bounded';'foreign-row'='selection-row-members'
+  'without-target'='selection-target-present';'duplicate-selection'='selection-row-members'
+  'changed-row'='selection-grid-row';'changed-bounds'='selection-grid-row';'missing-grid'='selection-grid-row'
+}
+foreach($case in @('valid','table-focus-valid','missing-pattern','empty','foreign-row','without-target','duplicate-selection','changed-row','changed-bounds','missing-grid',
+  'focus-other-row','focus-absent','focus-flag-lost','focus-wrong-grid-row','focus-missing-grid','focus-edit-delegate','focus-edit-shared-rid',
+  'table-focus-other-row','table-focus-none','table-focus-multiple','table-focus-wrong-rid','table-focus-wrong-aid','table-focus-flag-lost',
+  'table-focus-foreign-pid','table-focus-wrong-type')){
+  Reset-LocationFixture
+  switch($case){
+    'missing-pattern' {$script:selectionSupported=$false}
+    'empty' {$script:selectionEntries=@()}
+    'foreign-row' {$script:selectionEntries[0]=$script:elements[$script:rowEight[0].rid]}
+    'without-target' {$script:selectionEntries=@($script:elements[$script:rowSeven[0].rid])}
+    'duplicate-selection' {$script:selectionEntries=@($script:elements[$script:rowSeven[2].rid],$script:elements[$script:rowSeven[2].rid])}
+    'table-focus-valid' {$AE::FocusedElement=$script:container}
+    {$_ -cin @('table-focus-other-row','table-focus-none','table-focus-multiple','table-focus-flag-lost')} {
+      $AE::FocusedElement=$script:container
+      if($case -cin @('table-focus-other-row','table-focus-none')){$script:elements[$script:rowSeven[0].rid].Current.HasKeyboardFocus=$false}
+      if($case -ceq 'table-focus-other-row'){$script:elements[$script:rowEight[0].rid].Current.HasKeyboardFocus=$true}
+      if($case -ceq 'table-focus-multiple'){$script:elements[$script:rowSeven[1].rid].Current.HasKeyboardFocus=$true}
+      if($case -ceq 'table-focus-flag-lost'){$script:container.Current.HasKeyboardFocus=$false}
+    }
+    {$_ -cin @('table-focus-wrong-rid','table-focus-wrong-aid','table-focus-foreign-pid','table-focus-wrong-type')} {
+      $otherRoot=[pscustomobject]@{Current=$script:container.Current.PSObject.Copy();rid='10.1'}
+      $otherRoot|Add-Member ScriptMethod GetRuntimeId {$this.rid -split '\.'}
+      if($case -ceq 'table-focus-wrong-rid'){$otherRoot.rid='10.9'}
+      if($case -ceq 'table-focus-wrong-aid'){$otherRoot.Current.AutomationId='Synthetic other table'}
+      if($case -ceq 'table-focus-foreign-pid'){$otherRoot.Current.ProcessId=8}
+      if($case -ceq 'table-focus-wrong-type'){$otherRoot.Current.ControlType='Window'}
+      $AE::FocusedElement=$otherRoot
+    }
+    'focus-other-row' {$AE::FocusedElement=$script:elements[$script:rowEight[0].rid];$AE::FocusedElement.Current.HasKeyboardFocus=$true}
+    'focus-absent' {$AE::FocusedElement=$null}
+    {$_ -cin @('focus-edit-delegate','focus-edit-shared-rid')} {
+      $delegate=New-SyntheticCellElement $script:rowSeven[2] $script:container 2
+      $delegate.Current.ControlType='Edit';$delegate.Current.HasKeyboardFocus=$true
+      if($case -ceq 'focus-edit-delegate'){$delegate.runtimeId='10.88';$delegate.grid=$null}
+      $script:elements[$script:rowSeven[2].rid].Current.HasKeyboardFocus=$true
+      $AE::FocusedElement=$delegate
+    }
+    'focus-flag-lost' {$AE::FocusedElement.Current.HasKeyboardFocus=$false}
+    {$_ -cin @('focus-wrong-grid-row','focus-missing-grid')} {
+      $newFocus=New-SyntheticCellElement $script:rowSeven[0] $script:container 0
+      $newFocus.Current.HasKeyboardFocus=$true
+      if($case -ceq 'focus-wrong-grid-row'){$newFocus.grid.Current.Row=8}
+      if($case -ceq 'focus-missing-grid'){$newFocus.grid=$null}
+      $AE::FocusedElement=$newFocus
+    }
+    {$_ -cin @('changed-row','changed-bounds','missing-grid')} {
+      # A separately read selection object can change after the full row read.
+      $changed=New-SyntheticCellElement $script:rowSeven[2] $script:container 2
+      if($case -ceq 'changed-row'){$changed.grid.Current.Row=8}
+      if($case -ceq 'changed-bounds'){$changed.Current.BoundingRectangle.Y=165}
+      if($case -ceq 'missing-grid'){$changed.grid=$null}
+      $script:selectionEntries=@($changed)
+    }
+  }
+  $proof=Get-SSETableMutationTargetProof ([IntPtr]111) 7 $script:tree (Copy-Json $baseTarget) $script:rowSeven[2].rid -RequireSelection
+  if($proof.ok -ne ($case -cin @('valid','table-focus-valid'))){throw ('Fresh delete selection proof disagreed: '+$case)}
+  if(-not $proof.ok){
+    Assert-SafeTargetDiagnostic $proof
+    $expectedCheck=$(if($selectionRejects.ContainsKey($case)){$selectionRejects[$case]}else{'selection-keyboard-focus'})
+    if($proof.reason -cne ('native-mutation-target-'+$expectedCheck) -or $proof.diagnostic.phase -cne 'selection' -or
+      $proof.diagnostic.checks[$expectedCheck] -ne $false){throw ('Selection/focus case rejected for the wrong reason: '+$case)}
+    if($expectedCheck -ceq 'selection-keyboard-focus' -and $proof.diagnostic.checks['selection-grid-row'] -ne $true){throw 'Focus refusal bypassed the successful selected-row proof.'}
+  }
+}
+# Execute the actual private dispatcher result, including its Fail projection.
+$locationResponses=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '$cursorPhase -ceq ''mutation-target-locate'''},$true))
+if($locationResponses.Count -ne 1){throw 'Private target location response must be unique.'}
+$inheritedGates=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text.Contains('Test-SSETableReadSnapshotBinding $inherited.snapshot')},$true))
+if($inheritedGates.Count -ne 1 -or $inheritedGates[0].Extent.EndOffset -ge $locationResponses[0].Extent.StartOffset){throw 'Location escaped the shared inherited-context proof.'}
+. ([scriptblock]::Create($failDefinition[0].Extent.Text))
+$locationResponse=[scriptblock]::Create($locationResponses[0].Extent.Text)
+foreach($case in @('valid','stale-rid','private-text')){
+  Reset-LocationFixture
+  $cursorPhase='mutation-target-locate';$hwnd=[IntPtr]111;$main=[pscustomobject]@{pid=7}
+  $latestTableSnapshot=[pscustomobject]@{tree=$script:tree};$inherited=$script:binding
+  $cursorPlan=[pscustomobject]@{text='Target';targetRid=$script:rowEight[2].rid}
+  if($case -ceq 'stale-rid'){$cursorPlan.targetRid='Synthetic.stale.rid'}
+  if($case -ceq 'private-text'){$cursorPlan.text='Synthetic private field'}
+  $script:emitted=$null
+  try{& $locationResponse;throw 'Location did not emit.'}catch{if($_.Exception.Message -cne 'synthetic-emit-stopped'){throw}}
+  $response=$script:emitted
+  if($response.ok -ne ($case -ceq 'valid') -or $response.physicalInputUsed -ne $false -or $response.steps -ne 0){throw 'Location lost its passive outcome contract.'}
+  if($case -ceq 'valid'){
+    if(@($response.PSObject.Properties.Name|Sort-Object) -join ',' -cne 'mutationTarget,ok,physicalInputUsed,steps' -or
+      $response.mutationTarget.row -ne 8 -or $response.mutationTarget.column -ne 2 -or $response.mutationTarget.targetRid -cne $script:rowEight[2].rid){throw 'Location response is not strictly bounded.'}
+  }else{
+    if($response.kind -cne 'stale' -or $response.mutationStarted -ne $false -or $response.retryable -ne $false -or
+      $response.PSObject.Properties.Name -ccontains 'mutationTarget'){throw 'Location refusal leaks authority or permits mutation/retry.'}
+    $serialized=$response|ConvertTo-Json -Depth 8 -Compress
+    foreach($forbidden in @($tableAid,'20.62','Synthetic.stale.rid','Synthetic private field')){if($serialized.Contains($forbidden)){throw 'Location refusal leaks model or caller data.'}}
+  }
+}
+$bindingAssignments=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $node.Left.Extent.Text -ceq '$inherited' -and $node.Right.Extent.Text -ceq '$cursorPlan.binding'},$true))
+if($bindingAssignments.Count -ne 1){throw 'Location must receive the actual inherited private plan binding.'}
+$boundLocation=[scriptblock]::Create($bindingAssignments[0].Extent.Text+"`n"+$inheritedGates[0].Extent.Text+"`n"+$locationResponses[0].Extent.Text)
+& {
+  function Test-SSETableReadSnapshotBinding {
+    param($Before,$After,[switch]$BeforeNavigation)
+    $script:bindingReads++
+    if(-not $BeforeNavigation -or -not [object]::ReferenceEquals($Before,$cursorPlan.binding.snapshot) -or
+      -not [object]::ReferenceEquals($After,$erst)){throw 'Location did not compare the actual inherited and current snapshots.'}
+    $script:bindingMatch
+  }
+  foreach($case in @('valid','missing-binding','wrong-windowset','snapshot-changed')){
+    Reset-LocationFixture
+    $cursorPhase='mutation-target-locate';$hwnd=[IntPtr]111;$main=[pscustomobject]@{pid=7}
+    $cursorPlan=[pscustomobject]@{binding=(Copy-Json $baseAuthority.binding);text='Target';targetRid=$script:rowEight[2].rid}
+    if($case -ceq 'missing-binding'){$cursorPlan.binding=$null}
+    if($case -ceq 'wrong-windowset'){$cursorPlan.binding.windowFingerprint='Synthetic changed fingerprint'}
+    $dirtyBefore=$true;$phaseWindows=[pscustomobject]@{fingerprint=('a'*64)};$script:tick=10
+    $erst=[pscustomobject]@{marker='Synthetic current snapshot'};$latestTableSnapshot=[pscustomobject]@{tree=$script:tree}
+    $script:bindingMatch=$case -cne 'snapshot-changed';$script:bindingReads=0;$script:emitted=$null
+    try{& $boundLocation;throw 'Bound location did not emit.'}catch{if($_.Exception.Message -cne 'synthetic-emit-stopped'){throw}}
+    if($script:emitted.ok -ne ($case -ceq 'valid')){throw ('Inherited dispatcher/location sequence disagreed: '+$case)}
+    if($case -ceq 'valid'){
+      if($script:bindingReads -ne 1 -or $script:requestedRawCells -ne 7 -or $script:emitted.mutationTarget.row -ne 8){throw 'Bound location skipped current snapshot or complete raw row proof.'}
+    }elseif($script:emitted.kind -cne 'interference' -or $script:requestedRawCells -ne 0){throw 'A stale inherited context reached the location provider.'}
+  }
+}
+$planClauses=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst]},$true) |
+  ForEach-Object {$_.Clauses} | Where-Object {$_.Item1.Extent.Text -ceq '$cursorPhase -ceq ''mutation-target-locate''' -and
+    $_.Item2.Extent.Text.Contains('$allowedPlanFields')})
+$validationGates=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text.Contains('$cursorPlan.schemaVersion -ne 1')},$true))
+if($planClauses.Count -ne 1 -or $validationGates.Count -ne 1){throw 'Private location plan schema must be unique.'}
+$planFields=[scriptblock]::Create(($planClauses[0].Item2.Statements.Extent.Text -join "`n"))
+$planValidation=[scriptblock]::Create($validationGates[0].Extent.Text)
+& {
+  function Arg($Arguments,$Name){$Arguments[$Name]}
+  function Fail {throw 'synthetic-plan-rejected'}
+  foreach($extra in @('','target','tableAid','tableRid')){
+    $cursorPhase='mutation-target-locate';$allowedPlanFields=@('schemaVersion','phase');. $planFields
+    if(@($allowedPlanFields|Sort-Object) -join ',' -cne 'binding,phase,schemaVersion,targetRid,text'){throw 'Location plan admits undeclared authority.'}
+    $cursorPlan=[pscustomobject]@{schemaVersion=1;phase=$cursorPhase;binding=$script:binding;text='Target';targetRid='10.62'}
+    if($extra){$cursorPlan|Add-Member NoteProperty $extra 'Synthetic forbidden authority'}
+    $a=@{noKeys=$false};$sumLabel='Summe';$rejected=$false
+    try{& $planValidation}catch{if($_.Exception.Message -cne 'synthetic-plan-rejected'){throw};$rejected=$true}
+    if($rejected -ne [bool]$extra){throw 'Actual location plan validator widened its allowed fields.'}
+  }
+}
+$proofCalls=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and
+  $node.GetCommandName() -ceq 'Get-SSETableMutationTargetProof'},$true))
+foreach($command in $proofCalls){
+  if($command.CommandElements[5] -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $command.CommandElements[5].Value -ceq ''){throw 'A worker reproof discarded its fresh RuntimeId.'}
+}
+$finalDelete=@($proofCalls|Where-Object {$_.CommandElements[5].Extent.Text -ceq '$preDeleteMatches[0].rid'})
+if($finalDelete.Count -ne 1 -or @($finalDelete[0].CommandElements|Where-Object {$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'RequireSelection'}).Count -ne 1){throw 'Delete lost its current selection proof.'}
+$deleteKeys=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+  $node.Member.Extent.Text -ceq 'SendWait' -and $node.Arguments.Count -eq 1 -and
+  $node.Arguments[0] -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Arguments[0].Value -ceq '^+{DEL}'},$true))
+if($deleteKeys.Count -ne 1 -or $finalDelete[0].Extent.StartOffset -ge $deleteKeys[0].Extent.StartOffset){throw 'Current selection proof moved behind the delete action.'}
+$deleteChecks=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$preDeleteOk'},$true))
+if($deleteChecks.Count -ne 1){throw 'Delete final geometry check must be unique.'}
+$deleteCheck=[scriptblock]::Create($deleteChecks[0].Right.Extent.Text)
+foreach($case in @('valid','final-cell-moved','selection-moved')){
+  $mutationAuthority=[pscustomobject]@{};$preDeleteHeading='EDV-Kosten';$expectedPage=$preDeleteHeading
+  $preDeleteRead=[pscustomobject]@{value='100,00'};$expectedBefore='100,00';$preDeleteMatches=@([pscustomobject]@{y=164})
+  $zelle=[pscustomobject]@{y=164};$selectionYs=@(164,164);$preDeleteForegroundAfter=[int64]111;$hwnd=[IntPtr]111
+  $interactionBeforeDelete=[pscustomobject]@{fingerprint='Synthetic stable'};$preDeleteWindows=$interactionBeforeDelete;$preDeleteInputUnchanged=$true
+  if($case -ceq 'final-cell-moved'){$preDeleteMatches[0].y=188}
+  if($case -ceq 'selection-moved'){$selectionYs=@(164,165)}
+  if((& $deleteCheck) -ne ($case -ceq 'valid')){throw ('Final delete geometry binding disagreed: '+$case)}
+}
+$pendingDelete=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '$mutationAuthority' -and
+  $node.Clauses[0].Item2.Extent.Text.Contains('nativeVerificationPending=$true')},$true))
+if($pendingDelete.Count -ne 1){throw 'Native delete must hand off exactly one provisional result.'}
+$undoKeys=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+  $node.Member.Extent.Text -ceq 'SendWait' -and $node.Arguments.Count -eq 1 -and
+  $node.Arguments[0] -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Arguments[0].Value -ceq '^z' -and
+  $node.Extent.StartOffset -gt $deleteKeys[0].Extent.EndOffset},$true))
+if($undoKeys.Count -ne 1 -or $pendingDelete[0].Extent.EndOffset -ge $undoKeys[0].Extent.StartOffset){throw 'Native pending result must stop before legacy undo.'}
+$pendingBlock=[scriptblock]::Create($pendingDelete[0].Extent.Text)
+foreach($case in @('duplicate-remains','no-text-remains','wrong-summary')){
+  $mutationAuthority=[pscustomobject]@{};$script:emitted=$null;$script:dirty=$true
+  $text='Synthetic duplicate';$expectedPage='Synthetic page';$headingAfter=$expectedPage;$sumLabel='Summe';$sumOccurrence=1
+  $before='100,00';$expectedBefore=$before;$after='90,00';$expectedAfter=$after;$deleteInputBaseline=10
+  $nochDa=$case -ceq 'duplicate-remains';if($case -ceq 'wrong-summary'){$after='80,00'}
+  try{& $pendingBlock;throw 'Native delete did not hand off.'}catch{if($_.Exception.Message -cne 'synthetic-emit-stopped'){throw}}
+  $pending=$script:emitted
+  if(-not $pending.ok -or $pending.verified -ne $false -or $null -ne $pending.geloescht -or $null -ne $pending.nochVorhanden -or
+    $pending.PSObject.Properties.Name -ccontains 'rolledBack' -or $pending.PSObject.Properties.Name -ccontains 'rollbackAttempted'){
+    throw ('Native delete claimed a result before complete model verification: '+$case)
+  }
+  if(@($pending.mutationPostProof.PSObject.Properties.Name|Sort-Object) -join ',' -cne 'dirty,inputEpoch,nativeVerificationPending' -or
+    $pending.mutationPostProof.nativeVerificationPending -ne $true -or $pending.mutationPostProof.inputEpoch -ne 10 -or
+    $pending.mutationPostProof.dirty -ne $true){throw 'Provisional delete lost its strict epoch/dirty handoff.'}
+}
+$deleteClauses=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.SwitchStatementAst]},$true)|
+  ForEach-Object {$_.Clauses}|Where-Object {$_.Item1 -is [Management.Automation.Language.StringConstantExpressionAst] -and $_.Item1.Value -ceq 'table_delete'})
+if($deleteClauses.Count -ne 1){throw 'Actual delete operation must be unique.'}
+$selectionCalls=@($deleteClauses[0].Item2.FindAll({param($node)$node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+  $node.Expression.Extent.Text -ceq '$selectionItem' -and $node.Member.Extent.Text -ceq 'Select'},$true))
+if($selectionCalls.Count -ne 1){throw 'Delete exclusive selection must be unique.'}
+$deleteClicks=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+  $node.Member.Extent.Text -ceq 'mouse_event' -and $node.Extent.StartOffset -gt $selectionCalls[0].Extent.EndOffset -and
+  $node.Extent.EndOffset -lt $deleteKeys[0].Extent.StartOffset},$true))
+if($deleteClicks.Count -ne 2){throw 'Legacy delete click pair changed unexpectedly.'}
+$pointerSteps=@($deleteClauses[0].Item2.FindAll({param($node)
+  (($node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -cin @('Set-SSECursorPoint','Assert-SSECursorPoint')) -or
+   ($node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Expression.Extent.Text -ceq '$targetElement' -and $node.Member.Extent.Text -ceq 'SetFocus')) -and
+  $node.Extent.StartOffset -gt $selectionCalls[0].Extent.EndOffset -and $node.Extent.EndOffset -lt $deleteKeys[0].Extent.StartOffset},$true))
+if($pointerSteps.Count -ne 3){throw 'Legacy delete focus/cursor steps changed unexpectedly.'}
+foreach($action in (@($deleteClicks)+@($pointerSteps))){
+  $parent=$action.Parent;$legacyOnly=$false
+  while($parent){
+    if($parent -is [Management.Automation.Language.IfStatementAst] -and $parent.Clauses[0].Item1.Extent.Text -ceq '-not $mutationAuthority'){$legacyOnly=$true;break}
+    $parent=$parent.Parent
+  }
+  if(-not $legacyOnly){throw 'Native delete can click an already selected editable cell.'}
+}
+foreach($phase in @('postDeleteInterference','postCheckInterference')){
+  $branches=@($deleteClauses[0].Item2.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Clauses[0].Item1.Extent.Text -ceq ('$'+$phase)},$true))
+  if($branches.Count -ne 1){throw 'Actual post-shortcut interference branch must be unique.'}
+  foreach($native in @($false,$true)){
+    $mutationAuthority=$(if($native){[pscustomobject]@{schemaVersion=1}}else{$null})
+    $postDeleteInterference=$true;$postCheckInterference=$true;$script:emitted=$null;$nochDa=$true
+    $deleteInputBaseline=10;$deleteInputAfter=11;$postCheckInputBefore=10;$postCheckInputAfter=11
+    $deleteForegroundAfter=111;$targetPid=7;$hwnd=[IntPtr]111
+    $interactionBeforeDelete=[pscustomobject]@{fingerprint=('a'*64)};$interactionAfterDelete=[pscustomobject]@{fingerprint=('b'*64)};$postCheckWindows=$interactionAfterDelete
+    try{& ([scriptblock]::Create($branches[0].Extent.Text));throw 'Post-shortcut failure did not stop.'}catch{if($_.Exception.Message -cne 'synthetic-emit-stopped'){throw}}
+    $failure=$script:emitted
+    if($failure.ok -ne $false -or $failure.mutationStarted -ne $true -or $failure.outcomeUnknown -ne $true -or
+      $failure.resultingState -cne 'unknown' -or $failure.reconciliationRequired -ne $true -or $failure.retryable -ne $false -or
+      $null -ne $failure.nochVorhanden -or $null -ne $failure.geloescht){throw 'Post-shortcut failure claimed a clean refusal or text-only target presence.'}
+  }
+}
+Write-Output 'table-mutation-target-contract: PASS (complete raw rows, exact focus/selection, no native delete click or text-only undo, strict pending handoff)'

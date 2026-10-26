@@ -8469,8 +8469,49 @@ function Get-SSETableReadOnlyModelCells {
   }
 }
 
+function Get-SSETableMutationTargetLocation {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Binding,$Text,$TargetRid)
+  $reject=[pscustomobject]@{ok=$false;reason='native-mutation-location-unbound'}
+  try {
+    if ($Text -isnot [string] -or -not $Text -or $TargetRid -isnot [string] -or -not $TargetRid) {return $reject}
+    $nav=$Binding.snapshot.navigationBinding
+    $state=Get-SSETableSnapshotInputState $Tree $nav.tableRootAid $nav.tableRootRid
+    if (-not $state.ok -or -not $state.editorFree) {return $reject}
+    $headers=@($Tree.nodes | Where-Object {$_.p -eq $state.table.i -and $_.type -ceq 'Header' -and
+      $_.on -and [string]$_.name -and $_.w -gt 0 -and $_.h -gt 0})
+    if ($headers.Count -lt 2 -or $headers.Count -gt 100) {return $reject}
+    $matches=@($Tree.nodes | Where-Object {$_.p -eq $state.table.i -and $_.type -ceq 'DataItem' -and
+      $_.aid -ceq $nav.tableRootAid -and $_.rid -ceq $TargetRid -and $_.name -ceq $Text -and
+      $_.on -and $_.w -gt 0 -and $_.h -gt 0})
+    if ($matches.Count -ne 1) {return $reject}
+    $candidate=$matches[0]
+    $cells=@($Tree.nodes | Where-Object {$_.p -eq $state.table.i -and $_.type -ceq 'DataItem' -and
+      $_.aid -ceq $nav.tableRootAid -and $_.y -eq $candidate.y -and $_.h -eq $candidate.h -and $_.w -gt 0})
+    if ($cells.Count -ne $headers.Count -or @($cells.rid | Sort-Object -Unique).Count -ne $cells.Count) {return $reject}
+    $fresh=Get-SSETableReadOnlyModelCells $Hwnd $ProcessId $nav.tableRootAid @($cells.rid)
+    if (-not $fresh.ok) {return $reject}
+    $element=$fresh.elements[$candidate.rid]
+    if (-not $element -or -not $element.Current.IsEnabled) {return $reject}
+    $bounds=$element.Current.BoundingRectangle
+    if ($bounds.X -ne $candidate.x -or $bounds.Y -ne $candidate.y -or
+        $bounds.Width -ne $candidate.w -or $bounds.Height -ne $candidate.h -or
+        ([string]$element.Current.Name).Replace("`r",' ').Replace("`n",' ').Replace("`t",' ').Trim() -cne $Text) {return $reject}
+    $toggle=$null;$pattern=$null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$toggle) -or
+        -not $element.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern,[ref]$pattern)) {return $reject}
+    $grid=$pattern.Current;$container=$grid.ContainingGrid
+    if ($grid.Row -isnot [int] -or $grid.Row -lt 0 -or $grid.Row -ge 1000 -or
+        $grid.Column -isnot [int] -or $grid.Column -lt 0 -or $grid.Column -ge 100 -or -not $container -or
+        [int]$container.Current.ProcessId -ne $ProcessId -or
+        $container.Current.ControlType -notin @([System.Windows.Automation.ControlType]::Table,[System.Windows.Automation.ControlType]::DataGrid) -or
+        ($container.GetRuntimeId() -join '.') -cne $nav.tableRootRid -or
+        [string]$container.Current.AutomationId -cne $nav.tableRootAid) {return $reject}
+    [pscustomobject]@{ok=$true;row=$grid.Row;column=$grid.Column;targetRid=$candidate.rid}
+  } catch {$reject}
+}
+
 function Get-SSETableMutationTargetProof {
-  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Target,[string]$TargetRid)
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Target,[string]$TargetRid,[switch]$RequireSelection)
   $diagnostic=[pscustomobject]@{phase='target-schema';columnIndex=$null;counts=[ordered]@{};checks=[ordered]@{}}
   $reject=[pscustomobject]@{ok=$false;target=$null;cells=@();reason='native-mutation-target-unbound';diagnostic=$diagnostic}
   # Record only fixed comparison codes. Each predicate retains its original short-circuit position and is evaluated once.
@@ -8578,6 +8619,45 @@ function Get-SSETableMutationTargetProof {
     }
     $diagnostic.phase='target-column'
     if ((& $failed 'target-column-bound' (-not $boundTarget))) {return $reject}
+    if ($RequireSelection) {
+      $diagnostic.phase='selection';$diagnostic.columnIndex=$null
+      $selection=$null
+      if ((& $failed 'selection-pattern-present' (-not $container.TryGetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern,[ref]$selection)))) {return $reject}
+      $selected=@($selection.Current.GetSelection())
+      if ((& $failed 'selection-count-bounded' ($selected.Count -lt 1 -or $selected.Count -gt $cells.Count))) {return $reject}
+      $ids=@($selected | ForEach-Object {$_.GetRuntimeId() -join '.'})
+      if ((& $failed 'selection-row-members' (@($ids | Sort-Object -Unique).Count -ne $ids.Count -or
+          @($ids | Where-Object {$_ -cnotin @($cells.rid)}).Count -gt 0)) -or
+          (& $failed 'selection-target-present' ($boundTarget.rid -cnotin $ids))) {return $reject}
+      foreach ($selectedCell in $selected) {
+        $selectedGrid=$null
+        if ((& $failed 'selection-grid-row' (-not $selectedCell.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern,[ref]$selectedGrid) -or
+            $selectedGrid.Current.Row -ne $Target.row -or $selectedCell.Current.BoundingRectangle.Y -ne $boundTarget.y))) {return $reject}
+      }
+      $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+      $focusOk=$false;$focusCell=$null
+      if ($focused) {
+        $focusCurrent=$focused.Current;$focusRid=$focused.GetRuntimeId() -join '.'
+        if ($focusCurrent.HasKeyboardFocus -is [bool] -and $focusCurrent.HasKeyboardFocus -and [int]$focusCurrent.ProcessId -eq $ProcessId) {
+          if ($focusCurrent.ControlType -in @([System.Windows.Automation.ControlType]::Table,[System.Windows.Automation.ControlType]::DataGrid) -and
+              $focusRid -ceq $Target.tableRid -and [string]$focusCurrent.AutomationId -ceq $Target.tableAid) {
+            $currentCells=@($cells | ForEach-Object {$freshRow.elements[$_.rid]} | Where-Object {
+              $_.Current.HasKeyboardFocus -is [bool] -and $_.Current.HasKeyboardFocus})
+            if ($currentCells.Count -eq 1) {$focusCell=$currentCells[0]}
+          } elseif ($focusCurrent.ControlType -eq [System.Windows.Automation.ControlType]::DataItem -and
+              $focusRid -cin @($cells.rid)) {$focusCell=$focused}
+        }
+      }
+      if ($focusCell) {
+        $current=$focusCell.Current;$focusGrid=$null
+        $focusOk=[bool]($current.HasKeyboardFocus -is [bool] -and $current.HasKeyboardFocus -and
+          [int]$current.ProcessId -eq $ProcessId -and $current.ControlType -eq [System.Windows.Automation.ControlType]::DataItem -and
+          ($focusCell.GetRuntimeId() -join '.') -cin @($cells.rid) -and
+          $focusCell.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern,[ref]$focusGrid) -and
+          $focusGrid.Current.Row -eq $Target.row -and $current.BoundingRectangle.Y -eq $boundTarget.y)
+      }
+      if ((& $failed 'selection-keyboard-focus' (-not $focusOk))) {return $reject}
+    }
     [pscustomobject]@{ok=$true;target=$boundTarget;cells=@($cells);reason='exact-native-grid-row-with-complete-unchanged-values'}
   } catch {$reject.reason='native-mutation-target-proof-exception';$reject}
 }
@@ -19709,9 +19789,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       elseif ($cursorPhase -ceq 'native-step') { $allowedPlanFields+=@('binding','lease','selectedRids','step') }
       elseif ($cursorPhase -cin @('native-position-checkpoint','native-position-prepare')) { $allowedPlanFields+=@('binding','lease','position') }
       elseif ($cursorPhase -ceq 'mutation-target') { $allowedPlanFields+=@('binding','target','targetRid') }
+      elseif ($cursorPhase -ceq 'mutation-target-locate') { $allowedPlanFields+=@('binding','text','targetRid') }
       elseif ($cursorPhase -cin @('native-release','native-revoke-noop')) { $allowedPlanFields+=@('binding','lease') }
       elseif ($cursorPhase -cin @('checkpoint','mutation-checkpoint')) { $allowedPlanFields+=@('binding') }
-      if ($cursorPlan.schemaVersion -ne 1 -or $cursorPhase -cnotin @('prebind','activate','resume','checkpoint','native-acquire','native-position-acquire','native-step','native-release','native-revoke-noop','mutation-target','mutation-checkpoint','native-position-checkpoint','native-position-prepare') -or
+      if ($cursorPlan.schemaVersion -ne 1 -or $cursorPhase -cnotin @('prebind','activate','resume','checkpoint','native-acquire','native-position-acquire','native-step','native-release','native-revoke-noop','mutation-target','mutation-target-locate','mutation-checkpoint','native-position-checkpoint','native-position-prepare') -or
           @($cursorPlan.PSObject.Properties.Name | Where-Object { $_ -cnotin $allowedPlanFields }).Count -or
           (Arg $a 'noKeys') -ne $false -or -not $sumLabel) { Fail 'Privater Tabellenlaufplan ist nicht exakt gebunden.' 'bad-args' }
     }
@@ -20017,6 +20098,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           -not (Test-SSETableNumberPolicy $cursorPlan.numberPolicy $erst.navigationBinding.tableRootAid @(
             $erst.kopf | ForEach-Object {[pscustomobject]@{name=$_}}))) {
         Fail 'Privater nativer Nummernspaltenplan stimmt nicht mit der frischen Tabelle ueberein.' 'bad-args'
+      }
+      if ($cursorPhase -ceq 'mutation-target-locate') {
+        $location=Get-SSETableMutationTargetLocation $hwnd ([int]$main.pid) $latestTableSnapshot.tree $inherited $cursorPlan.text $cursorPlan.targetRid
+        if (-not $location.ok) {
+          Fail 'RuntimeId ist nicht passiv an eine eindeutige gebundene Modellzelle gekoppelt; keine Mutation.' 'stale' ([pscustomobject]@{
+            mutationStarted=$false;retryable=$false;physicalInputUsed=$false;steps=0})
+        }
+        Emit ([pscustomobject]@{ok=$true;physicalInputUsed=$false;steps=0;mutationTarget=[pscustomobject]@{
+          row=$location.row;column=$location.column;targetRid=$location.targetRid}})
       }
       if ($cursorPhase -ceq 'mutation-target') {
         $proof=Get-SSETableMutationTargetProof $hwnd ([int]$main.pid) $latestTableSnapshot.tree $cursorPlan.target $cursorPlan.targetRid
@@ -21987,7 +22077,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $failure = $null; $failureKind = $null; $interference = $false
     $typedInterferenceEvidence = $null
 
-    if ($mutationAuthority -and -not (Get-SSETableMutationTargetProof $hwnd $targetPid $beforeTree $mutationAuthority.target '').ok) {
+    if ($mutationAuthority -and -not (Get-SSETableMutationTargetProof $hwnd $targetPid $beforeTree $mutationAuthority.target $target.rid).ok) {
       Fail 'Native Zielmodellzeile ist nach Fokus-Uebernahme nicht mehr unveraendert; nichts geaendert.' 'interference'
     }
 
@@ -22668,32 +22758,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($mutationAuthority -and -not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
         $mutationAuthority.binding.windowFingerprint -RequireForeground)) {Fail 'Eingabe vor exklusiver Auswahl verlor ihre Epoche.' 'interference'}
     $selectionItem.Select()
-    if ($mutationAuthority -and -not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
-        $mutationAuthority.binding.windowFingerprint -RequireForeground)) {Fail 'Eingabe vor Zellfokus verlor ihre Epoche.' 'interference'}
-    try { $targetElement.SetFocus() } catch { }
-    Start-Sleep -Milliseconds 180
-    if ($mutationAuthority -and -not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
-        $mutationAuthority.binding.windowFingerprint -RequireForeground)) {Fail 'Eingabe vor Zielklick verlor ihre Epoche.' 'interference'}
-    Set-SSECursorPoint $px $py
-    if ($mutationAuthority) {
-      $inputBaseline=Get-SSELastInputTick
-      Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'private-table-delete-own-cursor-position'
+    $selectionContext='table-delete-exclusive-selection'
+    if (-not $mutationAuthority) {
+      # The native path already proved table focus and the current model row.
+      # Clicking an already selected editable cell can start a delayed editor.
+      try { $targetElement.SetFocus() } catch { }
+      Start-Sleep -Milliseconds 180
+      Set-SSECursorPoint $px $py
+      Start-Sleep -Milliseconds 120
+      Assert-SSECursorPoint $px $py
+      [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+      $inputBaseline = Get-SSELastInputTick
+      $selectionContext='table-delete-exclusive-selection-click'
+      Set-SSEForegroundLeaseInputCheckpoint $inputBaseline ([pscustomobject]@{ x=$px; y=$py }) $selectionContext
+      Start-Sleep -Milliseconds 300
     }
-    Start-Sleep -Milliseconds 120
-    if ($mutationAuthority -and (-not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
-        $mutationAuthority.binding.windowFingerprint -RequireForeground) -or
-        -not (Get-SSEPointObstruction $hwnd $px $py).isBoundTarget)) {Fail 'Frischer Zielklick verlor Eingabe oder Root-Bindung.' 'interference'}
-    Assert-SSECursorPoint $px $py
-    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
-    $inputBaseline = Get-SSELastInputTick
-    Set-SSEForegroundLeaseInputCheckpoint $inputBaseline ([pscustomobject]@{ x=$px; y=$py }) 'table-delete-exclusive-selection-click'
-    Start-Sleep -Milliseconds 300
     if ([SW]::GetForegroundWindow() -ne $hwnd) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
       Fail 'Der PID-/Root-gepruefte Zielklick hat SSE nicht eindeutig aktiviert; nichts geloescht.' 'interference'
     }
 
-    # Die Auswahl am Tabellencontainer muss genau ein Element enthalten.
+    # Die Auswahl am Tabellencontainer muss ausschliesslich eine Zeile enthalten.
     # Das ist der entscheidende Schutz gegen den zuvor beobachteten
     # Mehrzeilenverlust.
     $freshTarget = Get-LiveElement $hwnd $zelle.rid
@@ -22745,8 +22830,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $preDeleteWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
     $preDeleteInputAfter = Get-SSELastInputTick
     $preDeleteForegroundAfter = [int64][SW]::GetForegroundWindow()
-    $selectionInputEvidence = Get-SSEInputEpochEvidence $inputBaseline $preDeleteInput 'table-delete-exclusive-selection-click'
-    $readInputEvidence = Get-SSEInputEpochEvidence $preDeleteInput $preDeleteInputAfter 'table-delete-exclusive-selection-click'
+    $selectionInputEvidence = Get-SSEInputEpochEvidence $inputBaseline $preDeleteInput $selectionContext
+    $readInputEvidence = Get-SSEInputEpochEvidence $preDeleteInput $preDeleteInputAfter $selectionContext
     $preDeleteInputUnchanged = [bool](
       ($null -eq $inputBaseline -or $null -eq $preDeleteInput -or $inputBaseline -eq $preDeleteInput) -and
       ($null -eq $preDeleteInput -or $null -eq $preDeleteInputAfter -or $preDeleteInput -eq $preDeleteInputAfter)
@@ -22755,6 +22840,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $preDeleteHeading -eq $expectedPage -and
       (Test-SSEScalarEqual $preDeleteRead.value $expectedBefore) -and
       $preDeleteMatches.Count -eq 1 -and
+      (-not $mutationAuthority -or ($preDeleteMatches[0].y -eq $zelle.y -and
+        @($selectionYs | Where-Object {$_ -ne $preDeleteMatches[0].y}).Count -eq 0)) -and
       $preDeleteForegroundAfter -eq [int64]$hwnd -and
       $interactionBeforeDelete.fingerprint -eq $preDeleteWindows.fingerprint -and
       $preDeleteInputUnchanged
@@ -22780,8 +22867,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     # Ab hier ist die frische, strukturell gleichgebundene Zelle die Referenz
     # fuer den folgenden Readback und einen eventuellen Undo-Nachweis.
-    if ($mutationAuthority -and -not (Get-SSETableMutationTargetProof $hwnd $targetPid $preDeleteRead.tree $mutationAuthority.target '').ok) {
-      Fail 'Native Zielmodellzeile ist vor der Loeschtaste nicht mehr unveraendert; nichts geloescht.' 'interference'
+    if ($mutationAuthority -and -not (Get-SSETableMutationTargetProof $hwnd $targetPid $preDeleteRead.tree $mutationAuthority.target $preDeleteMatches[0].rid -RequireSelection).ok) {
+      Fail 'Native Zielzeile, aktuelle Auswahl oder Tastaturfokus ist nicht mehr exakt gebunden; nichts geloescht.' 'interference'
     }
     if ($mutationAuthority -and -not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
         $interactionBeforeDelete.fingerprint -RequireForeground)) {Fail 'Letzter nativer Zielproof verlor die Loesch-Epoche; nichts geloescht.' 'interference'}
@@ -22807,6 +22894,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         error='Nach dem Loeschbefehl aenderte sich die Eingabe-Epoche, der Vordergrund oder die Fensterlage. Kein blindes Strg+Z und kein Speichern.'
         expectedPage=$expectedPage; sumLabel=$sumLabel; expectedBefore=$expectedBefore; expectedAfter=$expectedAfter
         target=$text; mutationState='unknown-after-interference'
+        mutationStarted=$true;outcomeUnknown=$true;resultingState='unknown';reconciliationRequired=$true;retryable=$false
+        geloescht=$null;nochVorhanden=$null
         tableBinding=[pscustomobject]@{
           sumOccurrence=$sumOccurrence; sumY=$targetRegion.targetSumY
           previousSummaryY=$targetRegion.previousSummaryY; rowY=$zelle.y
@@ -22850,7 +22939,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         ok=$false; kind='interference'
         error='Seite, Fensterlage oder Eingabe-Epoche veraenderten sich beim Nachlesen. Kein blindes Strg+Z und kein Speichern.'
         expectedPage=$expectedPage; page=$headingAfter; target=$text
-        sumLabel=$sumLabel; before=$before; after=$after; expectedAfter=$expectedAfter; nochVorhanden=$nochDa
+        sumLabel=$sumLabel; before=$before; after=$after; expectedAfter=$expectedAfter;nochVorhanden=$null;geloescht=$null
+        mutationStarted=$true;outcomeUnknown=$true;resultingState='unknown';reconciliationRequired=$true;retryable=$false
         tableBinding=[pscustomobject]@{
           sumOccurrence=$sumOccurrence; sumY=$regionUpperY
           previousSummaryY=$targetRegion.previousSummaryY; rowY=$zelle.y
@@ -22866,6 +22956,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
 
+    if ($mutationAuthority) {
+      # A same-text row may legitimately remain. Hand the observed state back
+      # without a success claim or undo; TypeScript must prove the entire model,
+      # exactly one removed row, every untouched value and the final epoch.
+      Emit ([pscustomobject]@{
+        ok=$true;verified=$false;geloescht=$null;nochVorhanden=$null;target=$text
+        expectedPage=$expectedPage;page=$headingAfter
+        sumLabel=$sumLabel;sumOccurrence=$sumOccurrence;before=$before;after=$after
+        expectedBefore=$expectedBefore;expectedAfter=$expectedAfter
+        selectionCount=$selectionCount;selectionNames=$selectionNames;selectionYs=$selectionYs
+        tableBinding=[pscustomobject]@{sumOccurrence=$sumOccurrence;sumY=$regionUpperY;previousSummaryY=$targetRegion.previousSummaryY;rowY=$zelle.y}
+        searchSteps=$searchSteps
+        mutationPostProof=[pscustomobject]@{inputEpoch=$deleteInputBaseline;dirty=[bool](Get-DirtyStateFast $hwnd);nativeVerificationPending=$true}
+      })
+    }
     $postOk = (-not $nochDa) -and (Test-SSEScalarEqual $after $expectedAfter)
     if (-not $postOk) {
       $rollbackGuardInput = Get-SSELastInputTick
@@ -22956,7 +23061,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       searchSteps = $searchSteps
       verified = $true
     }
-    if ($mutationAuthority) {$mutationSuccess | Add-Member NoteProperty mutationPostProof ([pscustomobject]@{inputEpoch=$deleteInputBaseline;dirty=[bool](Get-DirtyStateFast $hwnd)})}
     Emit $mutationSuccess
   }
 

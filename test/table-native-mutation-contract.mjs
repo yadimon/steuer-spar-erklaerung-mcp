@@ -6,6 +6,8 @@ import { mock } from "node:test";
 import { executeTableCursorMutation, executeTableCursorRead } from "../dist/table-cursor-executor.js";
 import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
 import { findQtNativeTableTarget } from "../dist/qt-native-tables.js";
+import { SSE_API_OPERATION_SCHEMAS } from "../dist/operation-catalog.js";
+import { SSE_MCP_UI_SCHEMAS } from "../dist/mcp-schemas-ui.js";
 
 // Synthetic complete Qt model and workers; no API, process or desktop.
 const copy = value => structuredClone(value);
@@ -65,7 +67,8 @@ function nativeGeometry(op, model, binding) {
 }
 
 async function run(options = {}) {
-  const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], releases = [], releasePhases = [], preparations = [], phases = [];
+  const targetRow = options.targetRow ?? 7;
+  const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], locations = [], releases = [], releasePhases = [], preparations = [], phases = [];
   const live = { inputEpoch: binding.inputEpoch, dirty: binding.dirty, windowFingerprint: binding.windowFingerprint, editorFree: true };
   let positionCheckpointed = false;
   const targetColumn = options.hiddenColumnBeforeTarget ? 3 : 2;
@@ -97,7 +100,7 @@ async function run(options = {}) {
   }
   options.initial?.(model, binding);
   const positionRow = options.appendSeek
-    ? Array.from({ length: model.rows }, (_, row) => row).filter(row => !model.hiddenRows.includes(row)).at(-1) : 7;
+    ? Array.from({ length: model.rows }, (_, row) => row).filter(row => !model.hiddenRows.includes(row)).at(-1) : targetRow;
   const client = { binding: { hwnd: 111, pid: 7 }, request: async op => {
     if (op === "ping") return { result: { ok: true, pid: 7, hwnd: 111, recoveryRequired: false,
       mutationAcknowledgmentRequired: false, capabilities: { tableFocusOnlyProtocol: 1, tablePositionNumberProtocol: options.noPositionProtocol ? 0 : 1 } } };
@@ -149,23 +152,29 @@ async function run(options = {}) {
       assert.equal(mutations.length, 1, "Only one mutation worker may be submitted.");
       assert.equal(args.__tableCursorPlan, undefined);
       assert.equal(args.__tableMutationBinding.operation, op);
-      assert.equal(args.__tableMutationBinding.target.row, 7);
+      assert.equal(args.__tableMutationBinding.target.row, targetRow);
       assert.equal(args.__tableMutationBinding.target.column, targetColumn);
       assert.equal(args.__tableMutationBinding.target.cells.length, activeHeaders.length);
       assert.equal(args.targetRid, options.targetRid ?? "Synthetic.target.7");
       assert.deepEqual(args.__tableMutationBinding.binding, binding);
       if (options.workerFails) return { ok: false, mutationStarted: true, kind: "interference" };
+      if (options.workerRefuses) return { ok: false, mutationStarted: false, outcomeUnknown: false, resultingState: "unchanged", kind: "stale" };
       if (options.workerThrows) throw new Error("Synthetic unknown mutation outcome");
       if (op === "table_update") {
-        if (options.category) model.values[7][3] = { ...scalar("Sonst. Leistung Drittland"),
+        if (options.category) model.values[targetRow][3] = { ...scalar("Sonst. Leistung Drittland"),
           edit: options.enumWrongRole === "type" ? "2" : options.enumWrongRole ? 9 : 2 };
-        else if (options.date) model.values[7][1] = { ...scalar(options.date), edit: options.dateWrongRole ? "Unexpected date edit" : model.values[0][1].edit };
-        else if (options.numeric) model.values[7][3] = { ...scalar("10,00"), edit: 10 };
-        else if (options.checkbox) model.values[7][4] = { display: "", edit: true, flags: 49, checkState: 2 };
-        else model.values[7][targetColumn] = scalar("Updated");
+        else if (options.date) {
+          const observed = model.values.find(cells => cells[1].display === options.date);
+          assert(observed, "The synthetic date worker needs an observed display/edit pair.");
+          model.values[targetRow][1] = { ...scalar(options.date), edit: options.dateWrongRole ? "Unexpected date edit" : observed[1].edit };
+        }
+        else if (options.numeric) model.values[targetRow][3] = { ...scalar("10,00"), edit: 10 };
+        else if (options.checkbox) model.values[targetRow][4] = { display: "", edit: true, flags: 49, checkState: 2 };
+        else model.values[targetRow][targetColumn] = scalar("Updated");
       }
       else {
-        model.values.splice(7, 1); model.rowFingerprints.splice(7, 1); model.rows--; model.readRows--;
+        const removed = options.deleteOtherRow ? (targetRow === 0 ? 1 : 0) : targetRow;
+        model.values.splice(removed, 1); model.rowFingerprints.splice(removed, 1); model.rows--; model.readRows--;
         if (Object.hasOwn(model.table, "rows")) model.table.rows--;
         model.summary = "90,00"; model.summaries[0].wert = "90,00";
       }
@@ -174,21 +183,35 @@ async function run(options = {}) {
       if (options.tableRowsChanged) model.table.rows++;
       if (options.tableRowsRemoved) delete model.table.rows;
       if (options.tableRowsAdded) model.table.rows = model.rows;
-      if (options.targetChanged) model.values[7][2] = scalar("Unexpected target");
-      if (options.targetEditChanged) model.values[7][2].edit = "Unexpected target edit";
-      if (options.targetOtherColumnChanged) model.values[7][1] = scalar("02.01");
-      if (options.targetHiddenChanged) model.values[7][options.hiddenColumnBeforeTarget ? 1 : 7].edit = "Changed hidden metadata";
+      if (options.targetChanged) model.values[targetRow][2] = scalar("Unexpected target");
+      if (options.targetEditChanged) model.values[targetRow][2].edit = "Unexpected target edit";
+      if (options.targetOtherColumnChanged) model.values[targetRow][1] = scalar("02.01");
+      if (options.targetHiddenChanged) model.values[targetRow][options.hiddenColumnBeforeTarget ? 1 : 7].edit = "Changed hidden metadata";
+      if (options.wrongDeleteSummary) { model.summary = "80,00"; model.summaries[0].wert = "80,00"; }
+      if (options.workerReply) return copy(options.workerReply);
+      if (op === "table_delete") return { ok: true, verified: options.prematureDeleteSuccess === true,
+        geloescht: options.prematureDeleteSuccess ? true : null, nochVorhanden: options.prematureDeleteSuccess ? false : null,
+        mutationPostProof: { inputEpoch: binding.inputEpoch, dirty: true,
+          ...(!options.missingDeletePending ? { nativeVerificationPending: true } : {}) } };
       return { ok: true, verified: !options.unverified, mutationStarted: true,
         mutationPostProof: { inputEpoch: binding.inputEpoch, dirty: true } };
     }
     const plan = args.__tableCursorPlan; phases.push(plan.phase);
     if (plan.phase === "prebind") return { ok: true, cursorBinding: copy(binding) };
+    if (plan.phase === "mutation-target-locate") {
+      locations.push(copy(plan));
+      assert.deepEqual(Object.keys(plan).sort(), ["schemaVersion", "phase", "binding", "text", "targetRid"].sort());
+      assert.equal(plan.text, "Target");
+      options.located?.(model);
+      return options.locationReply ?? { ok: true, physicalInputUsed: false, steps: 0,
+        mutationTarget: { row: targetRow, column: targetColumn, targetRid: plan.targetRid } };
+    }
     if (plan.phase === "mutation-target") {
       probes.push(copy(plan));
       if (options.probeFails || (plan.targetRid && options.staleRid)) return { ok: false, kind: "stale" };
-      assert.equal(plan.target.row, 7); assert.equal(plan.target.column, targetColumn); assert.equal(plan.target.cells.length, activeHeaders.length);
+      assert.equal(plan.target.row, targetRow); assert.equal(plan.target.column, targetColumn); assert.equal(plan.target.cells.length, activeHeaders.length);
       if (options.hiddenColumnBeforeTarget) assert.deepEqual(plan.target.cells.map(cell => cell.nativeColumn), [0, 2, 3, 4, 5, 6, 7]);
-      return { ok: true, mutationTarget: { row: 7, column: targetColumn, targetRid: plan.targetRid ?? "Synthetic.target.7" } };
+      return { ok: true, mutationTarget: { row: targetRow, column: targetColumn, targetRid: plan.targetRid ?? "Synthetic.target.7" } };
     }
     if (plan.phase === "native-acquire" || plan.phase === "native-position-acquire") {
       assert.deepEqual(plan.numberPolicy, { tableName: model.table.name, headers: activeHeaders });
@@ -266,7 +289,7 @@ async function run(options = {}) {
   };
   const operation = options.operation ?? "table_update", args = { ...originalArgs,
     ...(operation === "table_delete" ? { expectedAfter: "90,00" } : {}),
-    ...(options.targetRid ? { targetRid: options.targetRid } : {}),
+    ...(Object.hasOwn(options, "targetRid") ? { targetRid: options.targetRid } : {}),
     ...(options.category ? { expectedPage: "Synthetic category page", werte: [null, null, null, "Sonst. Leistung Drittland", null, null] } : {}),
     ...(options.date ? { werte: [null, options.date, null, null, null, null, null] } : {}),
     ...(options.numeric ? { werte: [null, null, null, "10.00", null, null, null] } : {}),
@@ -279,7 +302,7 @@ async function run(options = {}) {
   const result = options.publicRead || options.appendSeek
     ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, options.signal, options.appendSeek === true)
     : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, options.timeoutMs ?? 30000, options.signal, catalog);
-  return { result, keys, positions, mutations, focuses, probes, releases, releasePhases, preparations, phases };
+  return { result, keys, positions, mutations, focuses, probes, locations, releases, releasePhases, preparations, phases, finalModel: copy(model) };
 }
 for (const operation of ["table_update", "table_delete"]) {
   const result = await run({ operation });
@@ -569,6 +592,148 @@ assert.equal(JSON.stringify(lostNativeAck.result).includes("987654321"), false);
 const rid = await run({ targetRid: "Caller.exact.rid" });
 assert.equal(rid.result.ok, true); assert.equal(rid.probes.length, 2);
 assert.equal(rid.mutations[0].args.targetRid, "Caller.exact.rid", "A supplied RID is never discarded or substituted.");
+const duplicateInitial = model => {
+  model.values[1][2] = scalar("Target"); model.values[1][1] = scalar("02.01");
+};
+const duplicateRid = await run({ targetRid: "Caller.exact.rid", initial: duplicateInitial });
+assert.equal(duplicateRid.result.ok, true, "A fresh caller RuntimeId must resolve duplicate text before one guarded mutation.");
+assert.equal(duplicateRid.positions.length, 1); assert.equal(duplicateRid.mutations.length, 1);
+assert.equal(duplicateRid.mutations[0].args.targetRid, "Caller.exact.rid");
+assert.equal(duplicateRid.locations.length, 1, "Duplicate disambiguation uses one passive location, not one worker per candidate.");
+assert.equal(duplicateRid.probes.length, 2, "Both existing full-row proofs remain mandatory.");
+assert.equal(rid.locations.length, 0, "An already unique native cell retains its existing phase sequence.");
+assert.deepEqual(duplicateRid.phases, ["prebind", "mutation-target-locate", "mutation-target", "native-position-acquire",
+  "native-position-checkpoint", "native-release", "mutation-target", "mutation-checkpoint"]);
+function assertNoTargetAction(value) {
+  assert.equal(value.result.ok, false); assert.equal(value.result.mutationStarted, false);
+  assert.equal(value.positions.length, 0); assert.equal(value.mutations.length, 0); assert.equal(value.focuses.length, 0);
+  assert.equal(value.phases.includes("native-position-acquire"), false, "Disambiguation must finish before footer focus.");
+  assert.equal(value.result.retryable, false);
+}
+for (const target of [{}, { targetRid: "" }, { targetRid: 0 }]) {
+  const refused = await run({ ...target, initial: duplicateInitial }); assertNoTargetAction(refused);
+  assert.equal(refused.result.proofCheck, "mutation-unique-native-target"); assert.equal(refused.locations.length, 0);
+}
+for (const mutationTarget of [
+  { row: -1, column: 2 }, { row: 1000, column: 2 }, { row: 7, column: 100 }, { row: 7.5, column: 2 },
+  { row: 7, column: 3 }, { row: 2, column: 2 }, { row: 7, column: 4 },
+  { row: 7, column: 2, extra: "Synthetic private authority" }, { row: 7, column: 2, targetRid: "Other.rid" },
+]) {
+  const refused = await run({ targetRid: "Caller.exact.rid", initial: duplicateInitial, locationReply: {
+    ok: true, physicalInputUsed: false, steps: 0, mutationTarget: { targetRid: "Caller.exact.rid", ...mutationTarget },
+  } });
+  assertNoTargetAction(refused); assert.equal(refused.probes.length, 0);
+  assert.equal(JSON.stringify(refused.result).includes("Synthetic private authority"), false);
+}
+const locationStale = await run({ targetRid: "Caller.exact.rid", initial: duplicateInitial,
+  locationReply: { ok: false, kind: "stale", mutationTarget: { targetRid: "Synthetic private authority" }, physicalInputUsed: false, steps: 0 } });
+assertNoTargetAction(locationStale); assert.equal(locationStale.result.kind, "stale");
+assert.equal(Object.hasOwn(locationStale.result, "mutationTarget"), false);
+const locatedOtherCandidate = await run({ targetRid: "Caller.exact.rid", initial: duplicateInitial, probeFails: true,
+  locationReply: { ok: true, physicalInputUsed: false, steps: 0, mutationTarget: { row: 1, column: 2, targetRid: "Caller.exact.rid" } } });
+assertNoTargetAction(locatedOtherCandidate); assert.equal(locatedOtherCandidate.probes.length, 1,
+  "A preliminary location cannot replace the full native/UIA row proof.");
+assert.equal(locatedOtherCandidate.probes[0].target.row, 1);
+const changedDuringLocation = await run({ targetRid: "Caller.exact.rid", initial: duplicateInitial,
+  located: model => { model.values[0][1] = scalar("03.01"); } });
+assertNoTargetAction(changedDuringLocation); assert.equal(changedDuringLocation.result.proofCheck, "mutation-rid-target-model");
+assert.equal(changedDuringLocation.result.outcomeUnknown, false); assert.equal(changedDuringLocation.probes.length, 1);
+const identicalVisible = await run({ targetRid: "Caller.exact.rid", initial: model => { model.values[1][2] = scalar("Target"); } });
+assertNoTargetAction(identicalVisible); assert.equal(identicalVisible.result.proofCheck, "mutation-rid-visible-row-ambiguous");
+assert.equal(identicalVisible.probes.length, 0);
+for (const difference of ["edit", "flags", "normalized-display"]) {
+  const indistinguishable = await run({ targetRid: "Caller.exact.rid", initial: model => {
+    model.values[1][2] = scalar("Target");
+    if (difference === "edit") model.values[1][3].edit = 10;
+    if (difference === "flags") model.values[1][3].flags = 33;
+    if (difference === "normalized-display") model.values[1][1] = scalar("01.01\r\n\t ");
+  } });
+  assertNoTargetAction(indistinguishable);
+  assert.equal(indistinguishable.result.proofCheck, "mutation-rid-visible-row-ambiguous");
+  assert.equal(indistinguishable.probes.length, 0);
+}
+for (const operation of ["table_update", "table_delete"]) {
+  const alternate = await run({ operation, targetRow: 1, targetRid: "Caller.row.one", initial: duplicateInitial });
+  assert.equal(alternate.result.ok, true); assert.equal(alternate.locations.length, 1); assert.equal(alternate.probes.length, 2);
+  assert(alternate.probes.every(probe => probe.target.row === 1)); assert.equal(alternate.positions[0].targetRow, 1);
+  assert.equal(alternate.mutations[0].args.__tableMutationBinding.target.row, 1);
+  assert.deepEqual(alternate.finalModel.values[operation === "table_delete" ? 6 : 7], base.values[7], "The other duplicate row remains completely unchanged.");
+  assert.equal(alternate.result.nativeUntouchedRowsVerified, true);
+  assert.equal(alternate.result.verified, true);
+  assert.equal(JSON.stringify(alternate.result).includes("nativeVerificationPending"), false);
+  if (operation === "table_delete") {
+    assert.equal(alternate.result.geloescht, true); assert.equal(alternate.result.nochVorhanden, false);
+  }
+}
+for (const options of [{ deleteOtherRow: true }, { otherRowChanged: true }, { finalEpochChanged: true }, { wrongDeleteSummary: true },
+  { missingDeletePending: true }, { prematureDeleteSuccess: true }]) {
+  const rejected = await run({ operation: "table_delete", targetRow: 1, targetRid: "Caller.row.one", initial: duplicateInitial, ...options });
+  assert.equal(rejected.result.ok, false); assert.equal(rejected.mutations.length, 1);
+  assert.equal(rejected.result.outcomeUnknown, true); assert.equal(rejected.result.retryable, false);
+  assert.equal(JSON.stringify(rejected.result).includes("nativeVerificationPending"), false);
+  if (options.deleteOtherRow || options.otherRowChanged) assert.equal(rejected.result.proofCheck, "mutation-native-untouched-rows");
+  if (options.prematureDeleteSuccess) assert.equal(rejected.result.proofCheck, "mutation-worker-native-delete-pending");
+  if (options.wrongDeleteSummary) assert.equal(rejected.result.proofCheck, "mutation-native-structure-summary");
+}
+for (const workerReply of [{ ok: false, kind: "interference" },
+  { ok: false, kind: "interference", mutationStarted: true, nochVorhanden: true, geloescht: false },
+  { ok: false, kind: "interference", mutationStarted: false, outcomeUnknown: true }]) {
+  const failed = await run({ operation: "table_delete", targetRow: 1, targetRid: "Caller.row.one", initial: duplicateInitial, workerReply });
+  assert.equal(failed.mutations.length, 1); assert.equal(failed.finalModel.rows, base.rows - 1);
+  assert.equal(failed.result.ok, false); assert.equal(failed.result.verified, false); assert.equal(failed.result.outcomeUnknown, true);
+  assert.equal(failed.result.reconciliationRequired, true); assert.equal(failed.result.resultingState, "unknown");
+  assert.equal(failed.result.retryable, false); assert.equal(failed.result.geloescht, null); assert.equal(failed.result.nochVorhanden, null);
+  assert.equal(failed.result.mutationStarted, workerReply.mutationStarted === true ? true : null);
+}
+for (const operation of ["table_update", "table_delete"]) {
+  const refused = await run({ operation, workerRefuses: true });
+  assert.equal(refused.result.ok, false); assert.equal(refused.result.mutationStarted, false); assert.equal(refused.result.outcomeUnknown, false);
+  assert.equal(refused.result.resultingState, "unchanged"); assert.equal(refused.mutations.length, 1); assert.deepEqual(refused.finalModel.values, base.values);
+  const args = { ...originalArgs }; if (operation === "table_delete") delete args.werte;
+  for (const schema of [SSE_API_OPERATION_SCHEMAS[operation], SSE_MCP_UI_SCHEMAS[`sse_${operation}`]]) {
+    assert.equal(schema.safeParse(args).success, true);
+    for (const privateField of ["__tableMutationBinding", "__tableCursorPlan", "__tableTransportCapability"]) {
+      assert.equal(schema.safeParse({ ...args, [privateField]: { synthetic: true } }).success, false);
+    }
+  }
+}
+for (const [verified, nativePending, expected] of [[false, true, false], [true, false, true], [true, true, false], [false, false, false]]) {
+  let calls = 0;
+  const pending = await executeTableCursorMutation("table_delete", originalArgs, async () => {
+    calls++; return { ok: true, verified, geloescht: verified ? true : null, nochVorhanden: verified ? false : null,
+      mutationPostProof: { inputEpoch: 123, dirty: true, ...(nativePending ? { nativeVerificationPending: true } : {}) } };
+  }, {});
+  assert.equal(calls, 1); assert.equal(pending.ok, expected); assert.equal(Object.hasOwn(pending, "mutationPostProof"), false);
+  if (!expected) { assert.equal(pending.outcomeUnknown, true); assert.equal(pending.reconciliationRequired, true); }
+}
+const abortedLocationController = new AbortController();
+const abortedLocation = await run({ targetRid: "Caller.exact.rid", initial: duplicateInitial, signal: abortedLocationController.signal,
+  located: () => abortedLocationController.abort() });
+assertNoTargetAction(abortedLocation); assert.equal(abortedLocation.locations.length, 1);
+for (const excluded of ["hidden-row", "disabled", "unselectable", "checkbox"]) {
+  const unique = await run({ operation: "table_delete", targetRid: "Caller.exact.rid", initial: model => {
+    duplicateInitial(model);
+    if (excluded === "hidden-row") model.hiddenRows = [1];
+    if (excluded === "disabled") model.values[1][2].flags = 1;
+    if (excluded === "unselectable") model.values[1][2].flags = 32;
+    if (excluded === "checkbox") Object.assign(model.values[1][2], { flags: 49, edit: false, checkState: 0 });
+  } });
+  assert.equal(unique.result.ok, true, `${excluded}: ${unique.result.phase}/${unique.result.proofCheck}`); assert.equal(unique.locations.length, 0);
+}
+const manyDuplicateRows = await run({ targetRid: "Caller.exact.rid", initial: model => {
+  for (const [row, values] of model.values.entries()) { values[2] = scalar("Target"); values[1] = scalar(`${String(row + 1).padStart(2, "0")}.01`); }
+} });
+assert.equal(manyDuplicateRows.result.ok, true); assert.equal(manyDuplicateRows.locations.length, 1); assert.equal(manyDuplicateRows.probes.length, 2);
+const duplicateDelete = await run({ operation: "table_delete", targetRid: "Caller.exact.rid", initial: duplicateInitial });
+assert.equal(duplicateDelete.result.ok, true); assert.equal(duplicateDelete.locations.length, 1); assert.equal(duplicateDelete.mutations.length, 1);
+const duplicateDate = await run({ targetRid: "Caller.exact.rid", date: "02.01", initial: model => {
+  duplicateInitial(model); model.values[1][1].edit = "2026-01-02";
+} });
+assert.equal(duplicateDate.result.ok, true, "Edit roles must be preflighted for the resolved row.");
+const duplicateHiddenColumn = await run({ targetRid: "Caller.exact.rid", hiddenColumnBeforeTarget: true, initial: model => {
+  model.values[1][3] = scalar("Target"); model.values[1][2] = scalar("02.01");
+} });
+assert.equal(duplicateHiddenColumn.result.ok, true); assert.equal(duplicateHiddenColumn.probes[0].target.column, 3);
 const hidden = await run({ hiddenColumn: true });
 assert.equal(hidden.result.ok, true); assert.equal(hidden.result.nativeTargetRowVerified, true);
 assert.equal(hidden.mutations.length, 1, "An unchanged hidden target cell remains part of the complete model proof.");
