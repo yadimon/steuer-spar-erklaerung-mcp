@@ -247,13 +247,51 @@ Bei einer Störung nach dem Löschbefehl bleiben Löschung und Zielpräsenz
 ungewiss; `outcomeUnknown` und `reconciliationRequired` verlangen Klärung.
 Ein anderer gleicher Zeilentext wird dabei nicht als verbliebenes Ziel gemeldet.
 
-Im nichtnativen UIA-Pfad verlangt `table_update` eine bereits sichtbare
-Zielzeile und führt keinen eigenen Suchlauf aus. Ein vollständiger Gridread
-beweist die Daten, aber keine Sichtbarkeit oder Materialisierung der
-Schreibzelle. `table_add` besitzt seinen eigenen einmaligen bewachten
-Suchlauf, `table_delete` seine begrenzte HOME-/DOWN-Navigation; diese internen
-Positionierungen ändern sich nicht. Ziel und Sichtbarkeit sind vor einer
+Im nichtnativen UIA-Pfad benötigen `table_update` und `table_delete` eine
+bereits sichtbare Zielzeile und führen keinen eigenen Zeilensuchlauf aus.
+Ein vollständiger Gridread beweist die Daten, aber keine Sichtbarkeit oder
+Materialisierung der Schreibzelle. `table_add` besitzt weiterhin seinen
+eigenen einmaligen bewachten Suchlauf. Ziel und Sichtbarkeit sind vor einer
 bewusst gewählten UIA-Vorbereitung frisch zu lesen.
+
+Die UIA-Löschung bindet die frische Ziel-Runtime-ID an die tatsächliche
+Gridzeile und -spalte. Vor und nach der Aktivierung sowie vor dem Löschbefehl
+müssen alle ausgelesenen Modellwerte gleich bleiben, einschließlich
+verborgener Spalten und Checkboxzustände. Gleicher Text in einer anderen
+Zeile verhindert einen Erfolg nicht; vollständig ununterscheidbare
+Modellzeilen werden vor einer Aktion abgewiesen. Ein Klick ist nur auf eine
+sichtbare Textzelle mit geprüftem tatsächlichem Treffer zulässig.
+
+Qt kann durch einen eigenen Klick oder Löschbefehl einen Zelleditor öffnen,
+den der abwärts gelesene UIA-Baum nicht enthält. Deshalb wird zusätzlich die
+Elternkette des tatsächlich fokussierten Elements geprüft. Nur ein neu
+entstandener, genau gebundener Editor mit unverändertem Zellwert darf einmal
+gezielt abgebrochen werden; unbekannte Editoren bleiben erhalten. Danach
+werden Modell, Summe, Änderungsmarkierung und Tabellenfokus erneut geprüft.
+
+Nach dem einzigen Löschbefehl müssen genau die Zielzeile fehlen und alle
+übrigen ausgelesenen Zeilen, die Struktur und die erwartete Summe stimmen.
+Eine unveränderte Summe genügt auch bei Nullbeträgen nicht. Wurde bis zum
+Ende der begrenzten Beobachtung keine Entfernung gesehen, ist die
+Verarbeitung des Tastaturbefehls nicht quittiert: Der Ausgang bleibt
+ungewiss, ohne Undo einer älteren Aktion und ohne automatische Wiederholung.
+Nur eine vollständig nachgewiesene eigene Einzelentfernung mit falscher
+erwarteter Nachsumme kann bei unverändertem Eingabe-/Fensterkontext und
+erneut bewiesenem Tabellenfokus genau ein Undo erlauben. `rolledBack: true`
+verlangt die ursprünglichen ausgelesenen Werte und Summe. Die Markierung wird
+mit `ungespeichertVorher`, `ungespeichertNachher` und `dirtyStateUnchanged`
+getrennt angegeben. Sie darf unverändert bleiben oder weiterhin gesetzt sein,
+wenn sie erst durch die eigene Löschung gesetzt wurde. Ein unerklärtes
+Setzen oder das Löschen einer schon vorher gesetzten Markierung bleibt
+ungewiss. Die API setzt diese Markierung nicht zurück und speichert nicht
+automatisch. Vor dem Löschbefehl wird innerhalb der internen Beobachtungsfrist
+anhand der bisherigen Lesezeiten eine Reserve für Nachlesen und gegebenenfalls
+ein Undo geprüft. Für einzelne Raw-Läufe muss ebenfalls Zeitreserve bleiben;
+fehlt sie, beginnt keine Löschung. Spätere Providerfehler, längere Aufrufe
+oder ein früherer Auftragsabbruch können trotzdem einen ungewissen Ausgang
+verlangen. Die Reserve ist keine Laufzeitgarantie.
+Dies beweist beobachtete Konsistenz, keine atomare Änderung und keine
+Wiederherstellung verborgener interner Datensatz- oder Belegidentitäten.
 
 `table_read` mit `readMode: "grid"` wählt vor Beginn den reinen UIA-Gridpfad,
 auch wenn die optionale native Qt-Anbindung konfiguriert ist. Er bindet genau

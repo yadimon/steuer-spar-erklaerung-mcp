@@ -76,8 +76,11 @@ UStVA-Änderung.
      sichtbare Zielzeile; ein vollständiger Gridread beweist nur die Daten,
      keine Sichtbarkeit oder Materialisierung. Lies Ziel und Sichtbarkeit
      frisch, bevor du eine notwendige gebundene UIA-Vorbereitung wählst.
-     `sse_table_add` besitzt seinen eigenen einmaligen bewachten Suchlauf,
-     `sse_table_delete` seine begrenzte HOME-/DOWN-Navigation.
+     `sse_table_add` besitzt seinen eigenen einmaligen bewachten Suchlauf.
+     `sse_table_update` und `sse_table_delete` benötigen bereits sichtbare,
+     frisch gebundene Zielzeilen; sie navigieren nicht selbst zur Zeile.
+     Bei bestätigtem Rollback die gesonderten Änderungsmarkierungen beachten;
+     wiederhergestellte Werte erlauben kein automatisches Speichern.
      `sse_table_read` mit `noKeys: false` nur ausdrücklich für fehlende
      vollständige passive Lesepfade, bewiesen nötige UIA-Positionierung oder
      gezielte GUI-Diagnose wählen. Der Positionsbedarf darf auch bei einem

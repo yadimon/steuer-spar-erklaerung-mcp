@@ -46,6 +46,13 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische
   Modell-, Auswahl-, Fenster- und Eingabenachweise; Fehler erlauben kein
   Ausweichen auf einen anderen Eingriff.
+- **UIA-Löschung:** Zielkoordinaten und vollständiger ausgelesener Bestand
+  ersetzen Textanwesenheit und sichtbaren Zeilenrang als Nachweis. Verborgene
+  Spalten und Checkboxwerte werden mitgeprüft. Eigene Zelleditoren brauchen
+  einen gesonderten Fokus-/Wertnachweis; unbekannte Editoren bleiben erhalten.
+  Weder eine unveränderte Summe noch eine ausbleibende beobachtete Wirkung
+  erlauben Erfolg, Rollbackbehauptung oder Wiederholung. Ein Undo benötigt
+  genau die eigene Einerentfernung und erneut bewiesenen Tabellenfokus.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den

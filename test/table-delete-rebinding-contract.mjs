@@ -9,8 +9,12 @@ const tableDelete = worker.slice(start, end);
 
 assert.doesNotMatch(tableDelete, /\[bool\]\(if \(/u,
   "PowerShell darf eine if-Anweisung nicht als [bool](...) auswerten; das scheitert erst im echten Worker.");
-assert.match(tableDelete, /\$nochDa = if \(\$afterRegion\.ok\) \{[\s\S]*\[bool\]\(@\(\$afterRegion\.cells/u,
-  "Der Post-Delete-Readback muss den Regionsfund als gueltigen PowerShell-Ausdruck boolesch binden.");
+assert.doesNotMatch(tableDelete, /\$nochDa|\$targetRestored|SendWait\('\^z'\)|mouse_event/u,
+  "Der native Dispatcher darf den alten textbasierten Legacy-Readback, Klick oder Undo nicht mehr enthalten.");
+assert.match(tableDelete, /Invoke-SSEUiaTableDelete[\s\S]*finally \{\$uiaDeleteProcess\.Dispose\(\)\}/u,
+  "Der UIA-Transaktionspfad muss den eigenen Prozess durch Emit hindurch binden.");
+assert(tableDelete.indexOf("Invoke-SSEUiaTableDelete") < tableDelete.indexOf("Resolve-TableDeleteFreshTarget"),
+  "UIA muss vor dem ausschliesslich nativ abgesicherten Resolver getrennt aussteigen.");
 assert.match(tableDelete, /function Resolve-TableDeleteFreshTarget/u,
   "table_delete braucht einen gemeinsamen Resolver fuer RuntimeId-Churn.");
 assert.match(tableDelete, /\(\$matches\.Count -eq 0 -or \$matches\.Count -gt 1\)/u,
@@ -30,4 +34,4 @@ assert(tableDelete.includes("inputEpoch=[pscustomobject]@{ sinceSelection=$selec
   tableDelete.includes("foregroundOk=($preDeleteForegroundAfter -eq [int64]$hwnd)"),
   "Der Loeschstopp muss Eingabe-Epochen und denselben gebundenen Vordergrundwert wie der Guard melden.");
 
-process.stdout.write("table_delete: RuntimeId-Churn mit mehrdeutiger AutomationId bleibt nur ueber die summengebundene Zeile/Spalte erlaubt.\n");
+process.stdout.write("table_delete: separater vollstaendiger UIA-Gridproof; nativer Resolver ohne Legacy-Klick oder Text-Undo.\n");

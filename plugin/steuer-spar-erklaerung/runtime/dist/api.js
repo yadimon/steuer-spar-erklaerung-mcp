@@ -34818,6 +34818,65 @@ var init_table_write_budget = __esm({
   }
 });
 
+// src/table-uia-delete-result.ts
+function normalizeUiaTableDeleteResult(args, result) {
+  const visible = publicCursorResult(result);
+  if (!result.ok && result.mutationStarted === false && result.outcomeUnknown === false && result.resultingState === "unchanged" && result.rolledBack !== true && result.rollbackAttempted !== true && result.geloescht !== true && result.mutationPostProof === void 0) {
+    return { ...visible, verified: false, retryable: false };
+  }
+  const parsed = proofSchema.safeParse(result.mutationPostProof);
+  if (parsed.success) {
+    const proof = parsed.data;
+    const common = proof.removedRow < proof.rowsBefore && result.mutationStarted === true && result.outcomeUnknown === false && result.reconciliationRequired !== true && result.cleanupRequired !== true && typeof result.before === "string" && typeof result.after === "string" && amountEqual(result.before, args.expectedBefore);
+    if (common && proof.outcome === "deleted-exact" && result.ok && result.verified === true && result.geloescht === true && result.nochVorhanden === false && result.rolledBack !== true && result.rollbackAttempted !== true && proof.rowsAfter === proof.rowsBefore - 1 && proof.beforeFingerprint !== proof.afterFingerprint && proof.dirtyAfterDelete === proof.dirtyAfter && amountEqual(result.after, args.expectedAfter) && (!Object.hasOwn(result, "ungespeichertVorher") || result.ungespeichertVorher === proof.dirtyBefore) && (!Object.hasOwn(result, "ungespeichertNachher") || result.ungespeichertNachher === proof.dirtyAfter) && (!Object.hasOwn(result, "dirtyStateUnchanged") || result.dirtyStateUnchanged === (proof.dirtyBefore === proof.dirtyAfter))) {
+      return { ...visible, retryable: false };
+    }
+    const restored = proof.outcome === "restored" && result.rolledBack === true && result.rollbackAttempted === true && result.resultingState === "restored" && typeof result.rollbackValue === "string" && amountEqual(result.rollbackValue, args.expectedBefore) && amountEqual(result.after, result.after) && !amountEqual(result.after, args.expectedAfter);
+    if (common && !result.ok && result.verified === false && result.geloescht === false && result.nochVorhanden === true && proof.rowsAfter === proof.rowsBefore && proof.beforeFingerprint === proof.afterFingerprint && result.ungespeichertVorher === proof.dirtyBefore && result.ungespeichertNachher === proof.dirtyAfter && result.dirtyStateUnchanged === (proof.dirtyBefore === proof.dirtyAfter) && (proof.dirtyBefore === proof.dirtyAfter || !proof.dirtyBefore && proof.dirtyAfterDelete && proof.dirtyAfter) && restored) return { ...visible, retryable: false };
+  }
+  return {
+    ...visible,
+    ok: false,
+    verified: false,
+    kind: typeof result.kind === "string" ? result.kind : "cursor-proof-failed",
+    error: result.rolledBack === true || typeof result.error !== "string" ? "Loeschergebnis und Wiederherstellung sind nicht vollstaendig bestaetigt; Zustand frisch abgleichen und Auftrag nicht wiederholen." : result.error,
+    mutationStarted: result.mutationStarted === true ? true : null,
+    outcomeUnknown: true,
+    resultingState: "unknown",
+    reconciliationRequired: true,
+    retryable: false,
+    geloescht: null,
+    nochVorhanden: null,
+    ...Object.hasOwn(result, "ungespeichertVorher") ? { ungespeichertVorher: null } : {},
+    ...Object.hasOwn(result, "ungespeichertNachher") ? { ungespeichertNachher: null } : {},
+    ...Object.hasOwn(result, "dirtyStateUnchanged") ? { dirtyStateUnchanged: null } : {},
+    ...Object.hasOwn(result, "rolledBack") ? { rolledBack: null } : {}
+  };
+}
+var proofSchema;
+var init_table_uia_delete_result = __esm({
+  "src/table-uia-delete-result.ts"() {
+    "use strict";
+    init_zod();
+    init_table_cursor_edit_roles();
+    init_table_cursor_proofs();
+    proofSchema = external_exports.object({
+      schemaVersion: external_exports.literal(1),
+      method: external_exports.literal("uia-grid-logical-model"),
+      outcome: external_exports.enum(["deleted-exact", "restored"]),
+      removedRow: external_exports.number().int().min(0).max(999),
+      rowsBefore: external_exports.number().int().min(1).max(1e3),
+      rowsAfter: external_exports.number().int().min(0).max(1e3),
+      beforeFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/u),
+      afterFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/u),
+      inputEpoch: external_exports.number().int().min(0).max(4294967295),
+      dirtyBefore: external_exports.boolean(),
+      dirtyAfter: external_exports.boolean(),
+      dirtyAfterDelete: external_exports.boolean()
+    }).strict();
+  }
+});
+
 // src/table-cursor-mutation.ts
 import { performance as performance13 } from "node:perf_hooks";
 function unprovenMutationOutcome(operation, result) {
@@ -34836,18 +34895,7 @@ function unprovenMutationOutcome(operation, result) {
 async function executeTableCursorMutation(operation, args, worker, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, pageObjectsCatalog) {
   if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) {
     const result = await worker(operation, args, timeoutMs, signal);
-    const pendingProof = result.mutationPostProof;
-    const nativePending = pendingProof !== null && typeof pendingProof === "object" && Object.hasOwn(pendingProof, "nativeVerificationPending");
-    if (operation === "table_delete" && result.ok && (result.verified !== true || nativePending)) {
-      return unprovenMutationOutcome(operation, {
-        ...result,
-        kind: "cursor-proof-failed",
-        phase: "mutation-worker",
-        proofCheck: "mutation-worker-verified-readback",
-        error: "Loeschergebnis ist ohne vollstaendigen Nachweis nicht bestaetigt."
-      });
-    }
-    return publicCursorResult(result);
+    return operation === "table_delete" ? normalizeUiaTableDeleteResult(args, result) : publicCursorResult(result);
   }
   const started = performance13.now();
   const remaining = () => {
@@ -35095,6 +35143,7 @@ var init_table_cursor_mutation = __esm({
     init_table_cursor_position();
     init_table_cursor_edit_roles();
     init_table_write_budget();
+    init_table_uia_delete_result();
   }
 });
 
@@ -36501,9 +36550,11 @@ var init_result_mutation_fields = __esm({
         expectedAfter: OPTIONAL_STRING,
         sumLabel: OPTIONAL_STRING,
         nochVorhanden: OPTIONAL_BOOLEAN,
+        ungespeichertVorher: OPTIONAL_BOOLEAN,
+        ungespeichertNachher: OPTIONAL_BOOLEAN,
+        dirtyStateUnchanged: OPTIONAL_BOOLEAN,
         rolledBack: OPTIONAL_BOOLEAN,
         rollbackAttempted: OPTIONAL_BOOLEAN,
-        rollbackInterference: OPTIONAL_BOOLEAN,
         rollbackValue: OPTIONAL_MUTATION_VALUE,
         selectionCount: OPTIONAL_NON_NEGATIVE_NUMBER,
         selectionNames: OPTIONAL_STRING_ARRAY,
@@ -36512,8 +36563,7 @@ var init_result_mutation_fields = __esm({
         mutationState: OPTIONAL_OBJECT,
         inputGuard: OPTIONAL_OBJECT,
         windowGuard: OPTIONAL_OBJECT,
-        rollback: OPTIONAL_OBJECT,
-        warning: OPTIONAL_STRING
+        rollback: OPTIONAL_OBJECT
       },
       set_value: {
         before: OPTIONAL_STRING,

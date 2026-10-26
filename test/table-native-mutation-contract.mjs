@@ -700,8 +700,11 @@ for (const operation of ["table_update", "table_delete"]) {
 for (const [verified, nativePending, expected] of [[false, true, false], [true, false, true], [true, true, false], [false, false, false]]) {
   let calls = 0;
   const pending = await executeTableCursorMutation("table_delete", originalArgs, async () => {
-    calls++; return { ok: true, verified, geloescht: verified ? true : null, nochVorhanden: verified ? false : null,
-      mutationPostProof: { inputEpoch: 123, dirty: true, ...(nativePending ? { nativeVerificationPending: true } : {}) } };
+    calls++; return { ok: true, verified, mutationStarted: true, outcomeUnknown: false,
+      before: "100,00", after: "100,00", geloescht: verified ? true : null, nochVorhanden: verified ? false : null,
+      mutationPostProof: { schemaVersion: 1, method: "uia-grid-logical-model", outcome: "deleted-exact",
+        removedRow: 1, rowsBefore: 2, rowsAfter: 1, beforeFingerprint: "a".repeat(64), afterFingerprint: "b".repeat(64),
+        inputEpoch: 123, dirtyBefore: false, dirtyAfter: true, dirtyAfterDelete: true, ...(nativePending ? { nativeVerificationPending: true } : {}) } };
   }, {});
   assert.equal(calls, 1); assert.equal(pending.ok, expected); assert.equal(Object.hasOwn(pending, "mutationPostProof"), false);
   if (!expected) { assert.equal(pending.outcomeUnknown, true); assert.equal(pending.reconciliationRequired, true); }

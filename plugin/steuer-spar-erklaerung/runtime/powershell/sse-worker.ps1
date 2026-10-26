@@ -2558,6 +2558,9 @@ if (-not (Test-Path -LiteralPath $tableValueHelpers -PathType Leaf)) {
 $tableGridHelpers = Join-Path $PSScriptRoot 'table-grid-read.ps1'
 if (-not (Test-Path -LiteralPath $tableGridHelpers -PathType Leaf)) { Fail 'Read-only Grid helper is missing.' 'not-found' }
 . $tableGridHelpers
+$tableUiaDeleteHelpers=Join-Path $PSScriptRoot 'table-uia-delete.ps1'
+if (-not (Test-Path -LiteralPath $tableUiaDeleteHelpers -PathType Leaf)) { Fail 'UIA Grid deletion helper is missing.' 'not-found' }
+. $tableUiaDeleteHelpers
 $tableComboHelpers = Join-Path $PSScriptRoot 'table-combobox.ps1'
 if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
   Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
@@ -22450,10 +22453,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     #
     # SICHERHEIT: Ctrl+Shift+Delete loescht in Qt nicht nur die aktive Zeile,
     # sondern alle noch markierten Zeilen. Deshalb ist eine Loeschung nur mit
-    # einer exakten Vor-/Nachbedingung erlaubt. Bei jeder Abweichung wird
-    # sofort Ctrl+Z gesendet und die Wiederherstellung ebenfalls geprueft.
+    # einer exakten Vor-/Nachbedingung erlaubt. Der UIA-Pfad prueft das gesamte
+    # ausgelesene Modell; der native Pfad uebergibt den Readback an TypeScript.
     $mutationAuthority=Arg $a '__tableMutationBinding'
-    $mutationMain=$(if ($mutationAuthority) {Resolve-SSEMainWindowDescriptor $a} else {Resolve-SSEMainWindowDescriptor $a -RestoreMinimized})
+    $mutationMain=Resolve-SSEMainWindowDescriptor $a
     if ($mutationAuthority -and $mutationMain.minimiert) {Fail 'Geerbtes Tabellenziel ist minimiert; nichts geloescht.' 'minimized'}
     $hwnd = [IntPtr][int64]$mutationMain.hwnd
     $expectedPage = [string](Arg $a 'expectedPage')
@@ -22484,7 +22487,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     })
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Loeschung nicht begonnen.' 'precondition-failed' }
 
-    function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 0) {
+    function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 0, [string]$boundAid = '') {
       $tree = Walk-BoundTree $window -WithValues
       # Nicht einen zweiten, leicht abweichenden Summenparser pflegen: Add,
       # Update und Delete müssen dieselben Labels, Fallbackwerte und
@@ -22492,7 +22495,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # mit leerem ValuePattern und sichtbarem Summennamen.
       $read = Read-LabeledValueFromTree $tree $window $label $occurrence
       $selected = $read.selected
-      if ($occurrence -lt 1) {
+      if ($boundAid) {
+        $boundMatches=@($read.candidates | Where-Object {[string]$_.aid -ceq $boundAid})
+        $selected=$(if($boundMatches.Count -eq 1){$boundMatches[0]}else{$null})
+      } elseif ($occurrence -lt 1) {
         # Historischer Delete-Vertrag: ohne explizite Occurrence darf genau
         # eine bereits gelesene Summe dem erwarteten Vorwert entsprechen.
         # Das ist eine Auswahl aus dem gemeinsamen Kandidatenbestand, kein
@@ -22508,6 +22514,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
     }
 
+    if (-not $mutationAuthority) {
+      $uiaDeleteProcess=[Diagnostics.Process]::GetProcessById($targetPid)
+      try {
+        # Hold the kernel process identity through Emit's foreground cleanup.
+        $null=$uiaDeleteProcess.Handle
+        $uiaDeleteResult=Invoke-SSEUiaTableDelete $hwnd $targetPid $a $uiaDeleteProcess
+        Emit $uiaDeleteResult
+      } finally {$uiaDeleteProcess.Dispose()}
+    }
     $beforeRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
     $before = $beforeRead.value
     $headingBefore = Get-CurrentHeading $hwnd $beforeRead.tree
@@ -22541,56 +22556,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $inputBaseline = $(if ($mutationAuthority) {$mutationAuthority.binding.inputEpoch} else {Get-SSELastInputTick})
     if (-not $matches.Count -and $mutationAuthority) {
       Fail 'Geerbtes natives Loeschziel ist nicht mehr sichtbar; keine Tastatur-Zielsuche.' 'stale'
-    }
-    if (-not $matches.Count) {
-      # Qt virtualisiert Tabellenzeilen. Eine fachlich vorhandene Zeile kann
-      # deshalb im aktuellen UIA-Baum fehlen. Fokus auf eine sichtbare Zelle,
-      # sicher an den Tabellenanfang springen und ab dort nur navigieren.
-      $firstCell = @($targetRegion.cells | Sort-Object @{ Expression = 'y'; Descending = $true }, x | Select-Object -First 1)[0]
-      if ($firstCell) {
-        $null = Click-VerifiedPoint $hwnd $firstCell
-        $inputBaseline = Get-SSELastInputTick
-        Start-Sleep -Milliseconds 180
-        if ([SW]::GetForegroundWindow() -ne $hwnd) {
-          Fail 'Tabellenfokus ist vor der Zielsuche verloren gegangen; nichts geloescht.' 'interference'
-        }
-        [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
-        $inputBaseline = Get-SSELastInputTick
-        Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'table-delete-search-home'
-        Start-Sleep -Milliseconds 350
-        for ($searchSteps = 0; $searchSteps -le 250; $searchSteps++) {
-          if ($searchWatch.ElapsedMilliseconds -ge $searchDeadlineMs) {
-            Fail 'Tabellen-Zielsuche ueberschritt die interne Frist; nichts geloescht.' 'timeout'
-          }
-          $nowInput = Get-SSELastInputTick
-          if ($null -ne $inputBaseline -and $null -ne $nowInput -and $nowInput -ne $inputBaseline) {
-            Fail 'Windows-Eingabe-Epoche aenderte sich waehrend der Zielsuche; nichts geloescht.' 'interference'
-          }
-          if ([SW]::GetForegroundWindow() -ne $hwnd) {
-            Fail 'Tabellenfokus ging waehrend der Zielsuche verloren; nichts geloescht.' 'interference'
-          }
-          $currentRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
-          if (-not (Test-SSEScalarEqual $currentRead.value $expectedBefore)) {
-            Fail "Kontrollsumme/Seite veraenderten sich waehrend der Zielsuche. NICHT geloescht." 'interference'
-          }
-          $t = $currentRead.tree
-          if ((Get-CurrentHeading $hwnd $t) -ne $expectedPage) {
-            Fail 'Seite wechselte waehrend der Zielsuche. NICHT geloescht.' 'interference'
-          }
-          $targetRegion = Get-SSETableRegion $t $hwnd $currentRead
-          if (-not $targetRegion.ok) {
-            Fail "Tabellenregion verschwand waehrend der Zielsuche. NICHT geloescht." 'interference'
-          }
-          $matches = @($targetRegion.cells | Where-Object {
-            $_.name -eq $text -and (-not $targetRid -or $_.rid -eq $targetRid)
-          })
-          if ($matches.Count) { break }
-          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-          $inputBaseline = Get-SSELastInputTick
-          Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'table-delete-search-down'
-          Start-Sleep -Milliseconds 80
-        }
-      }
     }
     if (-not $matches.Count) {
       if ($targetRid) { Fail "Die gebundene Zielzelle '$text' ist nicht mehr sichtbar (auch nicht nach $searchSteps Navigationsschritten)." 'stale' }
@@ -22759,20 +22724,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $mutationAuthority.binding.windowFingerprint -RequireForeground)) {Fail 'Eingabe vor exklusiver Auswahl verlor ihre Epoche.' 'interference'}
     $selectionItem.Select()
     $selectionContext='table-delete-exclusive-selection'
-    if (-not $mutationAuthority) {
-      # The native path already proved table focus and the current model row.
-      # Clicking an already selected editable cell can start a delayed editor.
-      try { $targetElement.SetFocus() } catch { }
-      Start-Sleep -Milliseconds 180
-      Set-SSECursorPoint $px $py
-      Start-Sleep -Milliseconds 120
-      Assert-SSECursorPoint $px $py
-      [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
-      $inputBaseline = Get-SSELastInputTick
-      $selectionContext='table-delete-exclusive-selection-click'
-      Set-SSEForegroundLeaseInputCheckpoint $inputBaseline ([pscustomobject]@{ x=$px; y=$py }) $selectionContext
-      Start-Sleep -Milliseconds 300
-    }
     if ([SW]::GetForegroundWindow() -ne $hwnd) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
       Fail 'Der PID-/Root-gepruefte Zielklick hat SSE nicht eindeutig aktiviert; nichts geloescht.' 'interference'
@@ -22922,11 +22873,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $after = $afterRead.value
     $headingAfter = Get-CurrentHeading $hwnd $afterRead.tree
     $afterRegion = Get-SSETableRegion $afterRead.tree $hwnd $afterRead
-    $nochDa = if ($afterRegion.ok) {
-      [bool](@($afterRegion.cells | Where-Object {
-        $_.name -eq $text -and $(if ($targetAid) { $_.aid -eq $targetAid } else { $_.rid -eq $zelle.rid })
-      }).Count -gt 0)
-    } else { $true }
     $postCheckWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
     $postCheckInputAfter = Get-SSELastInputTick
     $postCheckInterference = [bool](
@@ -22971,98 +22917,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         mutationPostProof=[pscustomobject]@{inputEpoch=$deleteInputBaseline;dirty=[bool](Get-DirtyStateFast $hwnd);nativeVerificationPending=$true}
       })
     }
-    $postOk = (-not $nochDa) -and (Test-SSEScalarEqual $after $expectedAfter)
-    if (-not $postOk) {
-      $rollbackGuardInput = Get-SSELastInputTick
-      $rollbackGuardWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
-      $null = Show-SSEWindow $hwnd
-      Start-Sleep -Milliseconds 180
-      $rollbackReadyInput = Get-SSELastInputTick
-      $rollbackReadyWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
-      $rollbackSafe = [bool](
-        [SW]::GetForegroundWindow() -eq $hwnd -and
-        $rollbackGuardWindows.fingerprint -eq $rollbackReadyWindows.fingerprint -and
-        ($null -eq $rollbackGuardInput -or $null -eq $rollbackReadyInput -or $rollbackGuardInput -eq $rollbackReadyInput)
-      )
-      if (-not $rollbackSafe) {
-        [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
-        Emit ([pscustomobject]@{
-          ok=$false; kind='interference'
-          error='Nachbedingung war falsch, aber vor Strg+Z wurde Interferenz erkannt. Kein blindes Undo; Fall nicht speichern und neu synchronisieren.'
-          expectedPage=$expectedPage; page=$headingAfter; target=$text
-          sumLabel=$sumLabel; before=$before; after=$after; expectedAfter=$expectedAfter; nochVorhanden=$nochDa
-          tableBinding=[pscustomobject]@{
-            sumOccurrence=$sumOccurrence; sumY=$regionUpperY
-            previousSummaryY=$targetRegion.previousSummaryY; rowY=$zelle.y
-          }
-          rollback=[pscustomobject]@{ attempted=$false; reason='no-blind-undo-after-interference' }
-        })
-      }
-
-      [System.Windows.Forms.SendKeys]::SendWait('^z')
-      $rollbackInputBaseline = Get-SSELastInputTick
-      Set-SSEForegroundLeaseInputCheckpoint $rollbackInputBaseline ([pscustomobject]@{ x=$px; y=$py })
-      Start-Sleep -Milliseconds 1100
-      [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
-      $rollbackRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
-      $rollbackTree = $rollbackRead.tree
-      $rollbackHeading = Get-CurrentHeading $hwnd $rollbackTree
-      $targetRestored = @($rollbackTree.nodes | Where-Object {
-        $_.type -eq 'DataItem' -and $_.name -eq $text -and
-        $_.y -gt $regionLowerY -and $_.y -lt $regionUpperY
-      }).Count -gt 0
-      $rollbackWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
-      $rollbackInputAfter = Get-SSELastInputTick
-      $rollbackInterference = [bool](
-        $rollbackHeading -ne $expectedPage -or
-        $rollbackWindows.fingerprint -ne $interactionBeforeDelete.fingerprint -or
-        ($null -ne $rollbackInputBaseline -and $null -ne $rollbackInputAfter -and $rollbackInputBaseline -ne $rollbackInputAfter)
-      )
-      $rolledBack = [bool](-not $rollbackInterference -and $targetRestored -and
-        (Test-SSEScalarEqual $rollbackRead.value $expectedBefore))
-      Emit ([pscustomobject]@{
-        ok = $false; kind = 'postcondition-failed'; geloescht = $false; target = $text
-        error = $(if ($rolledBack) {
-          'Nachbedingung verletzt; Aenderung automatisch rueckgaengig gemacht.'
-        } elseif ($rollbackInterference) {
-          'Nachbedingung verletzt; Strg+Z wurde versucht, aber die Wiederherstellung konnte wegen Interferenz nicht verifiziert werden.'
-        } else {
-          'Nachbedingung verletzt; Rueckgaengigmachen NICHT verifiziert.'
-        })
-        expectedPage=$expectedPage; page=$rollbackHeading
-        sumLabel = $sumLabel; sumOccurrence = $sumOccurrence; before = $before; expectedBefore = $expectedBefore
-        after = $after; expectedAfter = $expectedAfter; nochVorhanden = $nochDa
-        selectionCount = $selectionCount; selectionNames = $selectionNames
-        selectionYs = $selectionYs
-        tableBinding=[pscustomobject]@{
-          sumOccurrence=$sumOccurrence; sumY=$regionUpperY
-          previousSummaryY=$targetRegion.previousSummaryY; rowY=$zelle.y
-        }
-        rollbackAttempted = $true; rolledBack = [bool]$rolledBack; rollbackValue = $rollbackRead.value
-        rollbackInterference=[bool]$rollbackInterference
-        warning = $(if ($rolledBack) {
-          'Nachbedingung verletzt; die Aenderung wurde automatisch und verifiziert rueckgaengig gemacht.'
-        } else {
-          'KRITISCH: Nachbedingung verletzt und Rueckgaengigmachen nicht verifiziert. Fall ohne Speichern schliessen.'
-        })
-      })
-    }
-    $mutationSuccess=[pscustomobject]@{
-      ok = $true; geloescht = $true; target = $text; nochVorhanden = $false
-      expectedPage=$expectedPage; page=$headingAfter
-      sumLabel = $sumLabel; sumOccurrence = $sumOccurrence; before = $before; after = $after
-      expectedBefore = $expectedBefore; expectedAfter = $expectedAfter
-      selectionCount = $selectionCount; selectionNames = $selectionNames
-      selectionYs = $selectionYs
-      tableBinding=[pscustomobject]@{
-        sumOccurrence=$sumOccurrence; sumY=$regionUpperY
-        previousSummaryY=$targetRegion.previousSummaryY; rowY=$zelle.y
-      }
-      searchSteps = $searchSteps
-      verified = $true
-    }
-    Emit $mutationSuccess
+    throw 'Native deletion did not return its complete-model verification handoff.'
   }
+
 
   'menu' {
     # Menuezeile bedienen. Ohne das sind Optionen, Datenuebernahme,

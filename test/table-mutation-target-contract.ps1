@@ -617,7 +617,7 @@ $undoKeys=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.
   $node.Member.Extent.Text -ceq 'SendWait' -and $node.Arguments.Count -eq 1 -and
   $node.Arguments[0] -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Arguments[0].Value -ceq '^z' -and
   $node.Extent.StartOffset -gt $deleteKeys[0].Extent.EndOffset},$true))
-if($undoKeys.Count -ne 1 -or $pendingDelete[0].Extent.EndOffset -ge $undoKeys[0].Extent.StartOffset){throw 'Native pending result must stop before legacy undo.'}
+if($undoKeys.Count -ne 0){throw 'Native pending result must never fall through to legacy undo.'}
 $pendingBlock=[scriptblock]::Create($pendingDelete[0].Extent.Text)
 foreach($case in @('duplicate-remains','no-text-remains','wrong-summary')){
   $mutationAuthority=[pscustomobject]@{};$script:emitted=$null;$script:dirty=$true
@@ -643,20 +643,12 @@ if($selectionCalls.Count -ne 1){throw 'Delete exclusive selection must be unique
 $deleteClicks=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
   $node.Member.Extent.Text -ceq 'mouse_event' -and $node.Extent.StartOffset -gt $selectionCalls[0].Extent.EndOffset -and
   $node.Extent.EndOffset -lt $deleteKeys[0].Extent.StartOffset},$true))
-if($deleteClicks.Count -ne 2){throw 'Legacy delete click pair changed unexpectedly.'}
+if($deleteClicks.Count -ne 0){throw 'Native deletion must not perform a legacy click.'}
 $pointerSteps=@($deleteClauses[0].Item2.FindAll({param($node)
   (($node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -cin @('Set-SSECursorPoint','Assert-SSECursorPoint')) -or
    ($node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Expression.Extent.Text -ceq '$targetElement' -and $node.Member.Extent.Text -ceq 'SetFocus')) -and
   $node.Extent.StartOffset -gt $selectionCalls[0].Extent.EndOffset -and $node.Extent.EndOffset -lt $deleteKeys[0].Extent.StartOffset},$true))
-if($pointerSteps.Count -ne 3){throw 'Legacy delete focus/cursor steps changed unexpectedly.'}
-foreach($action in (@($deleteClicks)+@($pointerSteps))){
-  $parent=$action.Parent;$legacyOnly=$false
-  while($parent){
-    if($parent -is [Management.Automation.Language.IfStatementAst] -and $parent.Clauses[0].Item1.Extent.Text -ceq '-not $mutationAuthority'){$legacyOnly=$true;break}
-    $parent=$parent.Parent
-  }
-  if(-not $legacyOnly){throw 'Native delete can click an already selected editable cell.'}
-}
+if($pointerSteps.Count -ne 0){throw 'Native deletion must not repeat legacy focus/cursor steps.'}
 foreach($phase in @('postDeleteInterference','postCheckInterference')){
   $branches=@($deleteClauses[0].Item2.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and
     $node.Clauses[0].Item1.Extent.Text -ceq ('$'+$phase)},$true))

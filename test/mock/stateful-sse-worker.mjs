@@ -654,31 +654,47 @@ export function createStatefulSseWorker({
    * vollstaendig zurueck, statt eine halb geschriebene Tabelle zu hinterlassen.
    */
   const mutateTable = (operation, args, change) => {
+    const beforeMutationFailure = (error) => operation === "table_delete"
+      ? { ...error, mutationStarted: false, outcomeUnknown: false, resultingState: "unchanged",
+        reconciliationRequired: false, retryable: false, geloescht: false, nochVorhanden: null }
+      : error;
     const caseState = model.openCase();
-    if (!caseState) return { ok: false, kind: "not-found", error: "Kein Steuerfall offen." };
+    if (!caseState) return beforeMutationFailure({ ok: false, kind: "not-found", error: "Kein Steuerfall offen." });
     if (currentPage !== String(args.expectedPage)) {
-      return { ok: false, kind: "precondition-failed", error: `Aktuelle Seite '${currentPage}', erwartet '${args.expectedPage}'.` };
+      return beforeMutationFailure({ ok: false, kind: "precondition-failed", error: `Aktuelle Seite '${currentPage}', erwartet '${args.expectedPage}'.` });
     }
     if (String(args.sumLabel) !== TABLE_SUM_LABEL) {
-      return { ok: false, kind: "not-found", error: `Summenzeile '${args.sumLabel}' fehlt auf dieser Seite.` };
+      return beforeMutationFailure({ ok: false, kind: "not-found", error: `Summenzeile '${args.sumLabel}' fehlt auf dieser Seite.` });
     }
     const before = formatCents(tableSumCents(caseState));
     if (before !== String(args.expectedBefore)) {
-      return { ok: false, kind: "precondition-failed", error: `Vorsumme '${before}', erwartet '${args.expectedBefore}'.` };
+      return beforeMutationFailure({ ok: false, kind: "precondition-failed", error: `Vorsumme '${before}', erwartet '${args.expectedBefore}'.` });
     }
     const backup = clone(caseState.values.sonstigeEinnahmen);
+    const dirtyBefore = caseState.dirty;
     const outcome = change(caseState.values.sonstigeEinnahmen);
     if (outcome.error) {
       caseState.values.sonstigeEinnahmen = backup;
-      return outcome.error;
+      return beforeMutationFailure(outcome.error);
     }
     const after = formatCents(tableSumCents(caseState));
+    const deleteProof = operation === "table_delete" ? {
+      schemaVersion: 1, method: "uia-grid-logical-model", outcome: "deleted-exact",
+      removedRow: outcome.index, rowsBefore: backup.length, rowsAfter: caseState.values.sonstigeEinnahmen.length,
+      beforeFingerprint: sha256(JSON.stringify(backup)).toLowerCase(),
+      afterFingerprint: sha256(JSON.stringify(caseState.values.sonstigeEinnahmen)).toLowerCase(),
+      inputEpoch: 0, dirtyBefore, dirtyAfter: true, dirtyAfterDelete: true,
+    } : undefined;
     if (after !== String(args.expectedAfter)) {
       caseState.values.sonstigeEinnahmen = backup;
       const sums = operation === "table_update"
         ? { summeVorher: before, summeNachher: after }
         : operation === "table_delete"
-          ? { before, after, target: String(args.text), rolledBack: true }
+          ? { before, after, target: String(args.text), verified: false, rolledBack: true, rollbackAttempted: true,
+            rollbackValue: before, resultingState: "restored", mutationStarted: true, outcomeUnknown: false,
+            geloescht: false, nochVorhanden: true, ungespeichertVorher: dirtyBefore, ungespeichertNachher: dirtyBefore,
+            dirtyStateUnchanged: true, mutationPostProof: { ...deleteProof, outcome: "restored", rowsAfter: backup.length,
+              afterFingerprint: deleteProof.beforeFingerprint, dirtyAfter: dirtyBefore } }
           : { sumBefore: before, sumAfter: after };
       return {
         ok: false,
@@ -709,6 +725,9 @@ export function createStatefulSseWorker({
         before,
         after,
         nochVorhanden: false,
+        mutationStarted: true,
+        outcomeUnknown: false,
+        mutationPostProof: deleteProof,
       };
     }
     return {
@@ -1552,7 +1571,7 @@ export function createStatefulSseWorker({
           const index = rows.findIndex((row) => row.text === String(args.text));
           if (index < 0) return { error: { ok: false, kind: "not-found", error: `Zeile '${args.text}' fehlt.` } };
           const [removed] = rows.splice(index, 1);
-          return { deleted: clone(removed) };
+          return { deleted: clone(removed), index };
         });
 
       // --------------------------------------------------- Auswahl und Menue
