@@ -10,6 +10,7 @@ import { bindingSchema, numberPolicy, publicCursorResult, rejectProof, tableCurs
 import { executeNativeTargetPosition } from "./table-cursor-position.js";
 import { amountEqual, bindRequestedNativeEditRoles } from "./table-cursor-edit-roles.js";
 import { TABLE_WRITE_MINIMUM_BUDGET_MS, TABLE_NATIVE_POSTCONDITION_RESERVE_MS, TABLE_TARGET_SEEK_ALLOWANCE_MS } from "./table-write-budget.js";
+import { normalizeUiaTableDeleteResult } from "./table-uia-delete-result.js";
 
 function unprovenMutationOutcome(operation: "table_update" | "table_delete", result: WorkerResult): WorkerResult {
   return { ...publicCursorResult(result), ok: false, verified: false,
@@ -24,13 +25,7 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
   timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal, pageObjectsCatalog?: PageObjectsCatalog): Promise<WorkerResult> {
   if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) {
     const result = await worker(operation, args, timeoutMs, signal);
-    const pendingProof = result.mutationPostProof;
-    const nativePending = pendingProof !== null && typeof pendingProof === "object" && Object.hasOwn(pendingProof, "nativeVerificationPending");
-    if (operation === "table_delete" && result.ok && (result.verified !== true || nativePending)) {
-      return unprovenMutationOutcome(operation, { ...result, kind: "cursor-proof-failed", phase: "mutation-worker",
-        proofCheck: "mutation-worker-verified-readback", error: "Loeschergebnis ist ohne vollstaendigen Nachweis nicht bestaetigt." });
-    }
-    return publicCursorResult(result);
+    return operation === "table_delete" ? normalizeUiaTableDeleteResult(args, result) : publicCursorResult(result);
   }
   const started = performance.now();
   const remaining = () => {

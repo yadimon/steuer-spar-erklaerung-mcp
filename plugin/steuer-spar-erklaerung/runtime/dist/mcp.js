@@ -22998,9 +22998,11 @@ var init_result_mutation_fields = __esm({
         expectedAfter: OPTIONAL_STRING,
         sumLabel: OPTIONAL_STRING,
         nochVorhanden: OPTIONAL_BOOLEAN,
+        ungespeichertVorher: OPTIONAL_BOOLEAN,
+        ungespeichertNachher: OPTIONAL_BOOLEAN,
+        dirtyStateUnchanged: OPTIONAL_BOOLEAN,
         rolledBack: OPTIONAL_BOOLEAN,
         rollbackAttempted: OPTIONAL_BOOLEAN,
-        rollbackInterference: OPTIONAL_BOOLEAN,
         rollbackValue: OPTIONAL_MUTATION_VALUE,
         selectionCount: OPTIONAL_NON_NEGATIVE_NUMBER,
         selectionNames: OPTIONAL_STRING_ARRAY,
@@ -23009,8 +23011,7 @@ var init_result_mutation_fields = __esm({
         mutationState: OPTIONAL_OBJECT,
         inputGuard: OPTIONAL_OBJECT,
         windowGuard: OPTIONAL_OBJECT,
-        rollback: OPTIONAL_OBJECT,
-        warning: OPTIONAL_STRING
+        rollback: OPTIONAL_OBJECT
       },
       set_value: {
         before: OPTIONAL_STRING,

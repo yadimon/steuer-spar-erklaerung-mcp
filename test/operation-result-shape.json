@@ -19861,6 +19861,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -19872,7 +19873,19 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
+            ]
+          },
+          "dirtyStateUnchanged": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "error": {
@@ -19894,6 +19907,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -19908,7 +19922,7 @@
               "error"
             ]
           },
-          "nochVorhanden": {
+          "mutationStarted": {
             "types": [
               "boolean"
             ],
@@ -19916,6 +19930,20 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "nochVorhanden": {
+            "types": [
+              "boolean",
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -19931,6 +19959,96 @@
               "success"
             ]
           },
+          "outcomeUnknown": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "reconciliationRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "retryable": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "object:{\"erfolgreich\":\"boolean\",\"summe\":\"string-other\",\"versucht\":\"boolean\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "rollbackAttempted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "rollbackValue": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "rolledBack": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "target": {
             "types": [
               "string-other"
@@ -19939,7 +20057,30 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
+            ]
+          },
+          "ungespeichertNachher": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "ungespeichertVorher": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "verified": {
@@ -19950,6 +20091,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           }

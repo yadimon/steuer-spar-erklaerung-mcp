@@ -18,10 +18,15 @@ sichtbare Zeilen; für ein vollständiges passives Inventar vorab
 Gridbestand beweist Daten, aber keine Sichtbarkeit oder Materialisierung einer
 UIA-Schreibzelle. Lies Ziel und Sichtbarkeit zuerst frisch; wähle erst dann
 bewusst die erforderliche UIA-Vorbereitung. Im nichtnativen Pfad verlangt
-`sse_table_update` eine bereits sichtbare Zielzeile und führt keinen eigenen
-Zeilensuchlauf aus. `sse_table_add` besitzt seinen eigenen einmaligen
-bewachten Suchlauf, `sse_table_delete` seine begrenzte HOME-/DOWN-Navigation.
-Diese internen Positionierungen bleiben unverändert.
+`sse_table_update` und `sse_table_delete` bereits sichtbare Zielzeilen und
+führen keinen eigenen Zeilensuchlauf aus. `sse_table_add` besitzt seinen
+eigenen einmaligen bewachten Suchlauf. Die UIA-Löschung prüft den vollständigen
+ausgelesenen Gridbestand vor und nach genau einem Löschbefehl; gleiche Texte
+oder eine unveränderte Summe allein belegen keinen Erfolg. Bei ungewissem
+Ausgang frisch abgleichen und den Auftrag nicht automatisch wiederholen.
+Ein bestätigter Daten-Rollback kann die Änderungsmarkierung gesetzt lassen.
+`ungespeichertVorher`, `ungespeichertNachher` und `dirtyStateUnchanged`
+auswerten; daraus keine Erlaubnis zum Speichern oder Verwerfen ableiten.
 
 Den aktiven Cursorlauf mit `noKeys: false` nur ausdrücklich für fehlende
 vollständige passive Lesepfade, belegte UIA-Positionierung/Materialisierung

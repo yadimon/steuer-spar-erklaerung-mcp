@@ -25,6 +25,8 @@ Schluss die Umsatzsteuer-Voranmeldung zeigen. Nichts wird an ELSTER gesendet.
   Programm-Prüfer untersuchen;
 - bestätigte Belegquellen inventarisieren und mit dem Fall abgleichen;
 - Felder und Tabellen eng gebunden ändern und unmittelbar zurücklesen;
+  beim Löschen den gesamten ausgelesenen Restbestand prüfen und ungewisse
+  Ergebnisse ausdrücklich melden;
 - Umsatzsteuer-Voranmeldungen vorbereiten, ohne sie zu übermitteln;
 - Berichte, private Backups und ausdrücklich verlangte Arbeitskopien im lokalen
   Arbeitsbereich erzeugen;

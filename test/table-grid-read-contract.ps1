@@ -374,3 +374,52 @@ try {$null=Read-SyntheticGrid $provider 10 {$true} 0} catch {$failed=$true}
 Assert $failed 'Expired deadline was accepted.'
 Same $provider.Grid.Calls 0 'Grid was read after the deadline expired.'
 Write-Host 'Read-only Grid projection: raw zero/blank/duplicate rows, 123 rows, limits, typed states, exact coordinates and malformed observations passed.'
+
+function Model($Scan,[int]$Limit=1000){ConvertTo-SSEGridLogicalModel $Scan (Copy-Scan $Scan) $Limit 7 'Synthetic.Table'}
+$rows=@(
+ @('','01.01','Duplicate','0,00','','Hidden alpha','0,00'),
+ @('','02.01','Duplicate','0,00','','Hidden beta','0,00'),
+ @('','','','','','','')
+)
+$beforeScan=New-Scan $rows @('Off','Off','Off');$before=Model $beforeScan
+$afterScan=New-Scan @($rows[0],$rows[2]) @('Off','Off');$after=Model $afterScan
+Same (Get-SSEGridDeleteOutcome $before $after 1) 'deleted-exact' 'A zero-amount duplicate deletion was not identified by complete model difference.'
+Same (Get-SSEGridDeleteOutcome $before (Model $beforeScan) 1) 'unchanged' 'An ineffective deletion was not identified as unchanged.'
+Assert ($after.key -cne $before.key) 'An ineffective undo was accepted as restoration merely because a duplicate and zero sum remain.'
+Same (Get-SSEGridDeleteOutcome $before (Model (New-Scan @($rows[1],$rows[2]) @('Off','Off'))) 1) 'unexpected' 'The wrong duplicate row was accepted.'
+Same (Get-SSEGridDeleteOutcome $before (Model (New-Scan (,$rows[2]) @('Off'))) 1) 'unexpected' 'Two removed rows were accepted.'
+$more=New-Scan @($rows[0],$rows[1],$rows[2],@('','03.01','Other','1,00','','Hidden other','1,00')) @('Off','Off','Off','Off')
+Same (Get-SSEGridDeleteOutcome $before (Model $more) 1) 'unexpected' 'An added row was accepted.'
+$changed=Copy-Scan $afterScan;$changed.cells[4].semantic.checkboxState='On';$changed.cells[4].semantic.value=$true
+Same (Get-SSEGridDeleteOutcome $before (Model $changed) 1) 'unexpected' 'An untouched checkbox change was accepted.'
+$hidden=Copy-Scan $afterScan;$hidden.cells[5].name='Changed hidden value';$hidden.cells[5].semantic.value='Changed hidden value'
+Same (Get-SSEGridDeleteOutcome $before (Model $hidden) 1) 'unexpected' 'An untouched hidden-column change was accepted.'
+$headers=Copy-Scan $afterScan;$headers.headers[1].name='Changed header'
+Same (Get-SSEGridDeleteOutcome $before (Model $headers) 1) 'unexpected' 'Changed table structure was accepted.'
+$visibility=Copy-Scan $afterScan;$visibility.headers[5].visible=$true;$visibility.headers[5].rect=[pscustomobject]@{empty=$false;x=500.0;y=10.0;width=99.0;height=20.0}
+Same (Get-SSEGridDeleteOutcome $before (Model $visibility) 1) 'unexpected' 'Changed hidden-column visibility was accepted.'
+$rebuilt=Copy-Scan $beforeScan
+foreach($header in $rebuilt.headers){$header.rid='Rebuilt.Header.'+$header.column;if($header.visible){$header.rect.x+=50;$header.rect.y+=20}}
+foreach($cell in $rebuilt.cells){$cell.rid='Rebuilt.Cell.'+$cell.row+'.'+$cell.column}
+Same (Model $rebuilt).key $before.key 'RIDs or layout were incorrectly treated as business data.'
+Same (Get-SSEGridDeleteOutcome $before (Model $rebuilt) 1) 'unchanged' 'A completely restored model with fresh IDs was rejected.'
+$reordered=New-Scan @($rows[1],$rows[0],$rows[2]) @('Off','Off','Off')
+Same (Get-SSEGridDeleteOutcome $before (Model $reordered) 1) 'unexpected' 'Restoration at the wrong row position was accepted.'
+$twins=Model (New-Scan @($rows[0],$rows[0],$rows[2]) @('Off','Off','Off'))
+Assert (-not (Test-SSEGridRowUnique $twins 1)) 'Fully indistinguishable exposed rows were granted target authority.'
+Same (Get-SSEGridDeleteOutcome $twins $after 1) 'unexpected' 'An indistinguishable target was accepted without row uniqueness.'
+$coordinate=Resolve-SSEGridCellCoordinate $beforeScan 'Cell.1.2'
+Same $coordinate ([pscustomobject]@{row=1;column=2;name='Duplicate'}) 'Fresh RID did not retain exact model coordinates.'
+Assert ($null -eq (Resolve-SSEGridCellCoordinate $beforeScan 'Missing.Rid')) 'A missing RID received coordinates.'
+$incomplete=New-Scan $rows @('Off','Off','Off') 5;$refused=$false
+try{$null=Model $incomplete 3}catch{$refused=$true}
+Assert $refused 'A partial exposed model was accepted as complete.'
+Same (Get-SSEGridDeleteOutcome $before $before -1) 'unexpected' 'An invalid target row was accepted as a known unchanged outcome.'
+$tampered=Copy-Scan $before;$tampered.rowKeys[0]='Tampered key'
+Same (Get-SSEGridDeleteOutcome $before $tampered 1) 'unexpected' 'A stale cached model key hid changed row data.'
+$largeRows=@(for($index=0;$index -lt 200;$index++){,@([string]$index,'01.01',('Row '+$index),'1,00','',('Hidden '+$index),'1,00')})
+$largeStates=@(for($index=0;$index -lt 200;$index++){'Off'})
+$remaining=@(for($index=0;$index -lt 200;$index++){if($index -ne 150){,$largeRows[$index]}})
+$remainingStates=@(for($index=0;$index -lt 199;$index++){'Off'})
+Same (Get-SSEGridDeleteOutcome (Model (New-Scan $largeRows $largeStates)) (Model (New-Scan $remaining $remainingStates)) 150) 'deleted-exact' 'A virtualized model row was confused with visible rank.'
+Write-Output 'Logical Grid delete policy: complete observed rows, zero values, hidden data, restoration and model coordinates passed.'

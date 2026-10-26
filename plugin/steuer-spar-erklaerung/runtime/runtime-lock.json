@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "9841dfd9763e5146d00cf8f0bb6611c2b94d6b37b4060cc7267823a0a626e5f5",
-      "size": 1745361
+      "sha256": "af0f94adc1a0a51b9d8fef65504fc3b7177972897dedd05bfc1bbbf95831fecb",
+      "size": 1749553
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "9792484c930bb6a76848f67e7d2348f100d87e857392011cc9edae38bbcb5b6f",
-      "size": 1802412
+      "sha256": "bf7bb1db52d1b4639ab69bff001059a2ebc60f426b119ccf357d2167ffb5681d",
+      "size": 1802472
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "776f3aff4dd4e09d37d47061d37085510a1f528ad9e5d91eab462a27d39461dc",
-      "size": 1509505
+      "sha256": "4284d7e1bb54935554afb9fcfd29d596bb69a5803d22e141d668e22c2a68434b",
+      "size": 1501480
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -113,8 +113,8 @@
     },
     {
       "path": "powershell/table-grid-read.ps1",
-      "sha256": "cb716377cde2f64ff3431d99bacd666fd0f23f9949a5aa970381e5685d6acca1",
-      "size": 14676
+      "sha256": "fdccaf21ce9cc519496f1e05bd6ef66ef12921d61868e349e6b2e3d986b55c45",
+      "size": 18352
     },
     {
       "path": "powershell/table-number-click.ps1",
@@ -130,6 +130,11 @@
       "path": "powershell/table-region.ps1",
       "sha256": "8eec6513a7304522bd0d94e47ca9884a855ae47d531e4fe029bea5ac5256ec1d",
       "size": 9928
+    },
+    {
+      "path": "powershell/table-uia-delete.ps1",
+      "sha256": "99fdaa0ca006d1c34d8a9a44f4761bdfb67ce2f9255570212aea4d91d5fec66c",
+      "size": 38972
     },
     {
       "path": "powershell/table-values.ps1",

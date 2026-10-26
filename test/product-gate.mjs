@@ -17,6 +17,7 @@ const root = join(here, "..");
 const server = join(root, "dist", "index.js");
 const worker = join(root, "powershell", "sse-worker.ps1");
 const workerSource = readFileSync(worker, "utf8");
+const tableUiaDeleteSource = readFileSync(join(root, "powershell", "table-uia-delete.ps1"), "utf8");
 const workerBridgeSource = readFileSync(join(root, "src", "worker.ts"), "utf8");
 const desktopMarkerNodeSource = readFileSync(join(root, "src", "desktop-marker.ts"), "utf8");
 const desktopMarkerWorkerSource = readFileSync(join(root, "powershell", "desktop-marker.ps1"), "utf8");
@@ -603,12 +604,18 @@ try {
   const strictMainWindowOps = [
     "click", "set_value", "combo_options", "click_point",
     "positions", "export_csv", "collect", "goto_tree", "goto",
-    "table_add", "table_update", "table_delete", "menu", "menu_click", "menu_close",
+    "table_add", "table_update", "menu", "menu_click", "menu_close",
   ];
   for (const op of strictMainWindowOps) {
     assert(workerOpBlock(op).includes("Resolve-SSEMainWindowDescriptor $a -RestoreMinimized"),
       `${op} waehlt bei mehreren SSE-Faellen weiterhin implizit ein Fenster.`);
   }
+  assert(tableDelete.includes("$mutationMain=Resolve-SSEMainWindowDescriptor $a") &&
+    tableDelete.includes("$hwnd = [IntPtr][int64]$mutationMain.hwnd") &&
+    tableDelete.indexOf("Resolve-SSEMainWindowDescriptor $a") < tableDelete.indexOf("Invoke-SSETablePreparation $hwnd $targetPid") &&
+    !tableDelete.includes("Resolve-SSEMainWindowDescriptor $a -RestoreMinimized") &&
+    tableDelete.includes("Invoke-SSEUiaTableDelete $hwnd $targetPid $a $uiaDeleteProcess"),
+  "table_delete muss sein eindeutiges Hauptfenster vor der Vorbereitung passiv binden; Aktivierung folgt erst dem vollstaendigen UIA-Vorvergleich.");
   const tableRead = workerOpBlock("table_read");
   assert(tableRead.includes("$main = Resolve-SSEMainWindowDescriptor $a") &&
     !tableRead.includes("Resolve-SSEMainWindowDescriptor $a -RestoreMinimized") &&
@@ -700,8 +707,12 @@ try {
   }
   assert(!workerOpBlock("table_add").slice(0, workerOpBlock("table_add").indexOf("$prepared = New-Object"))
     .match(/Click-VerifiedPoint|SendKeys|mouse_event/u) &&
-    workerOpBlock("table_delete").includes("Tabellen-Zielsuche ueberschritt die interne Frist; nichts geloescht."),
-  "Tabellen-Zielsuche kann ohne interne Frist bis in den externen Kill-Timeout laufen.");
+    tableUiaDeleteSource.includes("$binding.watch.ElapsedMilliseconds -lt 60000") &&
+    tableUiaDeleteSource.includes("Test-SSEUiaDeleteBudget $binding.watch.ElapsedMilliseconds $binding.maxReadMs 8 $binding.maxRawMs") &&
+    tableUiaDeleteSource.includes("Test-SSEUiaDeleteBudget $binding.watch.ElapsedMilliseconds $binding.maxReadMs 4 $binding.maxRawMs") &&
+    tableUiaDeleteSource.indexOf("Test-SSEUiaDeleteBudget $binding.watch.ElapsedMilliseconds $binding.maxReadMs 4") <
+      tableUiaDeleteSource.indexOf("[Windows.Forms.SendKeys]::SendWait('^+{DEL}')"),
+  "Tabellenvorbereitung oder UIA-Loeschung verliert ihre interne Frist und Reserve vor dem Schreibbefehl.");
   assert(skillSource.includes("Fensterbindung") && skillSource.includes("`HWND`") &&
     skillSource.includes("genau eine eng gebundene Änderung"),
   "Public Skill beschreibt die fail-closed Fenster- und Schreibbindung nicht.");

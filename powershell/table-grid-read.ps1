@@ -230,3 +230,64 @@ function ConvertTo-SSEGridTableProjection {
       modelRows=$First.rows;readModelRows=$First.readRows;modelColumns=$First.columns;
       visibleColumns=@($visible | ForEach-Object {$_.column});rowFilter='none';inputSlotsIncluded=$true}}
 }
+
+function Get-SSEGridLogicalFingerprint {
+  param([string]$Key)
+  if([string]::IsNullOrWhiteSpace($Key)){throw 'Logical Grid fingerprint requires a complete observation key.'}
+  $hash=[Security.Cryptography.SHA256]::Create()
+  try {([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Key)))).Replace('-','').ToLowerInvariant()}
+  finally {$hash.Dispose()}
+}
+
+function ConvertTo-SSEGridLogicalModel {
+  param($First,$Second,[int]$MaxRows,[int]$ProcessId,[string]$TableAid)
+  if($ProcessId -le 0 -or [string]::IsNullOrWhiteSpace($TableAid)){throw 'Logical Grid requires an exact process and table identity.'}
+  $projection=ConvertTo-SSEGridTableProjection $First $Second $MaxRows
+  if(-not $projection.vollstaendig -or $First.readRows -ne $First.rows){throw 'Logical Grid requires every exposed row and column.'}
+  $headers=@($First.headers|ForEach-Object{[pscustomobject]@{column=[int]$_.column;name=[string]$_.name;visible=[bool]$_.visible}})
+  $rowKeys=@(for($row=0;$row -lt $First.rows;$row++){
+    $values=@(for($column=0;$column -lt $First.columns;$column++){
+      $cell=$First.cells[$row*$First.columns+$column]
+      ,@([string]$cell.name,[string]$cell.semantic.type,$cell.semantic.value,$cell.semantic.checkboxState)
+    })
+    ConvertTo-Json -InputObject $values -Depth 5 -Compress
+  })
+  $structure=ConvertTo-Json -InputObject ([pscustomobject]@{pid=$ProcessId;tableAid=$TableAid;columns=[int]$First.columns;headers=$headers}) -Depth 5 -Compress
+  $key=$structure+'|'+(ConvertTo-Json -InputObject @($rowKeys) -Compress)
+  [pscustomobject]@{structure=$structure;rows=[int]$First.rows;rowKeys=$rowKeys;key=$key;fingerprint=(Get-SSEGridLogicalFingerprint $key)}
+}
+
+function Resolve-SSEGridCellCoordinate {
+  param($Scan,[string]$Rid)
+  if(-not $Scan -or [string]::IsNullOrWhiteSpace($Rid)){return $null}
+  $matches=@($Scan.cells|Where-Object{[string]$_.rid -ceq $Rid})
+  if($matches.Count -ne 1){return $null}
+  $cell=$matches[0]
+  if($cell.row -isnot [int] -or $cell.column -isnot [int] -or $cell.row -lt 0 -or $cell.row -ge $Scan.rows -or
+    $cell.column -lt 0 -or $cell.column -ge $Scan.columns -or $cell.name -isnot [string]){return $null}
+  [pscustomobject]@{row=[int]$cell.row;column=[int]$cell.column;name=[string]$cell.name}
+}
+
+function Test-SSEGridRowUnique {
+  param($Model,[int]$Row)
+  if(-not $Model -or $Model.rows -isnot [int] -or $Row -lt 0 -or $Row -ge $Model.rows -or
+    @($Model.rowKeys).Count -ne $Model.rows){return $false}
+  [bool](@($Model.rowKeys|Where-Object{$_ -ceq $Model.rowKeys[$Row]}).Count -eq 1)
+}
+
+function Get-SSEGridDeleteOutcome {
+  param($Before,$After,[int]$Row)
+  foreach($model in @($Before,$After)){
+    if(-not $model -or $model.rows -isnot [int] -or $model.rows -lt 0 -or $model.rows -gt 1000 -or
+      $model.structure -isnot [string] -or -not $model.structure -or @($model.rowKeys).Count -ne $model.rows -or
+      @($model.rowKeys|Where-Object{$_ -isnot [string]}).Count -or
+      $model.key -cne ($model.structure+'|'+(ConvertTo-Json -InputObject @($model.rowKeys) -Compress)) -or
+      $model.fingerprint -cne (Get-SSEGridLogicalFingerprint $model.key)){return 'unexpected'}
+  }
+  if($Row -lt 0 -or $Row -ge $Before.rows -or $Before.structure -cne $After.structure){return 'unexpected'}
+  if($After.key -ceq $Before.key){return 'unchanged'}
+  if(-not (Test-SSEGridRowUnique $Before $Row) -or $After.rows -ne $Before.rows-1){return 'unexpected'}
+  $expected=@(for($index=0;$index -lt $Before.rows;$index++){if($index -ne $Row){$Before.rowKeys[$index]}})
+  for($index=0;$index -lt $expected.Count;$index++){if($After.rowKeys[$index] -cne $expected[$index]){return 'unexpected'}}
+  'deleted-exact'
+}

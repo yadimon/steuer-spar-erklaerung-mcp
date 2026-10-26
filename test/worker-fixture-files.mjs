@@ -9,6 +9,7 @@ export const WORKER_RUNTIME_FILES = Object.freeze([
   "table-boolean.ps1",
   "tax-knowledge.ps1",
   "table-grid-read.ps1",
+  "table-uia-delete.ps1",
   "window-close.ps1",
   "table-preparation.ps1",
   "table-number-click.ps1",

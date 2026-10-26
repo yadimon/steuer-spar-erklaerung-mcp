@@ -99,9 +99,32 @@ fokussierte Zeilenzelle geprüft; fremde, fehlende oder mehrere Fokuszellen
 bleiben gesperrt.
 Ein fokussierter Edit-Delegate bleibt auch bei gleichzeitigem Fokushinweis
 der Datenzelle gesperrt. Der Vertrag prüft außerdem, dass der native Löschpfad
-keinen zusätzlichen Zellklick ausführt und sein vorläufiges Ergebnis vor dem
-textbasierten Rückgängigmachen des Kompatibilitätspfads übergibt.
+keinen zusätzlichen Zellklick und kein textbasiertes Rückgängigmachen ausführt.
 Diese synthetischen Verträge ersetzen keinen Lauf gegen das reale Produkt.
+
+`table-uia-delete-contract.ps1` führt den tatsächlichen UIA-Transaktionsablauf
+gegen rein synthetische Provider- und Eingabegrenzen aus. Er prüft unter
+anderem Nullbeträge, falsche oder mehrere entfernte Zeilen, veränderte
+Restwerte, fehlendes Nachlesen, Eingabe-/Fokusverlust und genau einen
+abgesicherten Undo. Eine ausbleibende beobachtete Wirkung bleibt ungewiss
+und darf kein Undo oder Replay auslösen. Die eigentlichen Fokus-, Raw- und
+Editorprüfungen erhalten zusätzliche Gegenfälle: aktiver Editor außerhalb
+der abwärts enumerierten Kinder, fremde oder zusätzliche Editoren,
+abweichender Wert, verborgene und Checkbox-Ziele, angeschnittene Zellen und
+ein anderer tatsächlicher Punkttreffer. Der Raw-Leser wird außerdem mit mehr
+als 2048 synthetischen Zellen geprüft. Die API-Verträge prüfen den echten
+Executor ohne Qt-Backend und verwerfen unbewiesene Erfolgs-/Rollbackangaben.
+Die vollständige reale Abnahme benötigt eigene Fallkopien und muss den
+Restbestand, übrige Felder sowie Speichern und Wiederöffnen einbeziehen.
+Weitere Gegenfälle ändern die Eingabe-Epoche während der letzten UIA-Prüfung
+vor Klick, Löschen, Undo oder Escape. Danach darf kein Eingriff mehr erfolgen.
+Die Tests führen auch die neue Editorphase nach einer Löschung im gesamten
+Transaktionsablauf aus und verweigern falsche Modellunterschiede sowie
+fehlende oder mehrdeutige Zellen. Die Budgetprüfung berücksichtigt die
+gemessenen Lesezeiten vor der Mutation. Bei wiederhergestellten Werten
+prüfen Worker und API zudem separat alle Dirty-Zustandsübergänge; eine nach
+der eigenen Löschung verbleibende Markierung wird sichtbar gemeldet und
+weder automatisch gelöscht noch gespeichert.
 
 `table-preparation-contract.ps1` prüft die tatsächlichen Vorbereitungs- und
 Schließfunktionen mit synthetischen Fenster-/Providergrenzen: exakte eigene

@@ -893,6 +893,17 @@ test("21 table add, update and delete are bound by page and sum", async () => {
     assert.deepEqual(table.headers, ["Datum", "Text", "Betrag"]);
     assert.deepEqual(table.rows.at(-1), ["01.03.2025", "Synthetische Einnahme", "1,50"]);
 
+    const restored = (await harness.request("table_delete", {
+      expectedPage: TABLE_PAGE, text: "Synthetische Einnahme", sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "3,00", expectedAfter: "999,99",
+    })).body.result;
+    assert.equal(restored.rolledBack, true);
+    assert.equal(restored.resultingState, "restored");
+    assert.equal(restored.outcomeUnknown, false);
+    assert.equal(restored.retryable, false);
+    assert.equal(Object.hasOwn(restored, "mutationPostProof"), false);
+    assert.deepEqual((await harness.call("read_table", { hwnd: 4242 })).rows, table.rows);
+
     const deleted = await harness.call("table_delete", {
       expectedPage: TABLE_PAGE,
       text: "Synthetische Einnahme",
@@ -902,6 +913,9 @@ test("21 table add, update and delete are bound by page and sum", async () => {
     });
     assert.equal(deleted.geloescht, true);
     assert.equal(deleted.target, "Synthetische Einnahme");
+    assert.equal(deleted.outcomeUnknown, false);
+    assert.equal(deleted.retryable, false);
+    assert.equal(Object.hasOwn(deleted, "mutationPostProof"), false);
     assert.equal((await harness.call("table_read", { hwnd: 4242 })).summe, "1,50");
   });
 });
@@ -934,6 +948,9 @@ test("22 a wrong expected sum rolls the table back completely", async () => {
       expectedAfter: "0,50",
     });
     assert.equal(wrongPage.body.result.kind, "precondition-failed");
+    assert.equal(wrongPage.body.result.outcomeUnknown, false);
+    assert.equal(wrongPage.body.result.resultingState, "unchanged");
+    assert.equal(wrongPage.body.result.reconciliationRequired, false);
     assert.equal((await harness.call("read_table", { hwnd: 4242 })).rowCount, 2);
   });
 });
