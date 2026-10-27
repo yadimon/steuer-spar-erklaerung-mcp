@@ -10124,7 +10124,39 @@ function Send-SSETrackedLiteralText([IntPtr]$Hwnd, $Target, $ValuePattern, [stri
   })
 }
 
-function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$ExpectedCurrent) {
+function Test-SSETrackedCommitPrecondition($Target, $ValuePattern, $Node, $ExpectedCurrent, [string]$ValueKind) {
+  if (-not $Target -or -not $ValuePattern -or $null -eq $ExpectedCurrent) { return $false }
+  $expectedRaw = $ExpectedCurrent; $expectedValue = $ExpectedCurrent; $expectedName = $null
+  if ($ExpectedCurrent -is [System.Management.Automation.PSCustomObject]) {
+    if (-not $ExpectedCurrent.PSObject.Properties['raw'] -or -not $ExpectedCurrent.PSObject.Properties['value']) { return $false }
+    $expectedRaw = $ExpectedCurrent.raw; $expectedValue = $ExpectedCurrent.value
+    if ($ExpectedCurrent.PSObject.Properties['name'] -and [string]$Node.type -ceq 'DataItem') { $expectedName = $ExpectedCurrent.name }
+  }
+  if ($null -eq $expectedRaw -or $null -eq $expectedValue -or $ValuePattern.Current.IsReadOnly) { return $false }
+  $raw = $ValuePattern.Current.Value
+  if (-not (Test-SSETrackedValueEquivalent $raw $expectedRaw $ValueKind)) { return $false }
+  $name = $null
+  if ([string]$Node.type -ceq 'DataItem') {
+    if ($null -eq $expectedName) { return $false }
+    $name = $Target.Current.Name
+    if (-not (Test-SSETrackedValueEquivalent $name $expectedName $ValueKind)) { return $false }
+  }
+  if ($ValueKind -ceq 'date') {
+    # A yearless representation must not bridge two contradictory explicit
+    # years when Qt moves the year between Raw and Name during focus.
+    $observedYear = $null
+    foreach ($dateValue in @($expectedRaw,$expectedName,$expectedValue,$raw,$name)) {
+      $dateParts = Get-SSETrackedDateParts ([string]$dateValue)
+      if ($dateParts -and $null -ne $dateParts.year) {
+        if ($null -ne $observedYear -and $observedYear -ne $dateParts.year) { return $false }
+        $observedYear = $dateParts.year
+      }
+    }
+  }
+  Test-SSETrackedFieldValue $raw $name $expectedValue $ValueKind ([string]$Node.type)
+}
+
+function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurrent, [string]$ValueKind = '') {
   if ($script:DESKTOP_NAME) { return New-SSECommitResult 'none-hidden-desktop' }
   $mutationStarted = $false
   try {
@@ -10156,7 +10188,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
     $target = Get-LiveElement $Hwnd $Node.rid $Node.aid
     $vp = $null
     if (-not $target -or -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
-        $vp.Current.IsReadOnly -or -not (Test-SSEScalarEqual $vp.Current.Value $ExpectedCurrent)) {
+        -not (Test-SSETrackedCommitPrecondition $target $vp $Node $ExpectedCurrent $ValueKind)) {
       Complete-SSEPhysicalSection $Hwnd; return New-SSECommitResult 'epoch-value-changed' $inputBefore (Get-SSELastInputTick)
     }
     $rectangle = $target.Current.BoundingRectangle
@@ -10241,8 +10273,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
         aid=$(try { [string]$target.Current.AutomationId } catch { '' })
         type=$(try { $target.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
       })
-      if (-not (Test-SSELastInputUnchanged $inputBefore) -or [SW]::GetForegroundWindow() -ne $Hwnd -or
-          -not (Test-SSEScalarEqual $vp.Current.Value $ExpectedCurrent)) {
+      if (-not (Test-SSELastInputUnchanged $inputBefore) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
         $changedAt = Get-SSELastInputTick
         Complete-SSEPhysicalSection $Hwnd
         return New-SSECommitResult 'interference-before-input' $inputBefore $changedAt
@@ -10290,6 +10321,11 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       }
       Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'focus-mismatch' $inputBefore (Get-SSELastInputTick) $focusDetails
+    }
+    if (-not (Test-SSETrackedCommitPrecondition $target $vp $Node $ExpectedCurrent $ValueKind)) {
+      $changedAt = Get-SSELastInputTick
+      Complete-SSEPhysicalSection $Hwnd
+      return New-SSECommitResult 'epoch-value-changed-after-focus' $inputBefore $changedAt
     }
     [System.Windows.Forms.SendKeys]::SendWait('^a')
     $afterSelectInput = Get-SSELastInputTick
@@ -10378,7 +10414,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
   }
 }
 
-function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, [string]$ExpectedCurrent) {
+function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurrent, [string]$ValueKind = '') {
   # The exact UIA field is bound on the private desktop. Qt receives only a
   # queued Tab commit after ValuePattern replacement; the visible desktop and
   # physical input channel are never touched.
@@ -10396,15 +10432,10 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, [str
     $target = Get-LiveElement $Hwnd $Node.rid $Node.aid
     $vp = $null
     if (-not $target -or
-        -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
-        $vp.Current.IsReadOnly) {
+        -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) {
       return New-SSECommitResult 'epoch-value-changed'
     }
-    $currentComparable = [string]$vp.Current.Value
-    if ([string]$Node.type -eq 'DataItem' -and -not $currentComparable) {
-      $currentComparable = [string]$target.Current.Name
-    }
-    if (-not (Test-SSEScalarEqual $currentComparable $ExpectedCurrent)) {
+    if (-not (Test-SSETrackedCommitPrecondition $target $vp $Node $ExpectedCurrent $ValueKind)) {
       return New-SSECommitResult 'epoch-value-changed'
     }
     if ([int]$target.Current.ProcessId -ne $expectedPid) {
@@ -10476,6 +10507,9 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, [str
     $writeWatch = [Diagnostics.Stopwatch]::StartNew()
     # Qt recalculates the whole page inside SetValue, so this single call is
     # measured separately from the bounded readback loops that follow it.
+    if (-not (Test-SSETrackedCommitPrecondition $target $vp $Node $ExpectedCurrent $ValueKind)) {
+      return New-SSECommitResult 'epoch-value-changed-after-focus'
+    }
     $setValueWatch = [Diagnostics.Stopwatch]::StartNew()
     $vp.SetValue($Value)
     $setValueWatch.Stop()
@@ -10567,8 +10601,14 @@ function Get-SSETrackedDateParts([string]$Value) {
 }
 
 function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind = '') {
+  if ($null -eq $Actual -or $null -eq $Expected) { return $false }
   if ($ValueKind -ceq '' -or $ValueKind -ceq 'text') { return [bool]([string]$Actual -ceq [string]$Expected) }
-  if ($ValueKind -ceq 'currency') { return Test-SSEScalarEqual $Actual $Expected }
+  if ($ValueKind -ceq 'currency') {
+    $actualNumber = ConvertTo-SSETableNumber ([string]$Actual)
+    $expectedNumber = ConvertTo-SSETableNumber ([string]$Expected)
+    if ($null -ne $actualNumber -and $null -ne $expectedNumber) { return [bool]($actualNumber -eq $expectedNumber) }
+    return [bool]([string]$Actual -ceq [string]$Expected)
+  }
   if ($ValueKind -cne 'date') { return $false }
   $actualDate = Get-SSETrackedDateParts ([string]$Actual)
   $expectedDate = Get-SSETrackedDateParts ([string]$Expected)
@@ -10584,9 +10624,17 @@ function Test-SSETrackedFieldValue($Raw, $Name, $Expected, [string]$ValueKind, [
   # Edit Name is an accessibility label, not another field value. DataItem
   # providers may expose their actual formatted value through Name instead.
   if ($ControlType -cne 'DataItem') { return Test-SSETrackedValueEquivalent $Raw $Expected $ValueKind }
-  if ($ValueKind -ceq 'date' -and (Get-SSETrackedDateParts ([string]$Raw))) {
+  $readableRaw = [bool](
+    ($ValueKind -ceq 'date' -and $null -ne (Get-SSETrackedDateParts ([string]$Raw))) -or
+    ($ValueKind -ceq 'currency' -and $null -ne (ConvertTo-SSETableNumber ([string]$Raw)))
+  )
+  if ($readableRaw) {
     if (-not (Test-SSETrackedValueEquivalent $Raw $Expected $ValueKind)) { return $false }
-    if ((Get-SSETrackedDateParts ([string]$Name)) -and
+    $readableName = [bool](
+      ($ValueKind -ceq 'date' -and $null -ne (Get-SSETrackedDateParts ([string]$Name))) -or
+      ($ValueKind -ceq 'currency' -and $null -ne (ConvertTo-SSETableNumber ([string]$Name)))
+    )
+    if ($readableName -and
         (-not (Test-SSETrackedValueEquivalent $Name $Expected $ValueKind) -or
          -not (Test-SSETrackedValueEquivalent $Raw $Name $ValueKind))) { return $false }
     return $true
@@ -13727,8 +13775,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $beforeRaw = $vp.Current.Value
     if ($null -eq $beforeRaw) { Fail 'Zielfeld liefert keinen lesbaren Rohwert; NICHT geschrieben.' 'no-value-pattern' }
     $beforeRaw = [string]$beforeRaw
-    $beforeName = [string]$node.name
-    $beforeDisplay = $(if ($node.type -ceq 'DataItem' -and -not $beforeRaw) { [string]$node.name } else { $beforeRaw })
+    # Snapshot names are normalized for presentation; bind the unmodified
+    # live Name so significant whitespace cannot be lost at the commit guard.
+    $beforeName = $element.Current.Name
+    if ($null -eq $beforeName) { Fail 'Zielfeld liefert keinen lesbaren Namen; NICHT geschrieben.' 'no-value-pattern' }
+    $beforeName = [string]$beforeName
+    $beforeDisplay = $(if ($node.type -ceq 'DataItem' -and -not $beforeRaw) { $beforeName } else { $beforeRaw })
     $before = $beforeDisplay
     $beforeMatches = Test-SSETrackedFieldValue $beforeRaw $beforeName $expectedBefore $valueKind ([string]$node.type)
     if (-not $beforeMatches) {
@@ -13807,12 +13859,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail 'Zielfeld ist unmittelbar vor dem Schreiben nicht mehr beschreibbar.' 'stale'
     }
     $interactionWindowsBefore = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
-    $commitExpectedCurrent = $(if ($liveNode.type -eq 'DataItem' -and -not $beforeRaw) { $beforeDisplay } else { $beforeRaw })
+    $commitExpectedCurrent = [pscustomobject]@{ raw=$beforeRaw; name=$beforeName; value=$expectedBefore }
     Complete-SSEPhase $phaseLog 'resolveLiveNode'
     $commitResult = $(if ($script:DESKTOP_NAME) {
-      Commit-TrackedValueFocusless $hwnd $liveNode $requested $commitExpectedCurrent
+      Commit-TrackedValueFocusless $hwnd $liveNode $requested $commitExpectedCurrent $valueKind
     } else {
-      Commit-TrackedValue $hwnd $liveNode $requested $beforeRaw
+      Commit-TrackedValue $hwnd $liveNode $requested $commitExpectedCurrent $valueKind
     })
     Complete-SSEPhase $phaseLog 'commit'
     $commitMethod = [string]$commitResult.method
@@ -13831,8 +13883,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $probeVp = $null
         if ($probeElement -and $probeElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$probeVp)) {
           $value = $probeVp.Current.Value
-          if ($null -ne $value) {
-            $probeRaw = [string]$value; $probeName = [string]$probeElement.Current.Name; $probeValueRead = $true
+          $probeNameValue = $probeElement.Current.Name
+          if ($null -ne $value -and $null -ne $probeNameValue) {
+            $probeRaw = [string]$value; $probeName = [string]$probeNameValue; $probeValueRead = $true
             $observedAfterInterference = $(if ($probeNode.type -ceq 'DataItem' -and -not $probeRaw) { $probeName } else { $probeRaw })
           }
         }
@@ -13905,9 +13958,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $afterVp = $null
       if ($afterElement -and $afterElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$afterVp)) {
         $afterValue = $afterVp.Current.Value
-        if ($null -ne $afterValue) { $afterRaw = [string]$afterValue; $afterValueRead = $true }
+        $afterNameValue = $afterElement.Current.Name
+        if ($null -ne $afterValue -and $null -ne $afterNameValue) {
+          $afterRaw = [string]$afterValue; $afterDisplay = [string]$afterNameValue; $afterValueRead = $true
+        }
       }
-      $afterDisplay = [string]$afterNode.name
       $afterComparisonDisplay = $(if ($afterNode.type -ceq 'DataItem' -and -not $afterRaw) { $afterDisplay } else { $afterRaw })
       $after = $(if (-not $afterValueRead) { $null } elseif ($afterNode.type -ceq 'DataItem' -and -not $afterRaw) { $afterDisplay } else { $afterRaw })
     }
@@ -13964,9 +14019,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $rollbackElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackVp) -and
             -not $rollbackVp.Current.IsReadOnly) {
           $rollbackValue = $rollbackVp.Current.Value
-          if ($null -ne $rollbackValue) {
+          $rollbackNameValue = $rollbackElement.Current.Name
+          if ($null -ne $rollbackValue -and $null -ne $rollbackNameValue) {
             $rollbackCurrentRaw = [string]$rollbackValue
-            $rollbackCurrentDisplay = [string]$rollbackNode.name
+            $rollbackCurrentDisplay = [string]$rollbackNameValue
             $rollbackValueRead = $true
           }
         }
@@ -14005,15 +14061,19 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $rollbackAttempted = $true
         try {
-          # Fuer die Epochbindung den frisch gelesenen ROHEN aktuellen Wert
-          # verwenden. Die Anzeige kann bei Datum bewusst '15.07' sein,
-          # waehrend ValuePattern einen anderen kanonischen Wert exponiert.
-          $rollbackTargetValue = $(if ($rollbackNode.type -eq 'DataItem' -and -not $beforeRaw) { $beforeDisplay } else { $beforeRaw })
-          $rollbackExpectedCurrent = $(if ($rollbackNode.type -eq 'DataItem' -and -not $rollbackCurrentRaw) { $rollbackCurrentDisplay } else { $rollbackCurrentRaw })
+          # Keep provider placeholders in the proof, not in the text input.
+          # If only Name established the original DataItem business value,
+          # restore that confirmed Name on either input path.
+          $rollbackTargetValue = $(if ($rollbackNode.type -ceq 'DataItem' -and
+              -not (Test-SSETrackedValueEquivalent $beforeRaw $expectedBefore $valueKind)) { $beforeName } else { $beforeRaw })
+          $rollbackExpectedCurrent = [pscustomobject]@{
+            raw=$rollbackCurrentRaw; name=$rollbackCurrentDisplay
+            value=$(if (Test-SSETrackedFieldValue $rollbackCurrentRaw $rollbackCurrentDisplay $requested $valueKind ([string]$rollbackNode.type)) { $requested } else { $expectedAfter })
+          }
           $rollbackResult = $(if ($script:DESKTOP_NAME) {
-            Commit-TrackedValueFocusless $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent
+            Commit-TrackedValueFocusless $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind
           } else {
-            Commit-TrackedValue $hwnd $rollbackNode $beforeRaw $rollbackCurrentRaw
+            Commit-TrackedValue $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind
           })
           $rollbackMethod = [string]$rollbackResult.method
           $rollbackReason = $(if ($rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab')) { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
@@ -14029,9 +14089,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $verifyValueRead = $false; $restoredRaw = $null; $restoredDisplay = $null; $restoredName = $null
         if ($verifyElement -and $verifyElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$verifyVp)) {
           $verifyValue = $verifyVp.Current.Value
-          if ($null -ne $verifyValue) {
+          $verifyNameValue = $verifyElement.Current.Name
+          if ($null -ne $verifyValue -and $null -ne $verifyNameValue) {
             $restoredRaw = [string]$verifyValue
-            $restoredName = [string]$verifyNode.name
+            $restoredName = [string]$verifyNameValue
             $restoredDisplay = $(if ($verifyNode.type -ceq 'DataItem' -and -not $restoredRaw) { $restoredName } else { $restoredRaw })
             $verifyValueRead = $true
           }
@@ -23918,7 +23979,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $null = Click-VerifiedPoint $toolHwnd $freshNode (Get-SSELastInputTick) -RequireForeground
       } else {
-        $commit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.requested) ([string]$currentValue)
+        $commit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.requested) ([pscustomobject]@{raw=$currentValue;value=$transaction.before}) ([string]$transaction.kind)
         if ([string]$commit.method -cne 'verified-keyboard-replace') {
           $failedField = $transaction.name; $failedReason = "Feldcommit meldete '$([string]$commit.method)'."
           $uncertainFieldMutation = [bool]$commit.details.mutationStarted
@@ -23969,7 +24030,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $method = 'verified-point'
             }
           } else {
-            $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([string]$currentValue)
+            $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([pscustomobject]@{raw=$currentValue;value=$transaction.requested}) ([string]$transaction.kind)
             $method = [string]$rollbackCommit.method
           }
           $rollbackReadback = Wait-SSEReceiptManagerLiveFieldValue `
@@ -24868,7 +24929,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           [bool]([Windows.Automation.ValuePattern]$searchValueObject).Current.IsReadOnly) {
         Fail 'Beleglisten-Suchfeld ist nicht mehr schreibbar ueber ValuePattern.' 'stale'
       }
-      $currentSearchText = [string]([Windows.Automation.ValuePattern]$searchValueObject).Current.Value
+      $currentSearchText = ([Windows.Automation.ValuePattern]$searchValueObject).Current.Value
       $searchCommit = Commit-TrackedValue $modeBefore.hwnd $searchNodes[0] $Text $currentSearchText
       if ([string]$searchCommit.method -cne 'verified-keyboard-replace') {
         Fail "Beleglisten-Suchtext wurde nicht als verifizierte Tastatureingabe uebernommen: $([string]$searchCommit.method)." 'stale'

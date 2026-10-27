@@ -44,10 +44,12 @@ $block = $worker.Substring($start, $(if ($next -ge 0) { $next - $start } else { 
 foreach ($required in @(
   '$beforeRaw = $vp.Current.Value',
   'if ($null -eq $beforeRaw)',
-  'Commit-TrackedValue $hwnd $liveNode $requested $beforeRaw',
+  '$commitExpectedCurrent = [pscustomobject]@{ raw=$beforeRaw; name=$beforeName; value=$expectedBefore }',
+  'Commit-TrackedValue $hwnd $liveNode $requested $commitExpectedCurrent $valueKind',
   '$afterValue = $afterVp.Current.Value',
-  'if ($null -ne $afterValue)',
-  'Commit-TrackedValue $hwnd $rollbackNode $beforeRaw $rollbackCurrentRaw',
+  'if ($null -ne $afterValue -and $null -ne $afterNameValue)',
+  'raw=$rollbackCurrentRaw; name=$rollbackCurrentDisplay',
+  'Commit-TrackedValue $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind',
   'Test-SSEScalarEqual $restoredRaw $beforeRaw',
   'Rollback zum rohen Ausgangswert ist NICHT bewiesen'
 )) {

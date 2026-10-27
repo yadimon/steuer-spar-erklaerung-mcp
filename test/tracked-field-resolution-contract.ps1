@@ -37,7 +37,9 @@ public sealed class FieldResolutionPattern {
   public void Toggle() { FieldResolutionCanary.ToggleCalls++; }
   public void Invoke() { FieldResolutionCanary.InvokeCalls++; }
 }
+public sealed class FieldResolutionElementState { public string Name=""; }
 public sealed class FieldResolutionElement {
+  public FieldResolutionElementState Current=new FieldResolutionElementState();
   public FieldResolutionPattern Value=new FieldResolutionPattern();
   public bool TryGetCurrentPattern(object pattern,out object value) { value=Value;return true; }
 }
@@ -59,7 +61,9 @@ function Get-CaptionMinX { 0 }
 function Test-SSETrackedValueEquivalent($Actual, $Expected, $Kind) { [string]$Actual -ceq [string]$Expected }
 function Get-LiveElement($Hwnd, $Rid, $Aid) { $script:elements[[string]$Rid] }
 function Get-SSEInteractionWindowSet { [pscustomobject]@{ fingerprint='unchanged';windows=@() } }
-function Commit-TrackedValue($Hwnd, $Node, $Value, $Before) {
+function Commit-TrackedValue($Hwnd, $Node, $Value, $Before, $ValueKind) {
+  if($Before.raw -cne 'before' -or $Before.name -cne $script:elements[[string]$Node.rid].Current.Name -or
+      $Before.value -cne 'before' -or $ValueKind -cne ''){throw 'Resolved field lost its captured default-text precondition.'}
   [FieldResolutionCanary]::LastRid = [string]$Node.rid
   $script:elements[[string]$Node.rid].Value.SetValue([string]$Value)
   Fail 'Counted synthetic commit reached.' 'commit-reached'
@@ -75,7 +79,10 @@ function New-FieldNode([string]$Rid, [string]$Aid, [string]$Name, [string]$Type=
 function Invoke-CallerCase([string]$Name, [SSEUiaNodeView[]]$Nodes, $Selector, [string]$ExpectedKind, [string]$ExpectedRid='') {
   $script:fixture=[pscustomobject]@{ nodes=$Nodes }
   $script:elements=@{}
-  foreach($node in $Nodes){$script:elements[$node.rid]=New-Object FieldResolutionElement}
+  foreach($node in $Nodes){
+    $script:elements[$node.rid]=New-Object FieldResolutionElement
+    $script:elements[$node.rid].Current.Name=$node.name
+  }
   [FieldResolutionCanary]::Reset()
   $script:DESKTOP_NAME=''
   $a=[pscustomobject]@{ expectedPage='Synthetic page';expectedBefore='before';value='requested';expectedAfter='requested';trackResults=$false }

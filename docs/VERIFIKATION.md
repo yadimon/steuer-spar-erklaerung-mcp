@@ -261,6 +261,49 @@ mit fehlenden beziehungsweise alternativ dargestellten Werten geprüft.
 Das schließt Jahreswidersprüche bei einer Vorgabe ohne Jahr und veraltete
 DataItem-Namen im allgemeinen Feldzugriff ein: Die Störungsprobe muss einen
 frischen Namen lesen, ohne eine weitere Eingabe auszulösen.
+Die Handlerprüfung verlangt außerdem den unverändert weitergereichten
+Formatvertrag für Vorwärts- und Rücknahmeeingaben, auch an der fokuslosen
+Providergrenze. Widersprüchliche lesbare Zahlenwerte in Raw und Name dürfen
+keine Währungsvorbedingung bestätigen; übereinstimmende Zahlenformate und
+ausdrückliche Jahre bei einer Vorgabe ohne Jahr bleiben als Positivfälle erhalten.
+
+`tracked-native-text-contract.ps1` lädt den tatsächlichen Zahlenvergleich statt
+eines strengeren Testersatzes. Der echte Commit-Code muss Änderungen von
+Text, Großschreibung, Leerzeichen, Satzzeichen und Zahlenwert sowie fehlende
+Roh- oder Vorwerte vor der Texteingabe abweisen. Das gilt vor dem Fokus und
+nach UIA- oder Klickfokus. Beim fokuslosen Ablauf wird zusätzlich nach der
+Fokusvorbereitung vor `SetValue` geprüft. Der zustandsbehaftete Provider hält
+echtes `null` von lesbarem leerem Text getrennt und simuliert erfolgreiche
+sowie verweigerte Klickfokuswechsel. Positive Währungs- und Datumsformatierung
+darf die Vorwertprüfung weiterhin passieren. Die tatsächlichen Beleg-Commit-
+und Rücknahmeblöcke müssen ihren Formatvertrag ebenfalls weitergeben.
+Für DataItems werden Raw, Name und fachliche Vorgabe gemeinsam bis zur letzten
+Vorwertprüfung gebunden. Eigene Auswahl- und Tabellenprovider führen den
+fokuslosen DataItem-Pfad vollständig aus, sowohl mit exakt fokussierter Zelle
+als auch mit ausgewählter Zelle in einer fokussierten Tabelle. Änderungen nach
+Auswahl, UIA-Fokus oder Klick, widersprüchliche Jahre, fehlender Rohwert und
+nachträglicher Schreibschutz dürfen keine Werteingabe auslösen. Positive
+Währungsformatierung, leere Datums-/Währungsfelder und Nullbeträge bleiben
+prüfbar; leer und null Euro sind dabei keine austauschbaren Vorwerte. Ein
+Währungssuffix im Namen verdeckt keinen lesbaren numerischen Rohwert.
+Nicht bestätigte Auswahl und fehlender Tabellenfokus stoppen ebenfalls vor
+`SetValue`. Der Handlervertrag prüft vollständige Namen unabhängig von einer
+vereinheitlichten Baumdarstellung und verweigert `null` bei Vorher-, Nachher-
+oder Rücknahmenamen. Ein leerer oder unlesbarer DataItem-Rohwert darf bei der
+Rücknahme keine Platzhaltereingabe anstelle des bestätigten ursprünglichen
+Anzeigenamens erzeugen. Der
+Rohwertnachweis bleibt auch dann streng, wenn die Anzeige bereits wieder stimmt.
+Der tatsächliche Beleg-Schreib- und Rücknahmekontrollfluss hält die typisierte
+USt-Auswahl vom Texttransport getrennt.
+Datumstests verschieben ein ausdrücklich sichtbares Jahr zwischen Raw und Name,
+während die fachliche Vorgabe kein Jahr nennt. Alle ausdrücklich erfassten und
+frisch gelesenen Jahre müssen gemeinsam übereinstimmen. Eine erstmals sichtbare
+einzelne Jahresangabe ohne frühere Jahresbindung bleibt ein eigener Positivfall.
+Die passive Störungsprobe darf bei fehlendem Namen keinen unveränderten
+Leerwert erfinden. Ein Edit-Vorwertobjekt ohne optionalen Namen wird außerdem
+unter PowerShell-StrictMode geprüft.
+Alle dabei verwendeten Fenster-, Eingabe- und Nachrichtenmethoden sind
+produktfreie Testgrenzen; diese Regressionen ersetzen keine reale Abnahme.
 
 ## Live-Abdeckung
 
