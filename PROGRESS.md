@@ -61,6 +61,13 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Ein leeres Namensfeld erzeugt keinen falschen Rücknahmefehler für einen
   vorhandenen Edit-Wert. Fehlende Nachher- oder Rücknahme-Lesungen bestätigen
   auch bei leeren Werten keinen Erfolg und verwenden keine alte Wertprobe.
+- **Feldvorwerte:** Der Commit prüft den typisierten Vorwert erneut nach der
+  Fokusvorbereitung. Bei DataItems bleiben Raw, Name und fachliche Vorgabe
+  gebunden. Unbekannte Vorwerte bleiben unbekannt; Währungsformate dürfen
+  keinen anderen Zahlenwert oder widersprüchlichen DataItem-Rohwert verdecken.
+  Vollständige lebende Namen bleiben von der Baumdarstellung unabhängig.
+  Ein DataItem-Rohplatzhalter führt bei der Rücknahme zur Eingabe des bestätigten
+  alten Anzeigenamens; Erfolg braucht weiterhin den getrennten Raw-/Namensnachweis.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -107,6 +114,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   bis ihr Zustand geklärt ist.
 - Zwei gleiche Beobachtungen sind kein atomarer Snapshot. Die generischen
   Mechanismen belegen nicht jede Feld-/Label-Zuordnung oder alle Produktseiten.
+- Die gesperrten BelegManager-Schreibwege benötigen noch eine strengere
+  Behandlung unbekannter USt-Werte und eine erneute Eigentumsprüfung nach
+  frischer Feldbindung vor der Rücknahme. Das ist bekannte Folgearbeit;
+  die Schreibsperren bleiben maßgeblich.
 - Ein positiver VaSt-Ende-zu-Ende-Ablauf ist im aggregierten Live-Ledger nicht
   belegt. Profil 2024 bleibt experimentell mit
   `operationAccess: "verification-only"`.

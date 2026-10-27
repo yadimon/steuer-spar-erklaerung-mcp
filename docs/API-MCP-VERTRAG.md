@@ -147,6 +147,17 @@ Feldänderungen brauchen auch für einen leeren Sollwert einen frischen
 `ValuePattern`-Readback. Ohne Formatvertrag oder mit `valueKind: "text"`
 bleiben Groß-/Kleinschreibung und Leerzeichen maßgeblich. Die ausdrücklich
 gewählten Verträge `currency` und `date` behalten ihren Formatabgleich.
+Dieser Vertrag gilt auch für die Vorwertprüfung im eigentlichen Commit und
+erneut nach der Fokusvorbereitung, unmittelbar vor der Wertänderung. Das gilt
+für UIA-Fokus, den geprüften Klickpfad und fokusloses `SetValue`. Ein unbekannter
+Vorwert wird vor dieser Prüfung nicht in einen leeren Text umgewandelt.
+Bei DataItems bleiben der erfasste Rohwert, der erfasste Name und die fachliche
+Vorbedingung nach dem gewählten Formatvertrag bis zu dieser Grenze gebunden. Dadurch kann auch ein leerer
+Rohwert keine zwischenzeitlich geänderte Anzeige verdecken. Eine reine
+Wertabweichung meldet einen Epochenverlust, ohne Fremdeingabe zu behaupten.
+Währungswerte werden zuerst als Zahlen gelesen: `1,000` und `1.000` haben
+unterschiedliche Werte. Lässt sich eine Währungsdarstellung nicht lesen,
+bestätigt nur ein exakt gleicher Text den Vergleich.
 Ein fehlender oder `null` liefernder Wertzugriff bestätigt weder Erfolg noch
 einen unveränderten Ausgang. Nach einer Rücknahme werden der Rohwert nach dem
 bestehenden Wertvertrag, der daraus abgeleitete Anzeigewert und der
@@ -157,11 +168,25 @@ Beschriftung sein. Ein leerer Name bestätigt deshalb weder das Leeren noch
 die Eigentümerschaft eines abweichenden Rohwertes vor der Rücknahme.
 DataItem-Zellen können ihren tatsächlichen formatierten Wert dagegen über
 den Namen liefern; ein leerer Raw-Platzhalter verdeckt diese Anzeige nicht.
-Ein ausdrücklich widersprechendes Datum oder Jahr im lesbaren Rohwert oder
-Anzeigenamen darf dabei nicht durch eine Anzeige ohne Jahr überstimmt werden.
+Der vollständige Name wird am lebenden Element gelesen; die für Baumansichten
+vereinheitlichte Darstellung ersetzt ihn nicht. Fehlende Namen bleiben
+unbekannt. Bestätigt bei einer DataItem-Zelle nur der Name die fachliche
+Vorbedingung, verwenden beide Rücknahmepfade diesen ursprünglichen Namen als
+Texteingabe. Ein solcher Raw-Platzhalter bleibt außerhalb dieser Texteingabe.
+Der anschließende Nachweis verlangt weiterhin den ursprünglichen Rohwert und
+Namen; eine bloß passende Anzeige bestätigt keine vollständige Rücknahme.
+Ein lesbarer Zahlen- oder Datumsrohwert darf nicht durch einen widersprechenden
+Anzeigenamen überstimmt werden. Auch ein ausdrücklich widersprechendes Jahr
+im Rohwert oder Anzeigenamen darf nicht durch eine Anzeige ohne Jahr überstimmt werden.
 Auch bei einer Vorgabe ohne Jahr müssen ausdrücklich gelesene Jahre in
-Rohwert und Anzeige zueinander passen. Eine passive Störungsprobe liest den
+Rohwert und Anzeige zueinander passen, einschließlich früher erfasster Jahre.
+Ein Wechsel des Jahres zwischen Raw und Name darf keinen Widerspruch verbergen.
+Enthalten Vorgabe und erfasste Darstellung kein Jahr, darf ein einzelnes Jahr
+erstmals sichtbar werden. Das bestätigt keinen zuvor unsichtbaren Jahreswert;
+ein ausdrücklich vorgegebenes Jahr bleibt dagegen Teil der Vorbedingung.
+Eine passive Störungsprobe liest den
 Anzeigenamen am lebenden Element erneut, auch beim allgemeinen Feldzugriff.
+Ein fehlender Name bestätigt dabei keinen unveränderten leeren Wert.
 Der Datumsvergleich trennt Tag und Monat; eine Zahlengleichheit wie `10.10`
 und `10.1` ist keine Datumsgleichheit.
 Fehlende Nachweise können als Bindungs-/Interferenzfehler enden; sie erlauben

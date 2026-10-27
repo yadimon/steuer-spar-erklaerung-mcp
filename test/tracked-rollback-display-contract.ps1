@@ -1,8 +1,8 @@
 $ErrorActionPreference='Stop'
 $Repo=Split-Path -Parent $PSScriptRoot
+$WorkerPath=Join-Path $Repo 'powershell/sse-worker.ps1'
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 . (Join-Path $Repo 'powershell/table-values.ps1')
-$WorkerPath=Join-Path $Repo 'powershell/sse-worker.ps1'
 $errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($WorkerPath,[ref]$null,[ref]$errors)
 if($errors.Count){throw 'Actual worker source parse failed'}
 foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading')){
@@ -23,6 +23,7 @@ public sealed class RollbackDisplayElement {
  public RollbackDisplayElementState Current=new RollbackDisplayElementState();
  public bool TryGetCurrentPattern(object pattern,out object value){value=Pattern;return true;}
  public void SetNull(){Pattern.Current.Value=null;}
+ public void SetNameNull(){Current.Name=null;}
 }
 '@
 function Fail($Message,$Kind='error'){Emit ([pscustomobject]@{ok=$false;kind=$Kind;error=$Message})}
@@ -34,7 +35,11 @@ function Resolve-BoundWriteWindow {[pscustomobject]@{window=[pscustomobject]@{hw
 function Test-Canary {[pscustomobject]@{ok=$true;ms=0}}
 function Get-DialogInventory {}
 function Resolve-SSEPageObject {[pscustomobject]@{pageId='fixture.page';page=[pscustomobject]@{heading='Synthetic page'};field=[pscustomobject]@{label='Synthetic field';valueKind=$script:fixture.valueKind;controlType=$script:fixture.type;automationIdSuffix='Form.Text'}}}
-function New-DisplayNode {[pscustomobject]@{rid='42.7.101';aid='Form.Text';name=$script:element.Current.Name;val=$script:element.Pattern.Current.Value;type=$script:fixture.type;on=$true;x=10;y=10;w=100;h=20}}
+function New-DisplayNode {
+ $name=$script:element.Current.Name
+ if($script:fixture.normalizedTreeName){$name=($name -replace "`r|`n|`t",' ').Trim()}
+ [pscustomobject]@{rid='42.7.101';aid='Form.Text';name=$name;val=$script:element.Pattern.Current.Value;type=$script:fixture.type;on=$true;x=10;y=10;w=100;h=20}
+}
 function Resolve-KnownFieldNode {New-DisplayNode}
 function Resolve-TrackedFieldNode {New-DisplayNode}
 function Walk-Tree {[pscustomobject]@{nodes=@(New-DisplayNode)}}
@@ -45,21 +50,31 @@ function Get-LiveElement {
  if($script:commits.Count -eq 1 -and $script:fixture.missingAfterRead -and -not $script:afterReadLost){$script:afterReadLost=$true;return $null}
  if(($script:commits.Count -eq 1 -and $script:fixture.nullAfterValue) -or
     ($script:commits.Count -eq 2 -and $script:fixture.nullVerifyValue)){$script:element.SetNull()}
+ if(($script:commits.Count -eq 1 -and $script:fixture.nullAfterName) -or
+    ($script:commits.Count -eq 2 -and $script:fixture.nullVerifyName)){$script:element.SetNameNull()}
  $script:element
 }
+function Resolve-SSEFocuslessCommitPolicy {[pscustomobject]@{id='synthetic-focusless-provider'}}
 function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint='unchanged';windows=@()}}
 function Get-SSELastInputTick {$null}
 function Close-TrackedResultWindow {$true}
 function Get-DirtyStateFast {$true}
 function Get-DirtyState {$true}
-function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent){
- if($script:element.Pattern.Current.Value -cne $ExpectedCurrent){throw 'Actual caller lost exact current value'}
+function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){
+ if($ValueKind -cne $script:fixture.valueKind){throw 'Actual handler did not forward the exact format contract to its commit provider'}
+ if(-not $ExpectedCurrent.PSObject.Properties['raw'] -or -not $ExpectedCurrent.PSObject.Properties['name'] -or
+    -not $ExpectedCurrent.PSObject.Properties['value']){throw 'Actual caller did not capture raw, Name and business expectation'}
+ if($script:element.Pattern.Current.Value -cne $ExpectedCurrent.raw -or $script:element.Current.Name -cne $ExpectedCurrent.name){throw 'Actual caller lost its captured raw/Name pair'}
+ $business=$(if($script:commits.Count -eq 0){$script:fixture.expectedBefore}elseif($script:fixture.PSObject.Properties['rollbackExpectedValue']){$script:fixture.rollbackExpectedValue}else{$script:fixture.requested})
+ if($ExpectedCurrent.value -cne $business){throw 'Actual caller lost its original business expectation'}
  $step=$(if($script:commits.Count -eq 0){$script:fixture.forward}else{$script:fixture.reverse})
- $entry=[pscustomobject]@{requested=$Value;expectedCurrent=$ExpectedCurrent;method=$step.method;observedAfterRaw=$null}
+ $entry=[pscustomobject]@{requested=$Value;expectedCurrent=$ExpectedCurrent.raw;method=$step.method;observedAfterRaw=$null}
  $null=$script:commits.Add($entry)
  if(-not $step.preserve){
   $script:element.Pattern.Current.Value=[string]$Value
-  if($script:fixture.type -ceq 'DataItem'){$script:element.Current.Name=$(if($Value){([string]$Value).Substring(0,5)}else{''})}
+  if($script:fixture.type -ceq 'DataItem'){
+   $script:element.Current.Name=$(if($script:fixture.valueKind -ceq 'date' -and $Value){([string]$Value).Substring(0,5)}else{[string]$Value})
+  }
   else{$script:element.Current.Name=[string]$step.name}
  }
  if($step.forceRaw){$script:element.Pattern.Current.Value=[string]$step.raw}
@@ -67,17 +82,19 @@ function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent){
  $entry.observedAfterRaw=$script:element.Pattern.Current.Value
  [pscustomobject]@{method=$step.method;inputBefore=$null;inputAfter=$null;interference=[bool]$step.interference;inputInterference=[bool]$step.interference;details=[pscustomobject]@{mutationStarted=(-not $step.preserve)}}
 }
-function Commit-TrackedValueFocusless {throw 'This contract does not use a hidden desktop'}
+function Commit-TrackedValueFocusless($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){Commit-TrackedValue $Hwnd $Node $Value $ExpectedCurrent $ValueKind}
 function Invoke-DisplayCase($Fixture,[bool]$Known=$true){
  $script:fixture=$Fixture;$script:element=New-Object RollbackDisplayElement;$script:element.Pattern.Current.Value=$Fixture.raw;$script:element.Current.Name=$Fixture.name
  if($Fixture.nullBeforeValue){$script:element.SetNull()}
- $script:commits=New-Object Collections.ArrayList;$script:emitted=$null;$script:DESKTOP_NAME='';$script:afterReadLost=$false
+ if($Fixture.nullBeforeName){$script:element.SetNameNull()}
+ $script:commits=New-Object Collections.ArrayList;$script:emitted=$null;$script:DESKTOP_NAME=$(if($Fixture.hidden){'synthetic'}else{''});$script:afterReadLost=$false
  $a=[pscustomobject]@{expectedBefore=$Fixture.expectedBefore;value=$Fixture.requested;expectedAfter=$Fixture.expectedAfter;trackResults=$false}
  if($Known){$a|Add-Member NoteProperty pageId 'fixture.page';$a|Add-Member NoteProperty fieldId 'field'}
  else{$a|Add-Member NoteProperty expectedPage 'Synthetic page';$a|Add-Member NoteProperty aid 'Form.Text';$a|Add-Member NoteProperty valueKind $Fixture.valueKind}
  try{& $operation;throw 'Actual operation emitted no result'}catch{if($_.Exception.Message -cne 'rollback-display-completed'){throw}}
  if(-not $script:emitted){throw 'Missing actual result'}
- $expectedRequests=@(@($Fixture.requested,$Fixture.raw)|Select-Object -First $script:commits.Count)
+ $restoreInput=$(if($Fixture.PSObject.Properties['restoreInput']){$Fixture.restoreInput}else{$Fixture.raw})
+ $expectedRequests=@(@($Fixture.requested,$restoreInput)|Select-Object -First $script:commits.Count)
  $expectedCurrents=@(@($Fixture.raw)+@($script:commits|Select-Object -SkipLast 1|ForEach-Object observedAfterRaw)|Select-Object -First $script:commits.Count)
  if((ConvertTo-Json -Compress -InputObject @($script:commits|ForEach-Object requested)) -cne
     (ConvertTo-Json -Compress -InputObject $expectedRequests)){throw 'Actual requested inputs differ from the explicit forward/original-raw sequence'}
@@ -112,8 +129,20 @@ $missing=New-TextFixture '';$missing.missingVerify=$true
 Assert-Restoration (Invoke-DisplayCase $missing) $false 2 $null $null
 $date=New-TextFixture '15.07';$date.type='DataItem';$date.valueKind='date';$date.raw='15.07.2026';$date.expectedBefore='15.07.2026';$date.requested='16.07.2026'
 Assert-Restoration (Invoke-DisplayCase $date) $true 2 '15.07.2026' '15.07.2026'
-$date.raw='';$date.reverse.name=''
-Assert-Restoration (Invoke-DisplayCase $date) $false 2 '' ''
+$date.raw='';$date|Add-Member NoteProperty restoreInput '15.07'
+$date.reverse.forceRaw=$true;$date.reverse.raw='';$date.reverse.forceName=$true;$date.reverse.name='15.07'
+Assert-Restoration (Invoke-DisplayCase $date) $true 2 '' '15.07'
+$date.reverse.forceRaw=$false
+Assert-Restoration (Invoke-DisplayCase $date) $false 2 '15.07' '15.07'
+$opaqueRestore=New-TextFixture '15.07';$opaqueRestore.type='DataItem';$opaqueRestore.valueKind='date'
+$opaqueRestore.raw='opaque-date-value';$opaqueRestore.expectedBefore='15.07';$opaqueRestore.requested='16.07.2026'
+$opaqueRestore|Add-Member NoteProperty restoreInput '15.07'
+$opaqueRestore.reverse.forceRaw=$true;$opaqueRestore.reverse.raw='opaque-date-value'
+$opaqueRestore.reverse.forceName=$true;$opaqueRestore.reverse.name='15.07'
+Assert-Restoration (Invoke-DisplayCase $opaqueRestore) $true 2 'opaque-date-value' 'opaque-date-value'
+$opaqueRestore|Add-Member NoteProperty hidden $true
+$opaqueRestore.forward.method='verified-focusless-value-pattern-tab';$opaqueRestore.reverse.method='verified-focusless-value-pattern-tab'
+Assert-Restoration (Invoke-DisplayCase $opaqueRestore) $true 2 'opaque-date-value' 'opaque-date-value' 'verified-focusless-value-pattern-tab'
 $unchanged=New-TextFixture '';$unchanged.forward.preserve=$true;$unchanged.forward.method='epoch-value-changed'
 $noWrite=Invoke-DisplayCase $unchanged
 Assert-Restoration $noWrite $true 1 'Test' 'Test' 'not-needed-value-unchanged'
@@ -203,4 +232,56 @@ $opaqueProbe.forward.forceName=$true;$opaqueProbe.forward.name='17.07'
 $genericDifferent=Invoke-DisplayCase $opaqueProbe $false
 if($genericDifferent.result.kind -cne 'interference' -or $genericDifferent.commits.Count -ne 1 -or $genericDifferent.result.rollback.versucht -or
  $genericDifferent.result.feld.zustand -cne 'different-value-visible' -or $genericDifferent.result.feld.nachher -cne '17.07'){throw 'Generic probe concealed a different live DataItem Name'}
+$hidden=New-TextFixture '';$hidden|Add-Member NoteProperty hidden $true
+$hidden.expectedAfter=$hidden.requested;$hidden.forward.method='verified-focusless-value-pattern-tab'
+$hiddenForward=Invoke-DisplayCase $hidden
+if(-not $hiddenForward.result.ok -or $hiddenForward.commits.Count -ne 1){throw 'Hidden handler lost the forwarded text kind'}
+$hiddenDate=New-TextFixture '15.07';$hiddenDate|Add-Member NoteProperty hidden $true;$hiddenDate.type='DataItem';$hiddenDate.valueKind='date';$hiddenDate.raw='15.07.2026';$hiddenDate.expectedBefore='15.07.2026';$hiddenDate.requested='16.07.2026';$hiddenDate.forward.method='verified-focusless-value-pattern-tab';$hiddenDate.reverse.method='verified-focusless-value-pattern-tab'
+Assert-Restoration (Invoke-DisplayCase $hiddenDate) $true 2 '15.07.2026' '15.07.2026' 'verified-focusless-value-pattern-tab'
+$hiddenDate.raw='';$hiddenDate.expectedBefore='15.07';$hiddenDate|Add-Member NoteProperty restoreInput '15.07'
+$hiddenDate.reverse.forceRaw=$true;$hiddenDate.reverse.raw='';$hiddenDate.reverse.forceName=$true;$hiddenDate.reverse.name='15.07'
+Assert-Restoration (Invoke-DisplayCase $hiddenDate) $true 2 '' '15.07' 'verified-focusless-value-pattern-tab'
+$ownedAfter=New-TextFixture '';$ownedAfter.forward.method='unproved-commit';$ownedAfter.forward.forceRaw=$true
+$ownedAfter.forward.raw='Synthetic formatted';$ownedAfter.expectedAfter='Synthetic formatted'
+$ownedAfter|Add-Member NoteProperty rollbackExpectedValue 'Synthetic formatted'
+Assert-Restoration (Invoke-DisplayCase $ownedAfter) $true 2 'Test' 'Test'
+$magnitude=New-TextFixture '';$magnitude.valueKind='currency';$magnitude.raw='1,000';$magnitude.expectedBefore='1.000'
+$wrongMagnitude=Invoke-DisplayCase $magnitude
+if($wrongMagnitude.result.kind -cne 'precondition-failed' -or $wrongMagnitude.commits.Count -ne 0){throw 'Currency formatting accepted a different magnitude before any input'}
+$magnitude.type='DataItem';$magnitude.name='1.000'
+$wrongDisplayedMagnitude=Invoke-DisplayCase $magnitude
+if($wrongDisplayedMagnitude.result.kind -cne 'precondition-failed' -or $wrongDisplayedMagnitude.commits.Count -ne 0){throw 'DataItem Name overrode a contradictory readable currency raw value'}
+$sameMagnitude=New-TextFixture '1000.00';$sameMagnitude.type='DataItem';$sameMagnitude.valueKind='currency';$sameMagnitude.raw='1.000,00';$sameMagnitude.expectedBefore='1000,00';$sameMagnitude.requested='2000,00';$sameMagnitude.expectedAfter='2000,00'
+$formattedCurrency=Invoke-DisplayCase $sameMagnitude
+if(-not $formattedCurrency.result.verified -or $formattedCurrency.commits.Count -ne 1){throw 'Agreeing numeric raw and Name formatting was rejected'}
+$agreeingYear=New-TextFixture '15.07.26';$agreeingYear.type='DataItem';$agreeingYear.valueKind='date';$agreeingYear.raw='15.07.2026';$agreeingYear.expectedBefore='15.07';$agreeingYear.requested='16.07.2026';$agreeingYear.expectedAfter='16.07.2026'
+$sameExplicitYears=Invoke-DisplayCase $agreeingYear
+if(-not $sameExplicitYears.result.verified -or $sameExplicitYears.commits.Count -ne 1){throw 'Agreeing explicit years were rejected for a yearless precondition'}
+$spaced=New-TextFixture '  Test  ';$spaced.type='DataItem';$spaced.raw='';$spaced.expectedBefore='  Test  '
+$spaced.requested='  Synthetic New  ';$spaced.expectedAfter=$spaced.requested
+$spaced.forward.forceRaw=$true;$spaced.forward.raw='';$spaced|Add-Member NoteProperty normalizedTreeName $true
+foreach($known in @($true,$false)){
+ $fullName=Invoke-DisplayCase $spaced $known
+ if(-not $fullName.result.verified -or $fullName.commits.Count -ne 1 -or $fullName.result.feld.nachherAnzeige -cne $spaced.requested){throw 'A normalized tree Name replaced the fresh full DataItem value'}
+}
+$spaced.expectedAfter='Synthetic impossible postcondition';$spaced|Add-Member NoteProperty restoreInput '  Test  '
+$spaced.reverse.forceRaw=$true;$spaced.reverse.raw='';$spaced.reverse.forceName=$true;$spaced.reverse.name='  Test  '
+foreach($known in @($true,$false)){
+ Assert-Restoration (Invoke-DisplayCase $spaced $known) $true 2 '' '  Test  '
+}
+$missingName=New-TextFixture '';$missingName|Add-Member NoteProperty nullBeforeName $true
+$beforeNameMissing=Invoke-DisplayCase $missingName
+if($beforeNameMissing.result.kind -cne 'no-value-pattern' -or $beforeNameMissing.commits.Count -ne 0){throw 'An unknown initial Name was converted into an empty snapshot'}
+$missingName.nullBeforeName=$false;$missingName|Add-Member NoteProperty nullAfterName $true
+$afterNameMissing=Invoke-DisplayCase $missingName
+if($afterNameMissing.result.kind -cne 'interference' -or $afterNameMissing.commits.Count -ne 1 -or $afterNameMissing.result.rollback.versucht){throw 'An unknown after Name authorized another value input'}
+$missingName.nullAfterName=$false;$missingName|Add-Member NoteProperty nullVerifyName $true
+Assert-Restoration (Invoke-DisplayCase $missingName) $false 2 $null $null
+
+$unknownProbe=New-TextFixture '';$unknownProbe.raw='';$unknownProbe.expectedBefore=''
+$unknownProbe.forward.preserve=$true;$unknownProbe.forward.interference=$true;$unknownProbe.forward.method='interference-before-value'
+$unknownProbe|Add-Member NoteProperty nullAfterName $true
+$probeResult=Invoke-DisplayCase $unknownProbe
+if($probeResult.result.kind -cne 'interference' -or $probeResult.result.feld.zustand -cne 'unknown' -or
+ $null -ne $probeResult.result.feld.nachher -or $probeResult.commits.Count -ne 1 -or $probeResult.result.rollback.versucht){throw 'A null probe Name invented an unchanged empty value'}
 Write-Output 'Tracked rollback display: forward Name matching, raw/name proof, missing-read refusal, rejected clear and third-value preservation passed.'
