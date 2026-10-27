@@ -679,4 +679,51 @@ Reset-TestState;$script:node|Add-Member NoteProperty type 'Edit'
 $strictSnapshot=[pscustomobject]@{raw='before';value='before'}
 $strictProof=& {Set-StrictMode -Version Latest;Test-SSETrackedCommitPrecondition $script:target ([SW]::Value) $script:node $strictSnapshot 'text'}
 Assert-True $strictProof 'An Edit snapshot without optional Name failed under strict mode.'
+
+# Inject one non-native input marker at the real literal helper boundary.
+# Rebind only the call seam; both commit and literal bodies remain production
+# code. A marker without any own send must never become a new checkpoint.
+$inputGuardDefinition=@($ast.FindAll({param($node)
+ $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSELastInputUnchanged'
+},$true))
+Assert-True ($inputGuardDefinition.Count -eq 1) 'Actual input guard is ambiguous.'
+Invoke-Expression $inputGuardDefinition[0].Extent.Text
+function Get-SSELastInputTick { [uint64][SW]::Tick }
+$literalDefinition=@($ast.FindAll({param($node)
+ $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Send-SSETrackedLiteralText'
+},$true))
+Assert-True ($literalDefinition.Count -eq 1) 'Actual literal helper is ambiguous.'
+Invoke-Expression ($literalDefinition[0].Extent.Text.Replace('function Send-SSETrackedLiteralText(','function Invoke-ActualTrackedLiteralText('))
+function Send-SSETrackedLiteralText($Hwnd,$Target,$ValuePattern,$Value,$InputBefore,$Point,$InputCheckpoint){
+ if($script:literalBoundaryPhase -ceq 'entry'){[SW]::Tick=$script:literalBoundaryTick;$script:literalMarkers++}
+ $result=Invoke-ActualTrackedLiteralText $Hwnd $Target $ValuePattern $Value $InputBefore $Point $InputCheckpoint
+ if($script:literalBoundaryPhase -ceq 'exit'){[SW]::Tick=$script:literalBoundaryTick;$script:literalMarkers++}
+ $result
+}
+foreach($case in @(
+ @{phase='entry';tick=100;method='interference-during-native-input';events='^a';mutated=$false;raw='before'},
+ @{phase='entry';tick=0;method='interference-during-native-input';events='^a';mutated=$false;raw='before'},
+ @{phase='exit';tick=100;method='interference-after-value';events='^a|unicode';mutated=$true;raw='Synthetic New'},
+ @{phase='exit';tick=0;method='interference-after-value';events='^a|unicode';mutated=$true;raw='Synthetic New'}
+)){
+ Reset-TestState;$script:literalBoundaryPhase=$case.phase;$script:literalBoundaryTick=[uint32]$case.tick;$script:literalMarkers=0
+ $result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text'
+ Assert-True ($result.method -ceq $case.method -and $result.inputInterference -and $result.interference) ('A pure helper-boundary input change was absorbed: '+$case.phase)
+ Assert-True ($result.details.mutationStarted -eq $case.mutated -and [SW]::Value.Current.Value -ceq $case.raw) 'Input-boundary stop lost the observed mutation state.'
+ Assert-True (([SW]::Events -join '|') -ceq $case.events -and $script:literalMarkers -eq 1) 'Input-boundary stop replayed input or queued TAB.'
+ Assert-True (-not $script:checkpoints.Contains([uint32]$case.tick)) 'Foreign input became an owned foreground lease checkpoint.'
+ Assert-True ($script:completed -eq 1) 'Input-boundary stop left its physical section open.'
+}
+Reset-TestState;$script:literalBoundaryPhase='exit';$script:literalBoundaryTick=[uint32]100;$script:literalMarkers=0;[SW]::QueuedModel=$true
+$chunkedText='prefix '+$unicode+' suffix'
+$result=Commit-TrackedValue ([IntPtr]7) $script:node $chunkedText 'before' 'text'
+Assert-True ($result.method -ceq 'interference-after-value' -and $result.inputInterference -and $result.interference -and $result.details.mutationStarted) 'Queued Unicode exit interference did not stop before TAB.'
+Assert-True (([SW]::Events -join '|') -ceq '^a|unicode|unicode|unicode' -and [SW]::LastText -ceq $chunkedText -and [SW]::Value.Current.Value -ceq $chunkedText) 'Queued Unicode exit lost or replayed a chunk, or sent TAB.'
+Assert-True ($script:checkpoints[$script:checkpoints.Count-1] -eq 5 -and -not $script:checkpoints.Contains([uint32]100) -and $script:literalMarkers -eq 1 -and $script:completed -eq 1) 'Queued Unicode exit lost its last own checkpoint or physical-section completion.'
+Reset-TestState;[SW]::Tick=0
+Assert-True ((Test-SSELastInputUnchanged ([uint64]0)) -and -not (Test-SSELastInputUnchanged $null)) 'Actual input guard confused a readable zero with an absent checkpoint.'
+Reset-TestState;$script:literalBoundaryPhase='none';$script:literalMarkers=0;[SW]::Tick=[uint32]::MaxValue
+$result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text'
+Assert-True ($result.method -ceq 'verified-keyboard-replace' -and ([SW]::Events -join '|') -ceq '^a|unicode|{TAB}') 'A readable zero checkpoint after DWORD wraparound was treated as absent.'
+Assert-True ($script:checkpoints[0] -eq 0 -and $script:literalMarkers -eq 0) 'Wraparound control did not actually use an unperturbed zero checkpoint.'
 Write-Output 'Tracked native text: literal transport, readback, guards, partial failures and receipt rollback passed.'

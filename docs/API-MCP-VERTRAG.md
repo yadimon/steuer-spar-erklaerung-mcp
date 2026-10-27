@@ -192,6 +192,16 @@ und `10.1` ist keine Datumsgleichheit.
 Fehlende Nachweise können als Bindungs-/Interferenzfehler enden; sie erlauben
 keine zusätzliche Eingabe allein zur Bestätigung.
 
+Bei der Unicode-Texteingabe des Feldcommits bleibt die nach der eigenen Auswahl geprüfte
+Eingabemarke bis zum ersten Textblock erhalten. Nach dem letzten Textblock
+wird dessen Marke bis zur Eingabeprüfung vor TAB weitergereicht. Ein interner
+Helferwechsel ohne eigene Eingabe darf keine neue Ausgangsmarke setzen.
+Eine dabei beobachtete abweichende Marke stoppt den Ablauf vor weiterer
+Texteingabe beziehungsweise vor TAB; eine bereits begonnene Wertänderung
+bleibt im Ergebnis erkennbar. Das ist kein lückenloser Nachweis aller
+Fremdeingaben zwischen eigener Eingabe und anschließender Markenerfassung
+und kein gemeinsamer Eingabenachweis für einen gesamten Mehrfeldplan.
+
 `feld.nachherAnzeige` bleibt der tatsächliche UIA-Name. `rollback.wert`
 bezeichnet dagegen wie der Ausgangswert den Rohwert des Edit-Feldes,
 bei DataItems den vorhandenen Rohwert oder sonst ihren Anzeigennamen.

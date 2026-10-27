@@ -68,6 +68,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Vollständige lebende Namen bleiben von der Baumdarstellung unabhängig.
   Ein DataItem-Rohplatzhalter führt bei der Rücknahme zur Eingabe des bestätigten
   alten Anzeigenamens; Erfolg braucht weiterhin den getrennten Raw-/Namensnachweis.
+- **Texteingabe bei Feldänderungen:** Der Worker-Texthelfer übernimmt die
+  bereits geprüfte Eingabemarke und gibt seine letzte eigene Marke zurück.
+  Ein Helferwechsel ohne eigene Eingabe setzt diese Grenze nicht zurück;
+  erkannte Abweichungen stoppen weitere Eingaben.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -114,6 +118,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   bis ihr Zustand geklärt ist.
 - Zwei gleiche Beobachtungen sind kein atomarer Snapshot. Die generischen
   Mechanismen belegen nicht jede Feld-/Label-Zuordnung oder alle Produktseiten.
+- Die Eingabemarken einzelner Feldänderungen sind noch nicht über den gesamten
+  Mehrfeldplan verbunden. Auch das Zeitfenster zwischen eigener Eingabe und
+  anschließender Markenerfassung bleibt eine gesonderte Nachweisgrenze.
 - Die gesperrten BelegManager-Schreibwege benötigen noch eine strengere
   Behandlung unbekannter USt-Werte und eine erneute Eigentumsprüfung nach
   frischer Feldbindung vor der Rücknahme. Das ist bekannte Folgearbeit;
