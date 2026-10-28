@@ -165,7 +165,12 @@ foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SS
   Invoke-Expression $definition[0].Extent.Text
 }
 
-function Show-SSEWindow { param($Hwnd) $true }
+function Show-SSEWindow {
+  param($Hwnd)
+  $script:showCalls++
+  if($script:inputDuringShow){[SW]::Tick++}
+  $true
+}
 function Get-LiveElement { param($Hwnd, $Rid, $Aid) $script:target }
 function Get-SSELastInputTick { [SW]::Tick }
 function Test-SSELastInputUnchanged {
@@ -188,6 +193,8 @@ function Get-SSETextSha256 { param($Text) 'test-fingerprint' }
 
 function Reset-TestState {
   $script:DESKTOP_NAME = ''
+  $script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$null
+  $script:showCalls=0;$script:inputDuringShow=$false
   [SW]::FocusMutationEnabled=$false;[SW]::FocusNull=$false;[SW]::FocusRaw=''
   [SW]::FocusNameMutationEnabled=$false;[SW]::FocusName='';[SW]::FocusReadOnly=$false
   [SW]::ClickNameMutationEnabled=$false;[SW]::ClickName=''
@@ -726,4 +733,49 @@ Reset-TestState;$script:literalBoundaryPhase='none';$script:literalMarkers=0;[SW
 $result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text'
 Assert-True ($result.method -ceq 'verified-keyboard-replace' -and ([SW]::Events -join '|') -ceq '^a|unicode|{TAB}') 'A readable zero checkpoint after DWORD wraparound was treated as absent.'
 Assert-True ($script:checkpoints[0] -eq 0 -and $script:literalMarkers -eq 0) 'Wraparound control did not actually use an unperturbed zero checkpoint.'
+foreach($inherited in @(0,17)){
+ Reset-TestState;$script:literalBoundaryPhase='none'
+ $context=[pscustomobject]@{checkpoint=$inherited};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$context
+ $result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text' $inherited
+ Assert-True ($result.method -ceq 'interference-inherited-input' -and $result.inputInterference) 'A foreign epoch before focus was adopted by the commit.'
+ Assert-True ([SW]::Events.Count -eq 0 -and $script:showCalls -eq 0 -and $script:completed -eq 0 -and $context.checkpoint -eq $inherited) 'An inherited-epoch refusal touched the physical section or advanced ownership.'
+}
+Reset-TestState;$script:literalBoundaryPhase='none'
+$context=[pscustomobject]@{checkpoint=$null};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$context
+$result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text' $null
+Assert-True ($result.method -ceq 'interference-inherited-input' -and $script:showCalls -eq 0 -and [SW]::Events.Count -eq 0 -and $null -eq $context.checkpoint) 'An absent inherited plan checkpoint fell back to a fresh readable tick.'
+Reset-TestState;$script:literalBoundaryPhase='none';$script:inputDuringShow=$true
+$context=[pscustomobject]@{checkpoint=1};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$context
+$result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text' 1
+Assert-True ($result.method -ceq 'interference-before-focus' -and [SW]::Events.Count -eq 0 -and $script:completed -eq 1 -and $context.checkpoint -eq 1) 'An input change during foreground acquisition became a fresh baseline.'
+foreach($initial in @([uint32]0,[uint32]4294967293)){
+ Reset-TestState;$script:literalBoundaryPhase='none';[SW]::Tick=$initial
+ $context=[pscustomobject]@{checkpoint=$initial};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$context
+ $result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text' $initial
+ Assert-True ($result.method -ceq 'verified-keyboard-replace' -and $context.checkpoint -eq $result.inputAfter -and $result.inputBefore -eq $initial) 'A verified own commit did not transfer its actual checkpoint to the parent.'
+ Assert-True (([SW]::Events -join '|') -ceq '^a|unicode|{TAB}') 'Parent continuity changed or replayed ordinary input.'
+}
+Assert-True ($context.checkpoint -eq 0) 'The parent test did not exercise a verified final DWORD zero.'
+Reset-TestState;$script:literalBoundaryPhase='none';[SW]::Outcome='partial'
+$context=[pscustomobject]@{checkpoint=1};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$context
+$result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text' 1
+Assert-True ($result.method -cne 'verified-keyboard-replace' -and $context.checkpoint -eq 1) 'An unverified partial commit advanced parent ownership.'
+# Standalone reverse commits pass the inherited mark as an argument, without
+# a plan context. Exercise that distinct production branch directly.
+foreach($case in @(
+ @{expected=0;actual=0;duringShow=$false;method='verified-keyboard-replace';events='^a|unicode|{TAB}';shows=1;completed=1;after=3},
+ @{expected=17;actual=17;duringShow=$false;method='verified-keyboard-replace';events='^a|unicode|{TAB}';shows=1;completed=1;after=20},
+ @{expected=[uint32]4294967293;actual=[uint32]4294967293;duringShow=$false;method='verified-keyboard-replace';events='^a|unicode|{TAB}';shows=1;completed=1;after=0},
+ @{expected=0;actual=1;duringShow=$false;method='interference-inherited-input';events='';shows=0;completed=0;after=1},
+ @{expected=17;actual=18;duringShow=$false;method='interference-inherited-input';events='';shows=0;completed=0;after=18},
+ @{expected=[uint32]4294967295;actual=0;duringShow=$false;method='interference-inherited-input';events='';shows=0;completed=0;after=0},
+ @{expected=0;actual=0;duringShow=$true;method='interference-before-focus';events='';shows=1;completed=1;after=1},
+ @{expected=17;actual=17;duringShow=$true;method='interference-before-focus';events='';shows=1;completed=1;after=18}
+)){
+ Reset-TestState;$script:literalBoundaryPhase='none';[SW]::Tick=$case.actual;$script:inputDuringShow=$case.duringShow
+ $result=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text' $case.expected
+ Assert-True ($result.method -ceq $case.method -and $result.inputBefore -eq $case.expected -and $result.inputAfter -eq $case.after) 'Standalone reverse input lost its exact inherited checkpoint or stop phase.'
+ Assert-True (([SW]::Events -join '|') -ceq $case.events -and $script:showCalls -eq $case.shows -and $script:completed -eq $case.completed) 'Standalone reverse input replayed keys, raised after lost ownership or lost physical cleanup.'
+ Assert-True ($null -eq $script:SSE_TRACKED_PLAN_INPUT_CONTEXT) 'Standalone reverse input created or retained a plan context.'
+}
 Write-Output 'Tracked native text: literal transport, readback, guards, partial failures and receipt rollback passed.'

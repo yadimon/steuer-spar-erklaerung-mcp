@@ -9,11 +9,17 @@ Add-Type @'
 using System;
 public static class SW {
  public static int MouseCalls,CloseSends;
+ public static int CursorSets,CursorReads,CursorX,CursorY,CursorDriftRead;
+ public static bool CursorSetAllowed=true,CursorReadAllowed=true;
+ public struct PT {public int X,Y;}
+ public static bool SetCursorPos(int x,int y){CursorSets++;if(!CursorSetAllowed)return false;CursorX=x;CursorY=y;return true;}
+ public static bool GetCursorPos(out PT point){CursorReads++;point=new PT {X=CursorX+(CursorReads==CursorDriftRead?1:0),Y=CursorY};return CursorReadAllowed;}
+ public static uint Tick=10;
  public static System.Collections.Generic.Dictionary<long,uint> Owners=new System.Collections.Generic.Dictionary<long,uint>{{111,7},{77,7},{88,8}};
  public static IntPtr GetForegroundWindow(){return new IntPtr(111);}
  public static bool IsWindow(IntPtr hwnd){return Owners.ContainsKey(hwnd.ToInt64());}
  public static uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid){Owners.TryGetValue(hwnd.ToInt64(),out pid);return pid==0?0u:1u;}
- public static void mouse_event(int flags,int x,int y,int data,IntPtr extra){MouseCalls++;}
+ public static void mouse_event(int flags,int x,int y,int data,IntPtr extra){MouseCalls++;if(flags==4)Tick++;}
  public static IntPtr SendMessageTimeout(IntPtr hwnd,int message,IntPtr w,IntPtr l,int flags,int timeout,out IntPtr result){CloseSends++;result=IntPtr.Zero;return new IntPtr(1);}
 }
 public static class SSEAccessible {
@@ -22,25 +28,42 @@ public static class SSEAccessible {
 }
 '@
 function Fail($Message,$Kind,$Details) {$script:emitCalls++;throw 'SYNTHETIC_TERMINAL_EMIT'}
-function Show-SSEWindow { }
-function Hide-SSETopmost { $script:hiddenTopmost++ }
+function Show-SSEWindow { $script:showCalls++ }
+function Hide-SSETopmost([IntPtr]$Window) {
+ if($Window -ne [IntPtr]111){throw 'Topmost cleanup lost its exact bound window'}
+ $script:hiddenTopmost++
+}
 function Get-SSEPointObstruction { [pscustomobject]@{isBoundTarget=$true} }
-function Test-SSELastInputUnchanged { $true }
+function Get-SSELastInputTick {[SW]::Tick}
+function Set-SSEForegroundLeaseInputCheckpoint {if($script:foreignAfterClick){[SW]::Tick++}}
+function Assert-SSECursorPoint {}
+$inputGuard=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSELastInputUnchanged'},$true))
+if($inputGuard.Count -ne 1){throw 'Actual input guard missing'}
+. ([scriptblock]::Create($inputGuard[0].Extent.Text))
 function Set-SSECursorPoint { $script:pointerMoves++ }
 function Start-Sleep { }
 $script:SSE_FOREGROUND_LEASE=[pscustomobject]@{lastAcquireRaised=$false}
+$script:showCalls=0;$script:emitCalls=0;$script:pointerMoves=0;[SW]::MouseCalls=0;[SW]::Tick=11;$caught=$null
+try{Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ThrowOnFailure|Out-Null}catch{$caught=$_}
+if(-not $caught -or $caught.Exception.Data['kind'] -cne 'interference' -or $caught.Exception.Data['inputDispatched'] -ne $false -or
+   $script:showCalls -ne 0 -or $script:pointerMoves -ne 0 -or [SW]::MouseCalls -ne 0 -or $script:emitCalls -ne 0){throw 'Lost inherited input was discovered only after raising the click target or moving the pointer'}
+[SW]::Tick=10
 foreach($throws in @($false,$true)) {
   $script:emitCalls=0;$script:pointerMoves=0;[SW]::MouseCalls=0;$caught=$null
   try {Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ForegroundAttempts 1 -BeforeClickCheck {$false} -ThrowOnFailure:$throws}
   catch {$caught=$_}
   if(-not $caught -or $script:pointerMoves -ne 1 -or [SW]::MouseCalls -ne 0){throw 'Failed last click proof changed physical action boundaries.'}
   if($throws) {
-    if($script:emitCalls -ne 0 -or $caught.Exception.Data['kind'] -cne 'stale'){throw 'Transactional click failure emitted before its owner could reconcile.'}
+    if($script:emitCalls -ne 0 -or $caught.Exception.Data['kind'] -cne 'stale' -or $caught.Exception.Data['inputDispatched'] -ne $false){throw 'Transactional click failure emitted before its owner could reconcile or invented dispatched input.'}
   } else {
     if($script:emitCalls -ne 1 -or $caught.Exception.Message -cne 'SYNTHETIC_TERMINAL_EMIT'){throw 'Default physical click failure lost its existing terminal contract.'}
   }
 }
 Write-Output 'verified-point-failure: transaction owners can catch a failed post-pointer proof; default Fail/Emit behavior stays terminal.'
+$script:foreignAfterClick=$true;$script:emitCalls=0;[SW]::MouseCalls=0;[SW]::Tick=10;$caught=$null
+try{Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ThrowOnFailure|Out-Null}catch{$caught=$_}
+if(-not $caught -or $caught.Exception.Data['kind'] -cne 'interference' -or $caught.Exception.Data['inputDispatched'] -ne $true -or [SW]::MouseCalls -ne 2 -or $script:emitCalls -ne 0){throw 'Post-click interference lost dispatched input evidence or replayed the click'}
+$script:foreignAfterClick=$false;[SW]::Tick=10
 
 $script:emitCalls=0;$script:pointerMoves=0;$script:hiddenTopmost=0;[SW]::MouseCalls=0;$caught=$null
 try {Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20;source='msaa-point';name='Synthetic button'}) -RequireForeground -ThrowOnFailure}
@@ -57,6 +80,46 @@ if(-not $caught -or $caught.Exception.Message -cne 'SYNTHETIC_TERMINAL_EMIT' -or
  throw 'Default bound MSAA failure bypassed terminal cleanup.'
 }
 Write-Output 'verified-point-failure: throwing bound MSAA reads are stale, remove topmost and send no input.'
+
+# Exercise the actual two cursor helpers as well as the actual click. These
+# pre-dispatch failures must remain catchable by their transaction owner;
+# the default direct Fail/Emit behavior stays terminal.
+& {
+ foreach($name in @('Set-SSECursorPoint','Assert-SSECursorPoint')){
+  $definition=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+  if($definition.Count -ne 1){throw 'Actual cursor helper missing'}
+  . ([scriptblock]::Create($definition[0].Extent.Text))
+ }
+ foreach($scenario in @(
+  [pscustomobject]@{name='set-refused';set=$false;read=$true;drift=0;reads=0},
+  [pscustomobject]@{name='read-unavailable';set=$true;read=$false;drift=0;reads=1},
+  [pscustomobject]@{name='initial-drift';set=$true;read=$true;drift=1;reads=1},
+  [pscustomobject]@{name='final-drift';set=$true;read=$true;drift=2;reads=2}
+ )){
+  foreach($throws in @($false,$true)){
+   [SW]::Tick=10;[SW]::MouseCalls=0;[SW]::CursorSets=0;[SW]::CursorReads=0
+   [SW]::CursorSetAllowed=$scenario.set;[SW]::CursorReadAllowed=$scenario.read;[SW]::CursorDriftRead=$scenario.drift
+   $script:emitCalls=0;$script:hiddenTopmost=0;$caught=$null
+   try{Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ThrowOnFailure:$throws|Out-Null}catch{$caught=$_}
+   if(-not$caught -or [SW]::MouseCalls -ne 0 -or [SW]::CursorSets -ne 1 -or [SW]::CursorReads -ne $scenario.reads){throw ('Actual cursor refusal crossed the dispatch boundary: '+$scenario.name)}
+   if($throws){
+    if($script:emitCalls -ne 0 -or $script:hiddenTopmost -ne 1 -or $caught.Exception.Data['kind'] -cne 'interference' -or $caught.Exception.Data['inputDispatched'] -ne $false){throw ('Actual cursor refusal escaped its owner or lost unsent evidence: '+$scenario.name)}
+   }else{
+    if($script:emitCalls -ne 1 -or $caught.Exception.Message -cne 'SYNTHETIC_TERMINAL_EMIT'){throw ('Default cursor refusal stopped being terminal: '+$scenario.name)}
+   }
+  }
+ }
+ foreach($helper in @('Set-SSECursorPoint','Assert-SSECursorPoint')){
+  [SW]::CursorSetAllowed=$false;[SW]::CursorReadAllowed=$false
+  [SW]::MouseCalls=0;$script:emitCalls=0;$script:returningCallbackCalls=0;$caught=$null
+  try{
+   & $helper 20 20 -OnFailure {$script:returningCallbackCalls++;return}
+   [SW]::mouse_event(2,0,0,0,[IntPtr]::Zero)
+  }catch{$caught=$_}
+  if(-not$caught -or $caught.Exception.Message -cne 'SYNTHETIC_TERMINAL_EMIT' -or $script:emitCalls -ne 1 -or $script:returningCallbackCalls -ne 1 -or [SW]::MouseCalls -ne 0){throw ('Returning failure callback disabled the terminal cursor guard: '+$helper)}
+ }
+}
+Write-Output 'verified-point-failure: actual cursor refusal/read/drift helpers preserve unsent transaction evidence and default terminal behavior.'
 
 foreach($name in @('Test-SSEDialogWindowCurrent','Get-SSEDialogFollowupInventory')){
  $definition=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))

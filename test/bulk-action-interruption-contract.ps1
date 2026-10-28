@@ -82,6 +82,11 @@ $trapBody=[scriptblock]::Create($trapText.Substring(1,$trapText.Length-2))
 }
 # Provider boundaries only: the actual plan control flow is executed below.
 # No production module is loaded and no window, process or input API is used.
+foreach($name in @('Invoke-SSETrackedPlanOperation','Test-SSELastInputUnchanged')){
+ $definition=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+ if($definition.Count -ne 1){throw ('Actual input ownership helper must be unique: '+$name)}
+ . ([scriptblock]::Create($definition[0].Extent.Text))
+}
 function Arg($Object,[string]$Name,$Default=$null){$property=$Object.PSObject.Properties[$Name];if($property){$property.Value}else{$Default}}
 function Get-SSEBoundedIntegerArg($Object,[string]$Name,$Default,$Minimum,$Maximum){Arg $Object $Name $Default}
 function Get-SSEBoundedArrayArg($Object,[string]$Name,$Minimum,$Maximum){@(Arg $Object $Name)}
@@ -91,9 +96,18 @@ function Test-SSETrackedValueEquivalent($Actual,$Expected,$Kind){$Actual -ceq $E
 function Fail($Message,$Kind){throw ('Unexpected fixture failure: '+$Kind)}
 function Emit($Result){$script:captured=$Result}
 $script:INIT_TIMINGS=[pscustomobject]@{fixture=$true}
+function Get-SSELastInputTick{$script:inputTick}
+function Register-OwnFixtureInput{
+ if(-not $script:DESKTOP_NAME){
+  $script:inputTick=[uint64](($script:inputTick+1)%4294967296)
+  $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint=$script:inputTick
+ }
+}
 function Invoke-SSECapturedOperation([string]$Operation,$Arguments){
+ if($script:throwCaptured){throw 'synthetic-child-exception'}
  $null=$script:calls.Add([pscustomobject]@{operation=$Operation;fieldId=[string]$Arguments.fieldId;value=[string]$Arguments.value})
  if($Operation -ceq 'known_page_state'){
+  if($script:scenario -cin @('foreign-final-read','foreign-restored-final-read')){$script:inputTick++}
   return [pscustomobject]@{ok=$true;onExpectedPage=$true;fields=@($script:fieldIds|ForEach-Object{
    [pscustomobject]@{fieldId=$_;present=$true;value=$script:values[$_]}
   })}
@@ -102,6 +116,7 @@ function Invoke-SSECapturedOperation([string]$Operation,$Arguments){
  $field=[string]$Arguments.fieldId
  if($script:values[$field] -cne [string]$Arguments.expectedBefore){throw 'Fixture must retain the live value precondition'}
  if([string]$Arguments.value -ceq ($field+'-old')){
+  Register-OwnFixtureInput
   $script:values[$field]=[string]$Arguments.value
   if($script:scenario -ceq 'rollback-interference'){
    return [pscustomobject]@{ok=$false;verified=$false;kind='interference';error='Synthetic input during rollback.';
@@ -110,23 +125,33 @@ function Invoke-SSECapturedOperation([string]$Operation,$Arguments){
   if($script:scenario -ceq 'rollback-unverified'){
    return [pscustomobject]@{ok=$true;verified=$false;kind='postcondition-failed';error='Synthetic missing rollback proof.'}
   }
+  if($script:scenario -ceq 'foreign-between-rollbacks'){$script:inputTick++}
   return [pscustomobject]@{ok=$true;verified=$true}
  }
  if($field -cne $script:failureField){
+  Register-OwnFixtureInput
   $script:values[$field]=[string]$Arguments.value
+  if($script:scenario -cin @('foreign-between-forward','foreign-wrapped-zero') -and $field -ceq 'first'){$script:inputTick++}
+  if($script:scenario -ceq 'unreadable-between-forward' -and $field -ceq 'first'){$script:inputTick=$null}
   return [pscustomobject]@{ok=$true;verified=$true}
  }
  $failed=[pscustomobject]@{ok=$false;verified=$false;kind='postcondition-failed';error='Synthetic child failure.'}
  switch -CaseSensitive ($script:scenario){
   'ordinary-postcondition' {
+   # A child committed and restored itself. Its public forward telemetry is
+   # deliberately older than the last owned inner-rollback checkpoint.
+   Register-OwnFixtureInput
+   $forwardTick=$script:inputTick
+   Register-OwnFixtureInput
    $failed|Add-Member NoteProperty rollback ([pscustomobject]@{versucht=$true;methode='verified-keyboard-replace';ok=$true})
-   $failed|Add-Member NoteProperty inputGuard ([pscustomobject]@{eingriffErkannt=$false})
+   $failed|Add-Member NoteProperty inputGuard ([pscustomobject]@{nachher=$forwardTick;eingriffErkannt=$false})
    $failed|Add-Member NoteProperty fensterGuard ([pscustomobject]@{geaendert=$false})
   }
   'ordinary-precondition' {$failed.kind='precondition-failed'}
   'interference-kind' {$failed.kind='interference'}
   'interference-all-original' {$failed.kind='interference';$script:values.first='first-old'}
   'clean-first-refusal' {$failed.kind=$script:firstRefusalKind}
+  'clean-first-foreign' {$failed.kind=$script:firstRefusalKind;$script:inputTick++}
   'missing-kind' {$failed.PSObject.Properties.Remove('kind')}
   'empty-kind' {$failed.kind=''}
   'unclassified-first' {$failed.kind='unclassified-child-failure'}
@@ -142,6 +167,9 @@ function Invoke-SSECapturedOperation([string]$Operation,$Arguments){
   'unknown-kind' {$failed.kind='unrecognized-child-failure'}
   'rollback-interference' {$failed|Add-Member NoteProperty rollback ([pscustomobject]@{ok=$true})}
   'rollback-unverified' {$failed|Add-Member NoteProperty rollback ([pscustomobject]@{ok=$true})}
+  'foreign-before-rollback' {$failed.kind='precondition-failed';$script:inputTick++}
+  'foreign-between-rollbacks' {$failed.kind='precondition-failed'}
+  'foreign-restored-final-read' {$failed.kind='precondition-failed'}
   default {throw 'Unknown test scenario'}
  }
  if($script:scenario -in @('interference-kind','input-guard','window-guard','child-refused-rollback','unknown-outcome','cleanup-required','stale-child','unknown-kind')){
@@ -149,9 +177,12 @@ function Invoke-SSECapturedOperation([string]$Operation,$Arguments){
  }
  $failed
 }
-function Invoke-PlanFixture([string]$Scenario,[int]$SucceededBeforeFailure,[string]$FirstRefusalKind='case-mismatch'){
+function Invoke-PlanFixture([string]$Scenario,[int]$SucceededBeforeFailure,[string]$FirstRefusalKind='case-mismatch',$InitialTick=1,[string]$Desktop=''){
  $script:firstRefusalKind=$FirstRefusalKind
  $script:scenario=$Scenario;$script:captured=$null;$script:calls=New-Object Collections.ArrayList
+ $script:inputTick=$InitialTick;$script:DESKTOP_NAME=$Desktop
+ $script:throwCaptured=$false
+ $outerContext=[pscustomobject]@{fixture='outer'};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$outerContext
  $script:fieldIds=@('first','second','third','fourth');$script:failureField=$script:fieldIds[$SucceededBeforeFailure]
  $script:values=@{};foreach($field in $script:fieldIds){$script:values[$field]=$field+'-old'}
  $actions=@($script:fieldIds|ForEach-Object{
@@ -163,6 +194,7 @@ function Invoke-PlanFixture([string]$Scenario,[int]$SucceededBeforeFailure,[stri
   actions=$actions;finalReadbackPlan=[pscustomobject]@{operation='known_page_state';args=[pscustomobject]@{pageId='fixture.page'}}}
  & $operation
  if(-not $script:captured){throw 'Actual bulk emitted no result'}
+ if(-not [object]::ReferenceEquals($script:SSE_TRACKED_PLAN_INPUT_CONTEXT,$outerContext)){throw 'A child leaked its input context'}
  [pscustomobject]@{result=$script:captured;calls=@($script:calls);values=$script:values.Clone()}
 }
 function Assert-That([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
@@ -194,6 +226,9 @@ foreach($kind in $firstKinds){
  Assert-That ($laterRefusal.calls.Count -eq 3 -and $laterRefusal.calls[2].operation -ceq 'known_page_state') 'A first-only refusal after a completed step must not start rollback input'
  Assert-That ($laterRefusal.result.rollback.skippedReason -ceq 'failed-action-lost-context' -and $laterRefusal.result.resultingState -ceq 'unknown') 'A later policy refusal must require reconciliation'
  Assert-That ($laterRefusal.values.first -ceq 'first-new') 'A later policy refusal changed a completed own field'
+ $foreignFirst=Invoke-PlanFixture 'clean-first-foreign' 0 $kind
+ Assert-That ($foreignFirst.calls.Count -eq 2 -and $foreignFirst.result.finalReadbackVerified -and $foreignFirst.result.failedAction.result.kind -ceq $kind) 'The first refusal or passive read was lost after foreign input'
+ Assert-That ($foreignFirst.result.resultingState -ceq 'unknown' -and -not $foreignFirst.result.verified -and $foreignFirst.result.cleanupRequired -and -not $foreignFirst.result.rollback.attempted) 'A first refusal hid changed input ownership behind unchanged fields'
 }
 $lostFirst=Invoke-PlanFixture 'interference-kind' 0
 Assert-That ($lostFirst.calls.Count -eq 2 -and $lostFirst.result.resultingState -ceq 'unknown') 'Explicit first-action interference must remain unknown'
@@ -215,4 +250,38 @@ foreach($scenario in @('rollback-interference','rollback-unverified')){
  Assert-That ($case.result.resultingState -ceq 'unknown' -and $case.result.cleanupRequired) ($scenario+': partial rollback must remain uncertain')
  Assert-That ($case.values.first -ceq 'first-new') ($scenario+': later rollback target was changed')
 }
+foreach($scenario in @('foreign-between-forward','unreadable-between-forward','foreign-wrapped-zero')){
+ $initialTick=$(if($scenario -ceq 'foreign-wrapped-zero'){[uint64]4294967295}else{1})
+ $case=Invoke-PlanFixture $scenario 4 -InitialTick $initialTick
+ Assert-That ($case.calls.Count -eq 2 -and $case.calls[1].operation -ceq 'known_page_state') ($scenario+': another child was dispatched after foreign input')
+ Assert-That ($case.values.first -ceq 'first-new' -and $case.values.second -ceq 'second-old') ($scenario+': a later or reverse field changed')
+ Assert-That ($case.result.failedIndex -eq 1 -and $case.result.skipped.Count -eq 2) ($scenario+': skipped actions are incorrect')
+ Assert-That ($case.result.resultingState -ceq 'unknown' -and -not $case.result.ok -and $case.result.cleanupRequired) ($scenario+': context loss was hidden')
+ Assert-That (-not $case.result.rollback.attempted) ($scenario+': rollback started after lost context')
+}
+$beforeRollback=Invoke-PlanFixture 'foreign-before-rollback' 1
+Assert-That ($beforeRollback.calls.Count -eq 3 -and $beforeRollback.calls[2].operation -ceq 'known_page_state') 'A failed ordinary child must not rebase foreign input before parent rollback'
+Assert-That ($beforeRollback.values.first -ceq 'first-new' -and $beforeRollback.result.resultingState -ceq 'unknown') 'The parent overwrote its completed field after losing ownership'
+Assert-That (-not $beforeRollback.result.rollback.attempted -and $beforeRollback.result.rollback.skippedReason -ceq 'failed-action-lost-context') 'The parent started rollback after an ordinary child lost the input checkpoint'
+$betweenRollbacks=Invoke-PlanFixture 'foreign-between-rollbacks' 2
+Assert-That ($betweenRollbacks.calls.Count -eq 5 -and $betweenRollbacks.calls[3].fieldId -ceq 'second' -and $betweenRollbacks.calls[4].operation -ceq 'known_page_state') 'Foreign input between reverse steps did not stop the chain'
+Assert-That ($betweenRollbacks.values.first -ceq 'first-new' -and $betweenRollbacks.values.second -ceq 'second-old' -and $betweenRollbacks.result.resultingState -ceq 'unknown') 'A reverse step rebased foreign input'
+foreach($scenario in @('foreign-final-read','foreign-restored-final-read')){
+ $succeeded=$(if($scenario -ceq 'foreign-final-read'){4}else{1})
+ $case=Invoke-PlanFixture $scenario $succeeded
+ Assert-That ($case.result.finalReadbackVerified -and -not $case.result.ok -and -not $case.result.verified -and $case.result.resultingState -ceq 'unknown') ($scenario+': matching values erased final input context loss')
+}
+foreach($tick in @(0,[uint64]4294967295)){
+ $success=Invoke-PlanFixture 'all-success' 4 -InitialTick $tick
+ Assert-That ($success.result.ok -and $success.result.resultingState -ceq 'completed-verified' -and $success.calls.Count -eq 5) 'A valid zero/wrapped own checkpoint prevented ordinary completion'
+}
+$unreadable=Invoke-PlanFixture 'all-success' 4 -InitialTick $null
+Assert-That ($unreadable.calls.Count -eq 1 -and $unreadable.calls[0].operation -ceq 'known_page_state' -and $unreadable.result.resultingState -ceq 'unknown') 'An unreadable initial checkpoint dispatched a write'
+$focusless=Invoke-PlanFixture 'all-success' 4 -InitialTick $null -Desktop 'synthetic-private-desktop'
+Assert-That ($focusless.result.ok -and $focusless.calls.Count -eq 5) 'A nonphysical private-desktop plan acquired an active-desktop input guard'
+$script:throwCaptured=$true;$script:inputTick=7
+$outer=[pscustomobject]@{fixture='exception-outer'};$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$outer
+$caught=$null
+try{Invoke-SSETrackedPlanOperation ([pscustomobject]@{}) ([pscustomobject]@{checkpoint=7})|Out-Null}catch{$caught=$_}
+Assert-That ($caught.Exception.Message -ceq 'synthetic-child-exception' -and [object]::ReferenceEquals($outer,$script:SSE_TRACKED_PLAN_INPUT_CONTEXT)) 'An unexpected child exception leaked or swallowed the scoped input context'
 Write-Output 'Bulk-Unterbrechung: regulaere Ruecknahme, verlorener Kontext und begrenzter Rollback-Abbruch bestanden.'
