@@ -201,6 +201,26 @@ Texteingabe beziehungsweise vor TAB; eine bereits begonnene Wertänderung
 bleibt im Ergebnis erkennbar. Das ist kein lückenloser Nachweis aller
 Fremdeingaben zwischen eigener Eingabe und anschließender Markenerfassung.
 
+Bei der sichtbaren Tastatureingabe nicht-ASCII-haltiger Werte in Textfeldern
+vom Typ `Edit` hält
+`commitDetails.textBeforeCommitVerified`
+fest, ob der unmittelbar vor TAB frisch gelesene Rohtext exakt der Eingabe
+entsprach: `true` bei zeichengenauer Übereinstimmung, `false` bei Abweichung, `null`
+ohne erfassten lesbaren Nachweis. Diese Diagnose schränkt die akzeptierte Eingabe
+nicht ein; reine ASCII-Eingaben benötigen dafür keine zusätzliche Lesung.
+Die zusätzliche Lesung übernimmt keine neue Eingabemarke; eine dabei erkannte
+Fremdeingabe verhindert TAB.
+Wurden anschließend bei gleicher UTF-16-Länge ausschließlich nicht-ASCII-Zeichen
+durch U+003F ersetzt, beschreibt `commitDetails.characterSubstitution` dieses
+beobachtete Muster. Es nennt keinen vermuteten Codec und bestätigt weder
+Eigentum am Nachwert noch die Zulässigkeit einer Rücknahme oder Wiederholung.
+Ein unlesbarer Nachwert bleibt `null` und bestätigt auch keinen leeren Modellwert.
+Scheitert die Vorprüfung einer Rücknahme an unbewiesener Bindung oder einem
+nicht bestätigten eigenen Wert, meldet sie ausdrücklich `resultingState="unknown"`,
+`cleanupRequired=true` und `retryable=false`; der Zustand muss neu abgeglichen werden.
+Ein abgeschlossener Tastaturpfad bestätigt für sich allein keinen fachlichen
+Nachwert; dafür bleiben die unabhängigen Prüfungen des Feldkommandos maßgeblich.
+
 `feld.nachherAnzeige` bleibt der tatsächliche UIA-Name. `rollback.wert`
 bezeichnet dagegen wie der Ausgangswert den Rohwert des Edit-Feldes,
 bei DataItems den vorhandenen Rohwert oder sonst ihren Anzeigennamen.

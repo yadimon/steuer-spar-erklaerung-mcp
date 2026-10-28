@@ -10306,6 +10306,26 @@ function Send-SSETrackedLiteralText([IntPtr]$Hwnd, $Target, $ValuePattern, [stri
   })
 }
 
+function Get-SSETrackedCharacterSubstitution($Expected, $Observed, $TextBeforeCommitVerified) {
+  if ($TextBeforeCommitVerified -isnot [bool] -or -not $TextBeforeCommitVerified -or
+      $Expected -isnot [string] -or $Observed -isnot [string] -or
+      $Expected.Length -eq 0 -or $Expected.Length -ne $Observed.Length) { return $null }
+  if ([string]::Equals($Expected, $Observed, [StringComparison]::Ordinal)) { return $null }
+  $changed = 0
+  for ($index = 0; $index -lt $Expected.Length; $index++) {
+    if ([int]$Expected[$index] -eq [int]$Observed[$index]) { continue }
+    if ([int]$Expected[$index] -lt 128 -or $Observed[$index] -cne '?') { return $null }
+    $changed++
+  }
+  if (-not $changed) { return $null }
+  # This describes two actual observations, not an encoder or an owner.
+  # It must never relax the caller's independent value/rollback checks.
+  [pscustomobject]@{
+    kind='observed-character-substitution'; stage='after-tab'; changedUtf16Units=$changed
+    confirmsOwnership=$false; retryable=$false
+  }
+}
+
 function Test-SSETrackedCommitPrecondition($Target, $ValuePattern, $Node, $ExpectedCurrent, [string]$ValueKind) {
   if (-not $Target -or -not $ValuePattern -or $null -eq $ExpectedCurrent) { return $false }
   $expectedRaw = $ExpectedCurrent; $expectedValue = $ExpectedCurrent; $expectedName = $null
@@ -10567,6 +10587,22 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
         })
       }
     }
+    $textBeforeCommitVerified = $null
+    if ($ValueKind -cin @('','text') -and [string]$Node.type -ceq 'Edit' -and $Value -cmatch '[^\x00-\x7f]') {
+      # Observe the live edit, not the requested argument. This is optional
+      # diagnostic evidence, not a new restriction on formatting or input.
+      try {
+        $textBeforeCommit = $vp.Current.Value
+        if ($null -ne $textBeforeCommit) { $textBeforeCommitVerified=[string]::Equals([string]$textBeforeCommit, $Value, [StringComparison]::Ordinal) }
+      } catch { $textBeforeCommitVerified=$null }
+      if (-not (Test-SSELastInputUnchanged $afterValueInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
+        $changedAt = Get-SSELastInputTick
+        Complete-SSEPhysicalSection $Hwnd
+        return New-SSECommitResult 'interference-before-commit' $inputBefore $changedAt ([pscustomobject]@{
+          mutationStarted=$mutationStarted
+        })
+      }
+    }
     [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
     $afterCommitInput = Get-SSELastInputTick
     Set-SSEForegroundLeaseInputCheckpoint $afterCommitInput ([pscustomobject]@{ x=$px; y=$py })
@@ -10585,7 +10621,10 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
           mutationStarted=$mutationStarted
         })
       }
-      try { $settledValue = [string]$vp.Current.Value } catch { $settledValue = $null }
+      try {
+        $rawSettledValue = $vp.Current.Value
+        $settledValue = $(if ($null -ne $rawSettledValue) { [string]$rawSettledValue } else { $null })
+      } catch { $settledValue = $null }
       if ($null -ne $settledValue -and (Test-SSEScalarEqual $settledValue $Value)) {
         $settledEarly = $true
         break
@@ -10596,10 +10635,15 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
       settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
       settledEarly=$settledEarly; observedValue=$settledValue
       mutationStarted=$mutationStarted
+      textBeforeCommitVerified=$textBeforeCommitVerified
+      characterSubstitution=$(if ($textBeforeCommitVerified -eq $true) {
+        Get-SSETrackedCharacterSubstitution $Value $settledValue $textBeforeCommitVerified
+      } else { $null })
     }
     Complete-SSEPhysicalSection $Hwnd
-    # Only a verified own commit advances the parent's checkpoint. In
-    # particular, later reads and an unclassified failure cannot rebase it.
+    # Only a completed, bound physical commit advances the input checkpoint.
+    # The caller separately verifies fiscal value ownership. Later reads or
+    # an unclassified failure cannot rebase the input checkpoint.
     if ($script:SSE_TRACKED_PLAN_INPUT_CONTEXT -and $null -ne $afterCommitInput) {
       $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint = $afterCommitInput
     }
@@ -14265,6 +14309,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $resultWindowClosed = $false
           Emit ([pscustomobject]@{
             ok=$false; kind='interference'
+            verified=$false; resultingState='unknown'; cleanupRequired=$true; retryable=$false
             error='Zielfeld, Seite, Fensterlage, Eingabe-Epoche oder eigener formatierter Wert ist vor dem Rollback nicht mehr eindeutig gebunden. Kein automatischer Rollback.'
             seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
             feld=[pscustomobject]@{

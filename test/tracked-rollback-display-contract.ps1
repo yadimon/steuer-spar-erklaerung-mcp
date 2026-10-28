@@ -5,7 +5,7 @@ Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 . (Join-Path $Repo 'powershell/table-values.ps1')
 $errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($WorkerPath,[ref]$null,[ref]$errors)
 if($errors.Count){throw 'Actual worker source parse failed'}
-foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading','Test-SSELastInputUnchanged')){
+foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading','Test-SSELastInputUnchanged','Get-SSETrackedCharacterSubstitution')){
  $f=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));if($f.Count -ne 1){throw 'Actual helper must be unique'}
  . ([scriptblock]::Create($f[0].Extent.Text))
 }
@@ -89,7 +89,7 @@ function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind,$Inh
  if($script:SSE_TRACKED_PLAN_INPUT_CONTEXT -and $step.method -ceq 'verified-keyboard-replace' -and $null -ne $inputAfter){
   $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint=$inputAfter
  }
- [pscustomobject]@{method=$step.method;inputBefore=$inputBefore;inputAfter=$inputAfter;interference=[bool]$step.interference;inputInterference=[bool]$step.interference;details=[pscustomobject]@{mutationStarted=(-not $step.preserve)}}
+ [pscustomobject]@{method=$step.method;inputBefore=$inputBefore;inputAfter=$inputAfter;interference=[bool]$step.interference;inputInterference=[bool]$step.interference;details=[pscustomobject]@{mutationStarted=(-not $step.preserve);characterSubstitution=$script:fixture.characterSubstitution}}
 }
 function Commit-TrackedValueFocusless($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){Commit-TrackedValue $Hwnd $Node $Value $ExpectedCurrent $ValueKind}
 function Invoke-DisplayCase($Fixture,[bool]$Known=$true){
@@ -308,4 +308,15 @@ if($ownInnerRollback.checkpoint -ne 7 -or $ownInnerRollback.result.inputGuard.na
 $ownedPlan.forward.method='native-input-unsettled'
 $uncertainPlan=Invoke-DisplayCase $ownedPlan
 if($uncertainPlan.result.kind -cne 'interference' -or $uncertainPlan.commits.Count -ne 1 -or $uncertainPlan.result.rollback.versucht -or $uncertainPlan.checkpoint -ne 1){throw 'An unverified partial plan commit was rebased and rolled back'}
+$substituted=New-TextFixture ''
+$substituted.requested='A'+[char]0x03bb+'Z';$substituted.expectedAfter=$substituted.requested
+$substituted.forward.forceRaw=$true;$substituted.forward.raw='A?Z'
+$evidence=Get-SSETrackedCharacterSubstitution $substituted.requested $substituted.forward.raw $true
+if(-not$evidence -or $evidence.confirmsOwnership){throw 'Actual substitution helper missing or incorrectly claims ownership'}
+$substituted|Add-Member NoteProperty characterSubstitution $evidence
+foreach($known in @($true,$false)){
+ $unowned=Invoke-DisplayCase $substituted $known
+ if($unowned.result.kind -cne 'interference' -or $unowned.result.resultingState -cne 'unknown' -or -not $unowned.result.cleanupRequired -or $unowned.result.verified -ne $false -or $unowned.result.retryable -ne $false -or $unowned.commits.Count -ne 1 -or $unowned.result.rollback.versucht -or $unowned.raw -cne 'A?Z' -or
+    -not[object]::ReferenceEquals($unowned.result.commitDetails.characterSubstitution,$evidence)){throw 'Character substitution evidence authorized a third-value rollback, hid its unknown state or lost the actual diagnostic'}
+}
 Write-Output 'Tracked rollback display: forward Name matching, raw/name proof, missing-read refusal, rejected clear and third-value preservation passed.'
