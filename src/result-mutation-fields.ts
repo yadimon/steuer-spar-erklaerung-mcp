@@ -442,6 +442,9 @@ export const MUTATION_OPERATION_RESULT_FIELDS = {
   toggle: TOGGLE_MUTATION_FIELDS,
   tracked_set_value: {
     verified: OPTIONAL_BOOLEAN,
+    resultingState: OPTIONAL_STRING,
+    cleanupRequired: OPTIONAL_BOOLEAN,
+    retryable: OPTIONAL_BOOLEAN,
     pageId: OPTIONAL_STRING,
     fieldId: OPTIONAL_STRING,
     valueKind: OPTIONAL_STRING,
@@ -460,6 +463,7 @@ export const MUTATION_OPERATION_RESULT_FIELDS = {
     ungespeichert: OPTIONAL_BOOLEAN,
     commit: OPTIONAL_STRING,
     commitDetails: OPTIONAL_OBJECT,
+    valueInfo: OPTIONAL_OBJECT,
     focuslessPolicy: OPTIONAL_STRING,
     inputGuard: OPTIONAL_OBJECT,
     fensterGuard: OPTIONAL_OBJECT,

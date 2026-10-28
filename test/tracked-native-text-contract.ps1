@@ -9,7 +9,22 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 namespace System.Windows.Automation {
-  public sealed class ValueState { public bool IsReadOnly; public string Value; }
+  public sealed class ValueState {
+    public bool IsReadOnly;
+    private string value;
+    public string Value {
+      get {
+        if(SW.NativeSent && !SW.TabSent) {
+          SW.PreTabReads++;
+          if(SW.PreTabReadMode==1)return null;
+          if(SW.PreTabReadMode==2)throw new InvalidOperationException("synthetic pre-commit value read unavailable");
+        }
+        if(SW.NativeSent && !SW.TabSent && SW.ForeignDuringPreTabRead) { SW.Tick++; SW.ForeignDuringPreTabRead=false; }
+        return value;
+      }
+      set { this.value=value; }
+    }
+  }
   public sealed class ValuePattern {
     public static readonly object Pattern = new object();
     public ValueState Current = new ValueState();
@@ -43,7 +58,8 @@ namespace System.Windows.Forms {
     public static void SendWait(string keys) {
       SW.Events.Add(keys); SW.Tick++;
       if (keys == "^a") SW.Selected=true;
-      if (keys == "{BACKSPACE}") { SW.Value.Current.Value = ""; SW.Selected=false; }
+      if (keys == "{BACKSPACE}") { SW.Value.Current.Value = ""; SW.Selected=false; SW.NativeSent=true; }
+      if (keys == "{TAB}") { SW.TabSent=true; if(SW.PostTabOverride) SW.Value.Current.Value=SW.PostTabNull?null:SW.PostTabValue; }
     }
   }
 }
@@ -113,6 +129,10 @@ public static class SW {
   public static bool CursorAccepted = true, CursorReadable = true, CursorDrift = false;
   public static int CursorX, CursorY;
   public static string Outcome = "success", LastText, Pending="";
+  public static bool NativeSent=false,TabSent=false,ForeignDuringPreTabRead=false;
+  public static int PreTabReads=0,PreTabReadMode=0;
+  public static bool PostTabOverride=false,PostTabNull=false,InputEchoOverride=false;
+  public static string PostTabValue,InputEcho;
   public static bool IsWindow(IntPtr hwnd) { return Valid; }
   public static IntPtr GetForegroundWindow() { return Foreground; }
   public static uint GetWindowThreadProcessId(IntPtr hwnd, out int pid) { pid=hwnd.ToInt64()==7?100:200; return 1; }
@@ -149,6 +169,8 @@ public static class SW {
         } else { Pending+=text[i]; }
       }
     } else { Value.Current.Value+=Outcome=="success"?text:text.Substring(0,1); }
+    if(InputEchoOverride) Value.Current.Value=InputEcho;
+    NativeSent=true;
     if (Outcome=="throw") throw new InvalidOperationException("partial native failure");
     return Outcome=="success";
   }
@@ -157,7 +179,7 @@ public static class SW {
 '@
 
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$null, [ref]$null)
-foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SSECommitResult','Send-SSETrackedLiteralText','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-SSETrackedCommitPrecondition')) {
+foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SSECommitResult','Send-SSETrackedLiteralText','Get-SSETrackedCharacterSubstitution','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-SSETrackedCommitPrecondition')) {
   $definition = @($ast.FindAll({ param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
   }, $true))
@@ -192,6 +214,9 @@ function Get-SSEWindowTitleText { param($Hwnd) 'foreign-test-window' }
 function Get-SSETextSha256 { param($Text) 'test-fingerprint' }
 
 function Reset-TestState {
+  [SW]::NativeSent=$false;[SW]::TabSent=$false;[SW]::ForeignDuringPreTabRead=$false
+  [SW]::PreTabReads=0;[SW]::PreTabReadMode=0
+  [SW]::PostTabOverride=$false;[SW]::PostTabNull=$false;[SW]::PostTabValue=$null;[SW]::InputEchoOverride=$false;[SW]::InputEcho=$null
   $script:DESKTOP_NAME = ''
   $script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$null
   $script:showCalls=0;$script:inputDuringShow=$false
@@ -778,4 +803,58 @@ foreach($case in @(
  Assert-True (([SW]::Events -join '|') -ceq $case.events -and $script:showCalls -eq $case.shows -and $script:completed -eq $case.completed) 'Standalone reverse input replayed keys, raised after lost ownership or lost physical cleanup.'
  Assert-True ($null -eq $script:SSE_TRACKED_PLAN_INPUT_CONTEXT) 'Standalone reverse input created or retained a plan context.'
 }
+# Observe real pre-/post-TAB definitions, not an echo of the input argument.
+# This pattern explains a failed commit without asserting ownership of its
+# substituted value or changing the accepted input/rollback contracts.
+$westernProbe=-join [char[]]@(0x41,0x00e4,0x00d6,0x00df,0x20ac,0x2122,0x5a)
+$greekProbe=[string][char]0x03bb
+$supplementaryProbe=-join [char[]]@(0xd83d,0xde80)
+foreach($case in @(
+ @{id='unchanged-western';requested=$westernProbe;observed=$westernProbe;count=0;proof=$true},
+ @{id='bmp-substitution';requested=('A'+$greekProbe+'Z');observed='A?Z';count=1;proof=$true},
+ @{id='surrogate-substitution';requested=('A'+$supplementaryProbe+'Z');observed='A??Z';count=2;proof=$true},
+ @{id='original-question-mark';requested=('A?'+$greekProbe+'Z');observed='A??Z';count=1;proof=$true},
+ @{id='changed-length';requested=('A'+$greekProbe+'Z');observed='A?';count=0;proof=$true},
+ @{id='different-suffix';requested=('A'+$greekProbe+'Z');observed='A?!';count=0;proof=$true},
+ @{id='ascii-change';requested='AxZ';observed='A?Z';count=0;proof=$null},
+ @{id='ascii-change-with-unicode';requested=('A'+$greekProbe+'Z');observed=('?'+$greekProbe+'Z');count=0;proof=$true},
+ @{id='unproven-pre-tab';requested=('A'+$greekProbe+'Z');observed='A?Z';count=0;proof=$false;echo='Unproven'},
+ @{id='canonical-equivalence-is-not-exact';requested=('A'+[char]0x212b+'Z');observed='A?Z';count=0;proof=$false;echo=('A'+[char]0x00c5+'Z')},
+ @{id='pre-tab-null';requested=('A'+$greekProbe+'Z');observed='A?Z';count=0;proof=$null;preReadMode=1},
+ @{id='pre-tab-throws';requested=('A'+$greekProbe+'Z');observed='A?Z';count=0;proof=$null;preReadMode=2}
+)){
+ Reset-TestState;$script:literalBoundaryPhase='none'
+ $script:node|Add-Member NoteProperty type 'Edit'
+ [SW]::PostTabOverride=$true;[SW]::PostTabValue=$case.observed
+ if($case.ContainsKey('echo')){[SW]::InputEchoOverride=$true;[SW]::InputEcho=$case.echo}
+ if($case.ContainsKey('preReadMode')){[SW]::PreTabReadMode=$case.preReadMode}
+ $result=Commit-TrackedValue ([IntPtr]7) $script:node $case.requested 'before' 'text'
+ Assert-True ($result.method -ceq 'verified-keyboard-replace' -and $result.details.textBeforeCommitVerified -eq $case.proof) ('Commit diagnosis lost its actual pre-TAB read or changed input acceptance: '+$case.id)
+ Assert-True ($result.details.observedValue -ceq $case.observed) 'Commit diagnosis replaced the actual model observation.'
+ Assert-True ((@([SW]::Events|Where-Object {$_ -ceq '{TAB}'})).Count -eq 1 -and [SW]::LastText -ceq $case.requested -and $script:completed -eq 1) 'Commit diagnosis replayed input or omitted physical cleanup.'
+ Assert-True (($null -ne $result.details.characterSubstitution) -eq ($case.count -gt 0)) ('Unproven or unrelated model change was classified as character substitution: '+$case.id)
+ if($case.count -gt 0){
+  Assert-True ($result.details.characterSubstitution.changedUtf16Units -eq $case.count -and $result.details.characterSubstitution.stage -ceq 'after-tab' -and -not $result.details.characterSubstitution.confirmsOwnership -and -not $result.details.characterSubstitution.retryable) 'Character diagnosis changed ownership/retry semantics or lost surrogate-unit precision.'
+ }
+}
+Reset-TestState;$script:literalBoundaryPhase='none'
+$script:node|Add-Member NoteProperty type 'Edit'
+[SW]::PostTabOverride=$true;[SW]::PostTabNull=$true
+$nullModel=Commit-TrackedValue ([IntPtr]7) $script:node '' 'before' 'text'
+Assert-True ($nullModel.method -ceq 'verified-keyboard-replace' -and $null -eq $nullModel.details.textBeforeCommitVerified -and $null -eq $nullModel.details.observedValue -and -not $nullModel.details.settledEarly -and $null -eq $nullModel.details.characterSubstitution) 'An unreadable post-TAB value became a verified empty model observation.'
+Reset-TestState;$script:literalBoundaryPhase='none'
+$script:node|Add-Member NoteProperty type 'Edit'
+[SW]::ForeignDuringPreTabRead=$true
+$readInterference=Commit-TrackedValue ([IntPtr]7) $script:node ('A'+$greekProbe+'Z') 'before' 'text'
+Assert-True ($readInterference.method -ceq 'interference-before-commit' -and $readInterference.inputInterference -and $readInterference.details.mutationStarted -and ([SW]::Events -join '|') -ceq '^a|unicode' -and $script:completed -eq 1) 'Input during the diagnostic read was absorbed or followed by TAB.'
+Reset-TestState;$script:literalBoundaryPhase='none'
+$script:node|Add-Member NoteProperty type 'Edit'
+[SW]::ForeignDuringPreTabRead=$true
+$asciiControl=Commit-TrackedValue ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text'
+Assert-True ($asciiControl.method -ceq 'verified-keyboard-replace' -and [SW]::PreTabReads -eq 0 -and [SW]::ForeignDuringPreTabRead -and $null -eq $asciiControl.details.textBeforeCommitVerified -and ([SW]::Events -join '|') -ceq '^a|unicode|{TAB}') 'ASCII input acquired a diagnostic provider read or new interference behavior.'
+Initialize-DataItemFixture 'before' 'before';$script:literalBoundaryPhase='none'
+[SW]::ForeignDuringPreTabRead=$true
+$dataItemControl=Commit-TrackedValue ([IntPtr]7) $script:node ('A'+$greekProbe+'Z') ([pscustomobject]@{raw='before';name='before';value='before'}) 'text'
+Assert-True ($dataItemControl.method -ceq 'verified-keyboard-replace' -and [SW]::PreTabReads -eq 0 -and [SW]::ForeignDuringPreTabRead -and $null -eq $dataItemControl.details.textBeforeCommitVerified -and (@([SW]::Events|Where-Object {$_ -ceq '{TAB}'})).Count -eq 1) 'DataItem input acquired the new Edit-only diagnostic read or lost its supported commit path.'
+Write-Output 'Tracked commit diagnosis: actual pre-TAB proof, non-owning substitution evidence, null preservation and input-during-read stop passed.'
 Write-Output 'Tracked native text: literal transport, readback, guards, partial failures and receipt rollback passed.'

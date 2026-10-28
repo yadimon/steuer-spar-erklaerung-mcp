@@ -82,6 +82,12 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   bereits geprüfte Eingabemarke und gibt seine letzte eigene Marke zurück.
   Ein Helferwechsel ohne eigene Eingabe setzt diese Grenze nicht zurück;
   erkannte Abweichungen stoppen weitere Eingaben.
+- **Commitdiagnose bei Textfeldern:** Ein frischer Rohtext vor TAB kann eine
+  anschließend beobachtete Ersetzung von Unicode-Zeichen
+  durch Fragezeichen eingrenzen. Dieser Hinweis begründet kein Eigentum am
+  abweichenden Wert und erlaubt keine blinde Rücknahme. Eine verweigerte
+  Rücknahme wegen unbewiesener Bindung bezeichnet den Ausgang ausdrücklich als
+  unbekannt. Unlesbare Modellwerte werden nicht zu bestätigten Leerwerten.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -122,6 +128,11 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Unicode-Latenzen beseitigt ist. Weitere blockierende Provider-Aufrufe
   benötigen gezielte Nachweise. Ein erfolgreicher Folgelauf erklärt einen
   früheren Ausreißer nicht rückwirkend.
+- Eine beobachtete Zeichenersetzung beim TAB-/Modellcommit ist von der
+  Unicode-Zustellung in das Edit-Feld zu unterscheiden. Der Diagnosehinweis
+  behebt diese Ersetzung nicht und belegt keine allgemeine Hersteller- oder
+  Zeichensatzgrenze. Es gibt keinen pauschalen Zeichenfilter; eine solche
+  Einschränkung benötigte weitere feld- und profilgebundene Nachweise.
 - Synchron blockierende Provider-/OS-Aufrufe können den Abschluss verzögern.
   Kurze Caller-Budgets können einen unbekannten Transportausgang liefern.
   Unbewiesenes Cleanup und begonnene ungewisse Änderungen bleiben gesperrt,

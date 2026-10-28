@@ -339,6 +339,17 @@ Dabei wird der tatsächliche Markervergleich geladen; eine fremde Marke darf
 auch nicht als eigene Marke in der Vordergrundbindung gespeichert werden.
 Ein zusätzlicher Gegenfall mit gepufferten Unicode-Blöcken verlangt die
 letzte eigene Blockmarke und verhindert TAB nach der erkannten Störung.
+`tracked-native-text-contract.ps1` führt außerdem die tatsächlichen Commit-
+und Diagnosefunktionen mit frisch gelesenen Vor-TAB-Werten und veränderten
+Nachwerten aus. Westliche Zeichen, BMP-/Surrogat-Ersetzung, vorhandene
+Fragezeichen, andere Längen oder Suffixe, ASCII-Abweichungen sowie unlesbare
+oder fehlende Vor-TAB-Nachweise werden getrennt geprüft. ASCII- und DataItem-
+Gegenfälle bestätigen, dass sie die zusätzliche Lesung auslassen.
+Ein echter CLR-Nullwert nach TAB
+darf nicht als bestätigter Leerwert erscheinen; Fremdeingabe während der
+Diagnoselesung verhindert TAB. `tracked-rollback-display-contract.ps1` führt
+das echte Feldkommando mit diesem Diagnosehinweis aus: Ein abweichender
+Drittwert erlaubt weiterhin keine Rücknahme und bleibt abgleichpflichtig.
 Diese Fälle prüfen den produktiven Kontrollfluss an Testgrenzen; sie belegen
 keine Zustellung echter Betriebssystemeingaben.
 Alle dabei verwendeten Fenster-, Eingabe- und Nachrichtenmethoden sind
