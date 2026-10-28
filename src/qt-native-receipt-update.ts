@@ -5,8 +5,8 @@ import { SSE_MCP_RECEIPT_SCHEMAS } from "./mcp-schemas-receipts.js";
 import { QtNativeAcknowledgmentError, QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import type { QtSnapshotNode } from "./qt-native-snapshot.js";
 import {
-  detailBindingFingerprint, detailIdentityMatches, exactDetailClose, fail, receiptDetailSnapshot,
-  receiptDirtyState, receiptEditableValues, receiptList, receiptPolicySchema, receiptState,
+  detailBindingFingerprint, detailIdentityMatches, exactDetailClose, fail, receiptDetailFields, receiptDetailSnapshot,
+  receiptDirtyState, receiptEditableValues, receiptList, receiptPolicySchema, receiptReadableFieldNode, receiptState,
   receiptWindowSet, sameSemanticRow, type ReceiptListProjection, type ReceiptRow,
 } from "./qt-native-receipts.js";
 
@@ -62,21 +62,22 @@ function validDate(value: string): boolean {
   return year! > 0 && date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
 }
 
+function readableFieldNode(detail: Detail, policy: Policy, field: Field): QtSnapshotNode {
+  const node = receiptReadableFieldNode(detail.nodes, policy.controls.editableFields[field]);
+  if (!node) throw new ReceiptUpdateError(`The exact readable receipt field '${field}' is not unique.`, "stale");
+  return node;
+}
+
 function fieldNode(detail: Detail, policy: Policy, field: Field): QtSnapshotNode {
-  const definition = policy.controls.editableFields[field];
-  const matches = detail.nodes.filter(node => node.aid.endsWith(definition.automationIdSuffix)
-    && node.type === definition.controlType && node.w > 0 && node.h > 0 && node.on
-    && (field === "net" ? typeof node.checked === "boolean" : node.ro === false && node.val !== null));
-  if (matches.length !== 1) throw new ReceiptUpdateError(`The exact writable receipt field '${field}' is not unique.`, "stale");
-  return matches[0]!;
+  const node = readableFieldNode(detail, policy, field);
+  if (field !== "net" && node.ro !== false) throw new ReceiptUpdateError(`The exact receipt field '${field}' is not writable.`, "stale");
+  return node;
 }
 
 function rawReceiptValues(detail: Detail, policy: Policy, selectedFields: readonly Field[]): Values {
   return Object.fromEntries(selectedFields.map(field => {
-    const definition = policy.controls.editableFields[field];
-    const node = detail.nodes.find(node => node.aid.endsWith(definition.automationIdSuffix)
-      && node.type === definition.controlType && node.w > 0 && node.h > 0 && node.on)!;
-    return [field, field === "net" ? node.checked : node.val ?? node.name];
+    const node = readableFieldNode(detail, policy, field);
+    return [field, field === "net" ? node.checked : node.val];
   }));
 }
 
@@ -237,7 +238,13 @@ export async function executeQtNativeReceiptManagerUpdate(
 
   try {
     let detail = before;
-    if (!detailIdentityMatches(receiptEditableValues(detail.nodes, policy).values, rowBefore, policy)) {
+    const initialValues = receiptEditableValues(detail.nodes, policy);
+    if (!initialValues.complete && (exactDetailClose(detail.nodes, policy).length > 0 || receiptDetailFields(detail.nodes).length > 0)) {
+      return { ok: false, kind: "stale", error: "Already-open receipt detail is unreadable; reconcile before another action. Do not replay.",
+        ...common(), outcomeUnknown: false, resultingState: "unknown", retryable: false,
+        detailClosed: false, cleanupRequired: true, verified: false };
+    }
+    if (!detailIdentityMatches(initialValues.values, rowBefore, policy)) {
       const target = detail.nodes.filter(node => node.rid === rowBefore.rowRid && node.type === "DataItem"
         && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.name === rowBefore.primaryText);
       if (target.length !== 1) return fail("stale", "The exact receipt cell is not visible and unique; no action dispatched.");

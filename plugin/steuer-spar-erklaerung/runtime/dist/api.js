@@ -30534,24 +30534,36 @@ function receiptDetailFields(nodes) {
     selected: node2.selected
   }));
 }
+function receiptVatRate(value) {
+  if (value === "") return "0";
+  return /^[\s\u0085\uFEFF]*(0|7|19)(?:[.,]0+)?(?:[\s\u0085\uFEFF]*%)?[\s\u0085\uFEFF]*$/u.exec(value)?.[1] ?? null;
+}
+function receiptReadableFieldNode(nodes, field) {
+  const matches = nodes.filter((node3) => node3.aid.endsWith(field.automationIdSuffix) && node3.type === field.controlType && node3.w > 0 && node3.h > 0 && node3.on);
+  if (matches.length !== 1) return null;
+  const node2 = matches[0];
+  return (field.valueKind === "boolean" ? typeof node2.checked === "boolean" : typeof node2.val === "string") ? node2 : null;
+}
 function receiptEditableValues(nodes, policy) {
   const values = {};
   for (const [name, field] of Object.entries(policy.controls.editableFields)) {
-    const matches = nodes.filter((node3) => node3.aid.endsWith(field.automationIdSuffix) && node3.type === field.controlType && node3.w > 0 && node3.h > 0 && node3.on);
-    if (matches.length !== 1) return { complete: false, values: null };
-    const node2 = matches[0];
+    const node2 = receiptReadableFieldNode(nodes, field);
+    if (!node2) return { complete: false, values: null };
     if (field.valueKind === "boolean") {
       if (typeof node2.checked !== "boolean") return { complete: false, values: null };
       values[name] = node2.checked;
       continue;
     }
-    let value = String(node2.val ?? node2.name);
+    if (typeof node2.val !== "string") return { complete: false, values: null };
+    let value = node2.val;
     if (field.valueKind === "date") {
       const match = /^(?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$/u.exec(value.trim());
       if (match?.groups) value = `${match.groups.year}-${match.groups.month}-${match.groups.day}`;
       else value = value.trim();
     } else if (field.valueKind === "vat-rate") {
-      value = value.replace(/[^0-9]/gu, "") || "0";
+      const rate = receiptVatRate(value);
+      if (rate === null) return { complete: false, values: null };
+      value = rate;
     }
     values[name] = value;
   }
@@ -30574,7 +30586,7 @@ function detailIdentityMatches(values, row, policy) {
   return Boolean(values && values.title === receiptDetailTitle(row, policy) && (!row.documentNumber || values.documentNumber === row.documentNumber));
 }
 function detailBindingFingerprint(values) {
-  if (!values) return null;
+  if (!values || typeof values.net !== "boolean" || ["title", "date", "documentNumber", "amount", "vatRate", "note"].some((name) => typeof values[name] !== "string") || !["0", "7", "19"].includes(values.vatRate)) return null;
   return receiptFingerprint({
     title: String(values.title),
     date: String(values.date),
@@ -31001,17 +31013,20 @@ function validDate(value) {
   date5.setUTCFullYear(year, month - 1, day);
   return year > 0 && date5.getUTCFullYear() === year && date5.getUTCMonth() + 1 === month && date5.getUTCDate() === day;
 }
+function readableFieldNode(detail, policy, field) {
+  const node2 = receiptReadableFieldNode(detail.nodes, policy.controls.editableFields[field]);
+  if (!node2) throw new ReceiptUpdateError(`The exact readable receipt field '${field}' is not unique.`, "stale");
+  return node2;
+}
 function fieldNode(detail, policy, field) {
-  const definition = policy.controls.editableFields[field];
-  const matches = detail.nodes.filter((node2) => node2.aid.endsWith(definition.automationIdSuffix) && node2.type === definition.controlType && node2.w > 0 && node2.h > 0 && node2.on && (field === "net" ? typeof node2.checked === "boolean" : node2.ro === false && node2.val !== null));
-  if (matches.length !== 1) throw new ReceiptUpdateError(`The exact writable receipt field '${field}' is not unique.`, "stale");
-  return matches[0];
+  const node2 = readableFieldNode(detail, policy, field);
+  if (field !== "net" && node2.ro !== false) throw new ReceiptUpdateError(`The exact receipt field '${field}' is not writable.`, "stale");
+  return node2;
 }
 function rawReceiptValues(detail, policy, selectedFields) {
   return Object.fromEntries(selectedFields.map((field) => {
-    const definition = policy.controls.editableFields[field];
-    const node2 = detail.nodes.find((node3) => node3.aid.endsWith(definition.automationIdSuffix) && node3.type === definition.controlType && node3.w > 0 && node3.h > 0 && node3.on);
-    return [field, field === "net" ? node2.checked : node2.val ?? node2.name];
+    const node2 = readableFieldNode(detail, policy, field);
+    return [field, field === "net" ? node2.checked : node2.val];
   }));
 }
 function reboundRow(list, values, policy) {
@@ -31189,7 +31204,22 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
   });
   try {
     let detail = before;
-    if (!detailIdentityMatches(receiptEditableValues(detail.nodes, policy).values, rowBefore, policy)) {
+    const initialValues = receiptEditableValues(detail.nodes, policy);
+    if (!initialValues.complete && (exactDetailClose(detail.nodes, policy).length > 0 || receiptDetailFields(detail.nodes).length > 0)) {
+      return {
+        ok: false,
+        kind: "stale",
+        error: "Already-open receipt detail is unreadable; reconcile before another action. Do not replay.",
+        ...common(),
+        outcomeUnknown: false,
+        resultingState: "unknown",
+        retryable: false,
+        detailClosed: false,
+        cleanupRequired: true,
+        verified: false
+      };
+    }
+    if (!detailIdentityMatches(initialValues.values, rowBefore, policy)) {
       const target = detail.nodes.filter((node2) => node2.rid === rowBefore.rowRid && node2.type === "DataItem" && node2.aid.endsWith(policy.list.tableAutomationIdSuffix) && node2.name === rowBefore.primaryText);
       if (target.length !== 1) return fail5("stale", "The exact receipt cell is not visible and unique; no action dispatched.");
       selectionBinding = await action(target[0], "activate-table-cell");

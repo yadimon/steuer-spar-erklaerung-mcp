@@ -350,6 +350,22 @@ darf nicht als bestätigter Leerwert erscheinen; Fremdeingabe während der
 Diagnoselesung verhindert TAB. `tracked-rollback-display-contract.ps1` führt
 das echte Feldkommando mit diesem Diagnosehinweis aus: Ein abweichender
 Drittwert erlaubt weiterhin keine Rücknahme und bleibt abgleichpflichtig.
+Die tatsächlichen BelegManager-Reader werden zusätzlich im PowerShell-Vertrag
+und in `qt-native-receipt-update.mjs` geprüft: unbekannte Rohwerte, echte
+Leerwerte, gültige und ungültige USt-Darstellungen sowie typisierte und
+unbestimmte Checkboxzustände. Ein gemeinsamer synthetischer Prüfvektor bindet
+den unveränderten Fingerprint lesbarer Werte beider Backends. Die native
+Update-Komposition muss bei einem unlesbaren Nachbarfeld auch mit leerer
+beziehungsweise Nullsatz-Vorgabe vor jeder fachlichen Änderung stoppen.
+Lesbare schreibgeschützte Felder bleiben für No-op- und Nachwertnachweise
+verwendbar. Unbestätigte Details bleiben abgleichpflichtig und erlauben keinen
+automatischen Schließschritt.
+Bereits geöffnete unlesbare Details erlauben auch keine Zeilenaktivierung;
+die Komposition prüft das mit und ohne sichtbaren Schließknopf.
+Die tatsächlichen USt-Clear-Helfer und ihre
+Ergebnisübergabe werden zusätzlich mit ausgeführter Eingabe, verweigerter
+Eingabe und unlesbarem Nachwert geprüft; ein Nullwert bestätigt keinen Nullsatz
+und löscht keinen bereits begonnenen Eingriff aus dem Ergebnis.
 Diese Fälle prüfen den produktiven Kontrollfluss an Testgrenzen; sie belegen
 keine Zustellung echter Betriebssystemeingaben.
 Alle dabei verwendeten Fenster-, Eingabe- und Nachrichtenmethoden sind

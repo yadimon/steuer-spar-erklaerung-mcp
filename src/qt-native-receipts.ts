@@ -262,25 +262,40 @@ export function receiptDetailFields(nodes: QtSnapshotNode[]) {
     }));
 }
 
+function receiptVatRate(value: string): string | null {
+  if (value === "") return "0";
+  // Align the JavaScript and .NET whitespace sets, including NEL and BOM.
+  return /^[\s\u0085\uFEFF]*(0|7|19)(?:[.,]0+)?(?:[\s\u0085\uFEFF]*%)?[\s\u0085\uFEFF]*$/u.exec(value)?.[1] ?? null;
+}
+
+export function receiptReadableFieldNode(nodes: QtSnapshotNode[], field: z.infer<typeof receiptPolicySchema>["controls"]["editableFields"]["title"]) {
+  const matches = nodes.filter(node => node.aid.endsWith(field.automationIdSuffix)
+    && node.type === field.controlType && node.w > 0 && node.h > 0 && node.on);
+  if (matches.length !== 1) return null;
+  const node = matches[0]!;
+  return (field.valueKind === "boolean" ? typeof node.checked === "boolean" : typeof node.val === "string") ? node : null;
+}
+
 export function receiptEditableValues(nodes: QtSnapshotNode[], policy: z.infer<typeof receiptPolicySchema>) {
   const values: Record<string, unknown> = {};
   for (const [name, field] of Object.entries(policy.controls.editableFields)) {
-    const matches = nodes.filter(node => node.aid.endsWith(field.automationIdSuffix)
-      && node.type === field.controlType && node.w > 0 && node.h > 0 && node.on);
-    if (matches.length !== 1) return { complete: false, values: null };
-    const node = matches[0]!;
+    const node = receiptReadableFieldNode(nodes, field);
+    if (!node) return { complete: false, values: null };
     if (field.valueKind === "boolean") {
       if (typeof node.checked !== "boolean") return { complete: false, values: null };
       values[name] = node.checked;
       continue;
     }
-    let value = String(node.val ?? node.name);
+    if (typeof node.val !== "string") return { complete: false, values: null };
+    let value = node.val;
     if (field.valueKind === "date") {
       const match = /^(?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$/u.exec(value.trim());
       if (match?.groups) value = `${match.groups.year}-${match.groups.month}-${match.groups.day}`;
       else value = value.trim();
     } else if (field.valueKind === "vat-rate") {
-      value = value.replace(/[^0-9]/gu, "") || "0";
+      const rate = receiptVatRate(value);
+      if (rate === null) return { complete: false, values: null };
+      value = rate;
     }
     values[name] = value;
   }
@@ -316,7 +331,9 @@ export function detailIdentityMatches(values: Record<string, unknown> | null, ro
 }
 
 export function detailBindingFingerprint(values: Record<string, unknown> | null) {
-  if (!values) return null;
+  if (!values || typeof values.net !== "boolean"
+    || ["title", "date", "documentNumber", "amount", "vatRate", "note"].some(name => typeof values[name] !== "string")
+    || !["0", "7", "19"].includes(values.vatRate as string)) return null;
   return receiptFingerprint({
     title: String(values.title),
     date: String(values.date),

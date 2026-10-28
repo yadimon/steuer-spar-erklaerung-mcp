@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { executeQtNativeOperation, isQtNativeOperation } from "../dist/qt-native-executor.js";
-import { detailBindingFingerprint, receiptList, receiptPolicySchema } from "../dist/qt-native-receipts.js";
+import { detailBindingFingerprint, receiptEditableValues, receiptList, receiptPolicySchema } from "../dist/qt-native-receipts.js";
 import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
@@ -11,10 +11,61 @@ const initial = { title: "Synthetic receipt", date: "2025-01-01", documentNumber
 const requested = { title: "Literal +^%~(){}[] äÖß Україна 🚀", date: "2025-01-15", documentNumber: "DOC-2",
   amount: "13.4", vatRate: "7", net: true, note: "Ελληνικά 🚀\nSecond line" };
 
+function valueProjection() {
+  const raw = { ...initial, date: "01.01.2025", vatRate: "19 %" };
+  return Object.entries(policy.controls.editableFields).map(([field, definition], index) => ({
+    i: index, p: -1, d: 0, rid: `42.84.4.${index + 1}`, aid: "synthetic" + definition.automationIdSuffix,
+    type: definition.controlType, x: 10, y: 10 + index * 20, w: 80, h: 20, on: true, ro: false,
+    val: field === "net" ? null : raw[field], checked: field === "net" ? raw[field] : null,
+    name: "Synthetic label", selected: null, scroll: null,
+  }));
+}
+const valueNode = (nodes, field) => nodes.find(node => node.aid.endsWith(policy.controls.editableFields[field].automationIdSuffix));
+assert.deepEqual(receiptEditableValues(valueProjection(), policy), { complete: true, values: initial });
+assert.equal(detailBindingFingerprint(initial), "57BC14D1E559B85E45F34FD6B09D39B44A08C52C3EA8D9DE4213560D193DD1CA",
+  "Known readable fingerprints must remain byte-compatible across both backends");
+for (const field of ["title", "date", "documentNumber", "amount", "vatRate", "note"]) {
+  const nodes = valueProjection(); valueNode(nodes, field).val = null;
+  assert.deepEqual(receiptEditableValues(nodes, policy), { complete: false, values: null }, field);
+  assert.equal(detailBindingFingerprint({ ...initial, [field]: null }), null, field);
+}
+for (const checked of [null, "unbestimmt", "false", "true", 0, 1]) {
+  const nodes = valueProjection(); valueNode(nodes, "net").checked = checked;
+  assert.deepEqual(receiptEditableValues(nodes, policy), { complete: false, values: null });
+  assert.equal(detailBindingFingerprint({ ...initial, net: checked }), null);
+}
+for (const [raw, expected] of [["", "0"], ["0", "0"], ["0 %", "0"], ["7", "7"], ["7 %", "7"],
+  ["19", "19"], ["19 %", "19"], ["19,00 %", "19"], [" 7.000 % ", "7"],
+  ["\u008519 %\uFEFF", "19"], ["\u00A07\u202F%", "7"]]) {
+  const nodes = valueProjection(); valueNode(nodes, "vatRate").val = raw;
+  const values = receiptEditableValues(nodes, policy);
+  assert.equal(values.complete, true); assert.equal(values.values.vatRate, expected);
+}
+for (const raw of [null, "Synthetic label", "%", "1 9", "1900", "19,7", "10", "  ", 0, false]) {
+  const nodes = valueProjection(); valueNode(nodes, "vatRate").val = raw;
+  assert.deepEqual(receiptEditableValues(nodes, policy), { complete: false, values: null });
+  assert.equal(detailBindingFingerprint({ ...initial, vatRate: raw }), null);
+}
+for (const checked of [false, true]) {
+  const nodes = valueProjection(); valueNode(nodes, "net").checked = checked; valueNode(nodes, "note").val = "";
+  assert.deepEqual(receiptEditableValues(nodes, policy), { complete: true, values: { ...initial, net: checked, note: "" } });
+}
+const missingNote = { ...initial }; delete missingNote.note;
+assert.equal(detailBindingFingerprint(missingNote), null);
+for (const field of ["note", "net"]) {
+  for (const unreadableDuplicate of [false, true]) {
+    const nodes = valueProjection(), original = valueNode(nodes, field);
+    nodes.push({ ...original, rid: "42.84.999", val: unreadableDuplicate ? null : original.val,
+      checked: unreadableDuplicate ? null : original.checked });
+    assert.deepEqual(receiptEditableValues(nodes, policy), { complete: false, values: null },
+      "An unreadable duplicate must not disappear from the unique-field proof");
+  }
+}
+
 function fixture(options = {}) {
   const beforeValues = { ...initial, ...options.initialValues };
   const values = { ...beforeValues }, actions = [];
-  let open = false, closed = false;
+  let open = Boolean(options.alreadyOpen), closed = false;
   const makeNodes = () => {
     const nodes = [];
     const add = (type, name, aid, extra = {}) => {
@@ -42,9 +93,12 @@ function fixture(options = {}) {
         const value = field === "date" ? values.date.split("-").reverse().join(".")
           : field === "vatRate" ? values.vatRate === "0" ? "" : values.vatRate + " %" : values[field];
         add(definition.controlType, field === "net" ? "Netto" : "", "receipt.widget_detailPanel" + definition.automationIdSuffix,
-          field === "net" ? { checked: value } : { val: value, ro: options.readOnlyField === field });
+          field === "net" ? { checked: value }
+            : { val: options.unreadableField === field ? null : value,
+              ro: options.readOnlyField === field || Boolean(options.readOnlyAfterEdit && field === "title"
+                && actions.some(action => action.action === "replace-edit-text")) });
       }
-      add("Button", policy.controls.detailClose.expectedName, "receipt.widget_detailPanel" + policy.controls.detailClose.automationIdSuffix);
+      if (!options.omitDetailClose) add("Button", policy.controls.detailClose.expectedName, "receipt.widget_detailPanel" + policy.controls.detailClose.automationIdSuffix);
     }
     return nodes;
   };
@@ -159,6 +213,51 @@ for (const overrides of [{ expectedListFingerprint: "0".repeat(64) }, { rowFinge
 const incomplete = fixture({ incomplete: true });
 assert.equal((await incomplete.update()).kind, "native-incomplete");
 assert.equal(incomplete.actions.length, 0);
+for (const [field, initialValues] of [["note", { note: "" }], ["vatRate", { vatRate: "0" }], ["amount", { amount: "" }]]) {
+  const unreadable = fixture({ unreadableField: field, initialValues });
+  const refused = await unreadable.update({ values: { title: "Updated" } });
+  assert.equal(refused.ok, false, "A missing raw value must block the actual receipt update, including empty/zero expectations");
+  assert.equal(refused.verified, false);
+  assert.equal(refused.persistentMutationStarted, false);
+  assert.equal(refused.detailClosed, false);
+  assert.equal(refused.cleanupRequired, true);
+  assert.equal(refused.resultingState, "unknown");
+  assert.equal(unreadable.actions.filter(action => action.action === "press").length, 0,
+    "Unproven detail values must not authorize a close/commit action");
+  assert.equal(unreadable.actions.filter(action => ["replace-edit-text", "toggle-check-box", "select-combo-value"].includes(action.action)).length, 0,
+    "An incomplete neighboring field must not authorize a fiscal edit");
+  assert.equal(unreadable.values.title, initial.title);
+}
+const readableNoop = fixture({ readOnlyField: "title" });
+assert.equal((await readableNoop.update({ values: { title: initial.title } })).ok, true,
+  "Readable fields already at the requested value need no write permission");
+assert.equal(readableNoop.actions.filter(action => action.action === "replace-edit-text").length, 0);
+const readOnlyAfterEdit = fixture({ readOnlyAfterEdit: true });
+const verifiedReadOnly = await readOnlyAfterEdit.update({ values: { title: "Updated" } });
+assert.equal(verifiedReadOnly.ok, true, "Final evidence needs readability after a verified edit");
+assert.equal(verifiedReadOnly.verified, true);
+assert.equal(readOnlyAfterEdit.actions.filter(action => action.action === "replace-edit-text").length, 1);
+assert.equal(readOnlyAfterEdit.values.title, "Updated");
+for (const [field, initialValues] of [["note", { note: "" }], ["vatRate", { vatRate: "0" }], ["amount", { amount: "" }]]) {
+  for (const omitDetailClose of [false, true]) {
+    const alreadyOpen = fixture({ alreadyOpen: true, unreadableField: field, initialValues, omitDetailClose });
+    const refused = await alreadyOpen.update({ values: { title: "Updated" } });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.mutationStarted, false);
+    assert.equal(refused.persistentMutationStarted, false);
+    assert.equal(refused.outcomeUnknown, false, "The call dispatched no action");
+    assert.equal(refused.resultingState, "unknown", "The existing detail still needs reconciliation");
+    assert.equal(refused.retryable, false);
+    assert.equal(refused.cleanupRequired, true);
+    assert.equal(refused.detailClosed, false);
+    assert.equal(refused.verified, false);
+    assert.equal(alreadyOpen.actions.length, 0, "An unreadable open detail must not authorize row activation, editing or closing");
+    assert.equal(alreadyOpen.values.title, initial.title);
+  }
+}
+const alreadyOpen = fixture({ alreadyOpen: true });
+assert.equal((await alreadyOpen.update({ values: { title: "Updated" } })).ok, true);
+assert.deepEqual(alreadyOpen.actions.map(action => action.action), ["replace-edit-text", "press"]);
 const staleDetail = fixture();
 const stale = await staleDetail.update({ expectedDetailFingerprint: "0".repeat(64) });
 assert.equal(stale.ok, false);

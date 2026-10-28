@@ -969,7 +969,22 @@ function Get-SSEReceiptManagerDetailFingerprint($Fields) {
   Get-SSETextSha256 (@($Fields) | ConvertTo-Json -Depth 8 -Compress)
 }
 
+function ConvertTo-SSEReceiptManagerVatRate($Value) {
+  if ($Value -isnot [string]) { return $null }
+  # A readable empty Edit is the product's zero rate. Missing data is not.
+  if ($Value -ceq '') { return '0' }
+  # Align the .NET and JavaScript whitespace sets, including NEL and BOM.
+  $match = [regex]::Match($Value, '^[\s\u0085\uFEFF]*(0|7|19)(?:[.,]0+)?(?:[\s\u0085\uFEFF]*%)?[\s\u0085\uFEFF]*$')
+  if (-not $match.Success) { return $null }
+  [string]$match.Groups[1].Value
+}
+
 function ConvertFrom-SSEReceiptManagerDisplayValue($Value, [string]$ValueKind) {
+  if ($ValueKind -ceq 'boolean') {
+    if ($Value -is [bool]) { return $Value }
+    return $null
+  }
+  if ($Value -isnot [string]) { return $null }
   switch ($ValueKind) {
     'date' {
       $text = ([string]$Value).Trim()
@@ -980,8 +995,7 @@ function ConvertFrom-SSEReceiptManagerDisplayValue($Value, [string]$ValueKind) {
       return $text
     }
     'vat-rate' {
-      $digits = ([string]$Value -replace '[^0-9]', '')
-      return $(if ($digits) { $digits } else { '0' })
+      return ConvertTo-SSEReceiptManagerVatRate $Value
     }
     default { return $Value }
   }
@@ -1000,8 +1014,10 @@ function Get-SSEReceiptManagerEditableValues($State, $Policy) {
     })
     if ($matches.Count -ne 1) { $complete = $false; continue }
     $resolved = [pscustomobject]@{ name=$fieldName; policy=$fieldPolicy; node=$matches[0] }
-    $values[$fieldName] = ConvertFrom-SSEReceiptManagerDisplayValue `
+    $value = ConvertFrom-SSEReceiptManagerDisplayValue `
       (Get-SSEReceiptManagerFieldValue $resolved) ([string]$fieldPolicy.valueKind)
+    if ($null -eq $value) { $complete = $false; continue }
+    $values[$fieldName] = $value
   }
   [pscustomobject]@{ complete=$complete; values=$(if ($complete) { [pscustomobject]$values } else { $null }) }
 }
@@ -1197,10 +1213,14 @@ function ConvertTo-SSEReceiptManagerInputValue([string]$FieldName, $Value, [stri
 }
 
 function Get-SSEReceiptManagerFieldValue($ResolvedField) {
-  if ([string]$ResolvedField.policy.valueKind -ceq 'boolean') { return [bool]$ResolvedField.node.checked }
+  if (-not $ResolvedField -or -not $ResolvedField.policy -or -not $ResolvedField.node) { return $null }
+  if ([string]$ResolvedField.policy.valueKind -ceq 'boolean') {
+    if ($ResolvedField.node.checked -is [bool]) { return $ResolvedField.node.checked }
+    return $null
+  }
   $value = $ResolvedField.node.val
-  if ($null -eq $value) { $value = [string]$ResolvedField.node.name }
-  [string]$value
+  if ($value -isnot [string]) { return $null }
+  $value
 }
 
 function Get-SSEReceiptManagerLiveEditableField([IntPtr]$Window, $Binding) {
@@ -1256,15 +1276,13 @@ function Set-SSEReceiptManagerVatRateSelection(
   $State,
   $Policy,
   $ResolvedField,
-  [AllowEmptyString()][string]$ExpectedCurrent,
-  [AllowEmptyString()][string]$Wanted,
+  [AllowNull()][AllowEmptyString()]$ExpectedCurrent,
+  [AllowNull()][AllowEmptyString()]$Wanted,
   [int]$WaitMs
 ) {
   $normalizeRate = {
-    param([AllowEmptyString()][string]$Value)
-    $digits = ($Value -replace '[^0-9]', '')
-    if (-not $digits) { return '0' }
-    [string]$digits
+    param($Value)
+    ConvertTo-SSEReceiptManagerVatRate $Value
   }
   $expectedRate = & $normalizeRate $ExpectedCurrent
   $wantedRate = & $normalizeRate $Wanted
@@ -1282,7 +1300,9 @@ function Set-SSEReceiptManagerVatRateSelection(
     if ([string]$clearCommit.method -cne 'verified-keyboard-replace') {
       return [pscustomobject]@{
         ok=$false; error="USt-Nullsatz-Commit meldete '$([string]$clearCommit.method)'."
-        method=[string]$clearCommit.method; before=$expectedRate; requested='0'; mutationStarted=$false
+        method=[string]$clearCommit.method; before=$expectedRate; requested='0'
+        mutationStarted=[bool]$clearCommit.details.mutationStarted
+        interference=[bool]$clearCommit.interference; inputInterference=[bool]$clearCommit.inputInterference
       }
     }
     $clearReadback = Wait-SSEReceiptManagerLiveFieldValue `
@@ -1291,8 +1311,9 @@ function Set-SSEReceiptManagerVatRateSelection(
       ok=[bool]$clearReadback.ok
       error=$(if ($clearReadback.ok) { $null } else { 'USt-Nullsatz blieb nach dem Commit nicht leer.' })
       method='verified-keyboard-clear'; before=$expectedRate; requested='0'
-      after=$(if ($clearReadback.ok) { '0' } else { & $normalizeRate ([string]$clearReadback.value) })
-      mutationStarted=[bool]$clearReadback.ok
+      after=(& $normalizeRate $clearReadback.value)
+      mutationStarted=$true
+      interference=[bool]$clearCommit.interference; inputInterference=[bool]$clearCommit.inputInterference
     }
   }
 
@@ -1365,7 +1386,7 @@ function Set-SSEReceiptManagerVatRateSelection(
   catch { $selectionError = $_.Exception.Message }
   $selectionReadback = Wait-SSEReceiptManagerLiveFieldValue `
     $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 150), 300))
-  $afterRate = & $normalizeRate ([string]$selectionReadback.value)
+  $afterRate = & $normalizeRate $selectionReadback.value
   $selected = $(try { [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected } catch { $false })
   $commitMethod = 'expand+selection-item'
   $physicalCommit = $null
@@ -1393,7 +1414,7 @@ function Set-SSEReceiptManagerVatRateSelection(
           (Get-SSELastInputTick) -RequireForeground
         $physicalReadback = Wait-SSEReceiptManagerLiveFieldValue `
           $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-        $afterRate = & $normalizeRate ([string]$physicalReadback.value)
+        $afterRate = & $normalizeRate $physicalReadback.value
         $commitMethod = 'expand+selection-item+verified-list-item-point'
         $physicalCommit = [pscustomobject]@{
           x=[int]$click.x; y=[int]$click.y; sourceHwnd=[int64]$postTargets[0].sourceHwnd
@@ -1407,32 +1428,33 @@ function Set-SSEReceiptManagerVatRateSelection(
     # nachliefern. Erst nach dem bisherigen 1200-ms-Fenster scheitern.
     $lateReadback = Wait-SSEReceiptManagerLiveFieldValue `
       $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-    $afterRate = & $normalizeRate ([string]$lateReadback.value)
+    $afterRate = & $normalizeRate $lateReadback.value
   }
   try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
   $ok = [bool]($afterRate -ceq $wantedRate -and ($selected -or -not $selectionError -or $physicalCommit))
   [pscustomobject]@{
-    ok=$ok; error=$(if ($ok) { $null } else { "USt-Auswahl blieb bei '$afterRate' statt '$wantedRate'." })
+    ok=$ok; error=$(if ($ok) { $null } elseif ($null -eq $afterRate) {
+      'USt-Auswahl konnte nicht bestaetigt werden; der Nachwert ist unbekannt.'
+    } else { "USt-Auswahl blieb bei '$afterRate' statt '$wantedRate'." })
     method=$commitMethod; before=$expectedRate; requested=$wantedRate; after=$afterRate
     semanticSelected=$selected; selectionError=$selectionError
-    mutationStarted=[bool]($null -eq $selectionError -or $physicalCommit -or $afterRate -ne $expectedRate)
+    mutationStarted=[bool]($null -eq $selectionError -or $physicalCommit -or $null -eq $afterRate -or $afterRate -ne $expectedRate)
     optionRates=@($options | ForEach-Object { [string]$_.rate }); physicalCommit=$physicalCommit
     taxOptionDiagnostics=@($taxOptionDiagnostics)
   }
 }
 
 function Test-SSEReceiptManagerFieldValue($Actual, $Expected, [string]$ValueKind) {
+  if ($null -eq $Actual -or $null -eq $Expected) { return $false }
   switch ($ValueKind) {
     'date' { return Test-SSETrackedValueEquivalent ([string]$Actual) ([string]$Expected) 'date' }
     'currency' { return Test-SSETrackedValueEquivalent ([string]$Actual) ([string]$Expected) 'currency' }
     'vat-rate' {
-      $actualDigits = ([string]$Actual -replace '[^0-9]', '')
-      $expectedDigits = ([string]$Expected -replace '[^0-9]', '')
-      if (-not $actualDigits) { $actualDigits = '0' }
-      if (-not $expectedDigits) { $expectedDigits = '0' }
-      return $actualDigits -ceq $expectedDigits
+      $actualRate = ConvertTo-SSEReceiptManagerVatRate $Actual
+      $expectedRate = ConvertTo-SSEReceiptManagerVatRate $Expected
+      return $null -ne $actualRate -and $null -ne $expectedRate -and $actualRate -ceq $expectedRate
     }
-    'boolean' { return [bool]$Actual -eq [bool]$Expected }
+    'boolean' { return $Actual -is [bool] -and $Expected -is [bool] -and $Actual -eq $Expected }
     default { return [string]$Actual -ceq [string]$Expected }
   }
 }
@@ -24236,6 +24258,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $failedField = $transaction.name
           $failedReason = [string]$vatCommit.error + $(if ($vatDiagnostics) { " Beobachtet: $vatDiagnostics" } else { '' })
           $uncertainFieldMutation = [bool]$vatCommit.mutationStarted
+          $failedInputGuard = [bool]$vatCommit.interference
           break
         }
       } elseif ($transaction.kind -ceq 'boolean') {
