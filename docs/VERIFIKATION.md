@@ -231,6 +231,34 @@ Auch ein Fehler während der umgekehrten Rücknahmefolge muss deren weitere
 Schritte beenden. Selbst wieder sichtbar gewordene ursprüngliche Werte heben
 einen erkannten Kontextverlust nicht auf. Der Vertrag ist Teil des Voll- und
 Schnellplans und startet kein Produkt und keine Eingabe.
+Die tatsächliche Kindhülle und der tatsächliche Eingabevergleich prüfen zudem
+Markenwechsel zwischen Vorwärts- und Rücknahmeschritten, innere Kindrücknahmen,
+gültige Nullmarken, DWORD-Überlauf, unlesbare Marken und Kontextverlust beim
+Abschlusslesen. Ein Kindfehler und eine Exception müssen den internen Kontext
+zuverlässig freigeben. Die nativen Textverträge ergänzen die übernommene Marke
+vor und während der Fokusübernahme; der tatsächliche Feldaufrufer wird bis zur
+Commit-Grenze geprüft. Das Öffnen der Werte-Info reicht nur die gespeicherte
+Marke seiner bestätigten eigenen Vorbereitung weiter und wiederholt eine
+bereits begonnene oder ungewisse Aktion nicht.
+Ein Fehler vor dem Klick und eine Interferenz nach dem Klick werden getrennt
+geprüft, bis zum tatsächlichen Feldfehler-Resultat. Eine mögliche Öffnung bleibt
+unbekannt und der bereits gesendete Klick wird nicht als ungesendet ausgegeben.
+Ein eigener Invoke darf seinen unmittelbar erfassten Kandidaten erst nach
+eindeutiger Fensterbestätigung und erhaltener Marke weitergeben. Die Fälle
+trennen fehlende, verspätete und mehrdeutige Fenster, unlesbare Kandidaten,
+Invoke-Fehler nach Aktionsbeginn und eine saubere Ablehnung vor Dispatch.
+Ein gefangener terminaler Emit-Sentinel darf nicht überschrieben werden.
+Der bestehende Invoke-Zugriff außerhalb des Plans und die Knopfbindung des
+Klickwegs bleiben eigene Kontrollfälle.
+`verified-point-failure-contract.ps1` führt die produktiven Cursorhelfer bei
+verweigerter Positionierung, unlesbarer Position und Drift vor dem Dispatch aus.
+Der Transaktionspfad
+behält die Information, dass kein Klick gesendet wurde; der direkte Aufruf
+behält seinen terminalen Fehlervertrag. Auch eine normal zurückkehrende
+Fehlerroutine kann diese Schutzprüfung nicht aufheben.
+In `value-info-window-contract.ps1` durchläuft die Vorbereitung auch die
+tatsächliche Tracking-Hülle sowie Markenwechsel während Baumlesung und
+Fokusvorbereitung, ausgetauschte Knöpfe und ungebundene vorhandene Fenster.
 Er führt außerdem den tatsächlichen globalen Worker-Trap mit einem
 synthetischen Fehler aus. Der Executor-Vertrag prüft dessen strukturierte
 Antwort und eine abgewiesene Worker-Promise getrennt bis zu Ergebnisschema

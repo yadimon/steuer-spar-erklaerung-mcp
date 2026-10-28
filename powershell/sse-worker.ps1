@@ -49,6 +49,7 @@ $script:INIT_TIMINGS = [ordered]@{}
 $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
+$script:SSE_TRACKED_PLAN_INPUT_CONTEXT = $null
 # Operationsname, den der Vorwaermlauf dem Dispatcher gibt, um dessen Rumpf
 # uebersetzen zu lassen. Er kann kein echter Auftrag sein: die Auftragszeile
 # laesst nur '^[a-z][a-z0-9_]{0,63}$' zu, dieser Name faellt bewusst heraus.
@@ -2111,6 +2112,23 @@ function Invoke-SSECapturedOperation([string]$Operation, $Arguments) {
   }
 }
 
+function Invoke-SSETrackedPlanOperation($Arguments, $InputContext) {
+  if ($InputContext -and -not (Test-SSELastInputUnchanged $InputContext.checkpoint)) {
+    return [pscustomobject]@{
+      ok=$false; verified=$false; kind='interference'
+      error='Eigene Eingabe-Epoche zwischen Feldaktionen verloren; NICHT geschrieben.'
+      inputGuard=[pscustomobject]@{
+        vorher=$InputContext.checkpoint; nachher=(Get-SSELastInputTick); eingriffErkannt=$true
+      }
+      mutationStarted=$false
+    }
+  }
+  $previousContext = $script:SSE_TRACKED_PLAN_INPUT_CONTEXT
+  $script:SSE_TRACKED_PLAN_INPUT_CONTEXT = $InputContext
+  try { Invoke-SSECapturedOperation 'tracked_set_value' $Arguments }
+  finally { $script:SSE_TRACKED_PLAN_INPUT_CONTEXT = $previousContext }
+}
+
 function Invoke-SSEMeasuredPlanOperation([string]$Operation, $Arguments, $Metrics) {
   $watch = [Diagnostics.Stopwatch]::StartNew()
   $result = Invoke-SSECapturedOperation $Operation $Arguments
@@ -3123,17 +3141,19 @@ function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y) {
   }
 }
 
-function Assert-SSECursorPoint([int]$X, [int]$Y) {
+function Assert-SSECursorPoint([int]$X, [int]$Y, [scriptblock]$OnFailure = $null) {
   $point = New-Object SW+PT
   if (-not [SW]::GetCursorPos([ref]$point) -or $point.X -ne $X -or $point.Y -ne $Y) {
+    if ($OnFailure) { & $OnFailure 'Der Cursor steht nicht am verifizierten Zielpunkt. NICHT geklickt.' 'interference' }
     Fail 'Der Cursor steht nicht am verifizierten Zielpunkt. NICHT geklickt.' 'interference'
   }
 }
-function Set-SSECursorPoint([int]$X, [int]$Y) {
+function Set-SSECursorPoint([int]$X, [int]$Y, [scriptblock]$OnFailure = $null) {
   if (-not [SW]::SetCursorPos($X, $Y)) {
+    if ($OnFailure) { & $OnFailure 'Windows hat die Cursorpositionierung abgelehnt. NICHT geklickt.' 'interference' }
     Fail 'Windows hat die Cursorpositionierung abgelehnt. NICHT geklickt.' 'interference'
   }
-  Assert-SSECursorPoint $X $Y
+  Assert-SSECursorPoint $X $Y -OnFailure $OnFailure
 }
 function Click-VerifiedPoint(
   [IntPtr]$Window,
@@ -3148,16 +3168,27 @@ function Click-VerifiedPoint(
   $BeforeClickBinding = $null,
   [switch]$ThrowOnFailure
 ) {
+  $clickDispatched = $false
   $pointFailure={
     param($Message,[string]$Kind='error',$Details=$null)
     if ($ThrowOnFailure) {
       $failure=[InvalidOperationException]::new([string]$Message)
       $failure.Data['kind']=$Kind
+      $failure.Data['inputDispatched']=[bool]$clickDispatched
       throw $failure
     }
     Fail $Message $Kind $Details
   }
+  $cursorFailure = $(if ($ThrowOnFailure) {
+    { param($Message, $Kind)
+      Hide-SSETopmost $Window
+      & $pointFailure $Message $Kind
+    }
+  } else { $null })
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { & $pointFailure 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
+  if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
+    & $pointFailure 'Eigene Eingabe-Epoche vor der Fokusuebernahme verloren. NICHT geklickt.' 'interference'
+  }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
   # Windows darf Vordergrundwechsel aus einem Hintergrundprozess ablehnen,
   # obwohl das Ziel weiterhin sichtbar und PID-/Root-gebunden ist. Vor einem
@@ -3216,7 +3247,7 @@ function Click-VerifiedPoint(
   }
   $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
   $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$Window)
-  Set-SSECursorPoint $px $py
+  Set-SSECursorPoint $px $py -OnFailure $cursorFailure
   Start-Sleep -Milliseconds 100
   if ($ExpectedRuntimeId) {
     $pointElement = $null
@@ -3244,8 +3275,9 @@ function Click-VerifiedPoint(
     Hide-SSETopmost $Window
     & $pointFailure 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
   }
-  Assert-SSECursorPoint $px $py
+  Assert-SSECursorPoint $px $py -OnFailure $cursorFailure
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
+    $clickDispatched = $true
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
     [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
     if ($clickNumber -lt $ClickCount) { Start-Sleep -Milliseconds 90 }
@@ -9773,7 +9805,156 @@ function Get-SSEValueInfoWindows([int]$TargetPid) {
 # einer langsamen Maschine war das zu kurz, und der erlaubte Schreibweg
 # scheiterte hart mit 'Werte-Info nicht eindeutig (0 Fenster)'. Deshalb wird
 # bis zu einer Frist gepollt statt geraten.
+function Open-SSEPlanValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000, [switch]$DeferContentReadiness) {
+  $context = $script:SSE_TRACKED_PLAN_INPUT_CONTEXT
+  if (-not $context) { throw 'Werte-Info-Planpfad braucht seinen internen Eingabekontext.' }
+  $inputBefore = $context.checkpoint
+  $candidate = $null; $method = $null; $invokeMs = $null
+  $foregroundBefore = $null; $foregroundAfter = $null
+  $cursorBefore = $null; $cursorAfter = $null
+  $stop = {
+    param([string]$Message, [string]$Kind='interference', $Dispatched=$null, $Opened=$null, $Count=$null, $Cause=$null)
+    $reference = $(if ($null -ne $candidate) { $candidate } else { $inputBefore })
+    $inputChanged = -not (Test-SSELastInputUnchanged $reference)
+    if ($Kind -ceq 'precondition-failed' -and $inputChanged) { $Kind='interference' }
+    [pscustomobject]@{
+      ok=$false; kind=$Kind; error=$Message; opened=$Opened; anzahl=$Count; window=$null
+      inputDispatched=$Dispatched; cleanupRequired=[bool]($Kind -ceq 'interference'); failure=$Cause
+      inputGuard=[pscustomobject]@{ vorher=$inputBefore; nachher=(Get-SSELastInputTick); eingriffErkannt=$inputChanged }
+      inputEvidence=[pscustomobject]@{
+        method=$method; inputBefore=$inputBefore; candidate=$candidate; invokeMs=$invokeMs
+        foregroundBefore=$foregroundBefore; foregroundAfter=$foregroundAfter
+        cursorBefore=$cursorBefore; cursorAfter=$cursorAfter; attribution='undetermined'
+      }
+    }
+  }
+  if ($script:DESKTOP_NAME -or -not (Test-SSELastInputUnchanged $inputBefore)) {
+    return (& $stop 'Eingabebindung vor der Werte-Info-Vorbereitung verloren. NICHT ausgeloest.' 'interference' $false $false)
+  }
+  $mainPid = 0
+  $null = [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$mainPid)
+  if (-not [SW]::IsWindow($MainHwnd) -or $mainPid -ne $TargetPid) {
+    return (& $stop 'Werte-Info-Hauptfenster nicht mehr an denselben Prozess gebunden. NICHT ausgeloest.' 'interference' $false $false)
+  }
+  $existing = @(Get-SSEValueInfoWindows $TargetPid)
+  if ($existing.Count) {
+    $existingPid = 0
+    if ($existing.Count -eq 1) { $null = [SW]::GetWindowThreadProcessId([IntPtr][int64]$existing[0].hwnd, [ref]$existingPid) }
+    if ($existing.Count -ne 1) {
+      return (& $stop 'Vorhandene Werte-Info ist nicht eindeutig. NICHT ausgeloest.' 'precondition-failed' $false $false $existing.Count)
+    }
+    if (-not [SW]::IsWindow([IntPtr][int64]$existing[0].hwnd) -or $existingPid -ne $TargetPid -or
+        -not (Test-SSELastInputUnchanged $inputBefore)) {
+      return (& $stop 'Vorhandene Werte-Info oder Eingabebindung wurde geaendert. NICHT ausgeloest.' 'interference' $false $false $existing.Count)
+    }
+    return [pscustomobject]@{ ok=$true; opened=$false; anzahl=1; window=$existing[0]; error=$null; kind=$null; inputDispatched=$false; inputEvidence=$null }
+  }
+  $tree = Walk-Tree $MainHwnd 5000 60 20 -WithValues
+  $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Button' -and $_.aid -like '*hoverBtnMehrDetails' })
+  if ($buttons.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$buttons[0].rid)) {
+    return (& $stop 'Mehr-Details-Knopf nicht eindeutig mit Runtime-ID gebunden. NICHT ausgeloest.' 'precondition-failed' $false $false 0)
+  }
+  $invoke = $null
+  try {
+    $element = Get-LiveElement $MainHwnd $buttons[0].rid $buttons[0].aid
+    if ($element) {
+      if ([int]$element.Current.ProcessId -ne $TargetPid -or
+          ($element.GetRuntimeId() -join '.') -cne [string]$buttons[0].rid -or
+          [string]$element.Current.AutomationId -cne [string]$buttons[0].aid -or
+          $element.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button) {
+        return (& $stop 'Mehr-Details-Knopf wurde vor der Aktion ausgetauscht. NICHT ausgeloest.' 'precondition-failed' $false $false 0)
+      }
+      $pattern = $null
+      if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $invoke=$pattern }
+    }
+  } catch {
+    if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    # A failed pattern read has not dispatched an action. The existing
+    # physical route still has to prove this exact button and input mark.
+    $invoke = $null
+  }
+  if (-not (Test-SSELastInputUnchanged $inputBefore)) {
+    return (& $stop 'Eingabe-Epoche vor der Werte-Info-Aktion geaendert. NICHT ausgeloest.' 'interference' $false $false)
+  }
+  if ($invoke) {
+    if ($null -eq $script:SSE_FOREGROUND_LEASE.watch) {
+      $null = Show-SSEWindow $MainHwnd
+      Hide-SSETopmost $MainHwnd
+    }
+    if (-not (Test-SSELastInputUnchanged $inputBefore)) {
+      return (& $stop 'Eingabe-Epoche bei der Werte-Info-Fokusvorbereitung geaendert. NICHT ausgeloest.' 'interference' $false $false)
+    }
+    $method = 'invoke'
+    $foregroundBefore = [int64][SW]::GetForegroundWindow()
+    $point = New-Object SW+PT
+    if ([SW]::GetCursorPos([ref]$point)) { $cursorBefore=[pscustomobject]@{ x=$point.X; y=$point.Y } }
+    $invokeError = $null
+    $invokeWatch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+      $invoke.Invoke()
+      $candidate = Get-SSELastInputTick
+    } catch {
+      if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+      $invokeError=[pscustomobject]@{ kind='invoke-failed'; error=$_.Exception.Message; type=$_.Exception.GetType().FullName }
+    } finally {
+      $invokeWatch.Stop(); $invokeMs=$invokeWatch.ElapsedMilliseconds
+      $foregroundAfter = [int64][SW]::GetForegroundWindow()
+      $point = New-Object SW+PT
+      if ([SW]::GetCursorPos([ref]$point)) { $cursorAfter=[pscustomobject]@{ x=$point.X; y=$point.Y } }
+    }
+    if ($invokeError) {
+      return (& $stop 'Werte-Info-Invoke nicht sicher abgeschlossen. Kein weiterer Klick; Oeffnungszustand neu lesen.' 'interference' $true $null $null $invokeError)
+    }
+  } else {
+    $method = 'verified-point-click'
+    try {
+      $click = Click-VerifiedPoint $MainHwnd $buttons[0] -ExpectedInputTick $inputBefore `
+        -RequireForeground -ExpectedRuntimeId ([string]$buttons[0].rid) -ThrowOnFailure
+      $candidate = $click.inputTickAfterClick
+    } catch {
+      if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+      $dispatched = $(if ($_.Exception.Data.Contains('inputDispatched')) { [bool]$_.Exception.Data['inputDispatched'] } else { $null })
+      $cause=[pscustomobject]@{ kind=[string]$_.Exception.Data['kind']; error=$_.Exception.Message; type=$_.Exception.GetType().FullName }
+      if ($dispatched -eq $false -and (Test-SSELastInputUnchanged $inputBefore)) {
+        return (& $stop ('Werte-Info-Klick nicht gestartet: '+$cause.error) 'precondition-failed' $false $false 0 $cause)
+      }
+      return (& $stop 'Werte-Info-Klick nicht sicher abgeschlossen. Kein weiterer Klick; Oeffnungszustand neu lesen.' 'interference' $dispatched $(if ($dispatched -eq $false) { $false } else { $null }) $null $cause)
+    }
+  }
+  if ($null -eq $candidate) {
+    return (& $stop 'Eingabemarke nach der Werte-Info-Aktion nicht lesbar. Oeffnungszustand neu lesen.' 'interference' $true)
+  }
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    Start-Sleep -Milliseconds 200
+    $found = @(Get-SSEValueInfoWindows $TargetPid)
+  } while ($found.Count -eq 0 -and $watch.ElapsedMilliseconds -lt $TimeoutMs)
+  if ($found.Count -eq 1 -and -not $DeferContentReadiness) { Start-Sleep -Milliseconds 900 }
+  $windowPid = 0
+  if ($found.Count -eq 1) { $null = [SW]::GetWindowThreadProcessId([IntPtr][int64]$found[0].hwnd, [ref]$windowPid) }
+  if ($found.Count -ne 1 -or -not [SW]::IsWindow([IntPtr][int64]$found[0].hwnd) -or $windowPid -ne $TargetPid -or
+      -not (Test-SSELastInputUnchanged $candidate)) {
+    return (& $stop 'Werte-Info-Oeffnung oder Eingabebindung nach der Aktion nicht eindeutig bestaetigt. Kein erneutes Ausloesen und kein automatisches Schliessen.' 'interference' $true $null $found.Count)
+  }
+  # Adopt the saved post-action candidate, never a later readiness sample.
+  # Invoke can block inside the provider; its entire call is an explicit
+  # attribution limit, wider than an individual native send.
+  Set-SSEForegroundLeaseInputCheckpoint $candidate -Context ('value-info-'+$method)
+  $context.checkpoint = $candidate
+  [pscustomobject]@{
+    ok=$true; opened=$true; anzahl=1; window=$found[0]; error=$null; kind=$null; inputDispatched=$true
+    inputEvidence=[pscustomobject]@{
+      method=$method; inputBefore=$inputBefore; candidate=$candidate; invokeMs=$invokeMs
+      foregroundBefore=$foregroundBefore; foregroundAfter=$foregroundAfter
+      cursorBefore=$cursorBefore; cursorAfter=$cursorAfter; attribution='undetermined'
+    }
+  }
+}
+
 function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000, [switch]$DeferContentReadiness) {
+  if ($script:SSE_TRACKED_PLAN_INPUT_CONTEXT) {
+    return Open-SSEPlanValueInfoWindow $MainHwnd $TargetPid $TimeoutMs -DeferContentReadiness:$DeferContentReadiness
+  }
   $vorhandene = @(Get-SSEValueInfoWindows $TargetPid)
   if ($vorhandene.Count) {
     return [pscustomobject]@{
@@ -10157,10 +10338,17 @@ function Test-SSETrackedCommitPrecondition($Target, $ValuePattern, $Node, $Expec
   Test-SSETrackedFieldValue $raw $name $expectedValue $ValueKind ([string]$Node.type)
 }
 
-function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurrent, [string]$ValueKind = '') {
+function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurrent, [string]$ValueKind = '', $InheritedInputEpoch = $null) {
   if ($script:DESKTOP_NAME) { return New-SSECommitResult 'none-hidden-desktop' }
   $mutationStarted = $false
   try {
+    $hasInheritedInput = [bool]($null -ne $InheritedInputEpoch -or $null -ne $script:SSE_TRACKED_PLAN_INPUT_CONTEXT)
+    if ($script:SSE_TRACKED_PLAN_INPUT_CONTEXT) {
+      $InheritedInputEpoch = $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint
+    }
+    if ($hasInheritedInput -and -not (Test-SSELastInputUnchanged $InheritedInputEpoch)) {
+      return New-SSECommitResult 'interference-inherited-input' $InheritedInputEpoch (Get-SSELastInputTick)
+    }
     # Qt uebernimmt ValuePattern optisch, aber nicht in sein Rechenmodell:
     # Feld 12,00, Summen weiter 0,00 - sogar nach UIA-Fokuswechsel und TAB.
     # Deshalb den Wert wie ein Benutzer in das exakt PID-verifizierte Feld
@@ -10176,10 +10364,14 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
       Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'stale-window'
     }
-    $inputBefore = Get-SSELastInputTick
+    $inputBefore = $(if ($hasInheritedInput) { $InheritedInputEpoch } else { Get-SSELastInputTick })
     if ($null -eq $inputBefore) {
       Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'interference-input-guard-unavailable'
+    }
+    if ($hasInheritedInput -and -not (Test-SSELastInputUnchanged $inputBefore)) {
+      Complete-SSEPhysicalSection $Hwnd
+      return New-SSECommitResult 'interference-before-focus' $inputBefore (Get-SSELastInputTick)
     }
 
     # Unmittelbar vor dem ersten Eingabebyte die ganze Mutationsepoche noch
@@ -10406,6 +10598,11 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
       mutationStarted=$mutationStarted
     }
     Complete-SSEPhysicalSection $Hwnd
+    # Only a verified own commit advances the parent's checkpoint. In
+    # particular, later reads and an unclassified failure cannot rebase it.
+    if ($script:SSE_TRACKED_PLAN_INPUT_CONTEXT -and $null -ne $afterCommitInput) {
+      $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint = $afterCommitInput
+    }
     return New-SSECommitResult 'verified-keyboard-replace' $inputBefore $afterCommitInput $settleDetails
   } catch {
     Complete-SSEPhysicalSection $Hwnd
@@ -11562,10 +11759,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $immediateReadbackCount = 0
     $foregroundRaiseCount = 0
     $sseActionMs = 0
+    $inputContext = $(if (-not $script:DESKTOP_NAME) {
+      [pscustomobject]@{ checkpoint=(Get-SSELastInputTick) }
+    } else { $null })
     for ($index = 0; $index -lt $actions.Count; $index++) {
       $action = $actions[$index]
       $actionWatch = [Diagnostics.Stopwatch]::StartNew()
-      $result = Invoke-SSECapturedOperation ([string]$action.operation) $action.args
+      $result = Invoke-SSETrackedPlanOperation $action.args $inputContext
       $actionWatch.Stop()
       $internalOperationCount++
       $immediateReadbackCount++
@@ -11624,6 +11824,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       (& $contextExplicitlyLost $failedAction.result) -or
       (-not (& $contextAllowsContinuation $failedAction.result) -and -not $firstRefusalKnown)
     ))
+    if ($null -ne $failedIndex -and $inputContext -and
+        -not (Test-SSELastInputUnchanged $inputContext.checkpoint)) {
+      $rollbackContextLost = $true
+    }
     if ($rollbackContextLost -and $completed.Count -gt 0) { $rollbackStopReason = 'failed-action-lost-context' }
     if ($null -ne $failedIndex -and $completed.Count -and -not $rollbackContextLost) {
       $reverse = @($completed)
@@ -11651,7 +11855,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           })
         }
         $rollbackWatch = [Diagnostics.Stopwatch]::StartNew()
-        $rollbackResult = Invoke-SSECapturedOperation 'tracked_set_value' ([pscustomobject]$rollbackArgs)
+        $rollbackResult = Invoke-SSETrackedPlanOperation ([pscustomobject]$rollbackArgs) $inputContext
         $rollbackWatch.Stop()
         $internalOperationCount++
         $sseActionMs += $rollbackWatch.ElapsedMilliseconds
@@ -11676,6 +11880,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $internalOperationCount++
     $sseActionMs += $readbackWatch.ElapsedMilliseconds
     if ($finalReadback.focusTelemetry) { $foregroundRaiseCount += [int](Arg $finalReadback.focusTelemetry 'acquisitions' 0) }
+    if ($inputContext -and -not (Test-SSELastInputUnchanged $inputContext.checkpoint)) {
+      $rollbackContextLost = $true
+    }
     $readbackValuesVerified = [bool]($finalReadback.ok -eq $true -and $finalReadback.onExpectedPage -eq $true)
     if ($readbackValuesVerified) {
       foreach ($action in $actions) {
@@ -11703,7 +11910,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     if ($rollbackStopReason) { $rollbackSummary.skippedReason = $rollbackStopReason }
     $planWatch.Stop()
-    $ok = [bool]($null -eq $failedIndex -and $readbackValuesVerified)
+    $ok = [bool]($null -eq $failedIndex -and $readbackValuesVerified -and -not $rollbackContextLost)
     Emit ([pscustomobject]@{
       ok=$ok
       kind=$(if ($ok) { $null } elseif ($resultingState -eq 'unknown') { 'state-unknown' } else { [string]$failedAction.result.kind })
@@ -13811,9 +14018,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($trackResults) {
       $tracking = Open-TrackedResultWindow $hwnd
       if (-not $tracking.ok) {
+        if ([string]$tracking.kind -ceq 'interference') {
+          Fail ("Ergebnis-Tracking nicht sicher abgeschlossen: $($tracking.error)") 'interference' ([pscustomobject]@{
+            resultingState='unknown'; cleanupRequired=$true; inputGuard=$tracking.inputGuard
+            valueInfo=[pscustomobject]@{ opened=$tracking.opened; inputDispatched=$tracking.inputDispatched; failure=$tracking.failure; input=$tracking.inputEvidence }
+          })
+        }
         Fail ("Ergebnis-Tracking nicht verfuegbar: $($tracking.error) " +
           'Entweder die Werte-Info einmal mit result_details (MCP: sse_result_details) oeffnen ' +
-          'oder die Aenderung bewusst mit trackResults=false ohne Ergebnisvergleich schreiben.') 'precondition-failed'
+          'oder die Aenderung bewusst mit trackResults=false ohne Ergebnisvergleich schreiben.') 'precondition-failed' ([pscustomobject]@{
+            inputGuard=$tracking.inputGuard
+            valueInfo=[pscustomobject]@{ opened=$tracking.opened; inputDispatched=$tracking.inputDispatched; failure=$tracking.failure; input=$tracking.inputEvidence }
+          })
       }
       $resultBefore = Read-TrackedResultWindowComplete $tracking.window -RequireStable:$tracking.opened
       if (-not $resultBefore.ok) {
@@ -13865,7 +14081,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $commitResult = $(if ($script:DESKTOP_NAME) {
       Commit-TrackedValueFocusless $hwnd $liveNode $requested $commitExpectedCurrent $valueKind
     } else {
-      Commit-TrackedValue $hwnd $liveNode $requested $commitExpectedCurrent $valueKind
+      Commit-TrackedValue $hwnd $liveNode $requested $commitExpectedCurrent $valueKind `
+        $(if ($script:SSE_TRACKED_PLAN_INPUT_CONTEXT) { $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint } else { $null })
     })
     Complete-SSEPhase $phaseLog 'commit'
     $commitMethod = [string]$commitResult.method
@@ -13933,7 +14150,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           nachher=$observedAfterInterference; zustand=$mutationState
         }
         commit=$commitMethod
-        commitDetails=$commitResult.details
+        commitDetails=$commitResult.details; valueInfo=$(if ($tracking) { [pscustomobject]@{ opened=$tracking.opened; inputDispatched=$tracking.inputDispatched; input=$tracking.inputEvidence } } else { $null })
         inputGuard=[pscustomobject]@{
           vorher=$commitResult.inputBefore; nachher=$commitResult.inputAfter
           eingriffErkannt=[bool]$commitResult.inputInterference
@@ -14036,10 +14253,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         )
         $rollbackPreflightOk = [bool](
           $rollbackNode -and $rollbackVp -and $rollbackValueRead -and $rollbackOwnValue -and
+          (-not $script:SSE_TRACKED_PLAN_INPUT_CONTEXT -or
+            (Test-SSELastInputUnchanged $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint)) -and
           (Test-KnownPageHeading $rollbackHeading $(if ($known) { $known.page } else { [pscustomobject]@{ heading=$expectedPage } })) -and
           $rollbackWindowsBefore.fingerprint -eq $interactionWindowsAfter.fingerprint -and
-          ($null -eq $commitResult.inputAfter -or
-            ($null -ne $rollbackInputBefore -and [uint64]$rollbackInputBefore -eq [uint64]$commitResult.inputAfter))
+          ($script:DESKTOP_NAME -or ($commitMethod -cne 'failed' -and
+            $null -ne $commitResult.inputAfter -and $null -ne $rollbackInputBefore -and
+            [uint64]$rollbackInputBefore -eq [uint64]$commitResult.inputAfter))
         )
         if (-not $rollbackPreflightOk) {
           $resultWindowClosed = $false
@@ -14052,7 +14272,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               nachher=$after; nachherRaw=$afterRaw; aktuelleAnzeige=$rollbackCurrentDisplay
               aktuellerRawwert=$rollbackCurrentRaw; ok=[bool]$fieldOk
             }
-            commit=$commitMethod; commitDetails=$commitResult.details
+            commit=$commitMethod; commitDetails=$commitResult.details; valueInfo=$(if ($tracking) { [pscustomobject]@{ opened=$tracking.opened; inputDispatched=$tracking.inputDispatched; input=$tracking.inputEvidence } } else { $null })
             rollback=[pscustomobject]@{
               versucht=$false; methode='not-attempted-after-interference'; ok=$null
               grund='Kein blinder Rollback nach Eingabe-, Fenster-, Seiten-, Binding- oder Fremdwertinterferenz.'
@@ -14074,7 +14294,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $rollbackResult = $(if ($script:DESKTOP_NAME) {
             Commit-TrackedValueFocusless $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind
           } else {
-            Commit-TrackedValue $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind
+            Commit-TrackedValue $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind $commitResult.inputAfter
           })
           $rollbackMethod = [string]$rollbackResult.method
           $rollbackReason = $(if ($rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab')) { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
@@ -14130,7 +14350,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         summen=@($sumAfter)
         ergebnisDiff=@($resultDiff); ergebnisVollstaendig=[bool]$resultOk
         commit=$commitMethod
-        commitDetails=$commitResult.details
+        commitDetails=$commitResult.details; valueInfo=$(if ($tracking) { [pscustomobject]@{ opened=$tracking.opened; inputDispatched=$tracking.inputDispatched; input=$tracking.inputEvidence } } else { $null })
         inputGuard=[pscustomobject]@{
           vorher=$commitResult.inputBefore; nachher=$commitResult.inputAfter
           eingriffErkannt=[bool]$commitResult.inputInterference
@@ -14169,7 +14389,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ergebnisZeilenVorher=$(if ($resultBefore) { @($resultBefore.rows).Count } else { 0 })
       ergebnisZeilenNachher=$(if ($resultAfter) { @($resultAfter.rows).Count } else { 0 })
       commit=$commitMethod
-      commitDetails=$commitResult.details
+      commitDetails=$commitResult.details; valueInfo=$(if ($tracking) { [pscustomobject]@{ opened=$tracking.opened; inputDispatched=$tracking.inputDispatched; input=$tracking.inputEvidence } } else { $null })
       inputGuard=[pscustomobject]@{
         vorher=$commitResult.inputBefore; nachher=$commitResult.inputAfter
         eingriffErkannt=[bool]$commitResult.inputInterference

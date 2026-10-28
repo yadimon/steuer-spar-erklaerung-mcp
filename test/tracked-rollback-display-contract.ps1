@@ -5,7 +5,7 @@ Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 . (Join-Path $Repo 'powershell/table-values.ps1')
 $errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($WorkerPath,[ref]$null,[ref]$errors)
 if($errors.Count){throw 'Actual worker source parse failed'}
-foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading')){
+foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading','Test-SSELastInputUnchanged')){
  $f=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));if($f.Count -ne 1){throw 'Actual helper must be unique'}
  . ([scriptblock]::Create($f[0].Extent.Text))
 }
@@ -56,11 +56,11 @@ function Get-LiveElement {
 }
 function Resolve-SSEFocuslessCommitPolicy {[pscustomobject]@{id='synthetic-focusless-provider'}}
 function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint='unchanged';windows=@()}}
-function Get-SSELastInputTick {$null}
+function Get-SSELastInputTick {$script:inputTick}
 function Close-TrackedResultWindow {$true}
 function Get-DirtyStateFast {$true}
 function Get-DirtyState {$true}
-function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){
+function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind,$InheritedInputEpoch){
  if($ValueKind -cne $script:fixture.valueKind){throw 'Actual handler did not forward the exact format contract to its commit provider'}
  if(-not $ExpectedCurrent.PSObject.Properties['raw'] -or -not $ExpectedCurrent.PSObject.Properties['name'] -or
     -not $ExpectedCurrent.PSObject.Properties['value']){throw 'Actual caller did not capture raw, Name and business expectation'}
@@ -68,7 +68,13 @@ function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){
  $business=$(if($script:commits.Count -eq 0){$script:fixture.expectedBefore}elseif($script:fixture.PSObject.Properties['rollbackExpectedValue']){$script:fixture.rollbackExpectedValue}else{$script:fixture.requested})
  if($ExpectedCurrent.value -cne $business){throw 'Actual caller lost its original business expectation'}
  $step=$(if($script:commits.Count -eq 0){$script:fixture.forward}else{$script:fixture.reverse})
- $entry=[pscustomobject]@{requested=$Value;expectedCurrent=$ExpectedCurrent.raw;method=$step.method;observedAfterRaw=$null}
+ if(-not $script:DESKTOP_NAME -and $script:commits.Count -gt 0 -and
+    -not [object]::Equals($InheritedInputEpoch,$script:commits[0].inputAfter)){throw 'The actual rollback caller lost the forward commit checkpoint'}
+ $inputBefore=$script:inputTick
+ if(-not $script:DESKTOP_NAME){$script:inputTick+=3}
+ $inputAfter=$(if($script:DESKTOP_NAME){$null}else{$script:inputTick})
+ if($script:commits.Count -eq 0 -and $script:fixture.PSObject.Properties['forwardInputAfter']){$inputAfter=$script:fixture.forwardInputAfter}
+ $entry=[pscustomobject]@{requested=$Value;expectedCurrent=$ExpectedCurrent.raw;method=$step.method;observedAfterRaw=$null;inputAfter=$inputAfter}
  $null=$script:commits.Add($entry)
  if(-not $step.preserve){
   $script:element.Pattern.Current.Value=[string]$Value
@@ -80,7 +86,10 @@ function Commit-TrackedValue($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){
  if($step.forceRaw){$script:element.Pattern.Current.Value=[string]$step.raw}
  if($step.forceName){$script:element.Current.Name=[string]$step.name}
  $entry.observedAfterRaw=$script:element.Pattern.Current.Value
- [pscustomobject]@{method=$step.method;inputBefore=$null;inputAfter=$null;interference=[bool]$step.interference;inputInterference=[bool]$step.interference;details=[pscustomobject]@{mutationStarted=(-not $step.preserve)}}
+ if($script:SSE_TRACKED_PLAN_INPUT_CONTEXT -and $step.method -ceq 'verified-keyboard-replace' -and $null -ne $inputAfter){
+  $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint=$inputAfter
+ }
+ [pscustomobject]@{method=$step.method;inputBefore=$inputBefore;inputAfter=$inputAfter;interference=[bool]$step.interference;inputInterference=[bool]$step.interference;details=[pscustomobject]@{mutationStarted=(-not $step.preserve)}}
 }
 function Commit-TrackedValueFocusless($Hwnd,$Node,$Value,$ExpectedCurrent,$ValueKind){Commit-TrackedValue $Hwnd $Node $Value $ExpectedCurrent $ValueKind}
 function Invoke-DisplayCase($Fixture,[bool]$Known=$true){
@@ -88,6 +97,8 @@ function Invoke-DisplayCase($Fixture,[bool]$Known=$true){
  if($Fixture.nullBeforeValue){$script:element.SetNull()}
  if($Fixture.nullBeforeName){$script:element.SetNameNull()}
  $script:commits=New-Object Collections.ArrayList;$script:emitted=$null;$script:DESKTOP_NAME=$(if($Fixture.hidden){'synthetic'}else{''});$script:afterReadLost=$false
+ $script:inputTick=1;$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$null
+ if($Fixture.planInput){$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=[pscustomobject]@{checkpoint=$script:inputTick}}
  $a=[pscustomobject]@{expectedBefore=$Fixture.expectedBefore;value=$Fixture.requested;expectedAfter=$Fixture.expectedAfter;trackResults=$false}
  if($Known){$a|Add-Member NoteProperty pageId 'fixture.page';$a|Add-Member NoteProperty fieldId 'field'}
  else{$a|Add-Member NoteProperty expectedPage 'Synthetic page';$a|Add-Member NoteProperty aid 'Form.Text';$a|Add-Member NoteProperty valueKind $Fixture.valueKind}
@@ -100,7 +111,7 @@ function Invoke-DisplayCase($Fixture,[bool]$Known=$true){
     (ConvertTo-Json -Compress -InputObject $expectedRequests)){throw 'Actual requested inputs differ from the explicit forward/original-raw sequence'}
  if((ConvertTo-Json -Compress -InputObject @($script:commits|ForEach-Object expectedCurrent)) -cne
     (ConvertTo-Json -Compress -InputObject $expectedCurrents)){throw 'Every input must retain the exact current raw precondition'}
- [pscustomobject]@{result=$script:emitted;commits=@($script:commits);raw=$script:element.Pattern.Current.Value;name=$script:element.Current.Name}
+ [pscustomobject]@{result=$script:emitted;commits=@($script:commits);raw=$script:element.Pattern.Current.Value;name=$script:element.Current.Name;checkpoint=$script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint}
 }
 function New-TextFixture([string]$Name){
  [pscustomobject]@{type='Edit';valueKind='text';raw='Test';name=$Name;expectedBefore='Test';requested='Synthetic New';expectedAfter='Synthetic impossible postcondition';missingVerify=$false;missingAfterRead=$false;nullBeforeValue=$false;nullAfterValue=$false;nullVerifyValue=$false;
@@ -284,4 +295,17 @@ $unknownProbe|Add-Member NoteProperty nullAfterName $true
 $probeResult=Invoke-DisplayCase $unknownProbe
 if($probeResult.result.kind -cne 'interference' -or $probeResult.result.feld.zustand -cne 'unknown' -or
  $null -ne $probeResult.result.feld.nachher -or $probeResult.commits.Count -ne 1 -or $probeResult.result.rollback.versucht){throw 'A null probe Name invented an unchanged empty value'}
+$unknownCheckpoint=New-TextFixture '';$unknownCheckpoint|Add-Member NoteProperty forwardInputAfter $null
+$unknownInput=Invoke-DisplayCase $unknownCheckpoint
+if($unknownInput.result.kind -cne 'interference' -or $unknownInput.commits.Count -ne 1 -or $unknownInput.result.rollback.versucht){throw 'An unreadable physical forward checkpoint authorized a reverse write'}
+$failedCommit=New-TextFixture '';$failedCommit.forward.method='failed'
+$unownedInput=Invoke-DisplayCase $failedCommit
+if($unownedInput.result.kind -cne 'interference' -or $unownedInput.commits.Count -ne 1 -or $unownedInput.result.rollback.versucht){throw 'A fresh observation from an unclassified failed commit authorized a reverse write'}
+$ownedPlan=New-TextFixture '';$ownedPlan|Add-Member NoteProperty planInput $true
+$ownInnerRollback=Invoke-DisplayCase $ownedPlan
+Assert-Restoration $ownInnerRollback $true 2 'Test' 'Test'
+if($ownInnerRollback.checkpoint -ne 7 -or $ownInnerRollback.result.inputGuard.nachher -ne 4){throw 'Inner rollback did not retain its last own checkpoint independently of forward telemetry'}
+$ownedPlan.forward.method='native-input-unsettled'
+$uncertainPlan=Invoke-DisplayCase $ownedPlan
+if($uncertainPlan.result.kind -cne 'interference' -or $uncertainPlan.commits.Count -ne 1 -or $uncertainPlan.result.rollback.versucht -or $uncertainPlan.checkpoint -ne 1){throw 'An unverified partial plan commit was rebased and rolled back'}
 Write-Output 'Tracked rollback display: forward Name matching, raw/name proof, missing-read refusal, rejected clear and third-value preservation passed.'

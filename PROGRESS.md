@@ -57,6 +57,16 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   kein neuer Rollback-Schritt. Eine unbewiesene Rücknahme beendet auch eine
   bereits laufende Rücknahmekette. Der passive Abschlussreadback bleibt
   erhalten; ungewisse Ergebnisse verlangen weiterhin einen frischen Abgleich.
+  Die eigene Eingabemarke bleibt über Vorwärts- und Rücknahmeschritte hinweg
+  gebunden, einschließlich innerer Kindrücknahmen und vorbereitender
+  Werte-Info-Aktionen. Fehlende Marken, fremde Eingaben und unbewiesene
+  Teilcommits erlauben keine neue Ausgangsmarke oder weitere Rücknahme.
+  Auch ein passender Abschlussreadback verdeckt keine verlorene Eingabebindung.
+  Ein abgebrochener vorbereitender Klick erhält seinen Eingabehinweis und
+  einen möglicherweise unbekannten Öffnungszustand bis zum Kindresultat.
+  Ein eigener Invoke übernimmt nur seinen unmittelbar erfassten Kandidaten
+  nach bestätigter Fensteröffnung und unveränderter Marke. Ungewisse Aktionen
+  erlauben weder einen Ersatzklick noch eine neue Ausgangsmarke aus späteren Reads.
 - **Feldrücknahmen:** Rohwert und UIA-Name werden konsistent getrennt geprüft.
   Ein leeres Namensfeld erzeugt keinen falschen Rücknahmefehler für einen
   vorhandenen Edit-Wert. Fehlende Nachher- oder Rücknahme-Lesungen bestätigen
@@ -118,9 +128,12 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   bis ihr Zustand geklärt ist.
 - Zwei gleiche Beobachtungen sind kein atomarer Snapshot. Die generischen
   Mechanismen belegen nicht jede Feld-/Label-Zuordnung oder alle Produktseiten.
-- Die Eingabemarken einzelner Feldänderungen sind noch nicht über den gesamten
-  Mehrfeldplan verbunden. Auch das Zeitfenster zwischen eigener Eingabe und
-  anschließender Markenerfassung bleibt eine gesonderte Nachweisgrenze.
+- Das Zeitfenster zwischen eigener Eingabe und anschließender Markenerfassung
+  bleibt eine gesonderte Nachweisgrenze. Der Markengleichstand allein beweist
+  nicht die Herkunft jedes Ereignisses. Ein unbewiesener Teilcommit im
+  Mehrfeldplan kann deshalb ohne automatische Rücknahme abgleichpflichtig bleiben.
+  Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
+  Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
 - Die gesperrten BelegManager-Schreibwege benötigen noch eine strengere
   Behandlung unbekannter USt-Werte und eine erneute Eigentumsprüfung nach
   frischer Feldbindung vor der Rücknahme. Das ist bekannte Folgearbeit;

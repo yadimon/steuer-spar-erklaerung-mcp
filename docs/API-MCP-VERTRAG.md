@@ -199,8 +199,7 @@ Helferwechsel ohne eigene Eingabe darf keine neue Ausgangsmarke setzen.
 Eine dabei beobachtete abweichende Marke stoppt den Ablauf vor weiterer
 Texteingabe beziehungsweise vor TAB; eine bereits begonnene Wertänderung
 bleibt im Ergebnis erkennbar. Das ist kein lückenloser Nachweis aller
-Fremdeingaben zwischen eigener Eingabe und anschließender Markenerfassung
-und kein gemeinsamer Eingabenachweis für einen gesamten Mehrfeldplan.
+Fremdeingaben zwischen eigener Eingabe und anschließender Markenerfassung.
 
 `feld.nachherAnzeige` bleibt der tatsächliche UIA-Name. `rollback.wert`
 bezeichnet dagegen wie der Ausgangswert den Rohwert des Edit-Feldes,
@@ -210,6 +209,8 @@ Bei einem fehlenden Rücknahme-Read bleiben `rollback.rawWert` und
 Datumsfelder mit leerem Rohwert müssen weiterhin ihren tatsächlichen
 Wiederherstellungsnachweis liefern. Eine leere Rücknahme-Eingabe beweist keine
 erneut sichtbare Datumsanzeige.
+Eine unlesbare physische Eingabemarke oder eine frische Beobachtung aus einem
+unbekannt fehlgeschlagenen Commit erlaubt keine automatische Rücknahme.
 
 `fill_fields` akzeptiert ein bis zwanzig eindeutige Felder einer bereits
 geöffneten katalogisierten Seite. Der vollständige Plan wird vor der ersten
@@ -223,6 +224,34 @@ Abbruch oder Transportverlust kann dieser Abschlussread fehlen:
 Das ist keine ACID-Transaktion und keine Garantie, dass jeder Teilstand
 zurückgenommen werden kann.
 
+Auf dem sichtbaren Desktop behält der Plan seine eigene Eingabemarke über
+Vorwärts- und Rücknahmeschritte hinweg. Ein verifizierter eigener Feldcommit
+oder eine bestätigte eigene Werte-Info-Vorbereitung reicht ihre Marke weiter;
+spätere Lesungen setzen sie nicht zurück. Auch die innere Rücknahme eines
+Kindes aktualisiert diese gemeinsame Marke. Eine lesbare Null ist gültig,
+eine fehlende Marke bleibt unbekannt. Bei einer Abweichung beginnt kein
+weiterer Kindschritt. Der Feldcommit prüft die übernommene Marke erneut vor
+der Fokusübernahme und vor der Eingabe. Auch eine Abweichung beim passiven
+Abschlusslesen verhindert einen verifizierten Erfolg. Der getrennte
+fokusfreie Desktop-Pfad benötigt keine Marke des sichtbaren Desktops.
+Ein unbewiesener Teilcommit darf keine neue eigene Marke begründen;
+der Plan kann deshalb ohne automatische Rücknahme als `unknown` enden.
+Der Plan bindet auch den vorbereitenden Invoke der Werte-Info an das frische
+Fenster, den Prozess, den Knopf und die geerbte Eingabemarke. Unmittelbar nach
+dem Aufruf erfasst er einen lokalen Markenkandidaten. Erst ein eindeutig
+bestätigtes eigenes Fenster und die weiterhin gleiche Kandidatenmarke
+erlauben ihre Übernahme. Spätere Bereitschaftslesungen liefern keine neue
+Ausgangsmarke. Nach einem begonnenen, ungewissen Invoke folgt kein weiterer Klick.
+Ist kein Invoke verfügbar und noch keine Aktion gestartet, bleibt der
+vorhandene Klickweg mit Vordergrund-, Runtime-ID- und Eingabeprüfung nutzbar.
+
+Der gesamte Invoke-Aufruf beim Provider bleibt dabei eine Grenze der
+Eingabezuordnung. Dieses Zeitfenster kann größer als bei einem einzelnen
+nativen Sendeaufruf sein; Markengleichheit beweist keine Ereignisherkunft.
+Die Dauer hängt von der [Provider-Implementierung](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.invokepattern.invoke)
+ab. Die Werte-Info-Evidenz nennt unter anderem Ausgangsmarke, Kandidat,
+Invoke-Dauer sowie Vordergrund und Cursor vor und nach dem Aufruf.
+
 Fremdeingaben, geänderte Bindungen und unbekannte Schreibausgänge verlangen
 Zustandsklärung. Meldet ein Kindschritt einen solchen Kontextverlust, beginnt
 der Bulk-Plan keine weiteren Rücknahmen. Auch eine bereits laufende
@@ -235,7 +264,9 @@ Fortsetzung. Nur bekannte gewöhnliche Vor-/Nachbedingungs- und Feldfehler
 lassen eine weitere abgesicherte Rücknahme zu. Bei bereits erledigten Schritten
 führt eine unbekannte Fehlerart deshalb ebenfalls zum Abgleich; eine bekannte klare
 Ablehnung vor dem ersten geänderten Feld behält dagegen ihre ursprüngliche
-Fehlerart, soweit der Readback den unveränderten Stand bestätigt. Leere oder
+Fehlerart, soweit der Readback den unveränderten Stand bestätigt und die
+Eingabemarke erhalten bleibt. Eine dazwischen erkannte Fremdeingabe verlangt
+auch bei gleichen Ausgangswerten einen neuen Zustandsabgleich. Leere oder
 unbekannte erste Fehler bleiben ungewiss. Ein Nachbedingungsfehler erlaubt
 Fortsetzung nur nach bestätigter eigener Rücknahme des fehlgeschlagenen Kindes.
 Auch unerwartete Workerfehler mit strukturierter Fehlerantwort bleiben nach
@@ -244,6 +275,13 @@ einen unveränderten Zustand und erlauben keine Wiederholung.
 Ohne Teilergebnisse ist auch kein einzelner Schritt als `skipped` belegt.
 `failed-action-lost-context` bezeichnet die verweigerte Rücknahme nach einem
 Kindfehler, `rollback-lost-context` den Abbruch einer Rücknahmekette.
+Scheitert der vorbereitende Werte-Info-Klick nach Beginn der Eingabe, bleibt
+sein Öffnungszustand unbekannt. Das Kind meldet Interferenz und erforderlichen
+Abgleich; der Plan wiederholt den Klick nicht und schließt kein unbewiesenes Fenster.
+Dasselbe gilt für eine nach der Aktion verspätete, mehrdeutige oder unbewiesene
+Öffnung. Eine klar vor Dispatch verweigerte Vorbereitung bei erhaltener Marke
+behält dagegen ihren Vorbedingungsfehler und den bekannten ungeöffneten Zustand.
+Eine weiterhin gebundene gewöhnliche Rücknahme bleibt dann möglich.
 Auch eine Rücknahme darf fremde Änderungen nicht überschreiben.
 Keine dieser Operationen speichert den Fall automatisch. Speichern benötigt
 einen eigenen ausdrücklichen Auftrag. Eine erneute Änderung ist kein allgemeiner

@@ -61,9 +61,10 @@ function Get-CaptionMinX { 0 }
 function Test-SSETrackedValueEquivalent($Actual, $Expected, $Kind) { [string]$Actual -ceq [string]$Expected }
 function Get-LiveElement($Hwnd, $Rid, $Aid) { $script:elements[[string]$Rid] }
 function Get-SSEInteractionWindowSet { [pscustomobject]@{ fingerprint='unchanged';windows=@() } }
-function Commit-TrackedValue($Hwnd, $Node, $Value, $Before, $ValueKind) {
+function Commit-TrackedValue($Hwnd, $Node, $Value, $Before, $ValueKind, $InheritedInputEpoch) {
   if($Before.raw -cne 'before' -or $Before.name -cne $script:elements[[string]$Node.rid].Current.Name -or
       $Before.value -cne 'before' -or $ValueKind -cne ''){throw 'Resolved field lost its captured default-text precondition.'}
+  if(-not [object]::Equals($InheritedInputEpoch,$script:expectedInheritedEpoch)){throw 'Actual field caller lost the inherited input checkpoint.'}
   [FieldResolutionCanary]::LastRid = [string]$Node.rid
   $script:elements[[string]$Node.rid].Value.SetValue([string]$Value)
   Fail 'Counted synthetic commit reached.' 'commit-reached'
@@ -76,7 +77,7 @@ function New-FieldNode([string]$Rid, [string]$Aid, [string]$Name, [string]$Type=
   $node.p=$Parent;$node.x=$X;$node.y=$Y;$node.w=100;$node.h=20
   $node
 }
-function Invoke-CallerCase([string]$Name, [SSEUiaNodeView[]]$Nodes, $Selector, [string]$ExpectedKind, [string]$ExpectedRid='') {
+function Invoke-CallerCase([string]$Name, [SSEUiaNodeView[]]$Nodes, $Selector, [string]$ExpectedKind, [string]$ExpectedRid='', $InputEpoch=$null) {
   $script:fixture=[pscustomobject]@{ nodes=$Nodes }
   $script:elements=@{}
   foreach($node in $Nodes){
@@ -85,6 +86,8 @@ function Invoke-CallerCase([string]$Name, [SSEUiaNodeView[]]$Nodes, $Selector, [
   }
   [FieldResolutionCanary]::Reset()
   $script:DESKTOP_NAME=''
+  $script:expectedInheritedEpoch=$InputEpoch
+  $script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$(if($null -ne $InputEpoch){[pscustomobject]@{checkpoint=$InputEpoch}}else{$null})
   $a=[pscustomobject]@{ expectedPage='Synthetic page';expectedBefore='before';value='requested';expectedAfter='requested';trackResults=$false }
   foreach($property in $Selector.PSObject.Properties){$a | Add-Member NoteProperty $property.Name $property.Value}
   $caught=$null
@@ -145,4 +148,7 @@ $nonEditable=[SSEUiaNodeView[]]@(
   (New-FieldNode '42.7.4.702' 'Form.Target' 'Target' 'Edit' 20)
 )
 Invoke-CallerCase 'unsupported direct role is not silently upgraded to another target' $nonEditable ([pscustomobject]@{aid='Form.Target'}) 'bad-target'
+foreach($checkpoint in @(0,17,[uint64]4294967295)){
+ Invoke-CallerCase 'inherited own input reaches actual commit caller' $oneSuffix ([pscustomobject]@{aid='.Amount'}) 'commit-reached' '42.7.4.401' -InputEpoch $checkpoint
+}
 Write-Output "Tracked field resolution: $script:cases actual caller cases; ambiguous selectors perform zero SetValue/Toggle/Invoke calls."
