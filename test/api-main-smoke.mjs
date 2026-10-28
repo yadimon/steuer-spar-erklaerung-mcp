@@ -29,6 +29,22 @@ const reservePort = async () => {
   return port;
 };
 
+function childOutputClosed(child) {
+  const closed = once(child, "close");
+  // Observe an early spawn rejection immediately; awaiting still reports it.
+  closed.catch(() => {});
+  return async () => {
+    let timer;
+    try {
+      return await Promise.race([closed, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("CLI child did not close its output streams within 15 seconds.")), 15_000);
+      })]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 assert.deepEqual(parseApiMainArguments([]), { help: false });
 assert.deepEqual(parseApiMainArguments(["--help"]), { help: true });
 assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
@@ -84,11 +100,12 @@ const helpChild = spawn(process.execPath, ["dist/api-main.js", "--help"], {
   windowsHide: true,
   stdio: ["ignore", "pipe", "pipe"],
 });
+const helpClosed = childOutputClosed(helpChild);
 let helpStdout = "";
 let helpStderr = "";
 helpChild.stdout.on("data", (chunk) => { helpStdout += chunk.toString("utf8"); });
 helpChild.stderr.on("data", (chunk) => { helpStderr += chunk.toString("utf8"); });
-const [helpCode] = await once(helpChild, "exit");
+const [helpCode] = await helpClosed();
 const helpMs = performance.now() - helpStartedAt;
 assert.equal(helpCode, 0, helpStderr);
 assert.equal(helpStdout.trim(), API_MAIN_USAGE);
@@ -127,21 +144,29 @@ let quickStdout = "";
 let quickStderr = "";
 quickChild.stdout.on("data", (chunk) => { quickStdout += chunk.toString("utf8"); });
 quickChild.stderr.on("data", (chunk) => { quickStderr += chunk.toString("utf8"); });
+const quickClosed = childOutputClosed(quickChild);
+let quickExit;
 try {
   const quickBaseUrl = `http://127.0.0.1:${quickPort}`;
   let healthy = false;
   for (let attempt = 0; attempt < 50; attempt += 1) {
+    healthy = false;
     try {
-      const response = await fetch(`${quickBaseUrl}/healthz`);
-      healthy = response.ok;
-      await response.body?.cancel();
-      if (healthy) break;
+      const response = await fetch(`${quickBaseUrl}/healthz`, { signal: AbortSignal.timeout(1_000) });
+      healthy = response.ok && (await response.json()).processId === quickChild.pid;
+      if (healthy && quickStdout.includes("Strg+C beendet die API")) break;
     } catch {
       // Foreground-API startet noch.
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 50));
   }
   assert.equal(healthy, true, `NPX-Kurzstart wurde nicht gesund: ${quickStderr}`);
+  // Health and piped startup output are separate observations. Read the banner
+  // before synchronous probes or termination can leave its data callback pending.
+  assert.match(quickStdout, /Lokale Standardkonfiguration erstellt/);
+  assert.match(quickStdout, /SSE-API bereit/);
+  assert.match(quickStdout, /\(Fallordner gebunden\)/);
+  assert.match(quickStdout, /Strg\+C beendet die API/);
 
   const quickConfigPath = join(quickLocalAppData, "SteuerSparErklaerungApi", "config.json");
   const quickConfig = JSON.parse(readFileSync(quickConfigPath, "utf8"));
@@ -186,17 +211,14 @@ try {
 
 } finally {
   quickChild.kill("SIGTERM");
-  const [quickCode, quickSignal] = await once(quickChild, "exit");
-  assert(
-    quickCode === 0 || (process.platform === "win32" && quickSignal === "SIGTERM"),
-    `NPX-Kurzstart beendete sich unerwartet (Exit ${quickCode}, Signal ${quickSignal}): ${quickStderr}`,
-  );
-  assert.match(quickStdout, /Lokale Standardkonfiguration erstellt/);
-  assert.match(quickStdout, /SSE-API bereit/);
-  assert.match(quickStdout, /\(Fallordner gebunden\)/);
-  assert.match(quickStdout, /Strg\+C beendet die API/);
+  quickExit = await quickClosed();
   rmSync(quickRoot, { recursive: true, force: true });
 }
+const [quickCode, quickSignal] = quickExit;
+assert(
+  quickCode === 0 || (process.platform === "win32" && quickSignal === "SIGTERM"),
+  `NPX-Kurzstart beendete sich unerwartet (Exit ${quickCode}, Signal ${quickSignal}): ${quickStderr}`,
+);
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-main-smoke-"));
 const caseDir = join(temporary, "cases");
@@ -393,6 +415,7 @@ const child = spawn(process.execPath, ["dist/api-main.js", "--config", configPat
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
+const apiChildClosed = childOutputClosed(child);
 let stdout = "";
 let stderr = "";
 child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
@@ -466,7 +489,7 @@ try {
   mkdirSync(resultDir, { recursive: true });
 } finally {
   child.kill("SIGTERM");
-  const [code, signal] = await once(child, "exit");
+  const [code, signal] = await apiChildClosed();
   assert(
     code === 0 || (process.platform === "win32" && signal === "SIGTERM"),
     `API beendete sich unerwartet (Exit ${code}, Signal ${signal}): ${stderr}`,
