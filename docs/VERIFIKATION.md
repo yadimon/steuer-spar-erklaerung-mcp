@@ -302,6 +302,17 @@ einzelne Jahresangabe ohne frühere Jahresbindung bleibt ein eigener Positivfall
 Die passive Störungsprobe darf bei fehlendem Namen keinen unveränderten
 Leerwert erfinden. Ein Edit-Vorwertobjekt ohne optionalen Namen wird außerdem
 unter PowerShell-StrictMode geprüft.
+An den Ein- und Austrittsgrenzen des tatsächlichen Texthelfers wird außerdem
+jeweils eine einzelne fremde Eingabemarke simuliert, ohne eigene Eingabe
+hinzuzufügen. Der Commit muss vor dem ersten Textblock beziehungsweise vor
+TAB stoppen und den tatsächlichen Änderungsbeginn melden. Eine lesbare
+Nullmarke nach einem DWORD-Überlauf bleibt als positiver Gegenfall gültig.
+Dabei wird der tatsächliche Markervergleich geladen; eine fremde Marke darf
+auch nicht als eigene Marke in der Vordergrundbindung gespeichert werden.
+Ein zusätzlicher Gegenfall mit gepufferten Unicode-Blöcken verlangt die
+letzte eigene Blockmarke und verhindert TAB nach der erkannten Störung.
+Diese Fälle prüfen den produktiven Kontrollfluss an Testgrenzen; sie belegen
+keine Zustellung echter Betriebssystemeingaben.
 Alle dabei verwendeten Fenster-, Eingabe- und Nachrichtenmethoden sind
 produktfreie Testgrenzen; diese Regressionen ersetzen keine reale Abnahme.
 

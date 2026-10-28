@@ -10074,12 +10074,13 @@ function Close-TrackedResultWindow($Tracking) {
   -not [SW]::IsWindow($hwnd)
 }
 
-function Send-SSETrackedLiteralText([IntPtr]$Hwnd, $Target, $ValuePattern, [string]$Value, $InputBefore, $Point) {
+function Send-SSETrackedLiteralText([IntPtr]$Hwnd, $Target, $ValuePattern, [string]$Value, $InputBefore, $Point, $InputCheckpoint) {
   # Qt queues ordinary key events but commits surrogate pairs synchronously
   # through its input method. Prove each preceding chunk before dispatching the
   # next one so a supplementary character cannot overtake the queued prefix.
   $chunks = @([regex]::Split($Value, '([\uD800-\uDBFF][\uDC00-\uDFFF])') | Where-Object { $_.Length })
-  $inputCheckpoint = Get-SSELastInputTick
+  # Preserve the caller's last proven own-input checkpoint. Reading a new
+  # baseline here would absorb foreign input without sending anything.
   $mutationStarted = $false
   $prefix = ''
   for ($index = 0; $index -lt $chunks.Count; $index++) {
@@ -10341,13 +10342,13 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
       # syntax. The same fresh focus/input binding above still owns this write;
       # TAB and the independent caller readback must prove the Qt model commit.
       $mutationStarted = $true
-      $literalCommit = Send-SSETrackedLiteralText $Hwnd $target $vp $Value $inputBefore ([pscustomobject]@{ x=$px; y=$py })
+      $literalCommit = Send-SSETrackedLiteralText $Hwnd $target $vp $Value $inputBefore ([pscustomobject]@{ x=$px; y=$py }) $afterSelectInput
       $mutationStarted = [bool]$literalCommit.details.mutationStarted
       if ($literalCommit.method -cne 'verified-native-text') {
         Complete-SSEPhysicalSection $Hwnd
         return $literalCommit
       }
-      $afterValueInput = Get-SSELastInputTick
+      $afterValueInput = $literalCommit.inputAfter
       Set-SSEForegroundLeaseInputCheckpoint $afterValueInput ([pscustomobject]@{ x=$px; y=$py })
       Start-Sleep -Milliseconds 60
       if (-not (Test-SSELastInputUnchanged $afterValueInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
