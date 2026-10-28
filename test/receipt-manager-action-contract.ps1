@@ -22,6 +22,7 @@ foreach ($functionName in @(
   'Get-SSEReceiptManagerListProjection',
   'Get-SSEReceiptManagerWindowSet',
   'ConvertTo-SSEReceiptManagerInputValue',
+  'ConvertTo-SSEReceiptManagerVatRate',
   'ConvertFrom-SSEReceiptManagerDisplayValue',
   'Get-SSEReceiptManagerDetailBindingFingerprint',
   'Get-SSEReceiptManagerDetailIdentityTitle',
@@ -32,7 +33,7 @@ foreach ($functionName in @(
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
   }, $true))
   Assert-True ($definitions.Count -eq 1) "$functionName ist nicht eindeutig vorhanden."
-  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
+  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertTo-SSEReceiptManagerVatRate','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
@@ -1427,3 +1428,205 @@ Assert-True ($script:menuPatternRequests.Count -eq 1 -and
   $script:menuPatternRequests[0] -eq [System.Windows.Automation.ExpandCollapsePattern]::Pattern) `
   'An unsupported expansion invoked a different mutation pattern.'
 Write-Output 'Menu expansion: unsupported patterns rejected before mutation - passed'
+
+# Read the production value helpers, not the earlier transaction/UI boundaries.
+. (Join-Path $root 'powershell/table-values.ps1')
+foreach ($receiptValueName in @('ConvertTo-SSEReceiptManagerVatRate','ConvertFrom-SSEReceiptManagerDisplayValue',
+  'Get-SSEReceiptManagerFieldValue','Test-SSEReceiptManagerFieldValue','Get-SSEReceiptManagerEditableValues',
+  'Get-SSEReceiptManagerDetailBindingFingerprint','Get-SSETextSha256','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent')) {
+  $receiptValueDefinitions = @($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $receiptValueName
+  }, $true))
+  Assert-True ($receiptValueDefinitions.Count -eq 1) 'Actual receipt value helper is not unique.'
+  Invoke-Expression $receiptValueDefinitions[0].Extent.Text
+}
+function New-ReceiptValueFixture {
+  $valuePolicy = $catalog.windows.receiptManager
+  $rawValues = @{title='Synthetic receipt';date='01.01.2025';documentNumber='DOC-1';amount='12,34';vatRate='19 %';note='Original note'}
+  $nodes = @($valuePolicy.controls.editableFields.PSObject.Properties | ForEach-Object {
+    [pscustomobject]@{aid=('synthetic'+$_.Value.automationIdSuffix);type=$_.Value.controlType;
+      w=80;h=20;on=$true;val=$rawValues[$_.Name];name='Synthetic label';checked=$false}
+  })
+  [pscustomobject]@{policy=$valuePolicy;state=[pscustomobject]@{nodes=$nodes}}
+}
+function ReceiptValueNode($Fixture, [string]$Field) {
+  @($Fixture.state.nodes | Where-Object { $_.aid.EndsWith($Fixture.policy.controls.editableFields.$Field.automationIdSuffix) })[0]
+}
+$readable = New-ReceiptValueFixture
+$readableValues = Get-SSEReceiptManagerEditableValues $readable.state $readable.policy
+Assert-True ($readableValues.complete -and $readableValues.values.vatRate -ceq '19' -and
+  $readableValues.values.net -is [bool] -and -not $readableValues.values.net) 'Readable values changed type or meaning.'
+Assert-True ((Get-SSEReceiptManagerDetailBindingFingerprint $readable.state $readable.policy) -ceq
+  '57BC14D1E559B85E45F34FD6B09D39B44A08C52C3EA8D9DE4213560D193DD1CA') 'Known readable fingerprint changed.'
+foreach ($field in @('title','date','documentNumber','amount','vatRate','note')) {
+  $fixture = New-ReceiptValueFixture; $node = ReceiptValueNode $fixture $field; $node.val=$null
+  $resolved = [pscustomobject]@{node=$node;policy=$fixture.policy.controls.editableFields.$field}
+  Assert-True ($null -eq (Get-SSEReceiptManagerFieldValue $resolved)) 'A missing raw field became its label.'
+  $aggregate = Get-SSEReceiptManagerEditableValues $fixture.state $fixture.policy
+  Assert-True (-not $aggregate.complete -and $null -eq $aggregate.values) 'Unknown field produced complete values.'
+  Assert-True ($null -eq (Get-SSEReceiptManagerDetailBindingFingerprint $fixture.state $fixture.policy)) 'Unknown field produced a binding.'
+}
+foreach ($raw in @($null,'unbestimmt','false','true',0,1)) {
+  $fixture = New-ReceiptValueFixture; (ReceiptValueNode $fixture 'net').checked=$raw
+  $aggregate = Get-SSEReceiptManagerEditableValues $fixture.state $fixture.policy
+  Assert-True (-not $aggregate.complete -and $null -eq $aggregate.values) 'Unknown checkbox became a Boolean.'
+  Assert-True ($null -eq (Get-SSEReceiptManagerDetailBindingFingerprint $fixture.state $fixture.policy)) 'Unknown checkbox produced a binding.'
+}
+foreach ($checked in @($false,$true)) {
+  $fixture = New-ReceiptValueFixture; (ReceiptValueNode $fixture 'net').checked=$checked
+  (ReceiptValueNode $fixture 'note').val=''
+  $aggregate = Get-SSEReceiptManagerEditableValues $fixture.state $fixture.policy
+  Assert-True ($aggregate.complete -and $aggregate.values.net -is [bool] -and $aggregate.values.net -eq $checked -and
+    $aggregate.values.note -ceq '') 'A readable Boolean or empty text was rejected.'
+}
+foreach ($rate in @(@{raw='';value='0'},@{raw='0';value='0'},@{raw='0 %';value='0'},
+  @{raw='7';value='7'},@{raw='7 %';value='7'},@{raw='19';value='19'},@{raw='19 %';value='19'},
+  @{raw='19,00 %';value='19'},@{raw=' 7.000 % ';value='7'},
+  @{raw=([string][char]0x0085+'19 %'+[char]0xFEFF);value='19'},
+  @{raw=([string][char]0x00A0+'7'+[char]0x202F+'%');value='7'})) {
+  $fixture = New-ReceiptValueFixture; (ReceiptValueNode $fixture 'vatRate').val=$rate.raw
+  $aggregate = Get-SSEReceiptManagerEditableValues $fixture.state $fixture.policy
+  Assert-True ($aggregate.complete -and $aggregate.values.vatRate -ceq $rate.value) 'Readable supported VAT formatting was lost.'
+  Assert-True (Test-SSEReceiptManagerFieldValue $rate.raw $rate.value 'vat-rate') 'Readable VAT values no longer compare canonically.'
+}
+foreach ($raw in @($null,'Synthetic label','%','1 9','1900','19,7','10','  ',0,$false)) {
+  $fixture = New-ReceiptValueFixture; (ReceiptValueNode $fixture 'vatRate').val=$raw
+  $aggregate = Get-SSEReceiptManagerEditableValues $fixture.state $fixture.policy
+  Assert-True ($null -eq (ConvertFrom-SSEReceiptManagerDisplayValue $raw 'vat-rate')) 'Unproven VAT became a rate.'
+  Assert-True (-not $aggregate.complete -and $null -eq $aggregate.values) 'Unproven VAT produced complete values.'
+  Assert-True (-not (Test-SSEReceiptManagerFieldValue $raw $raw 'vat-rate')) 'Two unreadable VAT values proved equality.'
+}
+foreach ($kind in @('text','date','currency','vat-rate','boolean')) {
+  Assert-True (-not (Test-SSEReceiptManagerFieldValue $null '' $kind)) 'Null actual value proved equality.'
+  Assert-True (-not (Test-SSEReceiptManagerFieldValue '' $null $kind)) 'Null expected value proved equality.'
+  Assert-True ($null -eq (ConvertFrom-SSEReceiptManagerDisplayValue $null $kind)) 'Null display value became readable.'
+}
+Assert-True (Test-SSEReceiptManagerFieldValue '' '' 'text') 'Readable empty text became unknown.'
+Assert-True (Test-SSEReceiptManagerFieldValue $false $false 'boolean') 'A readable false Boolean was rejected.'
+Assert-True (-not (Test-SSEReceiptManagerFieldValue $false 'false' 'boolean')) 'Text was treated as a Boolean.'
+Assert-True (Test-SSEReceiptManagerFieldValue '1.234,00' '1234' 'currency') 'Currency formatting contract changed.'
+Assert-True (Test-SSEReceiptManagerFieldValue '15.01.2025' '15.01' 'date') 'Date formatting contract changed.'
+foreach ($roundTrip in @(
+  @{field='note';input='';raw='';kind='text'},
+  @{field='documentNumber';input='';raw='';kind='text'},
+  @{field='net';input=$false;raw=$false;kind='boolean'},
+  @{field='net';input=$true;raw=$true;kind='boolean'},
+  @{field='vatRate';input='0';raw='';kind='vat-rate'},
+  @{field='vatRate';input='7';raw='7,00 %';kind='vat-rate'},
+  @{field='vatRate';input='19';raw='19 %';kind='vat-rate'},
+  @{field='amount';input='12.34';raw='12,34';kind='currency'},
+  @{field='date';input='2025-01-01';raw='01.01.2025';kind='date'}
+)) {
+  $requested=ConvertTo-SSEReceiptManagerInputValue $roundTrip.field $roundTrip.input $roundTrip.kind
+  Assert-True (Test-SSEReceiptManagerFieldValue $roundTrip.raw $requested $roundTrip.kind) 'Actual input conversion no longer matches its readable product representation.'
+}
+Write-Output 'Receipt values: actual readers, input round-trips, unknowns, readable-empty zero, typed Booleans and stable fingerprint passed.'
+
+# A stricter reader must not hide input that already cleared the VAT field.
+foreach ($vatHelperName in @('New-SSECommitResult','Set-SSEReceiptManagerVatRateSelection')) {
+  $vatHelpers = @($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $vatHelperName
+  }, $true))
+  Assert-True ($vatHelpers.Count -eq 1) 'Actual VAT helper is not unique.'
+  Invoke-Expression $vatHelpers[0].Extent.Text
+}
+function Commit-TrackedValue {
+  param($Window,$Node,$Value,$Expected)
+  $script:receiptCommitCalls++
+  $script:receiptCommitEvidence
+}
+function Wait-SSEReceiptManagerLiveFieldValue {
+  param($Window,$Binding,$Expected,$Kind,$TimeoutMs)
+  $script:receiptReadbackCalls++
+  Assert-True ($null -ne $script:receiptReadbackEvidence) 'A refused commit reached readback.'
+  $script:receiptReadbackEvidence
+}
+$vatFixture = New-ReceiptValueFixture
+$vatBinding = [pscustomobject]@{node=(ReceiptValueNode $vatFixture 'vatRate');policy=$vatFixture.policy.controls.editableFields.vatRate}
+foreach ($evidence in @(
+  @{method='interference-after-value';mutation=$true;interference=$true},
+  @{method='precondition-changed';mutation=$false;interference=$false}
+)) {
+  $script:receiptCommitCalls=0; $script:receiptReadbackCalls=0; $script:receiptReadbackEvidence=$null
+  $script:receiptCommitEvidence=New-SSECommitResult $evidence.method 1 2 ([pscustomobject]@{mutationStarted=$evidence.mutation})
+  $result=Set-SSEReceiptManagerVatRateSelection ([IntPtr]7) 100 $vatFixture.state $vatFixture.policy $vatBinding '19 %' '0 %' 1
+  Assert-True (-not $result.ok -and $result.mutationStarted -eq $evidence.mutation -and
+    $result.interference -eq $evidence.interference -and $result.inputInterference -eq $evidence.interference) 'Clear refusal lost actual commit evidence.'
+  Assert-True ($script:receiptCommitCalls -eq 1 -and $script:receiptReadbackCalls -eq 0) 'A refused clear was repeated or read as success.'
+}
+foreach ($evidence in @(
+  @{raw=$null;ok=$false;after=$null},@{raw='%';ok=$false;after=$null},
+  @{raw='19 %';ok=$false;after='19'},@{raw='';ok=$true;after='0'}
+)) {
+  $script:receiptCommitCalls=0; $script:receiptReadbackCalls=0
+  $script:receiptCommitEvidence=New-SSECommitResult 'verified-keyboard-replace' 1 2 ([pscustomobject]@{mutationStarted=$true})
+  $script:receiptReadbackEvidence=[pscustomobject]@{ok=$evidence.ok;value=$evidence.raw}
+  $result=Set-SSEReceiptManagerVatRateSelection ([IntPtr]7) 100 $vatFixture.state $vatFixture.policy $vatBinding '19 %' '0 %' 1
+  Assert-True ($result.ok -eq $evidence.ok -and $result.mutationStarted -eq $true -and
+    $result.after -ceq $evidence.after) 'Completed clear hid a mutation or invented a zero after-value.'
+  Assert-True ($script:receiptCommitCalls -eq 1 -and $script:receiptReadbackCalls -eq 1) 'Clear did not keep exactly one commit/readback.'
+}
+foreach ($expected in @($null,'%')) {
+  $script:receiptCommitCalls=0
+  $result=Set-SSEReceiptManagerVatRateSelection ([IntPtr]7) 100 $vatFixture.state $vatFixture.policy $vatBinding $expected '0 %' 1
+  Assert-True (-not $result.ok -and -not $result.mutationStarted -and $script:receiptCommitCalls -eq 0) 'An unproven expected rate authorized a clear/no-op.'
+}
+$vatDefinition=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Set-SSEReceiptManagerVatRateSelection'
+},$true))[0]
+$normalizer=@($vatDefinition.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$normalizeRate'
+},$true))
+$rateAssignments=@($vatDefinition.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$afterRate' -and
+    $node.Right.Extent.Text -match '\$(selectionReadback|physicalReadback|lateReadback)\.value'
+},$true))
+$okAssignment=@($vatDefinition.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$ok'
+},$true))
+Assert-True ($normalizer.Count -eq 1 -and $rateAssignments.Count -eq 3 -and $okAssignment.Count -eq 1) 'Actual selection result boundaries are ambiguous.'
+Invoke-Expression $normalizer[0].Extent.Text
+# Execute the actual post-selection assignments/result with synthetic provider failure evidence.
+foreach ($raw in @($null,'%')) {
+  $selectionReadback=[pscustomobject]@{value=$raw};$physicalReadback=$selectionReadback;$lateReadback=$selectionReadback
+  $selectionError='Synthetic selection failure';$selected=$false;$physicalCommit=$null
+  $expectedRate='0';$wantedRate='19';$commitMethod='expand+selection-item';$options=@();$taxOptionDiagnostics=@()
+  foreach ($assignment in $rateAssignments) {
+    Invoke-Expression $assignment.Extent.Text
+    Assert-True ($null -eq $afterRate) 'An unknown selection readback became a known zero.'
+    Invoke-Expression $okAssignment[0].Extent.Text
+    $selectionResult=Invoke-Expression $vatDefinition.Body.EndBlock.Statements[-1].Extent.Text
+    Assert-True (-not $selectionResult.ok -and $null -eq $selectionResult.after -and $selectionResult.mutationStarted) 'Selection failure hid an uncertain mutation.'
+  }
+}
+$vatFailure=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if (-not $vatCommit.ok)')
+},$true))
+Assert-True ($vatFailure.Count -eq 1) 'Actual VAT caller failure boundary is ambiguous.'
+$script:receiptCommitEvidence=New-SSECommitResult 'interference-after-value' 1 2 ([pscustomobject]@{mutationStarted=$true})
+$vatCommit=Set-SSEReceiptManagerVatRateSelection ([IntPtr]7) 100 $vatFixture.state $vatFixture.policy $vatBinding '19 %' '0 %' 1
+$failedField=$null;$failedReason=$null;$uncertainFieldMutation=$false;$failedInputGuard=$false
+Invoke-Expression ('foreach ($transaction in @([pscustomobject]@{name="vatRate"})) {'+$vatFailure[0].Extent.Text+'; throw "Failed VAT did not stop the actual forward loop"}')
+Assert-True ($failedField -ceq 'vatRate' -and $uncertainFieldMutation -and $failedInputGuard) 'Actual VAT caller lost partial input or interference.'
+$trackedCommit=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Commit-TrackedValue'
+},$true))
+Assert-True ($trackedCommit.Count -eq 1) 'Actual clear input producer is ambiguous.'
+$backspace=@($trackedCommit[0].FindAll({param($node)
+  $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Extent.Text -ceq "[System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')"
+},$true))
+Assert-True ($backspace.Count -eq 1) 'Actual clear mutation boundary is missing.'
+$postClearResults=@($trackedCommit[0].FindAll({param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'New-SSECommitResult' -and
+    $node.Extent.StartOffset -gt $backspace[0].Extent.EndOffset
+}.GetNewClosure(),$true))
+Assert-True ($postClearResults.Count -ge 3) 'Actual post-clear failure/result coverage is empty.'
+$settleDetails=@($trackedCommit[0].FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$settleDetails'
+},$true))
+Assert-True ($settleDetails.Count -eq 1 -and $settleDetails[0].Extent.Text -match 'mutationStarted=\$mutationStarted') 'Successful input producer lost its typed mutation evidence.'
+foreach ($producer in $postClearResults) {
+  $details=$producer.CommandElements[-1].Extent.Text
+  Assert-True ($details -ceq '$settleDetails' -or $details -match 'mutationStarted=\$mutationStarted') 'A real post-clear result omitted its mutation evidence.'
+}
+Write-Output 'VAT result dependency: actual clears, nonzero result construction and caller preserve unknown/mutation/interference evidence.'

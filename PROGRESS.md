@@ -88,6 +88,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   abweichenden Wert und erlaubt keine blinde Rücknahme. Eine verweigerte
   Rücknahme wegen unbewiesener Bindung bezeichnet den Ausgang ausdrücklich als
   unbekannt. Unlesbare Modellwerte werden nicht zu bestätigten Leerwerten.
+- **BelegManager-Lesewerte:** Beide Backends benötigen lesbare Rohwerte und
+  echte boolesche Checkboxzustände für vollständige Detailwerte und deren
+  Fingerprint. Ein lesbares leeres USt-Feld bleibt der gültige Nullsatz;
+  unlesbare Werte und bloße Beschriftungen bestätigen ihn nicht.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -145,10 +149,12 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Mehrfeldplan kann deshalb ohne automatische Rücknahme abgleichpflichtig bleiben.
   Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
   Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
-- Die gesperrten BelegManager-Schreibwege benötigen noch eine strengere
-  Behandlung unbekannter USt-Werte und eine erneute Eigentumsprüfung nach
-  frischer Feldbindung vor der Rücknahme. Das ist bekannte Folgearbeit;
-  die Schreibsperren bleiben maßgeblich.
+- Die gesperrten BelegManager-Schreibwege benötigen noch einen frisch
+  bestätigten Vorwert im USt-Auswahlhelfer und eine erneute Eigentumsprüfung
+  vor der Rücknahme. Begonnene USt-Clears und verlorene Eingabekontrolle
+  bleiben inzwischen im Fehlerergebnis erhalten. Die korrigierten Reader
+  ersetzen die offenen Transaktionsprüfungen nicht; die Schreibsperren
+  bleiben maßgeblich.
 - Ein positiver VaSt-Ende-zu-Ende-Ablauf ist im aggregierten Live-Ledger nicht
   belegt. Profil 2024 bleibt experimentell mit
   `operationAccess: "verification-only"`.

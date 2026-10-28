@@ -927,6 +927,25 @@ HTTP und MCP. Die Pruefung liegt nach der Argumentschema-Validierung, aber vor
 Ressourcenaufloesung, Workerstart und UI; auch der direkte Worker besitzt den
 identischen Guard.
 
+Die internen Detailreader bilden einen Fingerprint erst aus vollständig
+lesbaren Werten. Textfelder benötigen ihren Rohwert; eine Beschriftung
+bestätigt keinen Feldinhalt. Checkboxen benötigen einen echten booleschen
+Zustand. Für USt gelten die Sätze `0`, `7` und `19` einschließlich der
+unterstützten Anzeigeformate mit Prozentzeichen und Dezimalnullen. Ein
+lesbares exakt leeres USt-Feld steht für den Nullsatz. Ein fehlender Wert,
+ein unbestimmter Checkboxzustand oder ungültiger USt-Text lässt den
+Vollständigkeits- und Bindungsnachweis offen. Die Interaktionsfreigabe bleibt
+ein eigener Vertrag.
+Wurde eine Detailansicht bereits geöffnet und lassen sich ihre Werte nicht
+vollständig bestätigen, meldet die native Änderung den erforderlichen Abgleich mit
+`cleanupRequired=true`. Ein automatisches Schließen ist dann kein bestätigter
+Cleanup-Schritt. Ein bereits ausgeführter USt-Clear bleibt als begonnene
+Mutation erkennbar, auch wenn sein Nachwert unlesbar ist; dieser bleibt `null`.
+Sind bereits geöffnete Details unlesbar, verweigert die native Änderung auch
+die erneute Zeilenaktivierung vor jeder Aktion. Der Aufruf selbst hat dann
+nichts geändert; die vorhandene Detailansicht bleibt abgleichpflichtig und
+der Aufruf nicht automatisch wiederholbar.
+
 Die MCP-Eingaben dürfen strenger sein als die der lokalen API, nie
 großzügiger. Bekannt und gewollt:
 
