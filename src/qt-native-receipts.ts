@@ -313,6 +313,13 @@ function stableCellNames(row: Pick<ReceiptRow, "cells">) {
   return row.cells.filter((_, index) => index !== 5 && index !== 6).map(cell => cell.name);
 }
 
+export function validReceiptDate(value: string): boolean {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(year!, month! - 1, day!);
+  return year! > 0 && date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
+}
+
 export function sameSemanticRow(left: ReceiptRow, right: ReceiptRow) {
   return left.primaryText === right.primaryText && left.documentNumber === right.documentNumber
     && left.contentFingerprint === right.contentFingerprint

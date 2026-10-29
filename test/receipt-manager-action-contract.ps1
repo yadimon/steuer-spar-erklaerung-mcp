@@ -952,7 +952,7 @@ foreach ($required in @(
   'expectedListFingerprint',
   'expectedDetailFingerprint',
   'Resolve-SSEReceiptManagerEditableFieldNode',
-  'Get-SSEReceiptManagerLiveEditableField',
+  'Get-SSEReceiptManagerBoundFieldObservation',
   'Wait-SSEReceiptManagerLiveFieldValue',
   'Commit-TrackedValue',
   'Click-VerifiedPoint',
@@ -1227,15 +1227,29 @@ function Assert-ImportWait([bool]$Condition, [string]$Message) {
 }
 Add-Type -TypeDefinition @'
 namespace ReceiptImportWaitContract {
+ public sealed class Clock {
+  public static long Now;
+  public static readonly System.Collections.Generic.List<int> Sleeps = new System.Collections.Generic.List<int>();
+  private long started;
+  public static Clock StartNew() { return new Clock { started = Now }; }
+  public long ElapsedMilliseconds { get { return Now - started; } }
+  public static void Sleep(int milliseconds) { Sleeps.Add(milliseconds); Now += milliseconds; }
+  public static void Reset() { Now = 0; Sleeps.Clear(); }
+ }
  public static class WindowSystem {
   public static bool[] Observations;
   public static int Reads;
   public static long LastHandle;
-  public static bool Fail; public static System.Diagnostics.Stopwatch Watch; public static int CloseAt;
+  public static bool Fail;
+  public static int ReadDelay;
+  public static int CloseAt = -1;
   public static bool IsWindow(System.IntPtr handle) {
-   LastHandle = handle.ToInt64(); if (Watch != null) return Watch.ElapsedMilliseconds < CloseAt;
+   LastHandle = handle.ToInt64();
    if (Fail) throw new System.InvalidOperationException("Unreadable window");
-   return Observations[System.Math.Min(Reads++, Observations.Length - 1)];
+   Clock.Now += ReadDelay;
+   int index = Reads++;
+   if (CloseAt >= 0) return Clock.Now < CloseAt;
+   return Observations[System.Math.Min(index, Observations.Length - 1)];
   }
  }
 }
@@ -1245,23 +1259,38 @@ $definition = @($ast.FindAll({ param($node)
   $node.Name -ceq 'Wait-SSEReceiptImportDialogClosed'
 }, $true))
 Assert-ImportWait ($definition.Count -eq 1) 'Import dialog wait must be uniquely defined.'
-Invoke-Expression ($definition[0].Extent.Text.Replace('[SW]', '[ReceiptImportWaitContract.WindowSystem]'))
+# Nur Uhr, Schlafen und native Fensterabfrage ersetzen; der echte Warteablauf
+# bleibt erhalten und haengt nicht von der Auslastung des Testrechners ab.
+$dialogWait = $definition[0].Extent.Text
+Assert-ImportWait ([regex]::Matches($dialogWait, [regex]::Escape('[Diagnostics.Stopwatch]::StartNew()')).Count -eq 1) 'Dialog wait clock boundary changed.'
+Assert-ImportWait ([regex]::Matches($dialogWait, 'Start-Sleep -Milliseconds').Count -eq 1) 'Dialog wait sleep boundary changed.'
+function Wait-ReceiptImportClock([int]$Milliseconds) {
+  [ReceiptImportWaitContract.Clock]::Sleep($Milliseconds)
+}
+$dialogWait = $dialogWait.Replace('[SW]', '[ReceiptImportWaitContract.WindowSystem]').
+  Replace('[Diagnostics.Stopwatch]', '[ReceiptImportWaitContract.Clock]').
+  Replace('Start-Sleep -Milliseconds', 'Wait-ReceiptImportClock -Milliseconds')
+Invoke-Expression $dialogWait
 foreach ($case in @(
-  [pscustomobject]@{ values=@($false); expected=$true; reads=1 }
-  [pscustomobject]@{ values=@($true,$true,$false); expected=$true; reads=3 }
+  [pscustomobject]@{ values=@($false); expected=$true; reads=1; delay=0; budget=150; elapsed=0; sleeps='' }
+  [pscustomobject]@{ values=@($true,$true,$false); expected=$true; reads=3; delay=0; budget=150; elapsed=100; sleeps='50,50' }
+  [pscustomobject]@{ values=@($true); expected=$false; reads=4; delay=0; budget=150; elapsed=150; sleeps='50,50,50' }
+  [pscustomobject]@{ values=@($true,$true,$false); expected=$false; reads=1; delay=151; budget=150; elapsed=151; sleeps='' }
+  [pscustomobject]@{ values=@($false); expected=$true; reads=1; delay=0; budget=0; elapsed=0; sleeps='' }
+  [pscustomobject]@{ values=@($true); expected=$false; reads=1; delay=0; budget=0; elapsed=0; sleeps='' }
 )) {
+  [ReceiptImportWaitContract.Clock]::Reset()
   [ReceiptImportWaitContract.WindowSystem]::Observations = [bool[]]$case.values
   [ReceiptImportWaitContract.WindowSystem]::Reads = 0
-  $watch = [Diagnostics.Stopwatch]::StartNew()
-  $result = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150
+  [ReceiptImportWaitContract.WindowSystem]::ReadDelay = $case.delay
+  $result = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) $case.budget
   Assert-ImportWait ($result -eq $case.expected) 'Wrong dialog close result.'
   Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::LastHandle -eq 4711) 'Dialog wait lost its bound HWND.'
-  Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::Reads -eq $case.reads) 'Wait did not stop on first confirmed close.'
+  Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::Reads -eq $case.reads) 'Dialog wait observed the wrong number of windows.'
+  Assert-ImportWait ([ReceiptImportWaitContract.Clock]::Now -eq $case.elapsed) 'Dialog wait lost or extended its deadline.'
+  Assert-ImportWait (([ReceiptImportWaitContract.Clock]::Sleeps -join ',') -ceq $case.sleeps) 'Dialog wait did not use its remaining sleep budget.'
 }
-[ReceiptImportWaitContract.WindowSystem]::Observations = [bool[]]@($true)
-$watch = [Diagnostics.Stopwatch]::StartNew()
-Assert-ImportWait (-not (Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150)) 'An open dialog was accepted as closed.'
-Assert-ImportWait ($watch.ElapsedMilliseconds -ge 150) 'An open dialog lost part of its wait budget.'
+[ReceiptImportWaitContract.WindowSystem]::ReadDelay = 0
 [ReceiptImportWaitContract.WindowSystem]::Fail = $true
 $threw = $false
 try { $null = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150 } catch { $threw = $true }
@@ -1340,11 +1369,15 @@ Write-Output 'Receipt import waits: pinned dialog, full proof, retained deadline
 # Ein Zustand kann erst waehrend der letzten Schlafstrecke eintreten. Auch
 # die Fristgrenze braucht eine Beobachtung, bevor sie als Fehler gilt.
 [ReceiptImportWaitContract.WindowSystem]::Fail = $false
-[ReceiptImportWaitContract.WindowSystem]::Watch = [Diagnostics.Stopwatch]::StartNew()
+[ReceiptImportWaitContract.Clock]::Reset()
+[ReceiptImportWaitContract.WindowSystem]::Reads = 0
 [ReceiptImportWaitContract.WindowSystem]::CloseAt = 110
 $boundaryClosed = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 125
 Assert-ImportWait $boundaryClosed 'Die letzte Dialog-Beobachtung an der Fristgrenze fehlt.'
-[ReceiptImportWaitContract.WindowSystem]::Watch = $null
+Assert-ImportWait ([ReceiptImportWaitContract.Clock]::Now -eq 125 -and
+  [ReceiptImportWaitContract.WindowSystem]::Reads -eq 4 -and
+  ([ReceiptImportWaitContract.Clock]::Sleeps -join ',') -ceq '50,50,25') 'Die letzte Dialog-Beobachtung hat ihr Restbudget nicht eingehalten.'
+[ReceiptImportWaitContract.WindowSystem]::CloseAt = -1
 $script:proofBoundaryWatch = [Diagnostics.Stopwatch]::StartNew()
 function Get-SSEReceiptManagerState {
   if ($script:proofBoundaryWatch.ElapsedMilliseconds -ge 190) {

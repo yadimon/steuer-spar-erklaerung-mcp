@@ -373,6 +373,19 @@ vor dem Eingriff und beim Rücklesen,
 lesbarer leerer Nullsatz und genau ein Clear mit geprüftem Rohwert. Native
 Lesefehler bleiben Fehler; der tatsächliche interne `Emit`-Sentinel samt
 erfasstem Ergebnis muss unverändert weitergereicht werden.
+`receipt-rollback-ownership-contract.ps1` führt die tatsächlichen Vorwärts-
+und Rücknahmeblöcke mit den produktiven Readern, Vergleichen, USt-Helfern,
+Auflösungen und Rücklesungen aus. Fremde, unbekannte und ersetzte Bindungen,
+fehlende und mehrdeutige Felder, gestoppte Rücknahmeketten und verlorener
+Kontext bleiben von gewöhnlichen bestätigten Rücknahmen getrennt. Die
+anfängliche Fehlerursache und die bestehende terminale Auflösung außerhalb
+der laufenden Transaktion bleiben erhalten. Native Zustandslesefehler behalten
+ihre Diagnose im Transaktionsergebnis und erlauben keine weitere Mutation;
+interne Ergebnissentinels werden unverändert weitergereicht.
+Die Qt-Update-Komposition prüft zusätzlich fremde Werte während der
+Rücknahme, einen bestätigten Eingriff ohne passenden Rücklesewert und eine
+verlorene Bestätigung der inversen Mutation. Frühere Felder bleiben dann
+unangetastet, die Detailansicht offen und die erste Fehlerursache erhalten.
 Diese Fälle prüfen den produktiven Kontrollfluss an Testgrenzen; sie belegen
 keine Zustellung echter Betriebssystemeingaben.
 Alle dabei verwendeten Fenster-, Eingabe- und Nachrichtenmethoden sind

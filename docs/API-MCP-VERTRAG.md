@@ -944,6 +944,19 @@ Vorbedingung des bestehenden Commit-Primitivs; eine zulässige abweichende
 Anzeigeformatierung wird dadurch nicht als fremder Zahlenwert übernommen.
 Auch die anschließende Rücklesung bleibt an diese Runtime-ID gebunden;
 ein inzwischen ersetztes Feld bestätigt den ursprünglichen Eingriff nicht.
+Die laufende Feldtransaktion behandelt erwartete Auflösungsfehler beim
+erneuten Binden als strukturierten Fehler. Der anfängliche Fehler und schon
+erfolgte Änderungen bleiben erhalten; auch native Zustandslesefehler behalten
+ihre Ursache im offenen Transaktionsergebnis. Eine Rücknahme erwartet unverändert
+den eigenen angeforderten Wert, statt einen inzwischen gelesenen fremden
+Wert als Vorbedingung zu übernehmen. Nach einer gescheiterten oder nicht
+bestätigten Rücknahme werden weitere Felder nur noch gelesen. Bereits
+verlorener Kontext bleibt mit `cleanupRequired=true` offen, selbst wenn
+einzelne Werte wieder dem Ausgangszustand entsprechen. Das ersetzt weder
+die offenen Auswahl-/Eingabekontrollen noch die bestehenden Schreibsperren.
+Der Qt-Pfad hält denselben Rücknahmestopp ein. Geht die Bestätigung einer
+inversen Mutation verloren, bleibt `outcomeUnknown=true` erhalten; eine
+anschließende Detail-Schließaktion bestätigt diesen Zustand nicht.
 Wurde eine Detailansicht bereits geöffnet und lassen sich ihre Werte nicht
 vollständig bestätigen, meldet die native Änderung den erforderlichen Abgleich mit
 `cleanupRequired=true`. Ein automatisches Schließen ist dann kein bestätigter

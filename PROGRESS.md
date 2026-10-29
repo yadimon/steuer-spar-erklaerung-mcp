@@ -97,6 +97,14 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   erlauben keine Änderung. Ein Clear behält den vorher geprüften Rohwert als
   Vorbedingung des bestehenden Commit-Primitivs. Auch die anschließende
   Warteschleife bestätigt nur Werte derselben Feldbindung.
+  Während der Feldtransaktion bleiben erwartete Auflösungsfehler strukturiert.
+  Die Rücknahme prüft weiterhin den eigenen angeforderten Wert; neue Bindungen
+  und fremde Werte werden nicht übernommen. Nach einer gescheiterten oder
+  unbestätigten Rücknahme folgen keine weiteren Schreibaktionen. Bereits
+  verlorener Kontext bleibt abgleichpflichtig, auch bei lesbaren Ausgangswerten.
+  Auch der Qt-Pfad stoppt nach fremden Werten oder unbestätigten Rücknahmen.
+  Eine verlorene Bestätigung während der Rücknahme bleibt ein unbekannter
+  Mutationsausgang; die anfängliche Fehlerursache wird dabei nicht ersetzt.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -155,10 +163,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
   Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
 - Die gesperrten BelegManager-Schreibwege benötigen noch zusätzliche
-  Vorwert-/Kontextprüfungen direkt an der USt-Auswahl und eine erneute
-  Eigentumsprüfung vor der Rücknahme. Begonnene USt-Clears und verlorene
-  Eingabekontrolle
-  bleiben inzwischen im Fehlerergebnis erhalten. Die korrigierten Reader
+  Vorwert-/Kontextprüfungen direkt an der USt-Auswahl und an physischen
+  Klickgrenzen. Begonnene USt-Clears und verlorene Eingabekontrolle
+  bleiben im Fehlerergebnis erhalten. Die korrigierten Reader
   ersetzen die offenen Transaktionsprüfungen nicht; die Schreibsperren
   bleiben maßgeblich.
 - Ein positiver VaSt-Ende-zu-Ende-Ablauf ist im aggregierten Live-Ledger nicht
