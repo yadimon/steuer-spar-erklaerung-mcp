@@ -366,6 +366,13 @@ Die tatsächlichen USt-Clear-Helfer und ihre
 Ergebnisübergabe werden zusätzlich mit ausgeführter Eingabe, verweigerter
 Eingabe und unlesbarem Nachwert geprüft; ein Nullwert bestätigt keinen Nullsatz
 und löscht keinen bereits begonnenen Eingriff aus dem Ergebnis.
+`receipt-vat-precondition-contract.ps1` führt den tatsächlichen USt-Helfer
+mit seinen produktiven Wertvergleichen und der Live-Warteschleife aus:
+falscher No-op bei veraltetem oder unbekanntem Wert, ersetzte Feldbindung
+vor dem Eingriff und beim Rücklesen,
+lesbarer leerer Nullsatz und genau ein Clear mit geprüftem Rohwert. Native
+Lesefehler bleiben Fehler; der tatsächliche interne `Emit`-Sentinel samt
+erfasstem Ergebnis muss unverändert weitergereicht werden.
 Diese Fälle prüfen den produktiven Kontrollfluss an Testgrenzen; sie belegen
 keine Zustellung echter Betriebssystemeingaben.
 Alle dabei verwendeten Fenster-, Eingabe- und Nachrichtenmethoden sind

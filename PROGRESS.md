@@ -92,6 +92,11 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   echte boolesche Checkboxzustände für vollständige Detailwerte und deren
   Fingerprint. Ein lesbares leeres USt-Feld bleibt der gültige Nullsatz;
   unlesbare Werte und bloße Beschriftungen bestätigen ihn nicht.
+  Der USt-Auswahlhelfer liest vor seiner No-op-Bestätigung den gebundenen
+  Vorwert frisch. Ein fehlendes oder ersetztes Feld und ein abweichender Wert
+  erlauben keine Änderung. Ein Clear behält den vorher geprüften Rohwert als
+  Vorbedingung des bestehenden Commit-Primitivs. Auch die anschließende
+  Warteschleife bestätigt nur Werte derselben Feldbindung.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -149,9 +154,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Mehrfeldplan kann deshalb ohne automatische Rücknahme abgleichpflichtig bleiben.
   Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
   Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
-- Die gesperrten BelegManager-Schreibwege benötigen noch einen frisch
-  bestätigten Vorwert im USt-Auswahlhelfer und eine erneute Eigentumsprüfung
-  vor der Rücknahme. Begonnene USt-Clears und verlorene Eingabekontrolle
+- Die gesperrten BelegManager-Schreibwege benötigen noch zusätzliche
+  Vorwert-/Kontextprüfungen direkt an der USt-Auswahl und eine erneute
+  Eigentumsprüfung vor der Rücknahme. Begonnene USt-Clears und verlorene
+  Eingabekontrolle
   bleiben inzwischen im Fehlerergebnis erhalten. Die korrigierten Reader
   ersetzen die offenen Transaktionsprüfungen nicht; die Schreibsperren
   bleiben maßgeblich.

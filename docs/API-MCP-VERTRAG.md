@@ -936,6 +936,14 @@ lesbares exakt leeres USt-Feld steht für den Nullsatz. Ein fehlender Wert,
 ein unbestimmter Checkboxzustand oder ungültiger USt-Text lässt den
 Vollständigkeits- und Bindungsnachweis offen. Die Interaktionsfreigabe bleibt
 ein eigener Vertrag.
+Der interne USt-Auswahlhelfer bestätigt auch einen No-op erst nach einer
+frischen Lesung des ursprünglich gebundenen Felds. Unlesbare Werte, eine
+ersetzte Runtime-ID und abweichende Vorwerte verweigern den Eingriff.
+Beim Leeren bleibt der frisch gelesene, semantisch geprüfte Rohwert die
+Vorbedingung des bestehenden Commit-Primitivs; eine zulässige abweichende
+Anzeigeformatierung wird dadurch nicht als fremder Zahlenwert übernommen.
+Auch die anschließende Rücklesung bleibt an diese Runtime-ID gebunden;
+ein inzwischen ersetztes Feld bestätigt den ursprünglichen Eingriff nicht.
 Wurde eine Detailansicht bereits geöffnet und lassen sich ihre Werte nicht
 vollständig bestätigen, meldet die native Änderung den erforderlichen Abgleich mit
 `cleanupRequired=true`. Ein automatisches Schließen ist dann kein bestätigter

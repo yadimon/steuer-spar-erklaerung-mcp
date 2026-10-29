@@ -1444,7 +1444,7 @@ function New-ReceiptValueFixture {
   $valuePolicy = $catalog.windows.receiptManager
   $rawValues = @{title='Synthetic receipt';date='01.01.2025';documentNumber='DOC-1';amount='12,34';vatRate='19 %';note='Original note'}
   $nodes = @($valuePolicy.controls.editableFields.PSObject.Properties | ForEach-Object {
-    [pscustomobject]@{aid=('synthetic'+$_.Value.automationIdSuffix);type=$_.Value.controlType;
+    [pscustomobject]@{rid=('synthetic.'+$_.Name);aid=('synthetic'+$_.Value.automationIdSuffix);type=$_.Value.controlType;
       w=80;h=20;on=$true;val=$rawValues[$_.Name];name='Synthetic label';checked=$false}
   })
   [pscustomobject]@{policy=$valuePolicy;state=[pscustomobject]@{nodes=$nodes}}
@@ -1523,7 +1523,7 @@ foreach ($roundTrip in @(
 Write-Output 'Receipt values: actual readers, input round-trips, unknowns, readable-empty zero, typed Booleans and stable fingerprint passed.'
 
 # A stricter reader must not hide input that already cleared the VAT field.
-foreach ($vatHelperName in @('New-SSECommitResult','Set-SSEReceiptManagerVatRateSelection')) {
+foreach ($vatHelperName in @('New-SSECommitResult','Get-SSEReceiptManagerBoundFieldObservation','Set-SSEReceiptManagerVatRateSelection')) {
   $vatHelpers = @($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $vatHelperName
   }, $true))
@@ -1535,6 +1535,7 @@ function Commit-TrackedValue {
   $script:receiptCommitCalls++
   $script:receiptCommitEvidence
 }
+function Get-SSEReceiptManagerLiveEditableField($Window,$Binding) { $Binding }
 function Wait-SSEReceiptManagerLiveFieldValue {
   param($Window,$Binding,$Expected,$Kind,$TimeoutMs)
   $script:receiptReadbackCalls++
