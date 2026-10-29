@@ -382,6 +382,16 @@ anfängliche Fehlerursache und die bestehende terminale Auflösung außerhalb
 der laufenden Transaktion bleiben erhalten. Native Zustandslesefehler behalten
 ihre Diagnose im Transaktionsergebnis und erlauben keine weitere Mutation;
 interne Ergebnissentinels werden unverändert weitergereicht.
+`receipt-vat-selection-contract.ps1` führt den tatsächlichen Auswahlhelfer
+mit seinen Wert-, Feld-, Lease- und Popup-Prüfungen aus. Kurzzeitige fremde
+oder unbekannte Werte dürfen sich nicht durch eine spätere passende Lesung
+verbergen. Die Fälle prüfen Auswahl ohne Klick, verzögerte Übernahme,
+genau einen gebundenen Folge-Klick, ersetzte Ziele und unbestätigtes Zuklappen.
+Zusätzlich werden die tatsächliche Klickfunktion und der Checkpoint-Helfer
+mit der Auswahl verbunden: Erfolg für beide positiven USt-Sätze, Ablehnung
+vor Eingabe und Fehler nach Eingabe behalten ihre Dispatch-Nachweise.
+Nur die nativen Grenzen sowie Uhr und Schlafen sind dabei modelliert;
+die Tests belegen keine reale Vordergrundübernahme eines Produkt-Popups.
 Die Qt-Update-Komposition prüft zusätzlich fremde Werte während der
 Rücknahme, einen bestätigten Eingriff ohne passenden Rücklesewert und eine
 verlorene Bestätigung der inversen Mutation. Frühere Felder bleiben dann

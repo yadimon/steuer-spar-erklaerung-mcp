@@ -1265,7 +1265,8 @@ function Wait-SSEReceiptManagerLiveFieldValue(
   $Binding,
   $Expected,
   [string]$ValueKind,
-  [int]$TimeoutMs
+  [int]$TimeoutMs,
+  [scriptblock]$ObservationGuard = $null
 ) {
   $watch = [Diagnostics.Stopwatch]::StartNew()
   $lastValue = $null; $resolved = $null
@@ -1273,6 +1274,10 @@ function Wait-SSEReceiptManagerLiveFieldValue(
     $observation = Get-SSEReceiptManagerBoundFieldObservation $Window $Binding
     $resolved = $observation.resolved
     $lastValue = $observation.value
+    if ($ObservationGuard -and -not (& $ObservationGuard $observation)) {
+      $watch.Stop()
+      return [pscustomobject]@{ ok=$false; resolved=$resolved; value=$lastValue; ms=$watch.ElapsedMilliseconds; interference=$true }
+    }
     if ($observation.ok) {
       if (Test-SSEReceiptManagerFieldValue $lastValue $Expected $ValueKind) {
         $watch.Stop()
@@ -1303,6 +1308,56 @@ function Get-SSEReceiptManagerBoundFieldObservation([IntPtr]$Window, $Binding) {
   [pscustomobject]@{
     ok=$known; resolved=$(if ($known) { $resolved } else { $null }); value=$value
     error=$(if ($known) { $null } elseif ($failure) { $failure } else { 'Exakt gebundenes Belegfeld ist nicht mehr lesbar.' })
+  }
+}
+
+function Test-SSEReceiptManagerVatContext($Context, $Observation = $null, [switch]$AllowWanted) {
+  if ($Context.lost) { return $false }
+  $Context.after = $null
+  try {
+    $lease = $script:SSE_FOREGROUND_LEASE
+    $owner = 0
+    $null = [SW]::GetWindowThreadProcessId($Context.window, [ref]$owner)
+    if (-not $lease -or -not [Object]::ReferenceEquals($lease.watch, $Context.watch) -or
+        $null -eq $Context.watch -or [int]$lease.targetPid -ne $Context.targetPid -or
+        [int64]$lease.rootHwnd -ne $Context.rootHwnd -or
+        -not [SW]::IsWindow($Context.window) -or $owner -ne $Context.targetPid) {
+      throw 'Urspruengliche Lease oder Fensterbindung der USt-Auswahl ist verloren.'
+    }
+    if ($null -eq $Context.tick -or $null -eq $lease.lastOwnedInputTick -or
+        [uint64]$lease.lastOwnedInputTick -ne [uint64]$Context.tick -or
+        -not (Test-SSELastInputUnchanged $Context.tick)) {
+      $Context.inputInterference = $true
+      throw 'Eigene Eingabe-Epoche oder Fensterbindung der USt-Auswahl ist verloren.'
+    }
+    if ($null -eq $Observation) {
+      $Observation = Get-SSEReceiptManagerBoundFieldObservation $Context.window $Context.field
+    }
+    $Context.after = ConvertTo-SSEReceiptManagerVatRate $Observation.value
+    if (-not $Observation.ok) { throw $Observation.error }
+    if (-not (Test-SSEReceiptManagerFieldValue $Observation.value $Context.before 'vat-rate') -and
+        -not ($AllowWanted -and (Test-SSEReceiptManagerFieldValue $Observation.value $Context.wanted 'vat-rate'))) {
+      throw 'USt-Wert gehoert nicht mehr zum eigenen Ausgangs- oder Zielwert.'
+    }
+    $isWanted = Test-SSEReceiptManagerFieldValue $Observation.value $Context.wanted 'vat-rate'
+    if ($Context.targetObserved -and -not $isWanted) { throw 'Bereits bestaetigter USt-Zielwert aenderte sich erneut.' }
+    if ($AllowWanted -and $isWanted) { $Context.targetObserved = $true }
+    $combo = Convert-ExactElementToNode (Get-LiveElement $Context.window $Context.combo.rid $Context.combo.aid)
+    if (-not $combo -or [string]$combo.rid -cne [string]$Context.combo.rid -or
+        [string]$combo.aid -cne [string]$Context.combo.aid -or [string]$combo.type -cne 'ComboBox' -or
+        -not $combo.on -or $combo.w -le 0 -or $combo.h -le 0) {
+      throw 'Urspruengliche USt-ComboBox ist nicht mehr identisch sichtbar gebunden.'
+    }
+    if (-not (Test-SSELastInputUnchanged $Context.tick)) {
+      $Context.inputInterference = $true
+      throw 'Eigene Eingabe-Epoche aenderte sich waehrend der USt-Bindungspruefung.'
+    }
+    return $true
+  } catch {
+    if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    $Context.lost = $true
+    $Context.error = $_.Exception.Message
+    return $false
   }
 }
 
@@ -1377,107 +1432,229 @@ function Set-SSEReceiptManagerVatRateSelection(
   if ($comboNodes.Count -ne 1) {
     return [pscustomobject]@{ ok=$false; error="$($comboNodes.Count) sichtbare profilierte USt-ComboBoxen gefunden."; mutationStarted=$false }
   }
-  $comboElement = Get-LiveElement $ToolHwnd ([string]$comboNodes[0].rid) ([string]$comboNodes[0].aid)
-  $expandObject = $null
-  if (-not $comboElement -or -not $comboElement.TryGetCurrentPattern(
-      [Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObject)) {
-    return [pscustomobject]@{ ok=$false; error='USt-ComboBox bietet kein ExpandCollapsePattern.'; mutationStarted=$false }
+  $lease = $script:SSE_FOREGROUND_LEASE
+  $selectionContext = [pscustomobject]@{
+    window=$ToolHwnd; targetPid=$TargetPid; field=$ResolvedField; combo=$comboNodes[0]
+    watch=$lease.watch; rootHwnd=$lease.rootHwnd; tick=$lease.lastOwnedInputTick
+    before=$expectedRate; wanted=$wantedRate; lost=$false; inputInterference=$false; targetObserved=$false; error=$null; after=$null
   }
-  $windowIdsBefore = @((Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid }) |
-    ForEach-Object { [int64]$_.hwnd })
-  try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Expand() }
-  catch {
-    return [pscustomobject]@{ ok=$false; error="USt-ComboBox liess sich nicht oeffnen: $($_.Exception.Message)"; mutationStarted=$false }
+  $stopSelection = {
+    param([string]$Message, [bool]$MutationStarted, $PointFailure = $null)
+    [pscustomobject]@{
+      ok=$false; method='selection-context-lost'; error=$Message
+      before=$expectedRate; requested=$wantedRate; after=$selectionContext.after
+      mutationStarted=$MutationStarted; interference=$true; inputInterference=$selectionContext.inputInterference
+      physicalCommit=$PointFailure
+    }
   }
-  Start-Sleep -Milliseconds 300
+  $observeSelection = {
+    param($Observation)
+    Test-SSEReceiptManagerVatContext $selectionContext $Observation -AllowWanted
+  }
+  $closePopup = {
+    param([switch]$AllowWanted)
+    if (-not (Test-SSEReceiptManagerVatContext $selectionContext -AllowWanted:$AllowWanted)) { return $false }
+    try {
+      $expanded = [string]([Windows.Automation.ExpandCollapsePattern]$expandObject).Current.ExpandCollapseState
+      if ($expanded -ceq 'Collapsed') { return $true }
+      if ($expanded -cne 'Expanded') { throw 'USt-Popup-Zustand ist nicht eindeutig lesbar.' }
+      $selectionContext.after = $null
+      ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse()
+      if ([string]([Windows.Automation.ExpandCollapsePattern]$expandObject).Current.ExpandCollapseState -cne 'Collapsed') {
+        throw 'USt-Popup blieb nach Collapse offen.'
+      }
+      return (Test-SSEReceiptManagerVatContext $selectionContext -AllowWanted:$AllowWanted)
+    } catch {
+      if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+      $selectionContext.lost = $true; $selectionContext.error = $_.Exception.Message
+      return $false
+    }
+  }
+  if (-not (Test-SSEReceiptManagerVatContext $selectionContext)) {
+    return (& $stopSelection $selectionContext.error $false)
+  }
+  $selectionStarted = $false
+  try {
+    $comboElement = Get-LiveElement $ToolHwnd ([string]$comboNodes[0].rid) ([string]$comboNodes[0].aid)
+    $expandObject = $null
+    if (-not $comboElement -or -not $comboElement.TryGetCurrentPattern(
+        [Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObject)) {
+      return [pscustomobject]@{ ok=$false; error='USt-ComboBox bietet kein ExpandCollapsePattern.'; mutationStarted=$false }
+    }
+    $windowIdsBefore = @((Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid }) |
+      ForEach-Object { [int64]$_.hwnd })
+    if (-not (Test-SSEReceiptManagerVatContext $selectionContext)) {
+      return (& $stopSelection $selectionContext.error $false)
+    }
+    $selectionContext.after = $null
+    try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Expand() }
+    catch {
+      if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+      return (& $stopSelection ("USt-Oeffnung nicht sicher abgeschlossen: " + $_.Exception.Message) $true)
+    }
+    Start-Sleep -Milliseconds 300
 
-  $sources = @(Get-SSETableComboPopupSources $TargetPid $ToolHwnd $windowIdsBefore)
-  $options = New-Object System.Collections.ArrayList
-  $taxOptionDiagnostics = New-Object System.Collections.ArrayList
-  foreach ($source in $sources) {
-    foreach ($node in @($source.tree.nodes | Where-Object { [string]$_.name })) {
-      $taxMatch = [regex]::Match([string]$node.name, '^\s*(0|7|19)(?:[\.,]0+)?(?:\s*%)?\s*$')
-      if (-not $taxMatch.Success) { continue }
-      $null = $taxOptionDiagnostics.Add([pscustomobject]@{
-        name=[string]$node.name; type=[string]$node.type; sourceHwnd=[int64]$source.hwnd
-        sourceIsNewPopup=[bool]$source.isNewPopup
-      })
-      if ([string]$node.type -cne 'ListItem') { continue }
-      $rate = [string]$taxMatch.Groups[1].Value
-      $null = $options.Add([pscustomobject]@{
-        rate=$rate; sourceHwnd=[int64]$source.hwnd; sourceIsNewPopup=[bool]$source.isNewPopup; node=$node
-      })
+    $sources = @(Get-SSETableComboPopupSources $TargetPid $ToolHwnd $windowIdsBefore)
+    $sourceDiagnostics = @(Get-SSETableComboSourceDiagnostics $sources)
+    if (-not $sourceDiagnostics.Count -or @($sourceDiagnostics | Where-Object { -not $_.captureComplete }).Count) {
+      return (& $stopSelection 'USt-Optionsquellen sind nicht vollstaendig lesbar; keine weitere Aktion.' $false)
     }
-  }
-  $popupOptions = @($options | Where-Object { [bool]$_.sourceIsNewPopup })
-  $selectionOptions = $(if ($popupOptions.Count) { $popupOptions } else { @($options) })
-  $targetOptions = @($selectionOptions | Where-Object { [string]$_.rate -ceq $wantedRate })
-  if ($targetOptions.Count -ne 1) {
-    try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
-    return [pscustomobject]@{
-      ok=$false; error='USt-ComboBox-Popup enthaelt den Zielsatz nicht exakt einmal.'
-      mutationStarted=$false; optionRates=@($options | ForEach-Object { [string]$_.rate })
-      sourceCount=$sources.Count; taxOptionDiagnostics=@($taxOptionDiagnostics)
+    $options = New-Object System.Collections.ArrayList
+    $taxOptionDiagnostics = New-Object System.Collections.ArrayList
+    foreach ($source in $sources) {
+      foreach ($node in @($source.tree.nodes | Where-Object { [string]$_.name })) {
+        $taxMatch = [regex]::Match([string]$node.name, '^\s*(0|7|19)(?:[\.,]0+)?(?:\s*%)?\s*$')
+        if (-not $taxMatch.Success) { continue }
+        $null = $taxOptionDiagnostics.Add([pscustomobject]@{
+          name=[string]$node.name; type=[string]$node.type; sourceHwnd=[int64]$source.hwnd
+          sourceIsNewPopup=[bool]$source.isNewPopup
+        })
+        if ([string]$node.type -cne 'ListItem') { continue }
+        $rate = [string]$taxMatch.Groups[1].Value
+        $null = $options.Add([pscustomobject]@{
+          rate=$rate; sourceHwnd=[int64]$source.hwnd; sourceIsNewPopup=[bool]$source.isNewPopup; node=$node
+        })
+      }
     }
-  }
-  $targetElement = Get-LiveElement ([IntPtr][int64]$targetOptions[0].sourceHwnd) `
-    ([string]$targetOptions[0].node.rid) ([string]$targetOptions[0].node.aid)
-  $selectionObject = $null
-  if (-not $targetElement -or -not [bool]$targetElement.Current.IsEnabled -or
-      -not $targetElement.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObject)) {
-    try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
-    return [pscustomobject]@{ ok=$false; error='USt-Zieloption bietet kein aktives SelectionItemPattern.'; mutationStarted=$false }
-  }
-  $selectionError = $null
-  try { ([Windows.Automation.SelectionItemPattern]$selectionObject).Select() }
-  catch { $selectionError = $_.Exception.Message }
-  $selectionReadback = Wait-SSEReceiptManagerLiveFieldValue `
-    $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 150), 300))
-  $afterRate = & $normalizeRate $selectionReadback.value
-  $selected = $(try { [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected } catch { $false })
-  $commitMethod = 'expand+selection-item'
-  $physicalCommit = $null
-  if ($afterRate -cne $wantedRate) {
-    # Qt bestaetigt SelectionItem.IsSelected im Popup teilweise nur intern.
-    # Ausschliesslich wenn der sichtbare, neue Popup-ListItem-Knoten noch
-    # exakt einmal gebunden ist, darf ein einzelner physischer Commit folgen.
-    $postSources = @(Get-SSETableComboPopupSources $TargetPid $ToolHwnd $windowIdsBefore)
-    $postTargets = New-Object System.Collections.ArrayList
-    foreach ($source in @($postSources | Where-Object { [bool]$_.isNewPopup })) {
-      foreach ($node in @($source.tree.nodes | Where-Object { $_.type -eq 'ListItem' -and [string]$_.name })) {
-        $match = [regex]::Match([string]$node.name, '^\s*(0|7|19)(?:[\.,]0+)?(?:\s*%)?\s*$')
-        if ($match.Success -and [string]$match.Groups[1].Value -ceq $wantedRate) {
-          $null = $postTargets.Add([pscustomobject]@{ sourceHwnd=[int64]$source.hwnd; node=$node })
+    $popupOptions = @($options | Where-Object { [bool]$_.sourceIsNewPopup })
+    $selectionOptions = $(if ($popupOptions.Count) { $popupOptions } else { @($options) })
+    $targetOptions = @($selectionOptions | Where-Object { [string]$_.rate -ceq $wantedRate })
+    if ($targetOptions.Count -ne 1) {
+      if (-not (& $closePopup)) {
+        return (& $stopSelection $selectionContext.error $false)
+      }
+      return [pscustomobject]@{
+        ok=$false; error='USt-ComboBox-Popup enthaelt den Zielsatz nicht exakt einmal.'
+        mutationStarted=$false; optionRates=@($options | ForEach-Object { [string]$_.rate })
+        sourceCount=$sources.Count; taxOptionDiagnostics=@($taxOptionDiagnostics)
+      }
+    }
+    $targetElement = Get-LiveElement ([IntPtr][int64]$targetOptions[0].sourceHwnd) `
+      ([string]$targetOptions[0].node.rid) ([string]$targetOptions[0].node.aid)
+    $selectionObject = $null
+    $targetFresh = $(if ($targetElement) { Convert-ExactElementToNode $targetElement } else { $null })
+    if (-not $targetFresh -or [string]$targetFresh.rid -cne [string]$targetOptions[0].node.rid -or
+        [string]$targetFresh.aid -cne [string]$targetOptions[0].node.aid -or
+        [string]$targetFresh.type -cne 'ListItem' -or -not $targetFresh.on -or $targetFresh.w -le 0 -or $targetFresh.h -le 0 -or
+        -not (Test-SSEReceiptManagerFieldValue $targetFresh.name $Wanted 'vat-rate') -or
+        -not $targetElement -or -not [bool]$targetElement.Current.IsEnabled) {
+      return (& $stopSelection 'Urspruengliche USt-Zieloption ist vor Select nicht mehr identisch aktiv gebunden.' $false)
+    }
+    if (-not $targetElement.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObject)) {
+      if (-not (& $closePopup)) {
+        return (& $stopSelection $selectionContext.error $false)
+      }
+      return [pscustomobject]@{ ok=$false; error='USt-Zieloption bietet kein aktives SelectionItemPattern.'; mutationStarted=$false }
+    }
+    if (-not (Test-SSEReceiptManagerVatContext $selectionContext)) {
+      return (& $stopSelection $selectionContext.error $false)
+    }
+    $selectionError = $null
+    $selectionStarted = $true
+    $selectionContext.after = $null
+    try { ([Windows.Automation.SelectionItemPattern]$selectionObject).Select() }
+    catch {
+      if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+      $selectionError = $_.Exception.Message
+      return (& $stopSelection ('USt-Auswahl nicht sicher abgeschlossen: ' + $selectionError) $true)
+    }
+    $selectionReadback = Wait-SSEReceiptManagerLiveFieldValue `
+      $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 150), 300)) -ObservationGuard $observeSelection
+    $afterRate = & $normalizeRate $selectionReadback.value
+    if ($selectionContext.lost) { return (& $stopSelection $selectionContext.error $true) }
+    $selected = $(try { [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected } catch { $false })
+    $commitMethod = 'expand+selection-item'
+    $physicalCommit = $null
+    if ($afterRate -ceq $expectedRate) {
+      # Qt bestaetigt SelectionItem.IsSelected im Popup teilweise nur intern.
+      # Ausschliesslich wenn der sichtbare, neue Popup-ListItem-Knoten noch
+      # exakt einmal gebunden ist, darf ein einzelner physischer Commit folgen.
+      $postSources = @(Get-SSETableComboPopupSources $TargetPid $ToolHwnd $windowIdsBefore)
+      $postDiagnostics = @(Get-SSETableComboSourceDiagnostics $postSources)
+      if (-not $postDiagnostics.Count -or @($postDiagnostics | Where-Object { -not $_.captureComplete }).Count) {
+        return (& $stopSelection 'USt-Optionsquellen nach Auswahl sind nicht vollstaendig lesbar.' $true)
+      }
+      $postTargets = New-Object System.Collections.ArrayList
+      foreach ($source in @($postSources | Where-Object { [bool]$_.isNewPopup })) {
+        foreach ($node in @($source.tree.nodes | Where-Object { $_.type -eq 'ListItem' -and [string]$_.name })) {
+          $match = [regex]::Match([string]$node.name, '^\s*(0|7|19)(?:[\.,]0+)?(?:\s*%)?\s*$')
+          if ($match.Success -and [string]$match.Groups[1].Value -ceq $wantedRate) {
+            $null = $postTargets.Add([pscustomobject]@{ sourceHwnd=[int64]$source.hwnd; node=$node })
+          }
+        }
+      }
+      $sameOption = [bool]($postTargets.Count -eq 1 -and
+          [int64]$postTargets[0].sourceHwnd -eq [int64]$targetOptions[0].sourceHwnd -and
+          [string]$postTargets[0].node.rid -ceq [string]$targetOptions[0].node.rid -and
+          [string]$postTargets[0].node.aid -ceq [string]$targetOptions[0].node.aid)
+      $alreadyClosed = [bool]($postTargets.Count -eq 0 -and
+        [string]([Windows.Automation.ExpandCollapsePattern]$expandObject).Current.ExpandCollapseState -ceq 'Collapsed')
+      if (-not $sameOption -and -not $alreadyClosed) {
+        return (& $stopSelection 'Urspruengliche USt-Popup-Option ist nicht mehr eindeutig gebunden.' $true)
+      }
+      if ($sameOption) {
+        $targetNode = $postTargets[0].node
+        $targetX = [int]($targetNode.x + $targetNode.w / 2)
+        $targetY = [int]($targetNode.y + $targetNode.h / 2)
+        $obstruction = Get-SSEPointObstruction ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetX $targetY
+        if ([bool]$obstruction.isBoundTarget -and [int]$obstruction.boundPid -eq $TargetPid) {
+          $pointBinding = [pscustomobject]@{
+            context=$selectionContext; option=$targetNode; sourceHwnd=[int64]$postTargets[0].sourceHwnd
+          }
+          $beforePoint = {
+            param($Window, $Binding, [int]$X, [int]$Y)
+            if ([int64]$Window -ne $Binding.sourceHwnd -or -not (Test-SSEReceiptManagerVatContext $Binding.context)) { return $false }
+            $fresh = Convert-ExactElementToNode (Get-LiveElement $Window $Binding.option.rid $Binding.option.aid)
+            [bool]($fresh -and $fresh.on -and [string]$fresh.type -ceq 'ListItem' -and
+              [string]$fresh.rid -ceq [string]$Binding.option.rid -and [string]$fresh.aid -ceq [string]$Binding.option.aid -and
+              (Test-SSEReceiptManagerFieldValue $fresh.name $Binding.context.wanted 'vat-rate') -and
+              $fresh.w -gt 0 -and $fresh.h -gt 0 -and $X -ge $fresh.x -and $X -lt ($fresh.x + $fresh.w) -and
+              $Y -ge $fresh.y -and $Y -lt ($fresh.y + $fresh.h))
+          }
+          $selectionContext.after = $null
+          try {
+            $click = Click-VerifiedPoint ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetNode `
+              $selectionContext.tick -RequireForeground -ExpectedRuntimeId ([string]$targetNode.rid) `
+              -BeforeClickCheck $beforePoint -BeforeClickBinding $pointBinding -ThrowOnFailure
+          } catch {
+            if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+            $selectionContext.after = $null
+            $dispatched = $(if ($_.Exception.Data.Contains('inputDispatched')) { [bool]$_.Exception.Data['inputDispatched'] } else { $null })
+            $pointFailure = [pscustomobject]@{ kind=[string]$_.Exception.Data['kind']; inputDispatched=$dispatched; error=$_.Exception.Message }
+            return (& $stopSelection ('USt-Klick nicht sicher abgeschlossen: ' + $_.Exception.Message) $true $pointFailure)
+          }
+          $selectionContext.after = $null
+          if ($null -eq $click.inputTickAfterClick) {
+            return (& $stopSelection 'Eigene Eingabemarke nach USt-Klick ist nicht lesbar.' $true)
+          }
+          $selectionContext.tick = $click.inputTickAfterClick
+          $physicalReadback = Wait-SSEReceiptManagerLiveFieldValue `
+            $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200)) -ObservationGuard $observeSelection
+          $afterRate = & $normalizeRate $physicalReadback.value
+          if ($selectionContext.lost) { return (& $stopSelection $selectionContext.error $true) }
+          $commitMethod = 'expand+selection-item+verified-list-item-point'
+          $physicalCommit = [pscustomobject]@{
+            x=[int]$click.x; y=[int]$click.y; sourceHwnd=[int64]$postTargets[0].sourceHwnd
+            obstruction=$obstruction; after=$afterRate
+          }
         }
       }
     }
-    if ($postTargets.Count -eq 1) {
-      $targetNode = $postTargets[0].node
-      $targetX = [int]($targetNode.x + $targetNode.w / 2)
-      $targetY = [int]($targetNode.y + $targetNode.h / 2)
-      $obstruction = Get-SSEPointObstruction ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetX $targetY
-      if ([bool]$obstruction.isBoundTarget -and [int]$obstruction.boundPid -eq $TargetPid) {
-        $click = Click-VerifiedPoint ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetNode `
-          (Get-SSELastInputTick) -RequireForeground
-        $physicalReadback = Wait-SSEReceiptManagerLiveFieldValue `
-          $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-        $afterRate = & $normalizeRate $physicalReadback.value
-        $commitMethod = 'expand+selection-item+verified-list-item-point'
-        $physicalCommit = [pscustomobject]@{
-          x=[int]$click.x; y=[int]$click.y; sourceHwnd=[int64]$postTargets[0].sourceHwnd
-          obstruction=$obstruction; after=$afterRate
-        }
-      }
+    if ($afterRate -cne $wantedRate -and $selectionError -eq $null) {
+      # Ein bereits geschlossenes Popup kann die semantische Auswahl noch
+      # nachliefern. Erst nach dem bisherigen 1200-ms-Fenster scheitern.
+      $lateReadback = Wait-SSEReceiptManagerLiveFieldValue `
+        $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200)) -ObservationGuard $observeSelection
+      $afterRate = & $normalizeRate $lateReadback.value
+      if ($selectionContext.lost) { return (& $stopSelection $selectionContext.error $true) }
     }
+    if (-not (& $closePopup -AllowWanted)) {
+      return (& $stopSelection $selectionContext.error $true)
+    }
+  } catch {
+    if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    return (& $stopSelection ('USt-Auswahl wurde nicht sicher abgeschlossen: ' + $_.Exception.Message) $selectionStarted)
   }
-  if ($afterRate -cne $wantedRate -and $selectionError -eq $null) {
-    # Ein bereits geschlossenes Popup kann die semantische Auswahl noch
-    # nachliefern. Erst nach dem bisherigen 1200-ms-Fenster scheitern.
-    $lateReadback = Wait-SSEReceiptManagerLiveFieldValue `
-      $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-    $afterRate = & $normalizeRate $lateReadback.value
-  }
-  try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
   $ok = [bool]($afterRate -ceq $wantedRate -and ($selected -or -not $selectionError -or $physicalCommit))
   [pscustomobject]@{
     ok=$ok; error=$(if ($ok) { $null } elseif ($null -eq $afterRate) {

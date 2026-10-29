@@ -105,6 +105,12 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Auch der Qt-Pfad stoppt nach fremden Werten oder unbestätigten Rücknahmen.
   Eine verlorene Bestätigung während der Rücknahme bleibt ein unbekannter
   Mutationsausgang; die anfängliche Fehlerursache wird dabei nicht ersetzt.
+  Die interne USt-Auswahl hält ihre ursprüngliche Lease, Eingabemarke und
+  Feld-/ComboBox-Bindung über die Auswahl hinweg fest. Jede Rücklesung kann
+  weitere Aktionen sperren; ein später passender Wert hebt die Sperre nicht
+  auf. Ein physischer Folge-Klick braucht dieselbe Popup-Option und eine
+  letzte Zielprüfung. Ungewisse Auswahl- oder Klickausgänge erlauben auch
+  kein automatisches Zuklappen.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -162,12 +168,11 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Mehrfeldplan kann deshalb ohne automatische Rücknahme abgleichpflichtig bleiben.
   Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
   Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
-- Die gesperrten BelegManager-Schreibwege benötigen noch zusätzliche
-  Vorwert-/Kontextprüfungen direkt an der USt-Auswahl und an physischen
-  Klickgrenzen. Begonnene USt-Clears und verlorene Eingabekontrolle
-  bleiben im Fehlerergebnis erhalten. Die korrigierten Reader
-  ersetzen die offenen Transaktionsprüfungen nicht; die Schreibsperren
-  bleiben maßgeblich.
+- Die gesperrten BelegManager-Schreibwege benötigen noch Prüfungen an den
+  übrigen Checkbox-Klick- und Abschlussgrenzen. Die gebundene USt-Auswahl
+  beweist keine atomare Datensatzidentität und keine reale Popup-Bedienung.
+  Begonnene Eingriffe und verlorene Kontrolle bleiben abgleichpflichtig;
+  die bestehenden Schreibsperren bleiben maßgeblich.
 - Ein positiver VaSt-Ende-zu-Ende-Ablauf ist im aggregierten Live-Ledger nicht
   belegt. Profil 2024 bleibt experimentell mit
   `operationAccess: "verification-only"`.

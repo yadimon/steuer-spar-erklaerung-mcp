@@ -944,6 +944,20 @@ Vorbedingung des bestehenden Commit-Primitivs; eine zulässige abweichende
 Anzeigeformatierung wird dadurch nicht als fremder Zahlenwert übernommen.
 Auch die anschließende Rücklesung bleibt an diese Runtime-ID gebunden;
 ein inzwischen ersetztes Feld bestätigt den ursprünglichen Eingriff nicht.
+Die interne Auswahl von `7` oder `19` benötigt zusätzlich die vorhandene
+eigene Lease und deren gespeicherte Eingabemarke. Fenster, ursprüngliche
+Feldbindung und ComboBox müssen vor weiteren Aktionen weiterhin passen.
+Jede Beobachtung während der Auswahl wird geprüft: fremde oder unlesbare
+Werte und neue Bindungen stoppen die Folgeaktionen dauerhaft. Auch ein
+bereits bestätigter Zielwert darf nicht wieder auf den Ausgangswert wechseln.
+Ein einzelner physischer Commit bleibt nur bei unverändertem Vorwert und
+derselben neuen Popup-Option möglich; seine letzte Zielprüfung läuft direkt
+vor dem Klick. Der nächste eigene Checkpoint stammt ausschließlich aus der
+bestätigten Klickantwort. Verweigerte und bereits ausgeführte Klicks sowie
+fehlende Dispatch-Nachweise bleiben im Fehlerbericht unterscheidbar.
+Eine Auswahl- oder Öffnungsausnahme erlaubt keinen Ersatzklick. Ein Popup
+wird nur bei erhaltener Kontrolle geschlossen; ein bereits geschlossenes
+Popup benötigt keine weitere Aktion. Unbestätigtes Zuklappen bleibt ein Fehler.
 Die laufende Feldtransaktion behandelt erwartete Auflösungsfehler beim
 erneuten Binden als strukturierten Fehler. Der anfängliche Fehler und schon
 erfolgte Änderungen bleiben erhalten; auch native Zustandslesefehler behalten
@@ -953,7 +967,8 @@ Wert als Vorbedingung zu übernehmen. Nach einer gescheiterten oder nicht
 bestätigten Rücknahme werden weitere Felder nur noch gelesen. Bereits
 verlorener Kontext bleibt mit `cleanupRequired=true` offen, selbst wenn
 einzelne Werte wieder dem Ausgangszustand entsprechen. Das ersetzt weder
-die offenen Auswahl-/Eingabekontrollen noch die bestehenden Schreibsperren.
+die offenen Prüfungen übriger Klick-/Abschlussgrenzen, die reale Abnahme
+oder die bestehenden Schreibsperren.
 Der Qt-Pfad hält denselben Rücknahmestopp ein. Geht die Bestätigung einer
 inversen Mutation verloren, bleibt `outcomeUnknown=true` erhalten; eine
 anschließende Detail-Schließaktion bestätigt diesen Zustand nicht.
