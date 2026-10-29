@@ -173,6 +173,11 @@ export async function executeNativeSteppedCursor(client: QtNativeClient, phase: 
       } catch { cleanupRequired = true; }
     }
   }
+  if (cleanupRequired && result!.ok === true) {
+    result = { ...result!, ok: false, kind: "cursor-proof-failed", phase: "native-step-release",
+      error: "Freigabe unbestaetigt; nicht wiederholen.",
+      outcomeUnknown: true };
+  }
   return { ...result!, ...(cleanupRequired ? { ok: false, vollstaendig: false,
     cleanupRequired: true, reconciliationRequired: true } : {}) };
 }

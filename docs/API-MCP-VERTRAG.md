@@ -543,6 +543,11 @@ Eine unbestätigte Lease-Freigabe kann `cleanupRequired` und
 `reconciliationRequired` setzen, obwohl die native Aktion vor jeder Mutation
 abgelehnt wurde. Das beweist kein Ressourcenleck. Der ursprüngliche
 Positionierungsfehler bleibt der Primärfehler.
+Wird erst durch die unbestätigte Freigabe aus einem erfolgreichen Cursor- oder
+Positionierungsschritt ein Fehler, enthält die Antwort `kind: cursor-proof-failed`,
+eine nichtleere Fehlermeldung und die Phase `native-step-release` beziehungsweise
+`native-position-release`. Sie bleibt schemakonform und verlangt einen frischen
+Abgleich; ein vorgeschalteter Erfolg erlaubt keine Wiederholung der Mutation.
 Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
 eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
 abgelehnt, statt Werte einer anderen Spalte zuzuordnen.

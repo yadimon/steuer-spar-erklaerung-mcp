@@ -8,6 +8,8 @@ import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
 import { findQtNativeTableTarget } from "../dist/qt-native-tables.js";
 import { SSE_API_OPERATION_SCHEMAS } from "../dist/operation-catalog.js";
 import { SSE_MCP_UI_SCHEMAS } from "../dist/mcp-schemas-ui.js";
+import { parseApiOperationResult } from "../dist/result-contract.js";
+import { tableAddCursorFailure } from "../dist/table-add-cursor-result.js";
 
 // Synthetic complete Qt model and workers; no API, process or desktop.
 const copy = value => structuredClone(value);
@@ -339,7 +341,11 @@ for (const operation of ["table_update", "table_delete"]) {
     ["editor", live => { live.editorFree = false; }],
   ]) {
     const rejected = await run({ operation, beforeNativeRelease: change });
+    assert.equal(parseApiOperationResult(operation, rejected.result).ok, false);
     assert.equal(rejected.result.ok, false, name);
+    assert.equal(rejected.result.kind, "cursor-proof-failed");
+    assert.equal(rejected.result.phase, "native-position-release");
+    assert.equal(rejected.result.outcomeUnknown, true);
     assert.equal(rejected.result.cleanupRequired, true, "Rejected release is not proof of completed cleanup.");
     assert.equal(rejected.result.reconciliationRequired, true);
     assert.equal(rejected.result.mutationStarted, null, "Lost release authority must not claim a known mutation outcome.");
@@ -359,7 +365,13 @@ for (const operation of ["table_update", "table_delete"]) {
     { releaseThrows: true },
   ]) {
     const rejected = await run({ operation, ...releaseFailure });
+    assert.equal(parseApiOperationResult(operation, rejected.result).ok, false);
     assert.equal(rejected.result.ok, false);
+    assert.equal(rejected.result.kind, "cursor-proof-failed");
+    assert.equal(rejected.result.phase, "native-position-release");
+    assert.equal(rejected.result.outcomeUnknown, true);
+    assert.equal(rejected.result.mutationStarted, null);
+    assert.equal(rejected.result.resultingState, "unknown");
     assert.equal(rejected.result.cleanupRequired, true); assert.equal(rejected.result.reconciliationRequired, true);
     assert.equal(rejected.mutations.length, 0); assert.equal(rejected.releases.length, 1);
     assert.deepEqual(rejected.keys, []);
@@ -377,6 +389,19 @@ for (const operation of ["table_update", "table_delete"]) {
       "Independent cleanup cannot authorize continuation of a cancelled write.");
   }
 }
+const appendReleaseLost = await run({ appendSeek: true, releaseThrows: true });
+assert.equal(parseApiOperationResult("table_read", appendReleaseLost.result).ok, false);
+assert.equal(appendReleaseLost.result.kind, "cursor-proof-failed");
+assert.equal(appendReleaseLost.result.phase, "native-position-release");
+assert.equal(appendReleaseLost.result.outcomeUnknown, true);
+assert.equal(appendReleaseLost.result.cleanupRequired, true);
+assert.equal(appendReleaseLost.result.reconciliationRequired, true);
+assert.equal(appendReleaseLost.positions.length, 1); assert.equal(appendReleaseLost.releases.length, 1);
+assert.equal(appendReleaseLost.mutations.length, 0); assert.deepEqual(appendReleaseLost.keys, []);
+const appendReleaseProjection = tableAddCursorFailure({ ok: false, kind: "not-found", error: "Synthetic append row absent",
+  mutationStarted: false, outcomeUnknown: false }, appendReleaseLost.result);
+assert.equal(parseApiOperationResult("table_add", appendReleaseProjection).ok, false);
+assert.equal(appendReleaseProjection.freeRowSearch.cursorResult.phase, "native-position-release");
 // This seek-only caller has no later mutation gate: the local remaining() must
 // itself reject cancellation/deadline as the final model read resolves.
 {
@@ -794,6 +819,10 @@ for (const reply of [
   { ok: true, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } },
 ]) {
   const rejected = await run({ positionRejects: true, releaseReply: { ...reply, privateError: "PRIVATE_RELEASE_ERROR" } });
+  assert.equal(parseApiOperationResult("table_update", rejected.result).ok, false);
+  for (const field of ["kind", "error", "phase", "proofCheck"]) {
+    assert.equal(rejected.result[field], cleanNativeRejection.result[field], "Cleanup cannot replace the original positioning failure.");
+  }
   assert.equal(rejected.result.outcomeUnknown, false);
   assert.equal(rejected.result.activationSubmitted, false);
   assert.equal(rejected.result.cleanupRequired, true);
@@ -825,6 +854,10 @@ for (const field of ["foregroundRestored", "cursorRestored", "restoreSkippedReas
   assert.equal(rejected.result.reconciliationRequired, true, "Missing preserve proof cannot become a clean release.");
 }
 const releaseThrew = await run({ positionRejects: true, releaseThrows: true });
+assert.equal(parseApiOperationResult("table_update", releaseThrew.result).ok, false);
+for (const field of ["kind", "error", "phase", "proofCheck"]) {
+  assert.equal(releaseThrew.result[field], cleanNativeRejection.result[field]);
+}
 assert.equal(releaseThrew.result.outcomeUnknown, false);
 assert.equal(releaseThrew.result.cleanupRequired, true); assert.equal(releaseThrew.result.reconciliationRequired, true);
 assert.deepEqual(releaseThrew.result.cursorActivation.nativeRelease,

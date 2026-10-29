@@ -288,6 +288,11 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
       } catch { nativeRelease.threw = true; unknownAuthority = true; }
     } else if (lease) unknownAuthority = true;
   }
+  if (unknownAuthority && result!.ok === true) {
+    result = { ...result!, ok: false, kind: "cursor-proof-failed", phase: "native-position-release",
+      error: "Freigabe unbestaetigt; nicht wiederholen.",
+      outcomeUnknown: true };
+  }
   return { ...result!, ...(nativeDiagnostic && (result!.ok === false || unknownAuthority) ? {
     cursorActivation: { ...(result!.cursorActivation as Record<string, unknown> | undefined), nativeRelease },
   } : {}), ...(unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {}) };

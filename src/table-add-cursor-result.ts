@@ -12,6 +12,7 @@ const phases = new Set([
   "native-step-home", "native-step-down", "native-step-focus-only", "native-step-model-readback",
   "native-position-preproof", "native-position-acquire", "native-position-dispatch", "native-position-number-preparation",
   "native-position-focus-only", "native-position-checkpoint",
+  "native-position-release", "native-step-release",
   "append-deadline-reserve",
 ]);
 const proofChecks = new Set([

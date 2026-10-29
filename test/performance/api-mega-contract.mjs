@@ -343,6 +343,14 @@ const observedProofs = [...(positionProducer + proofProducer).matchAll(
 )].map(match => match[1]);
 observedProofs.push("native-position-contract"); // Catch-all literal in the actual conditional producer.
 for (const proofCheck of new Set(observedProofs)) assert.equal(megaFailureDiagnostics({ ok: false, proofCheck }).direct.proofCheck, proofCheck);
+for (const prefix of ["native-position", "native-step"]) {
+  const phase = `${prefix}-release`;
+  const result = megaFailureDiagnostics({ ok: false, phase,
+    freeRowSearch: { cursorResult: { ok: false, phase } } });
+  for (const projection of [result.direct, result.append]) {
+    assert.equal(projection.phase, phase);
+  }
+}
 
 const nativePosition = { operation: "table_position_number", code: "precondition-failed", reason: "focused-source-not-passive",
   transportKind: null, replyReceived: true, ok: false, completed: false, physicalInputUsed: false,
