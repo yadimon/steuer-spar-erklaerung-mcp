@@ -17,7 +17,8 @@ Invoke-Expression $sentinel[0].Extent.Text
 $script:T0=[Diagnostics.Stopwatch]::StartNew();$script:SSE_CAPTURE_OPERATION_RESULT=$true
 $rollback=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if ($failedField)') -and $n.Extent.Text.Contains('rollbackEntries')},$true))
 $forward=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.ForEachStatementAst] -and $n.Variable.Extent.Text -ceq '$transaction' -and $n.Body.Extent.Text.Contains('$vatState = Get-SSEReceiptManagerState') -and $n.Body.Extent.Text.Contains('$commit = Commit-TrackedValue')},$true))
-$finalValues=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.ForEachStatementAst] -and $n.Variable.Extent.Text -ceq '$transaction' -and $n.Body.Extent.Text.Contains('$valuesAfter[$transaction.name]')},$true))
+$finalValues=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.ForEachStatementAst] -and $n.Variable.Extent.Text -ceq '$transaction' -and
+ $n.Body.Extent.Text.Contains('$valuesAfter[$transaction.name]') -and $n.Body.Extent.Text.Contains('Test-SSEReceiptManagerFieldValue')},$true))
 Assert-True ($rollback.Count -eq 1 -and $forward.Count -eq 1 -and $finalValues.Count -eq 1) 'Actual receipt transaction boundaries are ambiguous.'
 $vatPolicy=[pscustomobject]@{automationIdSuffix='.vat.QLineEdit';controlType='Edit';valueKind='vat-rate'}
 $titlePolicy=[pscustomobject]@{automationIdSuffix='.title.QLineEdit';controlType='Edit';valueKind='text'}
