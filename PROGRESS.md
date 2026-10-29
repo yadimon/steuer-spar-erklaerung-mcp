@@ -111,6 +111,11 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   auf. Ein physischer Folge-Klick braucht dieselbe Popup-Option und eine
   letzte Zielprüfung. Ungewisse Auswahl- oder Klickausgänge erlauben auch
   kein automatisches Zuklappen.
+  Checkbox-Änderungen und ihre Rücknahme verwenden dieselbe gespeicherte
+  Eingabebindung. Vor dem Klick werden Runtime-ID, Wert und aktuelles
+  Zielrechteck erneut geprüft. Klickfehler bleiben im gemeinsamen Bericht;
+  frühere Feldänderungen und die erste Fehlerursache gehen nicht verloren.
+  Ein unbestimmter Checkboxzustand bestätigt weder `false` noch einen No-op.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -169,7 +174,7 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
   Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
 - Die gesperrten BelegManager-Schreibwege benötigen noch Prüfungen an den
-  übrigen Checkbox-Klick- und Abschlussgrenzen. Die gebundene USt-Auswahl
+  Abschluss- und Detail-Schließgrenzen. Die gebundene USt-Auswahl
   beweist keine atomare Datensatzidentität und keine reale Popup-Bedienung.
   Begonnene Eingriffe und verlorene Kontrolle bleiben abgleichpflichtig;
   die bestehenden Schreibsperren bleiben maßgeblich.

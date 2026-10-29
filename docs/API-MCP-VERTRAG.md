@@ -958,6 +958,16 @@ fehlende Dispatch-Nachweise bleiben im Fehlerbericht unterscheidbar.
 Eine Auswahl- oder Öffnungsausnahme erlaubt keinen Ersatzklick. Ein Popup
 wird nur bei erhaltener Kontrolle geschlossen; ein bereits geschlossenes
 Popup benötigt keine weitere Aktion. Unbestätigtes Zuklappen bleibt ein Fehler.
+Auch der interne Checkbox-Helfer bindet den ursprünglichen booleschen
+Vorwert, die Runtime-ID und die eigene Eingabemarke. Die letzte Klickprüfung
+liest den Wert erneut und prüft, ob der Punkt noch im aktuellen Zielrechteck
+liegt. Ein unbekannter Toggle-Zustand erlaubt weder Änderung noch No-op.
+Physische Fehler werden abgefangen: `inputDispatched=false`, `true` und ein
+fehlender Nachweis bleiben verschieden. Der Transaktionsbericht erhält die
+Fehlerevidenz in `failedPointEvidence`; Checkbox-Rücknahmen behalten
+`pointInputDispatched` und `pointEvidence`. Bereits geänderte Felder und die
+erste Ursache bleiben sichtbar. Ein unbestätigter Eingriff erlaubt keine
+weiteren Schreibschritte oder neue Eingabemarke aus einem späteren Read.
 Die laufende Feldtransaktion behandelt erwartete Auflösungsfehler beim
 erneuten Binden als strukturierten Fehler. Der anfängliche Fehler und schon
 erfolgte Änderungen bleiben erhalten; auch native Zustandslesefehler behalten

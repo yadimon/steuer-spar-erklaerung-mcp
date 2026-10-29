@@ -64,6 +64,7 @@ const expectedNames = [
   "receipt-vat-precondition",
   "receipt-rollback-ownership",
   "receipt-vat-selection",
+  "receipt-checkbox",
   "tracked-field-resolution",
   "tracked-rollback-display",
   "qt-native-receipt-update",
@@ -183,6 +184,7 @@ for (const required of [
   "receipt-vat-precondition",
   "receipt-rollback-ownership",
   "receipt-vat-selection",
+  "receipt-checkbox",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }

@@ -392,6 +392,15 @@ mit der Auswahl verbunden: Erfolg für beide positiven USt-Sätze, Ablehnung
 vor Eingabe und Fehler nach Eingabe behalten ihre Dispatch-Nachweise.
 Nur die nativen Grenzen sowie Uhr und Schlafen sind dabei modelliert;
 die Tests belegen keine reale Vordergrundübernahme eines Produkt-Popups.
+`receipt-checkbox-contract.ps1` verbindet den tatsächlichen Checkbox-Helfer
+mit den gemeinsamen nativen Testgrenzen und der produktiven Klickfunktion.
+Beide Schaltrichtungen, lesbare No-ops, verlorene Eingabemarken, ersetzte,
+verschobene, deaktivierte und unbestimmte Ziele bleiben getrennt. Die
+tatsächlichen Vorwärts-/Rücknahmeblöcke müssen vorherige Feldänderungen und
+die erste Ursache erhalten; verweigerte und unbekannte Klickausgänge dürfen
+keinen weiteren Eingriff auslösen. Eine gewöhnliche bestätigte Rücknahme
+stellt beide eigenen Felder wieder her. Auch diese Komposition prüft den
+Kontrollfluss an nativen Testgrenzen und ersetzt keine reale Produktabnahme.
 Die Qt-Update-Komposition prüft zusätzlich fremde Werte während der
 Rücknahme, einen bestätigten Eingriff ohne passenden Rücklesewert und eine
 verlorene Bestätigung der inversen Mutation. Frühere Felder bleiben dann

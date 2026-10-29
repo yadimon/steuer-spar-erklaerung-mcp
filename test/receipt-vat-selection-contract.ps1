@@ -110,7 +110,7 @@ foreach($name in @('Get-SSEReceiptManagerFieldValue','Test-SSEReceiptManagerFiel
   Assert-True ($defs.Count -eq 1) 'Actual source helper is ambiguous.'
   Invoke-Expression $defs[0].Extent.Text
 }
-foreach($name in @('Wait-SSEReceiptManagerLiveFieldValue','Test-SSEReceiptManagerVatContext','Set-SSEReceiptManagerVatRateSelection')){
+foreach($name in @('Wait-SSEReceiptManagerLiveFieldValue','Test-SSEReceiptManagerInputContext','Test-SSEReceiptManagerVatContext','Set-SSEReceiptManagerVatRateSelection')){
   $defs=@($actualAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
   Assert-True ($defs.Count -eq 1) 'Selection implementation helper is ambiguous.'
   Invoke-Expression ($defs[0].Extent.Text.Replace('[Diagnostics.Stopwatch]','[VatFixtureClock]').Replace('Start-Sleep -Milliseconds','Step-VatFixtureClock -Milliseconds'))

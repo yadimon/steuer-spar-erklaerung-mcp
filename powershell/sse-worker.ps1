@@ -1311,9 +1311,8 @@ function Get-SSEReceiptManagerBoundFieldObservation([IntPtr]$Window, $Binding) {
   }
 }
 
-function Test-SSEReceiptManagerVatContext($Context, $Observation = $null, [switch]$AllowWanted) {
+function Test-SSEReceiptManagerInputContext($Context) {
   if ($Context.lost) { return $false }
-  $Context.after = $null
   try {
     $lease = $script:SSE_FOREGROUND_LEASE
     $owner = 0
@@ -1322,14 +1321,27 @@ function Test-SSEReceiptManagerVatContext($Context, $Observation = $null, [switc
         $null -eq $Context.watch -or [int]$lease.targetPid -ne $Context.targetPid -or
         [int64]$lease.rootHwnd -ne $Context.rootHwnd -or
         -not [SW]::IsWindow($Context.window) -or $owner -ne $Context.targetPid) {
-      throw 'Urspruengliche Lease oder Fensterbindung der USt-Auswahl ist verloren.'
+      throw 'Urspruengliche Lease oder Fensterbindung der Belegaenderung ist verloren.'
     }
     if ($null -eq $Context.tick -or $null -eq $lease.lastOwnedInputTick -or
         [uint64]$lease.lastOwnedInputTick -ne [uint64]$Context.tick -or
         -not (Test-SSELastInputUnchanged $Context.tick)) {
       $Context.inputInterference = $true
-      throw 'Eigene Eingabe-Epoche oder Fensterbindung der USt-Auswahl ist verloren.'
+      throw 'Eigene Eingabe-Epoche der Belegaenderung ist verloren.'
     }
+    return $true
+  } catch {
+    if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    $Context.lost = $true; $Context.error = $_.Exception.Message
+    return $false
+  }
+}
+
+function Test-SSEReceiptManagerVatContext($Context, $Observation = $null, [switch]$AllowWanted) {
+  if ($Context.lost) { return $false }
+  $Context.after = $null
+  try {
+    if (-not (Test-SSEReceiptManagerInputContext $Context)) { return $false }
     if ($null -eq $Observation) {
       $Observation = Get-SSEReceiptManagerBoundFieldObservation $Context.window $Context.field
     }
@@ -1358,6 +1370,94 @@ function Test-SSEReceiptManagerVatContext($Context, $Observation = $null, [switc
     $Context.lost = $true
     $Context.error = $_.Exception.Message
     return $false
+  }
+}
+
+function Set-SSEReceiptManagerBoolean(
+  [IntPtr]$Window, [int]$TargetPid, $Binding, $ExpectedCurrent, $Wanted, [int]$WaitMs
+) {
+  if ($ExpectedCurrent -isnot [bool] -or $Wanted -isnot [bool]) {
+    return [pscustomobject]@{ok=$false; method='invalid-boolean'; error='Checkbox-Vorwert und Ziel muessen boolesch sein.'; mutationStarted=$false; interference=$false}
+  }
+  $lease = $script:SSE_FOREGROUND_LEASE
+  $booleanContext = [pscustomobject]@{
+    window=$Window; targetPid=$TargetPid; field=$Binding; before=$ExpectedCurrent; wanted=$Wanted
+    watch=$lease.watch; rootHwnd=$lease.rootHwnd; tick=$lease.lastOwnedInputTick
+    lost=$false; inputInterference=$false; error=$null; after=$null; node=$null
+  }
+  $stopBoolean = {
+    param([string]$Message, [bool]$MutationStarted, $Dispatched = $null, $PointFailure = $null)
+    [pscustomobject]@{
+      ok=$false; method='verified-point-failed'; error=$Message
+      before=$ExpectedCurrent; requested=$Wanted; after=$booleanContext.after
+      mutationStarted=$MutationStarted; inputDispatched=$Dispatched
+      interference=$true; inputInterference=$booleanContext.inputInterference; physicalCommit=$PointFailure
+    }
+  }
+  $guard = {
+    param($Observation, [bool]$AllowWanted)
+    if ($booleanContext.lost) { return $false }
+    $booleanContext.after = $null
+    $booleanContext.node = $null
+    if (-not (Test-SSEReceiptManagerInputContext $booleanContext)) { return $false }
+    if ($null -eq $Observation) { $Observation = Get-SSEReceiptManagerBoundFieldObservation $Window $Binding }
+    $booleanContext.after = $Observation.value
+    $booleanContext.node = $Observation.resolved.node
+    if (-not $Observation.ok -or
+        (-not (Test-SSEReceiptManagerFieldValue $Observation.value $ExpectedCurrent 'boolean') -and
+         -not ($AllowWanted -and (Test-SSEReceiptManagerFieldValue $Observation.value $Wanted 'boolean')))) {
+      $booleanContext.lost = $true
+      $booleanContext.error = $(if ($Observation.ok) { 'Checkbox-Vorwert oder Feldbindung hat sich geaendert.' } else { $Observation.error })
+      return $false
+    }
+    return (Test-SSEReceiptManagerInputContext $booleanContext)
+  }
+  $observation = Get-SSEReceiptManagerBoundFieldObservation $Window $Binding
+  $booleanContext.after = $observation.value
+  if (-not $observation.ok -or -not (Test-SSEReceiptManagerFieldValue $observation.value $ExpectedCurrent 'boolean')) {
+    return (& $stopBoolean $(if ($observation.ok) { 'Checkbox-Vorwert ist nicht mehr der erwartete Wert.' } else { $observation.error }) $false $false)
+  }
+  if (Test-SSEReceiptManagerFieldValue $observation.value $Wanted 'boolean') {
+    return [pscustomobject]@{ok=$true; method='noop-already-target'; before=$ExpectedCurrent; after=$observation.value; mutationStarted=$false; inputDispatched=$false; interference=$false}
+  }
+  if (-not (& $guard $observation $false)) { return (& $stopBoolean $booleanContext.error $false $false) }
+  $pointBinding = [pscustomobject]@{window=$Window; guard=$guard; context=$booleanContext}
+  $beforePoint = {
+    param($PointWindow, $PointBinding, [int]$X, [int]$Y)
+    if ([int64]$PointWindow -ne [int64]$PointBinding.window) { return $false }
+    if (-not (& $PointBinding.guard $null $false)) { return $false }
+    $node = $PointBinding.context.node
+    [bool]($node -and $node.on -and $node.w -gt 0 -and $node.h -gt 0 -and
+      $X -ge $node.x -and $X -lt ($node.x + $node.w) -and $Y -ge $node.y -and $Y -lt ($node.y + $node.h))
+  }
+  $booleanContext.after = $null
+  try {
+    $click = Click-VerifiedPoint $Window $observation.resolved.node $booleanContext.tick -RequireForeground `
+      -ExpectedRuntimeId ([string]$Binding.node.rid) -BeforeClickCheck $beforePoint -BeforeClickBinding $pointBinding -ThrowOnFailure
+  } catch {
+    if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    $booleanContext.after = $null
+    $dispatched = $(if ($_.Exception.Data.Contains('inputDispatched')) { [bool]$_.Exception.Data['inputDispatched'] } else { $null })
+    $pointFailure = [pscustomobject]@{kind=[string]$_.Exception.Data['kind'];inputDispatched=$dispatched;error=$_.Exception.Message;bindingError=$booleanContext.error}
+    return (& $stopBoolean ('Checkbox-Klick nicht sicher abgeschlossen: ' + $_.Exception.Message) ($dispatched -ne $false) $dispatched $pointFailure)
+  }
+  $booleanContext.after = $null
+  if ($null -eq $click.inputTickAfterClick) { return (& $stopBoolean 'Eigene Eingabemarke nach Checkbox-Klick ist unbekannt.' $true $true) }
+  $booleanContext.tick = $click.inputTickAfterClick
+  $observe = {param($Observation) & $guard $Observation $true}
+  try {
+    $readback = Wait-SSEReceiptManagerLiveFieldValue $Window $Binding $Wanted 'boolean' $WaitMs -ObservationGuard $observe
+  } catch {
+    if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    $booleanContext.after = $null
+    return (& $stopBoolean ('Checkbox-Nachwert konnte nicht gelesen werden: ' + $_.Exception.Message) $true $true)
+  }
+  if (-not $readback.ok -or $booleanContext.lost) {
+    return (& $stopBoolean $(if ($booleanContext.error) { $booleanContext.error } else { 'Checkbox-Nachwert ist nicht bestaetigt.' }) $true $true)
+  }
+  [pscustomobject]@{
+    ok=$true; method='verified-point'; before=$ExpectedCurrent; after=$readback.value
+    mutationStarted=$true; inputDispatched=$true; interference=$false; inputInterference=$false; physicalCommit=$click
   }
 }
 
@@ -24452,6 +24552,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $changedFields = New-Object System.Collections.ArrayList
     $failedField = $null; $failedReason = $null; $uncertainFieldMutation = $false; $failedInputGuard = $false
+    $failedPointEvidence = $null
     foreach ($transaction in @($transactions)) {
       $observation = Get-SSEReceiptManagerBoundFieldObservation $toolHwnd $transaction.binding
       if (-not $observation.ok) {
@@ -24501,11 +24602,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           break
         }
       } elseif ($transaction.kind -ceq 'boolean') {
-        $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
-        if (-not $freshNode -or -not [bool]$freshNode.on) {
-          $failedField = $transaction.name; $failedReason = 'Checkbox wurde unmittelbar vor dem Klick ungreifbar.'; $failedInputGuard = $true; break
+        $booleanCommit = Set-SSEReceiptManagerBoolean `
+          $toolHwnd $targetPid $resolved $transaction.before $transaction.requested ([int]$waitMs)
+        if (-not $booleanCommit.ok) {
+          $failedField = $transaction.name; $failedReason = $booleanCommit.error
+          $uncertainFieldMutation = [bool]$booleanCommit.mutationStarted
+          $failedInputGuard = [bool]$booleanCommit.interference
+          $failedPointEvidence = $booleanCommit
+          break
         }
-        $null = Click-VerifiedPoint $toolHwnd $freshNode (Get-SSELastInputTick) -RequireForeground
       } else {
         $commit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.requested) ([pscustomobject]@{raw=$currentValue;value=$transaction.before}) ([string]$transaction.kind)
         if ([string]$commit.method -cne 'verified-keyboard-replace') {
@@ -24541,7 +24646,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       foreach ($transaction in $changedTransactions) {
         $observation = Get-SSEReceiptManagerBoundFieldObservation $toolHwnd $transaction.binding
         $resolved = $observation.resolved; $currentValue = $observation.value
-        $entryOk = $false; $method = 'not-attempted'; $rollbackError = $null
+        $entryOk = $false; $method = 'not-attempted'; $rollbackError = $null; $rollbackPointEvidence = $null
         if ($resolved -and (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
           $entryOk = $true; $method = 'verified-unchanged'
         } elseif (-not $rollbackContextLost -and $resolved -and
@@ -24571,11 +24676,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $rollbackError = $vatRollback.error
             }
           } elseif ($transaction.kind -ceq 'boolean') {
-            $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
-            if ($freshNode -and [bool]$freshNode.on) {
-              $null = Click-VerifiedPoint $toolHwnd $freshNode (Get-SSELastInputTick) -RequireForeground
-              $inverseAccepted = $true; $method = 'verified-point'
-            }
+            $booleanRollback = Set-SSEReceiptManagerBoolean `
+              $toolHwnd $targetPid $resolved $transaction.requested $transaction.before ([int]$waitMs)
+            $inverseAccepted = [bool]($booleanRollback.ok -and -not $booleanRollback.interference)
+            $method = [string]$booleanRollback.method
+            $rollbackError = $booleanRollback.error
+            $rollbackPointEvidence = $booleanRollback
           } else {
             $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([pscustomobject]@{raw=$currentValue;value=$transaction.requested}) ([string]$transaction.kind)
             $method = [string]$rollbackCommit.method
@@ -24588,14 +24694,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           }
         }
         if (-not $entryOk) { $rollbackOk = $false; $rollbackContextLost = $true }
-        $null = $rollbackEntries.Add([pscustomobject]@{ field=$transaction.name; method=$method; ok=[bool]$entryOk; error=$rollbackError })
+        $null = $rollbackEntries.Add([pscustomobject]@{
+          field=$transaction.name; method=$method; ok=[bool]$entryOk; error=$rollbackError
+          pointInputDispatched=$(if ($rollbackPointEvidence) { $rollbackPointEvidence.inputDispatched } else { $null })
+          pointEvidence=$(if ($rollbackPointEvidence) { $rollbackPointEvidence.physicalCommit } else { $null })
+        })
       }
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'
         error="Belegfeld '$failedField' konnte nicht verifiziert werden: $failedReason"
         pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd; rowBefore=$rowBefore
         valuesBefore=[pscustomobject]$valuesBefore; requestedValues=[pscustomobject]$requestedValues
-        changedFields=@($changedFields); listFingerprintBefore=$expectedListFingerprint
+        changedFields=@($changedFields); failedPointEvidence=$failedPointEvidence; listFingerprintBefore=$expectedListFingerprint
         detailFingerprintBefore=$detailFingerprintBefore
         rollback=[pscustomobject]@{ attempted=[bool](@($rollbackEntries).Count); ok=[bool]$rollbackOk; fields=@($rollbackEntries) }
         cleanupRequired=[bool](-not $rollbackOk); physicalInputUsed=$true; foregroundLeaseUsed=$true
