@@ -972,12 +972,14 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Ar
 }
 $missingGridNumberFallback = $updateBlock.IndexOf(
   'if ([bool]$finalList.rowsComplete -and $titleIdentityMatchCount -eq 1 -and')
-$identityDeadlineCheck = $updateBlock.IndexOf(
-  'if ([DateTime]::UtcNow -ge $identityDeadline) { break }', $missingGridNumberFallback)
+Assert-True ($missingGridNumberFallback -ge 0) 'Titelgebundener Listen-Rebind fehlt.'
+$identityBudgetCheck = $updateBlock.IndexOf(
+  'if (-not $detailClose -or $remainingIdentity -le 0) { break }', $missingGridNumberFallback)
+Assert-True ($identityBudgetCheck -gt $missingGridNumberFallback) 'Gebundenes monotones Zeitbudget muss vor dem Repoll geprueft werden.'
 $identityRepoll = $updateBlock.IndexOf(
-  '$finalState = Get-SSEReceiptManagerState $toolHwnd $policy', $identityDeadlineCheck)
+  '$finalState = Get-SSEReceiptManagerState $toolHwnd $policy', $identityBudgetCheck)
 Assert-True ($missingGridNumberFallback -ge 0 -and
-  $identityDeadlineCheck -gt $missingGridNumberFallback -and $identityRepoll -gt $identityDeadlineCheck) `
+  $identityBudgetCheck -gt $missingGridNumberFallback -and $identityRepoll -gt $identityBudgetCheck) `
   'Eine vollstaendige, eindeutig titelgebundene Liste ohne exponierte Belegnummer muss vor Deadline und Vollbaum-Repoll rebound werden.'
 $updateOnlyEnd = $worker.IndexOf("  'receipt_manager_classification_options' {", $updateStart)
 $updateOnlyBlock = $worker.Substring($updateStart, $updateOnlyEnd - $updateStart)

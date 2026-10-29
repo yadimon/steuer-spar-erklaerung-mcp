@@ -968,6 +968,23 @@ Fehlerevidenz in `failedPointEvidence`; Checkbox-Rücknahmen behalten
 `pointInputDispatched` und `pointEvidence`. Bereits geänderte Felder und die
 erste Ursache bleiben sichtbar. Ein unbestätigter Eingriff erlaubt keine
 weiteren Schreibschritte oder neue Eingabemarke aus einem späteren Read.
+Der abschließende Wertevergleich prüft Runtime-ID und Automation-ID der
+ursprünglichen Felder. Ein ersetztes Feld bestätigt auch mit gleichem Wert
+keinen Erfolg; sein Nachwert bleibt unbekannt. Nach bereits erfolgten
+Änderungen bleiben Zustands-, Listen- und weitere Abschlusslesefehler im
+gemeinsamen Bericht mit `changedFields`, `valuesBefore`, `requestedValues`
+und `cleanupRequired=true` erhalten. `finalVerificationError` nennt Phase
+und Ursache; `detailCloseError` erhält einen vorhandenen Schließfehler
+einschließlich des möglicherweise unbekannten Dispatch-Ausgangs.
+Das Detailschließen hält die eigene Lease und Eingabemarke fest. Der
+ursprüngliche Schalter wird nach Runtime-ID, Automation-ID, Typ, Name und
+aktuellem Zielrechteck erneut geprüft. Nur die bestätigte eigene Klickmarke
+geht an den begrenzten Listenreadback weiter. Verlorener Kontext erlaubt
+keinen weiteren Klick und keinen blinden Rollback. Interne Ergebnissentinels
+werden auch durch Abschluss- und Schließaufrufer unverändert weitergereicht.
+Ein weiterhin sichtbarer Schließknopf zählt auch bei deaktiviertem oder
+unbekanntem Aktivierungszustand als offen; erst sein Verschwinden bestätigt
+zusammen mit der vollständigen Liste den Abschluss.
 Die laufende Feldtransaktion behandelt erwartete Auflösungsfehler beim
 erneuten Binden als strukturierten Fehler. Der anfängliche Fehler und schon
 erfolgte Änderungen bleiben erhalten; auch native Zustandslesefehler behalten
@@ -977,8 +994,8 @@ Wert als Vorbedingung zu übernehmen. Nach einer gescheiterten oder nicht
 bestätigten Rücknahme werden weitere Felder nur noch gelesen. Bereits
 verlorener Kontext bleibt mit `cleanupRequired=true` offen, selbst wenn
 einzelne Werte wieder dem Ausgangszustand entsprechen. Das ersetzt weder
-die offenen Prüfungen übriger Klick-/Abschlussgrenzen, die reale Abnahme
-oder die bestehenden Schreibsperren.
+die offenen Prüfungen übriger Klickgrenzen, die reale Abnahme oder die
+bestehenden Schreibsperren.
 Der Qt-Pfad hält denselben Rücknahmestopp ein. Geht die Bestätigung einer
 inversen Mutation verloren, bleibt `outcomeUnknown=true` erhalten; eine
 anschließende Detail-Schließaktion bestätigt diesen Zustand nicht.

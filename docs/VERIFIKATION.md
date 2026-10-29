@@ -401,6 +401,22 @@ die erste Ursache erhalten; verweigerte und unbekannte Klickausgänge dürfen
 keinen weiteren Eingriff auslösen. Eine gewöhnliche bestätigte Rücknahme
 stellt beide eigenen Felder wieder her. Auch diese Komposition prüft den
 Kontrollfluss an nativen Testgrenzen und ersetzt keine reale Produktabnahme.
+`receipt-close-contract.ps1` verbindet den tatsächlichen Schließhelfer mit
+Zustands-/Listenprojektion, Klick und Eingabe-Checkpoint. Es prüft den
+normalen und verzögerten Abschluss, vollständige und unvollständige Listen,
+ersetzte oder verschobene Schalter, verlorenen Kontext und Dispatch-Fehler.
+Ein sichtbarer deaktivierter oder unbekannt aktivierter Schließknopf
+blockiert den Abschluss; sein späteres Verschwinden wird passiv abgewartet.
+Die optionale nichtterminale Listenprojektion erhält ihre Diagnose;
+Standardaufrufe und sämtliche Schließaufrufer behalten den Ergebnissentinel.
+`receipt-final-verification-contract.ps1` führt den tatsächlichen
+Abschlussblock mit diesen Helfern aus. Ein ersetztes Feld mit passendem
+Wert bestätigt keinen Erfolg. Späte Zustands-, Listen-, Schließ- und
+Umgebungslesefehler erhalten den gemeinsamen Bericht über frühere Änderungen;
+ein unbekannter Nachwert bleibt `null`. Der positive Kontrollfall prüft auch
+die unveränderte Nachbarzeile und die übernommene eigene Klickmarke.
+Beide Tests modellieren ausschließlich native Grenzen sowie Uhr und Schlafen;
+sie belegen keine reale Produktbedienung oder atomare Datensatzidentität.
 Die Qt-Update-Komposition prüft zusätzlich fremde Werte während der
 Rücknahme, einen bestätigten Eingriff ohne passenden Rücklesewert und eine
 verlorene Bestätigung der inversen Mutation. Frühere Felder bleiben dann

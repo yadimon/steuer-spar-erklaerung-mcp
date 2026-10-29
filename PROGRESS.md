@@ -116,6 +116,11 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Zielrechteck erneut geprüft. Klickfehler bleiben im gemeinsamen Bericht;
   frühere Feldänderungen und die erste Fehlerursache gehen nicht verloren.
   Ein unbestimmter Checkboxzustand bestätigt weder `false` noch einen No-op.
+  Der Abschlussvergleich bindet angeforderte Werte an ihre ursprüngliche
+  Runtime-ID und Automation-ID. Späte Lese- und Schließfehler behalten
+  frühere Änderungen im gemeinsamen Bericht. Das Detailschließen übernimmt
+  keine frische Eingabemarke und prüft Schalter und Zielrechteck zuletzt
+  vor dem Klick; der Listenreadback bleibt an die eigene Marke gebunden.
 - **Checkboxen in Tabellen:** boolesche Werte werden typisiert gelesen und
   mit genau einem gebundenen Eingriff geändert. Eine positive UIA-Geometrie
   genügt bei teilweise verdeckten Zeilen nicht; die Vorbereitung prüft den
@@ -173,9 +178,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Mehrfeldplan kann deshalb ohne automatische Rücknahme abgleichpflichtig bleiben.
   Beim Werte-Info-Invoke umfasst diese Zuordnungsgrenze den gesamten
   Provider-Aufruf; sie ist größer als bei einem einzelnen nativen Sendeschritt.
-- Die gesperrten BelegManager-Schreibwege benötigen noch Prüfungen an den
-  Abschluss- und Detail-Schließgrenzen. Die gebundene USt-Auswahl
-  beweist keine atomare Datensatzidentität und keine reale Popup-Bedienung.
+- Die gesperrten BelegManager-Schreibwege benötigen weiterhin eine reale
+  Produktabnahme. Die produktfreien Abschluss- und Schließtests sowie die
+  gebundene USt-Auswahl beweisen keine atomare Datensatzidentität oder reale
+  Popup-Bedienung. Weitere vorbereitende Klickgrenzen sind separat zu prüfen.
   Begonnene Eingriffe und verlorene Kontrolle bleiben abgleichpflichtig;
   die bestehenden Schreibsperren bleiben maßgeblich.
 - Ein positiver VaSt-Ende-zu-Ende-Ablauf ist im aggregierten Live-Ledger nicht
