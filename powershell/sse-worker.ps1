@@ -1255,9 +1255,10 @@ function Wait-SSEReceiptManagerLiveFieldValue(
   $watch = [Diagnostics.Stopwatch]::StartNew()
   $lastValue = $null; $resolved = $null
   do {
-    $resolved = Get-SSEReceiptManagerLiveEditableField $Window $Binding
-    if ($resolved) {
-      $lastValue = Get-SSEReceiptManagerFieldValue $resolved
+    $observation = Get-SSEReceiptManagerBoundFieldObservation $Window $Binding
+    $resolved = $observation.resolved
+    $lastValue = $observation.value
+    if ($observation.ok) {
       if (Test-SSEReceiptManagerFieldValue $lastValue $Expected $ValueKind) {
         $watch.Stop()
         return [pscustomobject]@{ ok=$true; resolved=$resolved; value=$lastValue; ms=$watch.ElapsedMilliseconds }
@@ -1268,6 +1269,26 @@ function Wait-SSEReceiptManagerLiveFieldValue(
   } while ($true)
   $watch.Stop()
   [pscustomobject]@{ ok=$false; resolved=$resolved; value=$lastValue; ms=$watch.ElapsedMilliseconds }
+}
+
+function Get-SSEReceiptManagerBoundFieldObservation([IntPtr]$Window, $Binding) {
+  $failure = $null; $resolved = $null; $value = $null
+  try {
+    if ($Binding -and $Binding.node -and [string]$Binding.node.rid) {
+      $resolved = Get-SSEReceiptManagerLiveEditableField $Window $Binding
+      if ($resolved -and [string]$resolved.node.rid -ceq [string]$Binding.node.rid) {
+        $value = Get-SSEReceiptManagerFieldValue $resolved
+      }
+    }
+  } catch {
+    if ($script:SSE_CAPTURE_SENTINEL -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    $failure = $_.Exception.Message
+  }
+  $known = [bool]($null -ne $value)
+  [pscustomobject]@{
+    ok=$known; resolved=$(if ($known) { $resolved } else { $null }); value=$value
+    error=$(if ($known) { $null } elseif ($failure) { $failure } else { 'Exakt gebundenes Belegfeld ist nicht mehr lesbar.' })
+  }
 }
 
 function Set-SSEReceiptManagerVatRateSelection(
@@ -1289,14 +1310,25 @@ function Set-SSEReceiptManagerVatRateSelection(
   if ($expectedRate -notin @('0','7','19') -or $wantedRate -notin @('0','7','19')) {
     return [pscustomobject]@{ ok=$false; error='USt-Auswahl liegt ausserhalb der profilierten Saetze 0, 7 und 19.'; mutationStarted=$false }
   }
+  $observation = Get-SSEReceiptManagerBoundFieldObservation $ToolHwnd $ResolvedField
+  if (-not $observation.ok -or -not (Test-SSEReceiptManagerFieldValue $observation.value $ExpectedCurrent 'vat-rate')) {
+    return [pscustomobject]@{
+      ok=$false; method='epoch-value-changed'; error=$(if ($observation.ok) {
+        'USt-Vorwert stimmt am frisch gebundenen Feld nicht mehr mit dem erwarteten Wert ueberein.'
+      } else { $observation.error })
+      before=$expectedRate; requested=$wantedRate; after=(& $normalizeRate $observation.value)
+      mutationStarted=$false; interference=$true; inputInterference=$false
+    }
+  }
+  $ResolvedField = $observation.resolved
   if ($expectedRate -ceq $wantedRate) {
-    return [pscustomobject]@{ ok=$true; method='noop-already-target'; before=$expectedRate; after=$wantedRate; mutationStarted=$false }
+    return [pscustomobject]@{ ok=$true; method='noop-already-target'; before=$expectedRate; after=(& $normalizeRate $observation.value); mutationStarted=$false }
   }
   if ($wantedRate -ceq '0') {
     # SSE 31 stellt "keine abziehbare USt" als leeren Editwert dar; das
     # Popup bietet nur 7 und 19. Der Nullsatz wird deshalb streng als leerer
     # QLineEdit-Wert committed und kanonisch als 0 gelesen.
-    $clearCommit = Commit-TrackedValue $ToolHwnd $ResolvedField.node '' $ExpectedCurrent
+    $clearCommit = Commit-TrackedValue $ToolHwnd $ResolvedField.node '' $observation.value
     if ([string]$clearCommit.method -cne 'verified-keyboard-replace') {
       return [pscustomobject]@{
         ok=$false; error="USt-Nullsatz-Commit meldete '$([string]$clearCommit.method)'."

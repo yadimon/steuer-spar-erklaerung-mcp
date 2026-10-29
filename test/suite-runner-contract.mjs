@@ -61,6 +61,7 @@ const expectedNames = [
   "cursor-input",
   "table-add-seek",
   "tracked-native-text",
+  "receipt-vat-precondition",
   "tracked-field-resolution",
   "tracked-rollback-display",
   "qt-native-receipt-update",
@@ -177,6 +178,7 @@ for (const required of [
   "case-binding", "recovery-answer-policy", "desktop-stop-policy", "process-exit-wait", "launch-readiness", "describe-point-basic", "case-file", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-busy-retry", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata", "agent-plugin-contract",
   "mcp-operation-budget-contract",
   "table-add-checkbox-contract",
+  "receipt-vat-precondition",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }
