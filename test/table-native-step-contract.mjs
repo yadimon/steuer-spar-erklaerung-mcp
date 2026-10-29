@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { executeTableCursorRead } from "../dist/table-cursor-executor.js";
+import { parseApiOperationResult } from "../dist/result-contract.js";
+import { tableAddCursorFailure } from "../dist/table-add-cursor-result.js";
 
 // Synthetic broker/workers only. No desktop, API, transport or native process.
 const copy = value => structuredClone(value);
@@ -121,6 +123,9 @@ async function run(options = {}) {
         if (options.positionReleaseMissingReply) return undefined;
         if (options.positionReleaseReply) return copy(options.positionReleaseReply);
       }
+      if (options.releaseThrows) throw new Error("Synthetic release transport lost");
+      if (options.releaseMissingReply) return undefined;
+      if (options.releaseReply) return copy(options.releaseReply);
       const unproven = options.releaseUnproven || (positionReleased && options.laterReleaseUnproven);
       if (positions.length && !positionReleased) {
         positionReleased = true; consumed.add(plan.lease.nonce);
@@ -587,9 +592,36 @@ assert.equal(clipped.result.ok, false); assert.equal(clipped.result.proofCheck, 
 assert.deepEqual(clipped.keys, ["home", "down", "down"], "A clipped last model index is not proof of a visible end and must not send an extra key.");
 const finalEpoch = await run({ checkpointFails: true });
 assert.equal(finalEpoch.result.ok, false); assert.equal(finalEpoch.releases.length, 1);
-const badRelease = await run({ releaseUnproven: true });
-assert.equal(badRelease.result.ok, false); assert.equal(badRelease.result.cleanupRequired, true);
-assert.equal(badRelease.result.vollstaendig, false);
+for (const options of [
+  { releaseUnproven: true },
+  { releaseReply: { ok: false, cursorLeaseReleased: true, focusTelemetry: { releasedByEmit: true } } },
+  { releaseReply: { ok: true, cursorLeaseReleased: false, focusTelemetry: { releasedByEmit: true } } },
+  { releaseReply: { ok: true, cursorLeaseReleased: true } },
+  { releaseMissingReply: true },
+  { releaseThrows: true },
+]) {
+  const badRelease = await run(options);
+  assert.equal(parseApiOperationResult("table_read", badRelease.result).ok, false);
+  assert.equal(badRelease.result.kind, "cursor-proof-failed");
+  assert.equal(badRelease.result.phase, "native-step-release");
+  assert.equal(badRelease.result.outcomeUnknown, true);
+  assert.equal(badRelease.result.cleanupRequired, true); assert.equal(badRelease.result.reconciliationRequired, true);
+  assert.equal(badRelease.result.vollstaendig, false);
+  assert.deepEqual(badRelease.keys, success.keys); assert.deepEqual(badRelease.phases, success.phases);
+  assert.equal(badRelease.releases.length, 1, "Release failure does not replay a cursor key or cleanup.");
+  const appendProjection = tableAddCursorFailure({ ok: false, kind: "not-found", error: "Synthetic append row absent",
+    mutationStarted: false, outcomeUnknown: false }, badRelease.result);
+  assert.equal(parseApiOperationResult("table_add", appendProjection).ok, false);
+  assert.equal(appendProjection.freeRowSearch.cursorResult.phase, "native-step-release");
+}
+const clippedReleaseLost = await run({ clippedLast: true, releaseUnproven: true });
+assert.equal(parseApiOperationResult("table_read", clippedReleaseLost.result).ok, false);
+for (const field of ["kind", "error", "phase", "proofCheck"]) {
+  assert.equal(clippedReleaseLost.result[field], clipped.result[field], "Cleanup cannot replace a prior step failure.");
+}
+assert.equal(clippedReleaseLost.result.cleanupRequired, true);
+assert.equal(clippedReleaseLost.result.reconciliationRequired, true);
+assert.deepEqual(clippedReleaseLost.keys, clipped.keys); assert.equal(clippedReleaseLost.releases.length, 1);
 const downFailure = await run({ workerFails: 2 });
 assert.deepEqual(downFailure.keys, ["home", "down"]); assert.equal(downFailure.result.ok, false);
 console.log("table-native-step-contract: one-key progress, fresh nonce, complete model, strict focus/epoch/end and no replay passed");

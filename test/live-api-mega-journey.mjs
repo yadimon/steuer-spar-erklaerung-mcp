@@ -117,6 +117,7 @@ function megaFailureDiagnostics(value) {
     const phases = new Set([
       "native-position-preproof", "native-position-acquire", "native-position-dispatch",
       "native-position-number-preparation", "native-position-focus-only", "native-position-checkpoint",
+      "native-position-release", "native-step-release",
     ]);
     const proofs = new Set([
       "native-position-target-row", "native-position-number-model", "native-position-whole-model",

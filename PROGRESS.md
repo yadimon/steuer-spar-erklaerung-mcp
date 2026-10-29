@@ -46,6 +46,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische
   Modell-, Auswahl-, Fenster- und Eingabenachweise; Fehler erlauben kein
   Ausweichen auf einen anderen Eingriff.
+  Verliert ein zuvor erfolgreicher Cursor- oder Positionierungsschritt beim
+  Freigeben seine bestätigte Eingabebindung, bleibt seine Fehlerantwort
+  schemakonform: Fehlercode, Meldung und Freigabephase sind vorhanden.
+  Der Ausgang bleibt abgleichpflichtig; bestehende Primärfehler werden erhalten.
 - **UIA-Löschung:** Zielkoordinaten und vollständiger ausgelesener Bestand
   ersetzen Textanwesenheit und sichtbaren Zeilenrang als Nachweis. Verborgene
   Spalten und Checkboxwerte werden mitgeprüft. Eigene Zelleditoren brauchen

@@ -522,7 +522,13 @@ implementierten Handler oder eine schnellere Teilstrecke erreicht.
 
 `table-native-mutation-contract.mjs` prüft den echten Positionierer an
 synthetischen nativen Ablehnungen und erfolgreichen, unbestätigten oder
-fehlschlagenden Lease-Freigaben. `api-mega-contract.mjs` prüft die tatsächliche
+fehlschlagenden Lease-Freigaben. Die Freigabefehler werden zusätzlich durch
+den tatsächlichen API-Resultatparser geprüft, auch nach einem zuvor
+erfolgreichen Schritt und für den Cursor-Seek vor dem Anhängen.
+`table-native-step-contract.mjs` prüft denselben Vertrag beim schrittweisen
+Lesen, ohne eine Taste oder die Freigabe zu wiederholen. Bestehende
+Primärfehler bleiben trotz zusätzlichem Freigabefehler erhalten.
+`api-mega-contract.mjs` prüft die tatsächliche
 Berichtsgrenze, erhaltene Primärfehler und die wertfreie Projektion.
 Die vollständige native Mega-Reise ist ein separater Produktnachweis; eine
 erfolgreiche Folgereise klärt frühere sporadische Ablehnungen nicht automatisch.

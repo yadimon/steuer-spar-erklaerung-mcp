@@ -34352,6 +34352,16 @@ async function executeNativeSteppedCursor(client, phase, args, initial, before, 
       }
     }
   }
+  if (cleanupRequired && result.ok === true) {
+    result = {
+      ...result,
+      ok: false,
+      kind: "cursor-proof-failed",
+      phase: "native-step-release",
+      error: "Freigabe unbestaetigt; nicht wiederholen.",
+      outcomeUnknown: true
+    };
+  }
   return { ...result, ...cleanupRequired ? {
     ok: false,
     vollstaendig: false,
@@ -34658,6 +34668,16 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
         unknownAuthority = true;
       }
     } else if (lease) unknownAuthority = true;
+  }
+  if (unknownAuthority && result.ok === true) {
+    result = {
+      ...result,
+      ok: false,
+      kind: "cursor-proof-failed",
+      phase: "native-position-release",
+      error: "Freigabe unbestaetigt; nicht wiederholen.",
+      outcomeUnknown: true
+    };
   }
   return { ...result, ...nativeDiagnostic && (result.ok === false || unknownAuthority) ? {
     cursorActivation: { ...result.cursorActivation, nativeRelease }
@@ -35582,6 +35602,8 @@ var init_table_add_cursor_result = __esm({
       "native-position-number-preparation",
       "native-position-focus-only",
       "native-position-checkpoint",
+      "native-position-release",
+      "native-step-release",
       "append-deadline-reserve"
     ]);
     proofChecks = /* @__PURE__ */ new Set([
