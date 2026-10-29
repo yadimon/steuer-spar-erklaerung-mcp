@@ -336,7 +336,7 @@ function Get-SSEReceiptManagerPolicy {
   $policy
 }
 
-function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues) {
+function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues, [switch]$ReturnFailure) {
   $tree = Walk-Tree $Window 800 -WithValues:$WithValues
   $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
 
@@ -348,7 +348,11 @@ function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValue
   $suffixMatches = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
   foreach ($stateProperty in @($Policy.states.PSObject.Properties)) {
     $required = @($stateProperty.Value.requiredAutomationIdSuffixes | ForEach-Object { [string]$_ })
-    if (-not $required.Count) { Fail "BelegManager-Zustand '$($stateProperty.Name)' hat keine Pflichtsteuerelemente." 'profile-contract' }
+    if (-not $required.Count) {
+      $failure = [pscustomobject]@{ ok=$false; kind='profile-contract'; error="BelegManager-Zustand '$($stateProperty.Name)' hat keine Pflichtsteuerelemente." }
+      if ($ReturnFailure) { return $failure }
+      Fail $failure.error $failure.kind
+    }
     foreach ($suffix in $required) {
       if (-not $suffixMatches.ContainsKey($suffix)) {
         $suffixMatches.Add($suffix, (New-Object System.Collections.ArrayList))
@@ -391,7 +395,9 @@ function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValue
     if ($complete) { $null = $matchedStates.Add([string]$stateRequirement.name) }
   }
   if ($matchedStates.Count -ne 1) {
-    Fail "BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." 'state-unknown'
+    $failure = [pscustomobject]@{ ok=$false; kind='state-unknown'; error="BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." }
+    if ($ReturnFailure) { return $failure }
+    Fail $failure.error $failure.kind
   }
 
   $stableNodes = @($fingerprintNodes | Sort-Object aid | ForEach-Object {
@@ -1162,20 +1168,29 @@ function Test-SSEReceiptBulkRequestedValues($Actual, $Requested) {
   $true
 }
 
-function Resolve-SSEReceiptManagerEditableFieldNode($State, $Policy, [string]$FieldName) {
+function Resolve-SSEReceiptManagerEditableFieldNode($State, $Policy, [string]$FieldName, [switch]$ReturnFailure) {
   $fieldProperty = $Policy.controls.editableFields.PSObject.Properties[$FieldName]
-  if (-not $fieldProperty) { Fail "Unbekanntes BelegManager-Feld '$FieldName'." 'bad-args' }
-  $fieldPolicy = $fieldProperty.Value
-  $suffix = [string]$fieldPolicy.automationIdSuffix
-  $controlType = [string]$fieldPolicy.controlType
-  $matches = @($State.nodes | Where-Object {
-    [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal) -and
-    [string]$_.type -ceq $controlType -and $_.w -gt 0 -and $_.h -gt 0
-  })
-  if ($matches.Count -ne 1) {
-    Fail "$($matches.Count) sichtbare profilierte BelegManager-Felder '$FieldName' gefunden." 'profile-contract'
+  $failure = $null
+  if (-not $fieldProperty) {
+    $failure = [pscustomobject]@{ ok=$false; kind='bad-args'; node=$null; error="Unbekanntes BelegManager-Feld '$FieldName'." }
+  } else {
+    $fieldPolicy = $fieldProperty.Value
+    $suffix = [string]$fieldPolicy.automationIdSuffix
+    $controlType = [string]$fieldPolicy.controlType
+    $matches = @($State.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal) -and
+      [string]$_.type -ceq $controlType -and $_.w -gt 0 -and $_.h -gt 0
+    })
+    if ($matches.Count -ne 1) {
+      $failure = [pscustomobject]@{ ok=$false; kind='profile-contract'; node=$null; error="$($matches.Count) sichtbare profilierte BelegManager-Felder '$FieldName' gefunden." }
+    } elseif (-not [bool]$matches[0].on) {
+      $failure = [pscustomobject]@{ ok=$false; kind='precondition-failed'; node=$null; error="BelegManager-Feld '$FieldName' ist deaktiviert." }
+    }
   }
-  if (-not [bool]$matches[0].on) { Fail "BelegManager-Feld '$FieldName' ist deaktiviert." 'precondition-failed' }
+  if ($failure) {
+    if ($ReturnFailure) { return $failure }
+    Fail $failure.error $failure.kind
+  }
   [pscustomobject]@{ name=$FieldName; policy=$fieldPolicy; node=$matches[0] }
 }
 
@@ -24261,28 +24276,43 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $changedFields = New-Object System.Collections.ArrayList
     $failedField = $null; $failedReason = $null; $uncertainFieldMutation = $false; $failedInputGuard = $false
     foreach ($transaction in @($transactions)) {
-      $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
-      if (-not $resolved) {
-        $failedField = $transaction.name; $failedReason = 'Exakt gebundenes Feld wurde waehrend der Transaktion ungreifbar.'; break
+      $observation = Get-SSEReceiptManagerBoundFieldObservation $toolHwnd $transaction.binding
+      if (-not $observation.ok) {
+        $failedField = $transaction.name; $failedReason = $observation.error; $failedInputGuard = $true; break
       }
+      $resolved = $observation.resolved
       $transaction.binding = $resolved
-      $currentValue = Get-SSEReceiptManagerFieldValue $resolved
+      $currentValue = $observation.value
       if (-not (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
-        $failedField = $transaction.name; $failedReason = 'Vorwert oder Feldbindung aenderte sich waehrend der Transaktion.'; break
+        $failedField = $transaction.name; $failedReason = 'Vorwert oder Feldbindung aenderte sich waehrend der Transaktion.'; $failedInputGuard = $true; break
       }
       if (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind) { continue }
       if ([string]$transaction.name -ceq 'vatRate') {
         # QComboBox verwirft freie Texteingaben beim Fokuswechsel. Der Satz
         # muss als typisierte Popup-Option gewaehlt und danach frisch gelesen
         # werden; das gilt insbesondere nach einer Netto-Umschaltung.
-        $vatState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-        $resolved = Resolve-SSEReceiptManagerEditableFieldNode $vatState $policy 'vatRate'
+        try {
+          $vatState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues -ReturnFailure
+          if ($vatState.ok -eq $false) {
+            $failedField = $transaction.name; $failedReason = $vatState.error; $failedInputGuard = $true; break
+          }
+          $freshField = Resolve-SSEReceiptManagerEditableFieldNode $vatState $policy 'vatRate' -ReturnFailure
+        } catch {
+          if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+          $failedField = $transaction.name; $failedReason = $_.Exception.Message; $failedInputGuard = $true; break
+        }
+        if (-not $freshField.node -or [string]$freshField.node.rid -cne [string]$resolved.node.rid) {
+          $failedField = $transaction.name
+          $failedReason = $(if ($freshField.node) { 'Feldbindung aenderte sich vor der typisierten USt-Auswahl.' } else { $freshField.error })
+          $failedInputGuard = $true; break
+        }
+        $resolved = $freshField
         $currentValue = Get-SSEReceiptManagerFieldValue $resolved
         if (-not (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
-          $failedField = $transaction.name; $failedReason = 'Vorwert aenderte sich vor der typisierten USt-Auswahl.'; break
+          $failedField = $transaction.name; $failedReason = 'Vorwert aenderte sich vor der typisierten USt-Auswahl.'; $failedInputGuard = $true; break
         }
         $vatCommit = Set-SSEReceiptManagerVatRateSelection `
-          $toolHwnd $targetPid $vatState $policy $resolved ([string]$currentValue) ([string]$transaction.requested) ([int]$waitMs)
+          $toolHwnd $targetPid $vatState $policy $resolved $transaction.before $transaction.requested ([int]$waitMs)
         if (-not $vatCommit.ok) {
           $vatDiagnostics = @($vatCommit.taxOptionDiagnostics | Where-Object { $_ } | ForEach-Object {
             "$([string]$_.type):$([string]$_.name):new=$([bool]$_.sourceIsNewPopup)"
@@ -24296,7 +24326,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       } elseif ($transaction.kind -ceq 'boolean') {
         $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
         if (-not $freshNode -or -not [bool]$freshNode.on) {
-          $failedField = $transaction.name; $failedReason = 'Checkbox wurde unmittelbar vor dem Klick ungreifbar.'; break
+          $failedField = $transaction.name; $failedReason = 'Checkbox wurde unmittelbar vor dem Klick ungreifbar.'; $failedInputGuard = $true; break
         }
         $null = Click-VerifiedPoint $toolHwnd $freshNode (Get-SSELastInputTick) -RequireForeground
       } else {
@@ -24314,6 +24344,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if (-not $afterField.ok) {
         $failedField = $transaction.name
         $failedReason = "Feld zeigt nach dem Commit '$($afterField.value)' statt '$($transaction.requested)'."
+        $failedInputGuard = $true
         break
       }
       $transaction.binding = $afterField.resolved
@@ -24324,42 +24355,63 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     if ($failedField) {
       $rollbackEntries = New-Object System.Collections.ArrayList
-      $rollbackOk = $true
+      $rollbackContextLost = [bool]$failedInputGuard
+      $rollbackOk = [bool](-not $rollbackContextLost)
       $changedTransactions = @($transactions | Where-Object {
         $_.changed -or ($uncertainFieldMutation -and [string]$_.name -ceq [string]$failedField)
       })
       [array]::Reverse($changedTransactions)
       foreach ($transaction in $changedTransactions) {
-        $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
-        $currentValue = $(if ($resolved) { Get-SSEReceiptManagerFieldValue $resolved } else { $null })
-        $entryOk = $false; $method = 'not-attempted'
+        $observation = Get-SSEReceiptManagerBoundFieldObservation $toolHwnd $transaction.binding
+        $resolved = $observation.resolved; $currentValue = $observation.value
+        $entryOk = $false; $method = 'not-attempted'; $rollbackError = $null
         if ($resolved -and (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
           $entryOk = $true; $method = 'verified-unchanged'
-        } elseif (-not $failedInputGuard -and $resolved -and
+        } elseif (-not $rollbackContextLost -and $resolved -and
             (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind)) {
+          $inverseAccepted = $false
           if ([string]$transaction.name -ceq 'vatRate') {
-            $rollbackState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-            $resolved = Resolve-SSEReceiptManagerEditableFieldNode $rollbackState $policy 'vatRate'
-            $currentValue = Get-SSEReceiptManagerFieldValue $resolved
-            $vatRollback = Set-SSEReceiptManagerVatRateSelection `
-              $toolHwnd $targetPid $rollbackState $policy $resolved ([string]$currentValue) ([string]$transaction.before) ([int]$waitMs)
-            $method = [string]$vatRollback.method
+            $stateFailure = $false
+            try {
+              $rollbackState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues -ReturnFailure
+              if ($rollbackState.ok -eq $false) { $stateFailure = $true; $rollbackError = $rollbackState.error }
+              else { $freshField = Resolve-SSEReceiptManagerEditableFieldNode $rollbackState $policy 'vatRate' -ReturnFailure }
+            } catch {
+              if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+              $stateFailure = $true; $rollbackError = $_.Exception.Message
+            }
+            if ($stateFailure) {
+              $method = 'state-read-failed'
+            } elseif (-not $freshField.node -or [string]$freshField.node.rid -cne [string]$resolved.node.rid) {
+              $method = 'field-binding-changed'
+              $rollbackError = $(if ($freshField.node) { 'USt-Feldbindung aenderte sich vor der Ruecknahme.' } else { $freshField.error })
+            } else {
+              $resolved = $freshField
+              $vatRollback = Set-SSEReceiptManagerVatRateSelection `
+                $toolHwnd $targetPid $rollbackState $policy $resolved $transaction.requested $transaction.before ([int]$waitMs)
+              $method = [string]$vatRollback.method
+              $inverseAccepted = [bool]($vatRollback.ok -and -not $vatRollback.interference)
+              $rollbackError = $vatRollback.error
+            }
           } elseif ($transaction.kind -ceq 'boolean') {
             $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
             if ($freshNode -and [bool]$freshNode.on) {
               $null = Click-VerifiedPoint $toolHwnd $freshNode (Get-SSELastInputTick) -RequireForeground
-              $method = 'verified-point'
+              $inverseAccepted = $true; $method = 'verified-point'
             }
           } else {
             $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([pscustomobject]@{raw=$currentValue;value=$transaction.requested}) ([string]$transaction.kind)
             $method = [string]$rollbackCommit.method
+            $inverseAccepted = [bool]($method -ceq 'verified-keyboard-replace' -and -not $rollbackCommit.interference)
           }
-          $rollbackReadback = Wait-SSEReceiptManagerLiveFieldValue `
-            $toolHwnd $resolved $transaction.before $transaction.kind ([int]$waitMs)
-          $entryOk = [bool]$rollbackReadback.ok
+          if ($inverseAccepted) {
+            $rollbackReadback = Wait-SSEReceiptManagerLiveFieldValue `
+              $toolHwnd $resolved $transaction.before $transaction.kind ([int]$waitMs)
+            $entryOk = [bool]$rollbackReadback.ok
+          }
         }
-        if (-not $entryOk) { $rollbackOk = $false }
-        $null = $rollbackEntries.Add([pscustomobject]@{ field=$transaction.name; method=$method; ok=[bool]$entryOk })
+        if (-not $entryOk) { $rollbackOk = $false; $rollbackContextLost = $true }
+        $null = $rollbackEntries.Add([pscustomobject]@{ field=$transaction.name; method=$method; ok=[bool]$entryOk; error=$rollbackError })
       }
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'
@@ -24385,8 +24437,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $valuesAfter = [ordered]@{}
     $valuesMatch = $true
     foreach ($transaction in @($transactions)) {
-      $resolved = Resolve-SSEReceiptManagerEditableFieldNode $finalState $policy $transaction.name
-      $actual = Get-SSEReceiptManagerFieldValue $resolved
+      $resolved = Resolve-SSEReceiptManagerEditableFieldNode $finalState $policy $transaction.name -ReturnFailure
+      $actual = $(if ($resolved.node) { Get-SSEReceiptManagerFieldValue $resolved } else { $null })
       $valuesAfter[$transaction.name] = $actual
       if (-not (Test-SSEReceiptManagerFieldValue $actual $transaction.requested $transaction.kind)) { $valuesMatch = $false }
     }

@@ -7,7 +7,7 @@ import type { QtSnapshotNode } from "./qt-native-snapshot.js";
 import {
   detailBindingFingerprint, detailIdentityMatches, exactDetailClose, fail, receiptDetailFields, receiptDetailSnapshot,
   receiptDirtyState, receiptEditableValues, receiptList, receiptPolicySchema, receiptReadableFieldNode, receiptState,
-  receiptWindowSet, sameSemanticRow, type ReceiptListProjection, type ReceiptRow,
+  receiptWindowSet, sameSemanticRow, validReceiptDate, type ReceiptListProjection, type ReceiptRow,
 } from "./qt-native-receipts.js";
 
 type Field = "title" | "date" | "documentNumber" | "amount" | "vatRate" | "net" | "note";
@@ -53,13 +53,6 @@ function rawValue(field: Field, value: unknown): string {
     return `${cents < 0n ? "-" : ""}${magnitude / 100n},${String(magnitude % 100n).padStart(2, "0")}`;
   }
   return String(value);
-}
-
-function validDate(value: string): boolean {
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(0);
-  date.setUTCFullYear(year!, month! - 1, day!);
-  return year! > 0 && date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
 }
 
 function readableFieldNode(detail: Detail, policy: Policy, field: Field): QtSnapshotNode {
@@ -117,7 +110,7 @@ export async function executeQtNativeReceiptManagerUpdate(
   const parsed = SSE_MCP_RECEIPT_SCHEMAS.sse_receipt_manager_update.safeParse(input);
   if (!parsed.success) return fail("bad-args", parsed.error.message);
   const args = parsed.data;
-  if (args.values.date && !validDate(args.values.date)) return fail("bad-args", "Receipt date is not a valid calendar date.");
+  if (args.values.date && !validReceiptDate(args.values.date)) return fail("bad-args", "Receipt date is not a valid calendar date.");
   if (args.values.amount && Number(args.values.amount.replace(",", ".")) > 999999999)
     return fail("bad-args", "Receipt amount exceeds the supported maximum.");
   const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
@@ -323,8 +316,9 @@ export async function executeQtNativeReceiptManagerUpdate(
       !detailClosed && "detail-not-closed", !identity.identityProjectionComplete && "target-identity-ambiguous"].filter(Boolean);
     return { ok: false, kind: "postcondition-failed", error: "Receipt update postconditions were not fully proven; do not replay.", offeneBedingungen, ...result };
   } catch (error) {
-    const uncertain = detailCloseStarted || signal?.aborted === true || error instanceof QtNativeTransportError
-      || error instanceof ReceiptUpdateError && error.outcomeUnknown;
+    const unknownOutcome = (failure: unknown) => signal?.aborted === true || failure instanceof QtNativeTransportError
+      || failure instanceof ReceiptUpdateError && failure.outcomeUnknown;
+    let uncertain = detailCloseStarted || unknownOutcome(error);
     const rollback: { attempted: boolean; complete: boolean | null; fields: Record<string, unknown>[] } = { attempted: false, complete: null, fields: [] };
     // Never replay an unacknowledged write or overwrite an unexpected value.
     // A rejected, acknowledged edit can restore only fields still equal to our
@@ -333,25 +327,31 @@ export async function executeQtNativeReceiptManagerUpdate(
       rollback.attempted = true;
       rollback.complete = true;
       try {
+        let rollbackContextLost = false;
         for (const edit of [...edits].reverse()) {
           let detail = await detailRead();
           const live = readValues(detail)[edit.field];
           if (equalValue(edit.field, live, edit.before)) { rollback.fields.push({ field: edit.field, verified: true, action: "unchanged" }); continue; }
-          if (!equalValue(edit.field, live, edit.requested)) {
+          if (rollbackContextLost || !equalValue(edit.field, live, edit.requested)) {
             rollback.complete = false;
-            rollback.fields.push({ field: edit.field, verified: false, action: "unexpected-value-preserved" }); continue;
+            rollback.fields.push({ field: edit.field, verified: false, action: rollbackContextLost ? "context-lost" : "unexpected-value-preserved" });
+            rollbackContextLost = true; continue;
           }
           await editField(detail, edit.field, edit.before);
           detail = await waitDetail(candidate => equalValue(edit.field, receiptEditableValues(candidate.nodes, policy).values?.[edit.field], edit.before));
           const verified = equalValue(edit.field, readValues(detail)[edit.field], edit.before);
           rollback.complete &&= verified;
+          rollbackContextLost ||= !verified;
           rollback.fields.push({ field: edit.field, verified, action: "restored" });
         }
         const detail = await detailRead();
         valuesAfter = readValues(detail);
         rawAfter = rawReceiptValues(detail, policy, requestedFields);
         rollback.complete &&= fields.every(field => equalValue(field, valuesAfter![field], valuesBefore![field]));
-      } catch { rollback.complete = false; }
+      } catch (rollbackError) {
+        rollback.complete = false;
+        uncertain ||= unknownOutcome(rollbackError);
+      }
     }
     let cleanupVerified = false;
     if (rollback.complete && valuesBefore) {

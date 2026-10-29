@@ -952,7 +952,7 @@ foreach ($required in @(
   'expectedListFingerprint',
   'expectedDetailFingerprint',
   'Resolve-SSEReceiptManagerEditableFieldNode',
-  'Get-SSEReceiptManagerLiveEditableField',
+  'Get-SSEReceiptManagerBoundFieldObservation',
   'Wait-SSEReceiptManagerLiveFieldValue',
   'Commit-TrackedValue',
   'Click-VerifiedPoint',

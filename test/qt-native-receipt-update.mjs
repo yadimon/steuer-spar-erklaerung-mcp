@@ -65,7 +65,7 @@ for (const field of ["note", "net"]) {
 function fixture(options = {}) {
   const beforeValues = { ...initial, ...options.initialValues };
   const values = { ...beforeValues }, actions = [];
-  let open = Boolean(options.alreadyOpen), closed = false;
+  let open = Boolean(options.alreadyOpen), closed = false, rejected = false;
   const makeNodes = () => {
     const nodes = [];
     const add = (type, name, aid, extra = {}) => {
@@ -150,8 +150,16 @@ function fixture(options = {}) {
         assert(open);
         const field = Object.keys(policy.controls.editableFields).find(name => target.aid.endsWith(policy.controls.editableFields[name].automationIdSuffix));
         assert(field);
-        if (options.rejectField === field) return { durationMs: 1, mutationAckMs: 0, receiptAcknowledged: false,
-          result: { ok: false, mutationAttempted: false, code: "stale", error: "Exact old value rejected" } };
+        if (options.rejectField === field) {
+          rejected = true;
+          Object.assign(values, options.foreignValuesOnRejection);
+          return { durationMs: 1, mutationAckMs: 0, receiptAcknowledged: false,
+            result: { ok: false, mutationAttempted: false, code: "stale", error: "Exact old value rejected" } };
+        }
+        if (rejected && options.ignoreInverseField === field) return { durationMs: 1, mutationAckMs: 0,
+          receiptAcknowledged: true, result: { ok: true, mutationAttempted: true } };
+        if (rejected && options.rejectInverseField === field) return { durationMs: 1, mutationAckMs: 0,
+          receiptAcknowledged: false, result: { ok: false, mutationAttempted: false, code: "stale", error: "Inverse rejected before mutation" } };
         if (field === "net") {
           assert.equal(args.action, "toggle-check-box"); assert.equal(args.expectedChecked, values.net);
           values.net = args.checked;
@@ -164,6 +172,7 @@ function fixture(options = {}) {
           }
         }
         if (options.lostAcknowledgment === field) throw new QtNativeAcknowledgmentError("Mutation acknowledgment lost", "native-ack", { ok: true, id: 1, mutationAttempted: true });
+        if (rejected && options.inverseLostAcknowledgment === field) throw new QtNativeAcknowledgmentError("Inverse acknowledgment lost", "native-ack", { ok: true, id: 1, mutationAttempted: true });
         if (options.foreignFieldAfterEdit === field) values.note = "Foreign note";
       }
       return { durationMs: 3, mutationAckMs: 1, receiptAcknowledged: true, result: { ok: true, mutationAttempted: true } };
@@ -274,6 +283,49 @@ assert.equal(rollback.rollback.complete, true, JSON.stringify(rollback));
 assert.equal(rollback.resultingState, "restored");
 assert.equal(rollback.cleanupRequired, false);
 assert.deepEqual(rejected.values, initial);
+
+for (const options of [
+  { foreignValuesOnRejection: { date: "2025-02-14" } },
+  { ignoreInverseField: "date" },
+]) {
+  const interrupted = fixture({ rejectField: "documentNumber", ...options });
+  const failure = await interrupted.update();
+  assert.equal(failure.ok, false);
+  assert.equal(failure.rollback.attempted, true);
+  assert.equal(failure.rollback.complete, false);
+  assert.equal(failure.cleanupRequired, true);
+  assert.equal(failure.resultingState, "unknown");
+  assert.equal(interrupted.values.title, requested.title,
+    "After a foreign value or an unverified inverse, no earlier field may be written back");
+  assert.equal(interrupted.actions.filter(action => action.aid.endsWith(policy.controls.editableFields.title.automationIdSuffix)).length, 1);
+  assert.equal(interrupted.actions.filter(action => action.action === "press").length, 0);
+  assert.match(failure.error, /Exact old value rejected/u, "Keep the initial failure when an inverse fails later");
+}
+const inverseLost = fixture({ rejectField: "documentNumber", inverseLostAcknowledgment: "date" });
+const inverseUnknown = await inverseLost.update();
+assert.equal(inverseUnknown.rollback.complete, false);
+assert.equal(inverseUnknown.outcomeUnknown, true, "A lost inverse acknowledgment must keep its uncertain mutation outcome");
+assert.equal(inverseUnknown.cleanupRequired, true);
+assert.equal(inverseLost.values.title, requested.title);
+assert.equal(inverseLost.actions.filter(action => action.action === "press").length, 0);
+assert.match(inverseUnknown.error, /Exact old value rejected/u);
+const inverseRefused = fixture({ rejectField: "documentNumber", rejectInverseField: "date" });
+const inverseRefusal = await inverseRefused.update();
+assert.equal(inverseRefusal.rollback.complete, false);
+assert.equal(inverseRefusal.outcomeUnknown, false, "A proven inverse refusal must remain distinct from a lost acknowledgment");
+assert.equal(inverseRefusal.cleanupRequired, true);
+assert.equal(inverseRefused.values.title, requested.title);
+assert.equal(inverseRefused.actions.filter(action => action.action === "press").length, 0);
+assert.match(inverseRefusal.error, /Exact old value rejected/u);
+const originalAfterLoss = fixture({ rejectField: "documentNumber",
+  foreignValuesOnRejection: { date: "2025-02-14", title: initial.title } });
+const originalObservation = await originalAfterLoss.update();
+assert.equal(originalObservation.rollback.complete, false);
+assert.equal(originalObservation.cleanupRequired, true);
+assert.deepEqual(originalObservation.rollback.fields.find(field => field.field === "title"),
+  { field: "title", verified: true, action: "unchanged" });
+assert.equal(originalAfterLoss.actions.filter(action => action.aid.endsWith(policy.controls.editableFields.title.automationIdSuffix)).length, 1);
+assert.equal(originalAfterLoss.actions.filter(action => action.action === "press").length, 0);
 
 const lost = fixture({ lostAcknowledgment: "title" });
 const unknown = await lost.update();

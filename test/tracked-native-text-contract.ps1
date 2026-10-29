@@ -179,7 +179,7 @@ public static class SW {
 '@
 
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$null, [ref]$null)
-foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SSECommitResult','Send-SSETrackedLiteralText','Get-SSETrackedCharacterSubstitution','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-SSETrackedCommitPrecondition')) {
+foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SSECommitResult','Send-SSETrackedLiteralText','Get-SSETrackedCharacterSubstitution','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-SSETrackedCommitPrecondition','Get-SSEReceiptManagerBoundFieldObservation')) {
   $definition = @($ast.FindAll({ param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
   }, $true))
@@ -655,8 +655,8 @@ $receiptLoop=@($ast.FindAll({param($node)
  $node.Body.Extent.Text.Contains('$commit = Commit-TrackedValue')
 },$true))
 Assert-True ($receiptLoop.Count -eq 1) 'Actual receipt forward loop is ambiguous.'
-function Get-SSEReceiptManagerState {param($Hwnd,$Policy,[switch]$WithValues) [pscustomobject]@{}}
-function Resolve-SSEReceiptManagerEditableFieldNode {param($State,$Policy,$Field) $script:vatBinding}
+function Get-SSEReceiptManagerState {param($Hwnd,$Policy,[switch]$WithValues,[switch]$ReturnFailure) [pscustomobject]@{}}
+function Resolve-SSEReceiptManagerEditableFieldNode {param($State,$Policy,$Field,[switch]$ReturnFailure) $script:vatBinding}
 function Set-SSEReceiptManagerVatRateSelection {
  param($Hwnd,$ProcessId,$State,$Policy,$Resolved,$ExpectedCurrent,$Wanted,$WaitMs)
  Assert-True ([SW]::Value.Current.Value -ceq $ExpectedCurrent) 'Typed VAT branch lost its current-value binding.'
