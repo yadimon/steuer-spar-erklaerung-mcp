@@ -74,6 +74,7 @@ const MIN_STEP_MS = 2_000;
 const MIN_LAUNCH_MS = 30_000;
 const WIZARD_RESERVE_MS = 60_000;
 const START_PAGE_POLL_MS = 1_500;
+const START_DIALOG_READ_CEILING_MS = 5_000;
 // Der verschachtelte Executor normalisiert Worker-Ausnahmen zu Ergebnissen.
 // Diese Transportfehler beweisen ohne ausdrueckliches false keinen Nichtversand.
 const UNCERTAIN_EXECUTION_KINDS = new Set([
@@ -162,6 +163,7 @@ export async function executeCaseCreate(
   let pid = 0;
   let hwnd = 0;
   let launchDispatched = false;
+  let startupWindowUnconfirmed = false;
   let target: CaseCreateTarget | undefined;
   let uiaRootFailures = 0;
   let uiaRootPinnedHwnd: number | undefined;
@@ -220,6 +222,7 @@ export async function executeCaseCreate(
     const launchedPid = Number(launched.pid);
     if (!Number.isInteger(launchedPid) || launchedPid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
     pid = launchedPid;
+    startupWindowUnconfirmed = true;
     if (launched.ready !== true || launched.blockedByDialog === true || launched.outcomeUnknown === true || launched.processPreserved === true) {
       throw new StepFailure({ ...launched, ok: false, kind: "startup-not-ready", failedStep: "launch",
         error: "Der gestartete Prozess ist nicht bereit fuer die Fallanlage. Startdialog und moegliche Wiederherstellung frisch lesen; " +
@@ -227,8 +230,8 @@ export async function executeCaseCreate(
         ready: false, processPreserved: true, reconciliationRequired: true, retryable: false });
     }
 
-    // Wait for a product-titled case window before touching UIA. A generic
-    // startup frame can already be wide but still gets replaced.
+    // Wait for a product-titled case window before reading its UIA page.
+    // A generic startup frame can be replaced or hidden by a startup dialog.
     let startHeading = "";
     let waitingForCaseWindow = false;
     for (;;) {
@@ -240,11 +243,59 @@ export async function executeCaseCreate(
           failedStep: "instances", pid, ready: false, processPreserved: true, processStillRunning: true,
           outcomeUnknown: true, reconciliationRequired: true, retryable: false });
       }
-      if (uiaRootPinnedHwnd !== undefined && (!instance || Number(bound.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
-        fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
-      }
       const productWindow = instance && String(instance.title ?? "").includes("SteuerSparErklärung");
-      if (instance && !productWindow) waitingForCaseWindow = true;
+      const pinnedBindingChanged = uiaRootPinnedHwnd !== undefined
+        && (!instance || Number(bound.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd);
+      if (!productWindow || pinnedBindingChanged) {
+        waitingForCaseWindow = true;
+        let inventory: WorkerResult;
+        try {
+          inventory = await step("dialog_list", { pid }, START_DIALOG_READ_CEILING_MS);
+        } catch (error) {
+          const failure = error instanceof StepFailure ? error.result
+            : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "startup-probe");
+          throw new StepFailure({ ...failure, failedStep: "dialog_list", pid, ready: false,
+            processPreserved: true, outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+        }
+        const ownWindow = (entry: unknown): entry is Record<string, unknown> => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+          const window = entry as Record<string, unknown>;
+          return window.pid === pid && Number.isInteger(window.hwnd) && Number(window.hwnd) > 0;
+        };
+        const dialogs = Array.isArray(inventory.dialogs) ? inventory.dialogs : [];
+        const windows = Array.isArray(inventory.windows) ? inventory.windows : [];
+        const ownDialogs = dialogs.filter((dialog) => ownWindow(dialog)
+          && ["native-dialog", "qt-dialog"].includes(String(dialog.kind))
+          && windows.some((window) => ownWindow(window) && window.hwnd === dialog.hwnd && window.kind === dialog.kind));
+        // count is the complete window inventory, not the number of dialogs.
+        // An own modal blocks even without a successful UIA content read; no answer is sent.
+        const completeInventory = Array.isArray(inventory.dialogs) && Array.isArray(inventory.windows)
+          && Number.isInteger(inventory.count) && inventory.count === windows.length
+          && windows.every((window) => ownWindow(window) && typeof window.kind === "string" && window.kind.length > 0)
+          && ownDialogs.length === dialogs.length
+          && windows.every((window) => !["native-dialog", "qt-dialog"].includes(String(window.kind))
+            || ownDialogs.some((dialog) => dialog.hwnd === window.hwnd && dialog.kind === window.kind))
+          && ["cleanupRequired", "reconciliationRequired", "outcomeUnknown", "processPreserved"]
+            .every((flag) => inventory[flag] === undefined || inventory[flag] === false)
+          && !windows.some((window) => ownWindow(window) && (
+            ["uiaReadOk", "msaaReadOk"].some((flag) => window[flag] !== undefined && typeof window[flag] !== "boolean")
+            || ((window.uiaError || window.msaaError) && window.uiaReadOk !== true && window.msaaReadOk !== true)));
+        if (ownDialogs.length > 0 || !completeInventory) {
+          throw new StepFailure({ ...inventory, ok: false, kind: "startup-not-ready", failedStep: "dialog_list", pid,
+            error: ownDialogs.length > 0
+              ? "Ein eigener Startdialog blockiert die Fallanlage; Dialog und Wiederherstellungszustand bleiben erhalten."
+              : "Das eigene Startdialoginventar ist nicht vollstaendig bestaetigt; Zustand erhalten und frisch abgleichen.",
+            ready: false, blockedByDialog: ownDialogs.length > 0 ? true : null, processPreserved: true,
+            processStillRunning: ownDialogs.length > 0 ? true : null,
+            outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+        }
+      }
+      if (pinnedBindingChanged) {
+        throw new StepFailure({ ok: false, kind: "startup-binding-changed", failedStep: "instances", pid,
+          error: "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; Zustand erhalten, keine Assistentenaktion.",
+          ready: false, processPreserved: true, processStillRunning: null,
+          outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+      }
       if (instance && Number(bound.count) === 1 && instance.hung !== true && instance.recoveredState !== true && productWindow) {
         waitingForCaseWindow = false;
         hwnd = Number(instance.hwnd);
@@ -276,7 +327,10 @@ export async function executeCaseCreate(
         const heading = String(state?.heading ?? "");
         if (state && (Number((state.instance as Record<string, unknown> | undefined)?.pid) !== pid
           || Number((state.instance as Record<string, unknown> | undefined)?.hwnd) !== hwnd)) {
-          fail("startup-binding-changed", "Die Startlesung bestaetigt nicht die gebundene PID und HWND; keine Assistentenaktion.");
+          throw new StepFailure({ ok: false, kind: "startup-binding-changed", failedStep: "ui_state", pid,
+            error: "Die Startlesung bestaetigt nicht die gebundene PID und HWND; Zustand erhalten, keine Assistentenaktion.",
+            ready: false, processPreserved: true, processStillRunning: null,
+            outcomeUnknown: true, reconciliationRequired: true, retryable: false });
         }
         const match = wizard.startHeading.exec(heading);
         if (match) {
@@ -284,6 +338,7 @@ export async function executeCaseCreate(
             fail("wizard-page", `Der Assistent bietet das Jahr ${match[1]} an, das Profil erlaubt fuer '${mode}' nur ${taxYear}.`);
           }
           startHeading = heading;
+          startupWindowUnconfirmed = false;
           break;
         }
       }
@@ -410,6 +465,13 @@ export async function executeCaseCreate(
       ? error.result
       : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
     failure = { ...failure, ...rootDiagnostics() };
+    if (pid > 0 && startupWindowUnconfirmed && failure.processPreserved !== true
+      && (failure.kind === "aborted" || signal?.aborted || failure.failedStep === "instances")) {
+      // Cancellation or a failed inventory cannot prove that no new startup
+      // question appeared after the last read. Never discard that process.
+      failure = { ...failure, ready: false, processPreserved: true, processStillRunning: null,
+        outcomeUnknown: true, reconciliationRequired: true, retryable: false };
+    }
     if (launchDispatched && pid <= 0 && !(failure.mutationStarted === false && failure.resultingState === "unchanged")) {
       failure = { ...failure, failedStep: failure.failedStep ?? "launch", processPreserved: true, processStillRunning: failure.processStillRunning ?? null,
         outcomeUnknown: true, reconciliationRequired: true, retryable: false };

@@ -36,6 +36,8 @@ const SAVE_ENTRY = "Speichern unter... Strg+Alt+S";
 const SAVE_TITLE = "Gewinn-Erfassung speichern";
 const TARGET = "cases:neu.GewErfass2026";
 const targetPath = join(caseDir, "neu.GewErfass2026");
+const saveDialog = { hwnd: 7001, pid: PID, cls: "#32770", kind: "native-dialog", title: SAVE_TITLE,
+  buttons: [], texts: [], fingerprint: "D".repeat(64) };
 
 const instance = (extra = {}) => ({
   ok: true, count: 1, ambiguous: false, foregroundHwnd: HWND,
@@ -83,8 +85,7 @@ function scriptedWorker(overrides = {}, calls = []) {
     menu_close: () => ({ ok: true, collapsed: ["Datei"], verified: true }),
     dialog_list: () => ({
       ok: true, count: 1,
-      dialogs: [{ hwnd: 7001, pid: PID, cls: "#32770", kind: "native-dialog", title: SAVE_TITLE, buttons: [], texts: [], fingerprint: "D".repeat(64) }],
-      windows: [],
+      dialogs: [saveDialog], windows: [saveDialog],
     }),
     file_dialog_select: () => ({ ok: true, selected: targetPath, sha256: HASH, mode: "save-new", dialogClosed: true, verified: true }),
     close: () => ({ ok: true, closed: true, killed: true, stillRunning: false }),
@@ -103,6 +104,7 @@ function scriptedWorker(overrides = {}, calls = []) {
 const operationsOf = (calls) => calls.map((entry) => entry.operation);
 const closes = (calls) => calls.filter((entry) => entry.operation === "close");
 const resetTarget = () => rmSync(targetPath, { force: true });
+const emptyStartupDialogs = { ok: true, count: 0, dialogs: [], windows: [] };
 
 try {
   for (const failure of [
@@ -648,6 +650,164 @@ try {
     resetTarget();
   }
 
+  // A ready generic startup can disappear behind an own recovery/modal question.
+  // These tests use the existing absolute clock; they start no product or real worker.
+  async function startupDialogScenario(readback, pollInstances = [noInstance]) {
+    let clock = 0, index = 0;
+    const inventories = [noInstance, ...pollInstances];
+    const { worker, calls } = scriptedWorker({
+      instances: () => inventories[Math.min(index++, inventories.length - 1)],
+      dialog_list: () => typeof readback === "function" ? readback() : readback,
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    return { result, calls, clock };
+  }
+  const startupMain = { pid: PID, hwnd: HWND - 1, kind: "main", uiaReadOk: false, msaaReadOk: false };
+  for (const dialog of [
+    { pid: PID, hwnd: HWND + 1, kind: "qt-dialog", recoveryPrompt: true, requiresCaseBinding: true,
+      uiaReadOk: true, texts: ["Synthetic recovery question"], fingerprint: "D".repeat(64) },
+    { pid: PID, hwnd: HWND + 2, kind: "native-dialog", uiaReadOk: false, msaaReadOk: false,
+      uiaError: "Native modal content was not readable" },
+  ]) {
+    const inventory = { ok: true, count: 2, windows: [startupMain, dialog], dialogs: [dialog] };
+    const { result, calls, clock } = await startupDialogScenario(inventory);
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.failedStep, "dialog_list");
+    assert.equal(result.ready, false); assert.equal(result.blockedByDialog, true);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(result.created, false); assert.equal(result.pid, PID);
+    assert.deepEqual(result.dialogs, inventory.dialogs); assert.deepEqual(result.windows, inventory.windows);
+    assert.equal(result.count, 2, "count includes the main window, not only the modal.");
+    assert.equal(clock, 0, "A confirmed own modal must not consume the remaining startup polling budget.");
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list"]);
+    assert.deepEqual(calls.at(-1).args, { pid: PID }); assert.equal(calls.at(-1).timeoutMs, 5_000);
+    assert.equal(closes(calls).length, 0);
+  }
+  {
+    const dialog = { pid: PID, hwnd: HWND + 3, kind: "qt-dialog", recoveryPrompt: true, requiresCaseBinding: true };
+    const inventory = { ok: true, count: 1, windows: [dialog], dialogs: [dialog] };
+    let reads = 0;
+    const { result, calls, clock } = await startupDialogScenario(
+      () => ++reads === 1 ? emptyStartupDialogs : inventory,
+      [instance({ title: "Steuerprogramm", hwnd: HWND - 1 }), noInstance],
+    );
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.blockedByDialog, true);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, true);
+    assert.deepEqual(result.dialogs, [dialog]); assert.equal(clock, 1_500); assert.equal(reads, 2);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list", "instances", "dialog_list"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  const foreignDialog = { pid: PID + 1, hwnd: HWND + 4, kind: "qt-dialog", recoveryPrompt: true };
+  for (const inventory of [
+    { ok: true, count: 1, windows: [foreignDialog], dialogs: [foreignDialog] },
+    // A modal present in windows must not disappear from the modal payload.
+    { ok: true, count: 1, windows: [{ ...startupMain, kind: "qt-dialog" }], dialogs: [] },
+    { ok: true, count: 0, windows: [], dialogs: [{ ...startupMain, kind: "qt-dialog" }] },
+    { ok: true, count: 1, windows: [], dialogs: [] },
+    { ok: true, count: 0, dialogs: [] },
+    { ok: true, count: 0, windows: [], dialogs: "unreadable" },
+    { ok: true, count: 1, windows: [{ ...startupMain, uiaReadOk: "false" }], dialogs: [] },
+    { ok: true, count: 1, windows: [{ ...startupMain, kind: "other", uiaError: "Synthetic unreadable startup window" }], dialogs: [] },
+    { ok: true, count: 1, windows: [{ ...startupMain, uiaError: "Synthetic unreadable main inventory" }], dialogs: [] },
+    { ...emptyStartupDialogs, outcomeUnknown: true },
+  ]) {
+    const { result, calls, clock } = await startupDialogScenario(inventory);
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.failedStep, "dialog_list");
+    assert.equal(result.blockedByDialog, null, "Incomplete inventory cannot prove dialog absence."); assert.equal(result.ready, false);
+    assert.deepEqual(result.dialogs, inventory.dialogs); assert.deepEqual(result.windows, inventory.windows);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(clock, 0);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  for (const failure of [
+    { ok: false, kind: "timeout", error: "Synthetic startup dialog timeout", outcomeUnknown: false },
+    { ok: false, kind: "uia-root-unavailable", error: "Synthetic poisoned startup read", outcomeUnknown: false },
+  ]) {
+    const { result, calls } = await startupDialogScenario(failure);
+    assert.equal(result.kind, failure.kind); assert.equal(result.error, failure.error);
+    assert.equal(result.failedStep, "dialog_list"); assert.equal(result.processPreserved, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(call => call.operation === "dialog_list").length, 1, "No failed UIA read is retried.");
+  }
+  {
+    const { result, calls } = await startupDialogScenario(() => { throw new Error("Synthetic thrown startup read"); });
+    assert.equal(result.kind, "startup-probe"); assert.equal(result.error, "Synthetic thrown startup read");
+    assert.equal(result.processPreserved, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.failedStep, "dialog_list");
+    assert.equal(closes(calls).length, 0); assert.equal(calls.filter(call => call.operation === "dialog_list").length, 1);
+  }
+  {
+    const { result, calls, clock } = await startupDialogScenario(emptyStartupDialogs);
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.ready, false);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(clock, 61_500, "Empty startup inventories use the existing absolute deadline and reserve.");
+    assert.equal(calls.filter(call => call.operation === "launch").length, 1);
+    assert.equal(calls.filter(call => call.operation === "dialog_list").length, calls.filter(call => call.operation === "instances").length - 1);
+    assert.equal(calls.filter(call => call.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
+  }
+
+  {
+    const controller = new AbortController();
+    let clock = 0, inventories = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm" }),
+      dialog_list: () => emptyStartupDialogs,
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; controller.abort(); },
+    });
+    assert.equal(result.kind, "aborted"); assert.equal(clock, 1500);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(result.created, false);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  {
+    let inventories = 0;
+    // A known-unsent failing read still leaves the launched application uninspected.
+    const failing = scriptedWorker({ instances: () => ++inventories === 1 ? noInstance
+      : { ok: false, kind: "timeout", error: "Synthetic unsent startup inventory", outcomeUnknown: false } });
+    const failed = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: failing.worker, worker: failing.worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(failed.kind, "timeout"); assert.equal(failed.error, "Synthetic unsent startup inventory");
+    assert.equal(failed.processPreserved, true); assert.equal(failed.processStillRunning, null);
+    assert.equal(failed.outcomeUnknown, true); assert.equal(failed.reconciliationRequired, true);
+    assert.equal(failed.retryable, false); assert.equal(closes(failing.calls).length, 0);
+    assert.deepEqual(operationsOf(failing.calls), ["instances", "desktop_status", "launch", "instances"]);
+  }
+  {
+    const controller = new AbortController();
+    let inventories = 0, clock = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm" }),
+      dialog_list: () => { controller.abort(); return emptyStartupDialogs; },
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "aborted"); assert.equal(clock, 0);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(calls.filter(call => call.operation === "launch").length, 1);
+    assert.equal(calls.filter(call => call.operation === "dialog_list").length, 1);
+    assert.equal(closes(calls).length, 0);
+  }
+
   {
     // The generic startup frame can exceed the main-window width threshold
     // before the product replaces it. Never bind UIA to that transient HWND.
@@ -663,6 +823,15 @@ try {
         }
         return instance();
       },
+      dialog_list: (() => {
+        let reads = 0;
+        // The real inventory includes the generic main, but skips its deep
+        // UIA content: both read flags may be false without an error.
+        return () => ++reads <= 2 ? { ok: true, count: 1, windows: [startupMain], dialogs: [] } : {
+          ok: true, count: 1,
+          dialogs: [saveDialog], windows: [saveDialog],
+        };
+      })(),
       ui_state: args => {
         assert.equal(args.hwnd, HWND, "The generic startup frame must never reach UIA.");
         return { ok: true, heading: START_PAGE, blockiert: false, instance: { pid: PID, hwnd: HWND } };
@@ -676,8 +845,8 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(clock, 3_000);
     assert.equal(result.hwnd, HWND);
-    assert.deepEqual(operationsOf(calls).slice(0, 7),
-      ["instances", "desktop_status", "launch", "instances", "instances", "instances", "ui_state"]);
+    assert.deepEqual(operationsOf(calls).slice(0, 9),
+      ["instances", "desktop_status", "launch", "instances", "dialog_list", "instances", "dialog_list", "instances", "ui_state"]);
     assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
     assert.deepEqual(calls.filter(entry => entry.operation === "ui_state").map(entry => entry.args.hwnd), [HWND]);
     assert.equal(closes(calls).length, 0);
@@ -687,6 +856,7 @@ try {
     let inventories = 0, clock = 0;
     const { worker, calls } = scriptedWorker({
       instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm", w: 1500 }),
+      dialog_list: () => emptyStartupDialogs,
     });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
@@ -712,6 +882,7 @@ try {
         inventories++;
         return inventories === 2 ? instance({ title: "Steuerprogramm" }) : noInstance;
       },
+      dialog_list: () => emptyStartupDialogs,
     });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
@@ -934,15 +1105,39 @@ try {
     assert.equal(result.processPreserved, true); assert.equal(result.startupUiaRootFailures, 1);
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
   }
+  for (const spec of [
+    { inventory: emptyStartupDialogs, kind: "startup-binding-changed", blocked: undefined, processStillRunning: null },
+    { inventory: { ok: true, count: 1,
+      dialogs: [{ pid: PID, hwnd: HWND + 7, kind: "qt-dialog", recoveryPrompt: true }],
+      windows: [{ pid: PID, hwnd: HWND + 7, kind: "qt-dialog", recoveryPrompt: true }] },
+      kind: "startup-not-ready", blocked: true, processStillRunning: true },
+  ]) {
+    let counts = 0;
+    const { result, calls } = await rootScenario({
+      instances: () => ++counts === 2 ? instance() : noInstance,
+      ui_state: () => rootFailure(), dialog_list: () => spec.inventory,
+    });
+    assert.equal(result.kind, spec.kind); assert.equal(result.blockedByDialog, spec.blocked);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, spec.processStillRunning);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(result.created, false);
+    assert.equal(result.startupUiaRootFailures, 1);
+    assert.deepEqual(calls.filter(c => c.operation === "dialog_list").map(c => c.args), [{ pid: PID }]);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
+  }
   {
     let counts = 0;
     const { result, calls } = await rootScenario({
       instances: () => ++counts === 1 ? noInstance : instance({hwnd: counts < 3 ? HWND : HWND+1}),
       ui_state: () => rootFailure(),
+      dialog_list: () => emptyStartupDialogs,
     });
     assert.equal(result.kind, "startup-binding-changed");
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
-    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
   }
   {
     const {result, calls} = await rootScenario({ui_state: () => rootFailure({windowSetMainOnly: false,
@@ -960,7 +1155,9 @@ try {
   {
     const { result, calls } = await rootScenario({ui_state: () => ({ok: true, heading: START_PAGE, instance: {pid: PID+1, hwnd: HWND}})});
     assert.equal(result.kind, "startup-binding-changed");
-    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
   }
   {
     let clock = 0;
@@ -972,7 +1169,24 @@ try {
       now: () => clock, wait: async ms => {clock += ms;},
     });
     assert.equal(result.kind, "aborted"); assert.equal(clock, 0); assert.equal(result.startupUiaRootFailures, 1);
-    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
+  }
+  {
+    let clock = 0, reads = 0;
+    const controller = new AbortController();
+    const responses = [() => rootFailure(), () => rootFailure(), () => { controller.abort(); return rootFailure(); }];
+    const { worker, calls } = scriptedWorker({ ui_state: () => responses[reads++]() });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "uia-root-unavailable"); assert.equal(result.attempts, 3);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(reads, 3); assert.equal(closes(calls).length, 0);
   }
   {
     let clock = 0;

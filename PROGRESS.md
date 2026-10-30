@@ -47,6 +47,13 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Die Fallanlage erhält nach ungewissem Ausgang oder fremder Eingabe den
   gestarteten Fall statt ihn automatisch zu verwerfen. Auch eine zusätzliche
   Menübereinigung bleibt dann aus; unbekannte Prozesszustände bleiben unbekannt.
+  Während des Übergangs vom Startfenster zum Produktfenster prüft dieselbe
+  Warteschleife auch eigene Startdialoge. Bestätigte Rückfragen und unvollständige
+  oder fehlgeschlagene Dialoglesungen stoppen den Ablauf mit erhaltenem Prozess.
+  Die API beantwortet keine Startfrage automatisch und erweitert die ursprüngliche
+  Frist nicht. Auch ein bis zum Fristende fehlendes Produktfenster bleibt zur
+  Zustandsklärung erhalten. Dasselbe gilt bei Abbruch vor bestätigter Startseite
+  oder verlorener Fensterbindung nach einem UIA-Lesefehler.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.

@@ -753,14 +753,34 @@ vor einem späteren UIA-Zugriff das aktuelle Fallfenster über `instances` frisc
 
 ## UIA-Startlesefehler bei der Fallanlage
 
-Vor dem ersten UIA-Zugriff wartet `case_create` auf ein eindeutig an die gestartete
-PID gebundenes Fallfenster mit Produktnamen im Titel. Das generische Fenster
+Vor der UIA-Lesung der Assistentenseite wartet `case_create` auf ein eindeutig
+an die gestartete PID gebundenes Fallfenster mit Produktnamen im Titel. Das generische Fenster
 `Steuerprogramm` kann bereits breit sein und trotzdem noch durch eine neue HWND
 ersetzt werden. `case_create` wiederholt die rein lesende Instanzabfrage innerhalb
 des bestehenden Zeitbudgets und wartet auf diesen Übergang. Start und
 Assistentenklicks werden nicht wiederholt. Bleibt der Übergang nach einem
-generischen Fenster unbestätigt, endet der Aufruf mit `startup-not-ready` und
-erhält die gestartete PID samt möglichen Rückfragen zur frischen Prüfung.
+generischen oder fehlenden Fenster unbestätigt, endet der Aufruf mit
+`startup-not-ready` und erhält die gestartete PID samt möglichen Rückfragen
+zur frischen Prüfung.
+
+Solange dieses Produktfenster fehlt, liest dieselbe Warteschleife auch das
+Dialoginventar der gestarteten PID. Jede Dialoglesung hat höchstens fünf
+Sekunden innerhalb der ursprünglichen Gesamtfrist. Ein bestätigter eigener
+Startdialog beendet die Fallanlage sofort mit `startup-not-ready`,
+`blockedByDialog: true` und dem gelesenen Inventar. Das gilt auch für eine
+Wiederherstellungsfrage; die API beantwortet sie nicht automatisch.
+Widersprüchliche, fremde oder unvollständige Inventare und fehlgeschlagene
+Dialoglesungen beenden den Ablauf ebenfalls mit erhaltenem Prozess und
+erforderlichem Zustandsabgleich. Ein ursprünglicher Lesefehler bleibt als
+Ursache bestehen. Ohne aktuellen Lebensnachweis bleibt
+`processStillRunning: null`. Diese Prüfung startet weder SSE noch eine
+Assistentenaktion erneut und verlängert das Zeitbudget nicht.
+Ein Abbruch oder eine fehlgeschlagene Instanzlesung vor bestätigter Startseite
+oder eine verlorene Fensterbindung
+nach einem UIA-Lesefehler erhält den Prozess ebenfalls. Die Dialogprüfung
+geht der Behandlung einer verlorenen Bindung vor. Ist das Inventar
+widersprüchlich, bedeutet `blockedByDialog: null`, dass auch eine Blockade
+noch nicht sicher bestimmt ist; die gelesenen Einträge bleiben erhalten.
 
 Der Standard-Worker kennzeichnet einen fehlgeschlagenen UIA-Wurzelzugriff
 innerhalb einer gebundenen `ui_state`-Lesung als `uia-root-unavailable`.
@@ -1135,7 +1155,8 @@ weil dort die Lesung der Nachweis für das aktive Kennzeichen „Beträge manuel
 erfassen“ ist und eine Zusicherung des Aufrufers keine Prüfung wäre. Ein dort
 trotzdem übergebenes `expectedPage` wird gegen die Lesung gehalten.
 `case_create` komponiert in der API den Startassistenten eines neuen Falls:
-`launch` ohne Datei, `instances`/`ui_state` bis zur Startseite, `subpages` und
+`launch` ohne Datei, `instances` und bei fehlendem Produktfenster `dialog_list`
+der gestarteten PID, anschließend `ui_state` bis zur Startseite, `subpages` und
 `click` bis zur ersten Stammdatenseite, `menu`/`menu_click` „Speichern
 unter…“, `dialog_list` und `file_dialog_select` im Modus `save-new` sowie den
 `instances`-Readback. Vor dem Speichern kann ein gewöhnlicher Fehler die exakt
