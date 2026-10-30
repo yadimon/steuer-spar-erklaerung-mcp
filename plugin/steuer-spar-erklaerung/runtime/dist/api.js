@@ -24268,6 +24268,11 @@ var init_bulk_plan_executor = __esm({
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync7, readFileSync } from "node:fs";
 import { basename as basename3 } from "node:path";
+function mustPreserveFailedCase(error62) {
+  if (!(error62 instanceof StepFailure)) return true;
+  const result = error62.result;
+  return result.processPreserved === true || result.outcomeUnknown === true || result.reconciliationRequired === true || result.kind === "interference";
+}
 async function cleanupStartedProcess(worker, pid2) {
   let cleanup = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
   const errors = [];
@@ -24317,6 +24322,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   let uiaRootFailures = 0;
   let uiaRootPinnedHwnd;
   let lastUiaRootFailure;
+  let activeStep;
   const rootDiagnostics = () => uiaRootFailures > 0 ? {
     startupUiaRootFailures: uiaRootFailures,
     lastUiaRootFailure
@@ -24330,8 +24336,17 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     steps.push(operation);
     if (operation === "launch") launchDispatched = true;
+    activeStep = operation;
     const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
-    if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
+    activeStep = void 0;
+    if (result.ok !== true) {
+      const uncertain = pid2 > 0 && result.outcomeUnknown !== false && UNCERTAIN_EXECUTION_KINDS.has(String(result.kind));
+      throw new StepFailure({
+        ...result,
+        failedStep: operation,
+        ...uncertain ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}
+      });
+    }
     return result;
   };
   const wait = dependencies.wait ?? ((ms) => new Promise((resolve17) => setTimeout(resolve17, ms)));
@@ -24511,7 +24526,25 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         await wait(100);
       }
     } catch (error62) {
-      await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => void 0);
+      if (!mustPreserveFailedCase(error62)) {
+        try {
+          const closed = await step("menu_close", { hwnd }, MIN_STEP_MS * 5);
+          if (mustPreserveFailedCase(new StepFailure(closed))) throw new StepFailure(closed);
+        } catch (cleanupError) {
+          const primary = error62 instanceof StepFailure ? error62.result : operationError(error62 instanceof Error ? error62.message : String(error62), "case-create");
+          const cleanup = cleanupError instanceof StepFailure ? cleanupError.result : operationError(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "menu-cleanup");
+          const cleanupUnknown = cleanup.outcomeUnknown === true || !(cleanupError instanceof StepFailure) && activeStep !== void 0;
+          throw new StepFailure({
+            ...primary,
+            cleanup: { ...cleanup, operation: "menu_close" },
+            cleanupError: String(cleanup.error ?? "Die Menuebereinigung wurde nicht bestaetigt."),
+            ...cleanupUnknown ? { outcomeUnknown: true } : {},
+            processPreserved: true,
+            reconciliationRequired: true,
+            retryable: false
+          });
+        }
+      }
       throw error62;
     }
     const saved = await step("file_dialog_select", {
@@ -24572,6 +24605,19 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         retryable: false
       };
     }
+    if (pid2 > 0 && mustPreserveFailedCase(error62)) {
+      failure7 = {
+        ...failure7,
+        ...!(error62 instanceof StepFailure) ? {
+          ...activeStep !== void 0 ? { outcomeUnknown: true } : {},
+          failedStep: failure7.failedStep ?? activeStep ?? "case-create"
+        } : {},
+        processPreserved: true,
+        processStillRunning: typeof failure7.processStillRunning === "boolean" ? failure7.processStillRunning : null,
+        reconciliationRequired: true,
+        retryable: false
+      };
+    }
     const created = target !== void 0 && existsSync7(target.path);
     if (pid2 > 0 && !created && failure7.processPreserved !== true) {
       const cleanupState = await cleanupStartedProcess(dependencies.worker, pid2);
@@ -24586,7 +24632,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     };
   }
 }
-var CASE_CREATE_WIZARDS, MIN_STEP_MS, MIN_LAUNCH_MS, WIZARD_RESERVE_MS, START_PAGE_POLL_MS, EFFECTS, StepFailure, fail;
+var CASE_CREATE_WIZARDS, MIN_STEP_MS, MIN_LAUNCH_MS, WIZARD_RESERVE_MS, START_PAGE_POLL_MS, UNCERTAIN_EXECUTION_KINDS, EFFECTS, StepFailure, fail;
 var init_case_create_executor = __esm({
   "src/case-create-executor.ts"() {
     "use strict";
@@ -24610,6 +24656,17 @@ var init_case_create_executor = __esm({
     MIN_LAUNCH_MS = 3e4;
     WIZARD_RESERVE_MS = 6e4;
     START_PAGE_POLL_MS = 1500;
+    UNCERTAIN_EXECUTION_KINDS = /* @__PURE__ */ new Set([
+      "timeout",
+      "aborted",
+      "parse",
+      "empty",
+      "output-too-large",
+      "worker",
+      "worker-isolation-lost",
+      "worker-transport-cleanup",
+      "spawn"
+    ]);
     EFFECTS = Object.freeze({ taxDataChanged: false, savePerformed: true, submissionPerformed: false });
     StepFailure = class extends Error {
       constructor(result) {

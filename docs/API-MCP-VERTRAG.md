@@ -1098,9 +1098,18 @@ trotzdem übergebenes `expectedPage` wird gegen die Lesung gehalten.
 `launch` ohne Datei, `instances`/`ui_state` bis zur Startseite, `subpages` und
 `click` bis zur ersten Stammdatenseite, `menu`/`menu_click` „Speichern
 unter…“, `dialog_list` und `file_dialog_select` im Modus `save-new` sowie den
-`instances`-Readback. Vor dem Speichern beendet jeder Fehler die exakt
-gestartete PID ohne Speichern; nach dem Speichern wird nie gelöscht. Die
-Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,
+`instances`-Readback. Vor dem Speichern kann ein gewöhnlicher Fehler die exakt
+gestartete PID ohne Speichern beenden. Unbekannte Ausgänge, erforderlicher
+Zustandsabgleich und fremde Eingaben erhalten den gestarteten Fall dagegen:
+`processPreserved=true`, `reconciliationRequired=true` und `retryable=false`.
+Das gilt auch für unerwartete Ausnahmen nach dem gebundenen Start. Ohne einen
+aktuellen Nachweis bleibt `processStillRunning=null`; ein früherer Start
+beweist keine spätere Erreichbarkeit. Auch eine Menübereinigung sendet nach
+einem solchen Fehler keine weitere Eingabe. Nach dem Speichern wird nie gelöscht.
+Eine zulässige Menübereinigung hält dasselbe Zeitbudget und Abbruchsignal ein.
+Bleibt ihr Ergebnis unbestätigt, wird der Fall ebenfalls erhalten; der
+ursprüngliche Fehler bleibt bestehen und `cleanup` beschreibt die Menübereinigung.
+Die Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,
 ein neues Ziel mit modusgerechter Endung und ist auf live verifizierte
 Startmodi begrenzt. Kann der Worker nach dem Speichern keinen Dateihash
 liefern, weil der Prozess ohne Datei gestartet wurde und der Titel gekürzt ist,

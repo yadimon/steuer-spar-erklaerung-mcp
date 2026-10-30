@@ -44,6 +44,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Speichern und die Änderungsprüfung vor dem Schließen binden die eindeutige
   Hauptsymbolleisten-ID auch ohne zugänglichen Schalternamen. Fehlende oder
   unlesbare Zustände bestätigen weder einen sauberen Fall noch einen Abschluss.
+  Die Fallanlage erhält nach ungewissem Ausgang oder fremder Eingabe den
+  gestarteten Fall statt ihn automatisch zu verwerfen. Auch eine zusätzliche
+  Menübereinigung bleibt dann aus; unbekannte Prozesszustände bleiben unbekannt.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.

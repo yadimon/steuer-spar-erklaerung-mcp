@@ -6,8 +6,9 @@
  * verifizierte Operationen ueber den verschachtelten API-Executor. Jeder
  * Schritt hat eine harte Vor- und Nachbedingung; scheitert ein Schritt vor
  * dem Speichern, wird die exakt gestartete PID ohne Speichern beendet, sofern
- * der Start keinen ungeprueften Dialog-/Wiederherstellungszustand erhalten
- * muss. Nach dem Speichern wird die neue Datei niemals wieder geloescht.
+ * kein ungewisser Ausgang, fremder Eingabekontext oder ungepruefter
+ * Dialog-/Wiederherstellungszustand erhalten bleiben muss. Nach dem Speichern
+ * wird die neue Datei niemals wieder geloescht.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -73,6 +74,12 @@ const MIN_STEP_MS = 2_000;
 const MIN_LAUNCH_MS = 30_000;
 const WIZARD_RESERVE_MS = 60_000;
 const START_PAGE_POLL_MS = 1_500;
+// Der verschachtelte Executor normalisiert Worker-Ausnahmen zu Ergebnissen.
+// Diese Transportfehler beweisen ohne ausdrueckliches false keinen Nichtversand.
+const UNCERTAIN_EXECUTION_KINDS = new Set([
+  "timeout", "aborted", "parse", "empty", "output-too-large", "worker",
+  "worker-isolation-lost", "worker-transport-cleanup", "spawn",
+]);
 
 const EFFECTS = Object.freeze({ taxDataChanged: false, savePerformed: true, submissionPerformed: false });
 
@@ -80,6 +87,13 @@ class StepFailure extends Error {
   constructor(readonly result: WorkerResult) {
     super(String(result.error ?? result.kind ?? "Schritt scheiterte."));
   }
+}
+
+function mustPreserveFailedCase(error: unknown): boolean {
+  if (!(error instanceof StepFailure)) return true;
+  const result = error.result;
+  return result.processPreserved === true || result.outcomeUnknown === true
+    || result.reconciliationRequired === true || result.kind === "interference";
 }
 
 const fail = (kind: string, error: string): never => {
@@ -152,6 +166,7 @@ export async function executeCaseCreate(
   let uiaRootFailures = 0;
   let uiaRootPinnedHwnd: number | undefined;
   let lastUiaRootFailure: Record<string, unknown> | undefined;
+  let activeStep: SseApiOperation | undefined;
   const rootDiagnostics = () => uiaRootFailures > 0 ? { startupUiaRootFailures: uiaRootFailures,
     lastUiaRootFailure } : {};
 
@@ -165,8 +180,15 @@ export async function executeCaseCreate(
     }
     steps.push(operation);
     if (operation === "launch") launchDispatched = true;
+    activeStep = operation;
     const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
-    if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
+    activeStep = undefined;
+    if (result.ok !== true) {
+      const uncertain = pid > 0 && result.outcomeUnknown !== false
+        && UNCERTAIN_EXECUTION_KINDS.has(String(result.kind));
+      throw new StepFailure({ ...result, failedStep: operation,
+        ...(uncertain ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}) });
+    }
     return result;
   };
   const wait = dependencies.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -326,8 +348,24 @@ export async function executeCaseCreate(
         await wait(100);
       }
     } catch (error) {
-      // Ein offen gebliebenes Menue darf das Cleanup nicht blockieren.
-      await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => undefined);
+      // Nach unbekannter Aktion oder fremder Eingabe beginnt auch keine
+      // vermeintlich harmlose Menuebereinigung mit einer neuen Eingabe.
+      if (!mustPreserveFailedCase(error)) {
+        try {
+          const closed = await step("menu_close", { hwnd }, MIN_STEP_MS * 5);
+          if (mustPreserveFailedCase(new StepFailure(closed))) throw new StepFailure(closed);
+        } catch (cleanupError) {
+          const primary = error instanceof StepFailure ? error.result
+            : operationError(error instanceof Error ? error.message : String(error), "case-create");
+          const cleanup = cleanupError instanceof StepFailure ? cleanupError.result
+            : operationError(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "menu-cleanup");
+          const cleanupUnknown = cleanup.outcomeUnknown === true || (!(cleanupError instanceof StepFailure) && activeStep !== undefined);
+          throw new StepFailure({ ...primary, cleanup: { ...cleanup, operation: "menu_close" },
+            cleanupError: String(cleanup.error ?? "Die Menuebereinigung wurde nicht bestaetigt."),
+            ...(cleanupUnknown ? { outcomeUnknown: true } : {}),
+            processPreserved: true, reconciliationRequired: true, retryable: false });
+        }
+      }
       throw error;
     }
 
@@ -375,6 +413,16 @@ export async function executeCaseCreate(
     if (launchDispatched && pid <= 0 && !(failure.mutationStarted === false && failure.resultingState === "unchanged")) {
       failure = { ...failure, failedStep: failure.failedStep ?? "launch", processPreserved: true, processStillRunning: failure.processStillRunning ?? null,
         outcomeUnknown: true, reconciliationRequired: true, retryable: false };
+    }
+    if (pid > 0 && mustPreserveFailedCase(error)) {
+      failure = { ...failure,
+        ...(!(error instanceof StepFailure) ? {
+          ...(activeStep !== undefined ? { outcomeUnknown: true } : {}),
+          failedStep: failure.failedStep ?? activeStep ?? "case-create",
+        } : {}),
+        processPreserved: true,
+        processStillRunning: typeof failure.processStillRunning === "boolean" ? failure.processStillRunning : null,
+        reconciliationRequired: true, retryable: false };
     }
     const created = target !== undefined && existsSync(target.path);
     if (pid > 0 && !created && failure.processPreserved !== true) {

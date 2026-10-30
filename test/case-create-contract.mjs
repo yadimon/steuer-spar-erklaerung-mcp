@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { executeCaseCreate } from "../dist/case-create-executor.js";
+import { WorkerError } from "../dist/worker.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-case-create-"));
 const caseDir = join(temporary, "cases");
@@ -104,6 +105,174 @@ const closes = (calls) => calls.filter((entry) => entry.operation === "close");
 const resetTarget = () => rmSync(targetPath, { force: true });
 
 try {
+  for (const failure of [
+    { outcomeUnknown: true, inputDispatched: true },
+    { outcomeUnknown: true, inputDispatched: null },
+    { outcomeUnknown: false, reconciliationRequired: true, inputDispatched: false },
+    { outcomeUnknown: true, reconciliationRequired: true, processStillRunning: false },
+    { processPreserved: true },
+    { kind: "interference", inputDispatched: false, outcomeUnknown: false, reconciliationRequired: false },
+  ]) {
+    const clickBinding = { x: 30, y: 30, clickCount: 1 };
+    const { worker, calls } = scriptedWorker({ click: () => ({
+      ok: false, kind: "navigation-blocked", error: "Synthetic first click failed.", clickBinding, ...failure,
+    }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, failure.kind ?? "navigation-blocked");
+    assert.equal(result.error, "Synthetic first click failed.");
+    assert.equal(result.outcomeUnknown, failure.outcomeUnknown);
+    assert.equal(result.inputDispatched, failure.inputDispatched);
+    assert.deepEqual(result.clickBinding, clickBinding);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, failure.processStillRunning ?? null);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(result.failedStep, "click");
+    assert.equal(result.pid, PID);
+    assert.equal(result.created, false);
+    assert.deepEqual(operationsOf(calls), [
+      "instances", "desktop_status", "launch", "launch_probe", "instances", "ui_state", "subpages", "click",
+    ], "Ein ungewisser oder fremd beeinflusster Fall darf weder weiter bedient noch automatisch verworfen werden.");
+  }
+  for (const failure of [
+    { kind: "precondition-failed", inputDispatched: false, outcomeUnknown: false, reconciliationRequired: false },
+    { kind: "timeout", inputDispatched: false, outcomeUnknown: false, reconciliationRequired: false },
+  ]) {
+    const { worker, calls } = scriptedWorker({ click: () => ({
+      ok: false, error: "Synthetic known-unsent failure.", ...failure,
+    }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, failure.kind);
+    assert.equal(result.outcomeUnknown, false);
+    assert.equal(result.reconciliationRequired, false);
+    assert.deepEqual(operationsOf(calls).slice(-2), ["close", "product_info"]);
+    assert.deepEqual(closes(calls).map(entry => entry.args), [{ pid: PID, force: true, discardChanges: true }]);
+  }
+  {
+    const { worker, calls } = scriptedWorker({ click: () => { throw new Error("Synthetic click response lost."); } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.error, "Synthetic click response lost.");
+    assert.equal(result.failedStep, "click");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "product_info").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 1);
+  }
+  for (const kind of ["timeout", "aborted", "parse", "empty", "output-too-large", "worker", "worker-isolation-lost", "worker-transport-cleanup", "spawn"]) {
+    const { worker, calls } = scriptedWorker({ click: () => {
+      throw new WorkerError("Synthetic worker response lost through the API executor.", kind);
+    } });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, kind);
+    assert.equal(result.error, "Synthetic worker response lost through the API executor.");
+    assert.equal(result.failedStep, "click");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "product_info").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 1);
+  }
+  for (const [operation, failure] of ["menu_click", "dialog_list"].flatMap(operation => [
+    [operation, { kind: "interference", outcomeUnknown: false, reconciliationRequired: false }],
+    [operation, { kind: "precondition-failed", outcomeUnknown: true }],
+    [operation, { kind: "precondition-failed", outcomeUnknown: false, reconciliationRequired: true }],
+  ])) {
+    const { worker, calls } = scriptedWorker({ [operation]: () => ({
+      ok: false, error: "Synthetic save-dialog ownership lost.", ...failure,
+    }) });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.error, "Synthetic save-dialog ownership lost.");
+    assert.equal(result.failedStep, operation);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.outcomeUnknown, failure.outcomeUnknown);
+    assert.equal(operationsOf(calls).at(-1), operation);
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const operation of ["menu_click", "dialog_list"]) {
+    const { worker, calls } = scriptedWorker({ [operation]: () => { throw new Error("Synthetic save-dialog response lost."); } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.failedStep, operation);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.processPreserved, true);
+    assert.equal(operationsOf(calls).at(-1), operation);
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  {
+    const { worker, calls } = scriptedWorker({ ui_state: () => ({
+      ok: true, running: true, heading: "", blockiert: false, instance: { pid: PID, hwnd: HWND },
+    }) });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      wait: async () => { throw new Error("Synthetic wait failed outside a step."); },
+    });
+    assert.equal(result.failedStep, "case-create", "Ein Fehler ausserhalb eines Aufrufs darf keinen erfolgreichen Schritt beschuldigen.");
+    assert.equal(result.outcomeUnknown, undefined, "Ohne laufenden Aufruf darf kein verlorener Eingabeausgang erfunden werden.");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(closes(calls).length, 0);
+  }
+  for (const { stop, expectedKind } of [
+    { stop: (controller, clock) => controller.abort(), expectedKind: "aborted" },
+    { stop: (controller, clock) => { clock.value = 239_000; }, expectedKind: "timeout" },
+  ]) {
+    const controller = new AbortController(); const clock = { value: 0 };
+    const { worker, calls } = scriptedWorker({ menu_click: () => { stop(controller, clock); return { ok: true }; } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock.value,
+    });
+    assert.equal(result.kind, expectedKind);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.cleanup.operation, "menu_close");
+    assert.equal(result.cleanup.kind, expectedKind);
+    assert.equal(operationsOf(calls).at(-1), "menu_click");
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const menuClose of [
+    () => ({ ok: false, kind: "interference", error: "Synthetic menu cleanup interference.", outcomeUnknown: true }),
+    () => ({ ok: false, kind: "precondition-failed", error: "Synthetic menu remains open." }),
+    () => ({ ok: true, outcomeUnknown: true }),
+    () => { throw new Error("Synthetic menu cleanup response lost."); },
+  ]) {
+    let clock = 0;
+    const { worker, calls } = scriptedWorker({
+      dialog_list: () => ({ ok: true, count: 0, dialogs: [], windows: [] }), menu_close: menuClose,
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "save-dialog", "Ein Bereinigungsfehler darf den primaeren Fehler nicht ersetzen.");
+    assert.match(result.error, /nativen Dialog/u);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(result.cleanup.operation, "menu_close");
+    assert.equal(calls.filter(entry => entry.operation === "menu_close").length, 1);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "product_info").length, 0);
+  }
   {
     // 1 Erfolg: exakte Schrittfolge, Bindung, Redaktion, kein Cleanup.
     const { worker, calls } = scriptedWorker();
@@ -582,12 +751,12 @@ try {
     resetTarget();
   }
 
-  for (const failure of [
-    { backend: "qt", kind: "no-window", outcomeUnknown: true },
-    { backend: "qt", kind: "no-window" },
-    { kind: "no-window", outcomeUnknown: false },
-    { backend: "qt", kind: "ambiguous", outcomeUnknown: false },
-    { backend: "qt", kind: "native-binding", outcomeUnknown: false },
+  for (const [failure, expectedCloses] of [
+    [{ backend: "qt", kind: "no-window", outcomeUnknown: true }, 0],
+    [{ backend: "qt", kind: "no-window" }, 1],
+    [{ kind: "no-window", outcomeUnknown: false }, 1],
+    [{ backend: "qt", kind: "ambiguous", outcomeUnknown: false }, 1],
+    [{ backend: "qt", kind: "native-binding", outcomeUnknown: false }, 1],
   ]) {
     const { worker, calls } = scriptedWorker({ ui_state: () => ({ ok: false, ...failure, error: "Terminal binding failure" }) });
     let clock = 0;
@@ -601,7 +770,7 @@ try {
     assert.equal(calls.filter(entry => entry.operation === "ui_state").length, 1);
     assert.equal(calls.filter(entry => entry.operation === "click").length, 0);
     assert.equal(clock, 0);
-    assert.equal(closes(calls).length, 1);
+    assert.equal(closes(calls).length, expectedCloses);
   }
 
   {
@@ -742,13 +911,21 @@ try {
     {kind: "worker-init"}, {operation: "subpages"}, {phase: "dispatch"}, {phase: undefined}, {backend: "qt"},
     {windowAlive: false}, {windowAlive: undefined}, {windowSetMainOnly: false}, {windowSetMainOnly: undefined},
     {windowStateChanged: true}, {windowStateChanged: undefined},
-    {mutationStarted: true}, {mutationStarted: undefined}, {outcomeUnknown: true}, {outcomeUnknown: undefined},
+    {mutationStarted: true}, {mutationStarted: undefined}, {outcomeUnknown: undefined},
     {pid: PID+1}, {hwnd: HWND+1},
   ]) {
     const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure(extra)});
     assert.equal(result.ok, false); assert.equal(result.created, false);
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(clock, 0);
     assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+  }
+  {
+    const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure({outcomeUnknown: true})});
+    assert.equal(result.ok, false); assert.equal(result.created, false);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null); assert.equal(result.reconciliationRequired, true);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(clock, 0);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
   }
   for (const extra of [{recoveredState: true}, {hung: true}]) {
     let counts = 0;
