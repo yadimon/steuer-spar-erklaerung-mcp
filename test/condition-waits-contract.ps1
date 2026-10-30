@@ -348,10 +348,26 @@ foreach ($failure in @('none','combo-hidden','combo-unknown','combo-stale','coll
 }
 $clickDefinition = @($ast.FindAll({ param($node)
   $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Click-VerifiedPoint'
-}, $true))[0].Extent.Text
-$checkOffset = $clickDefinition.IndexOf('if ($BeforeClickCheck -and')
-Assert-True ($checkOffset -gt $clickDefinition.IndexOf('Set-SSECursorPoint $px $py') -and
-  $checkOffset -lt $clickDefinition.IndexOf('[SW]::mouse_event(0x0002')) 'Die Popup-Bindung wird nicht unmittelbar vor dem ersten mouse-down geprueft.'
+}, $true))[0]
+$pointSetters = @($clickDefinition.Body.FindAll({ param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Set-SSECursorPoint'
+}, $true))
+$pointChecks = @($clickDefinition.Body.FindAll({ param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and
+    $node.CommandElements[0].Extent.Text -ceq '$BeforeClickCheck'
+}, $true))
+$mouseDown = @($clickDefinition.Body.FindAll({ param($node)
+  $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $node.Expression.Extent.Text -ceq '[SW]' -and $node.Member.Value -ceq 'mouse_event' -and
+    $node.Arguments[0].Extent.Text -ceq '0x0002'
+}, $true))
+Assert-True ($pointSetters.Count -eq 1 -and $pointChecks.Count -ge 1 -and $mouseDown.Count -eq 1) `
+  'Cursorbindung, echte Popup-Callbackaufrufe oder erster mouse-down fehlen oder sind mehrdeutig.'
+foreach ($pointCheck in $pointChecks) {
+  Assert-True ($pointCheck.Extent.StartOffset -gt $pointSetters[0].Extent.EndOffset -and
+    $pointCheck.Extent.EndOffset -lt $mouseDown[0].Extent.StartOffset) `
+    'Die Popup-Bindung wird nicht unmittelbar vor dem ersten mouse-down geprueft.'
+}
 Write-Output 'Combo-Punkt: frische Identitaet, sichtbares Popup und gebundene Geometrie vor mouse-down - bestanden'
 
 $popupRootDefinition = @($ast.FindAll({ param($node)

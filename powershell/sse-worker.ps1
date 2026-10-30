@@ -3582,6 +3582,271 @@ function Set-SSECursorPoint([int]$X, [int]$Y, [scriptblock]$OnFailure = $null) {
   }
   Assert-SSECursorPoint $X $Y -OnFailure $OnFailure
 }
+function Get-SSEWizardWindowGeometry([IntPtr]$Window) {
+  [uint32]$processId = 0
+  [SW]::GetWindowThreadProcessId($Window, [ref]$processId) | Out-Null
+  if ($processId -le 0 -or [SW]::GetAncestor($Window, 2) -ne $Window) { throw 'Wizard-Hauptfenster ist nicht gebunden.' }
+  $start = [string](Get-SSETablePreparationProcessEpoch ([int]$processId))
+  if (-not $start) { throw 'Prozessgeneration des Wizardfensters ist nicht lesbar.' }
+  $thread = [SW]::GetCurrentThreadId()
+  $previous = [SW]::EnterPhysicalDpiContext()
+  if ($previous -eq [IntPtr]::Zero) { throw 'Physischer DPI-Kontext ist fuer die Wizardgeometrie nicht verfuegbar.' }
+  try {
+    $rect = New-Object SW+RC
+    $placement = New-Object SW+WP
+    $placement.length = [uint32][Runtime.InteropServices.Marshal]::SizeOf($placement)
+    $dpi = [int][SW]::GetDpiForWindow($Window)
+    $monitor = @([SW]::GetMonitorWorkArea($Window))
+    if (-not [SW]::GetWindowRect($Window, [ref]$rect) -or
+        -not [SW]::GetWindowPlacement($Window, [ref]$placement) -or $dpi -le 0 -or
+        $rect.R -le $rect.L -or $rect.B -le $rect.T -or $monitor.Count -ne 5) {
+      throw 'Physischer Wizardrahmen, DPI, Fensterzustand oder Monitorbereich ist unlesbar.'
+    }
+    $geometry = [pscustomobject]@{ pid=[int]$processId; start=$start; rect=$rect; dpi=$dpi
+      showCmd=[int]$placement.showCmd; monitor=[long]$monitor[0]
+      work=[pscustomobject]@{ L=[int]$monitor[1]; T=[int]$monitor[2]; R=[int]$monitor[3]; B=[int]$monitor[4] } }
+  } finally {
+    if ([SW]::GetCurrentThreadId() -ne $thread -or -not [SW]::RestoreDpiContext($previous)) {
+      $failure = [InvalidOperationException]::new('Der urspruengliche DPI-Kontext der Wizardpruefung ist nicht bestaetigt.')
+      $failure.Data['dpiContextUnconfirmed'] = $true
+      throw $failure
+    }
+  }
+  [uint32]$freshPid = 0
+  [SW]::GetWindowThreadProcessId($Window, [ref]$freshPid) | Out-Null
+  if ($freshPid -ne $processId -or [string](Get-SSETablePreparationProcessEpoch ([int]$freshPid)) -cne $start) {
+    throw 'Die Prozessgeneration des Wizardfensters hat sich geaendert.'
+  }
+  $geometry
+}
+
+function Test-SSEWizardWindowGeometryEqual($Left, $Right) {
+  if (-not $Left -or -not $Right) { return $false }
+  foreach ($key in @('pid','start','dpi','showCmd','monitor')) {
+    if ($Left.$key -cne $Right.$key) { return $false }
+  }
+  foreach ($part in @('rect','work')) {
+    foreach ($key in @('L','T','R','B')) {
+      if ($Left.$part.$key -ne $Right.$part.$key) { return $false }
+    }
+  }
+  return $true
+}
+
+function Get-SSEWizardNavigationFrame([IntPtr]$Window, $Node, [switch]$AllowPositionChange) {
+  # Link und direkter Web-Viewport werden ueber dieselbe eigene UIA-Kette
+  # gebunden. Die rohe Geometrie bleibt unveraendert; es gibt keinen Ersatzpunkt.
+  $guideAid = "SSE_Application.AAV4GLEngineWindow$($script:SSE_ENGINE_MAJOR).centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.GuideViewer"
+  $Element = Get-LiveElement $Window ([string]$Node.rid) ([string]$Node.aid)
+  $fresh = Convert-ExactElementToNode $Element
+  if (-not $fresh -or -not $Node.rid -or
+      $fresh.type -cne 'Hyperlink' -or $fresh.name -cne 'Jetzt beginnen' -or
+      -not ([string]$fresh.aid).StartsWith($guideAid + '.QObject.', [StringComparison]::Ordinal)) {
+    throw 'Der erste Wizardlink besitzt keine eindeutige GuideViewer-Bindung.'
+  }
+  foreach ($key in @('rid','aid','name','type','x','y','w','h','on')) {
+    if ($AllowPositionChange -and $key -in @('x','y')) { continue }
+    if ($fresh.$key -cne $Node.$key) { throw 'Der erste Wizardlink wurde vor der Punktbindung ersetzt oder verschoben.' }
+  }
+  $ancestry = Get-SSEUiaOwnRootAncestry $Window $Element
+  if (-not $ancestry.bound -or -not $ancestry.complete) {
+    throw 'Die vollstaendige Wizard-Viewport-Bindung ist nicht nachgewiesen.'
+  }
+  $documents = @($ancestry.nodes | Where-Object type -CEQ 'Document')
+  if ($documents.Count -ne 1 -or $documents[0].aid -cne ($guideAid + '.QObject')) {
+    throw 'Das Wizard-Document ist nicht eindeutig lesbar.'
+  }
+  $parent = @($ancestry.nodes | Where-Object depth -EQ ($documents[0].depth + 1))
+  if ($parent.Count -ne 1 -or $parent[0].type -cne 'Group' -or $parent[0].aid -cne $guideAid) {
+    throw 'Das Wizard-Document besitzt keinen direkt gebundenen GuideViewer-Viewport.'
+  }
+  $document = Convert-ExactElementToNode (Get-LiveElement $Window $documents[0].rid $documents[0].aid)
+  $guide = Convert-ExactElementToNode (Get-LiveElement $Window $parent[0].rid $parent[0].aid)
+  if (-not $document -or $document.type -cne 'Document' -or $document.rid -cne $documents[0].rid -or
+      $document.aid -cne $documents[0].aid -or -not $guide -or $guide.type -cne 'Group' -or
+      $guide.rid -cne $parent[0].rid -or $guide.aid -cne $parent[0].aid) {
+    throw 'Document oder Viewport wurden nach der Vorfahrenpruefung ersetzt.'
+  }
+  $geometry = Get-SSEWizardWindowGeometry $Window
+  if ($geometry.pid -ne $ancestry.nodes[-1].processId) { throw 'Die UIA- und native Wizard-Prozessbindung widersprechen sich.' }
+  $windowRect = $geometry.rect
+  foreach ($area in @($fresh,$document,$guide)) {
+    if (-not $area -or -not $area.on -or $area.w -le 0 -or $area.h -le 0) { throw 'Die Wizard-Punktbindung hat keine aktive sichtbare Flaeche.' }
+  }
+  if ($guide.x -lt $windowRect.L -or $guide.y -lt $windowRect.T -or
+      ($guide.x + $guide.w) -gt $windowRect.R -or ($guide.y + $guide.h) -gt $windowRect.B -or
+      $fresh.x -lt $document.x -or $fresh.y -lt $document.y -or
+      ($fresh.x + $fresh.w) -gt ($document.x + $document.w) -or
+      ($fresh.y + $fresh.h) -gt ($document.y + $document.h)) {
+    throw 'Wizardlink oder Viewport liegen ausserhalb ihrer gebundenen Flaeche.'
+  }
+  $coherent = [bool]($document.x -ge $guide.x -and $document.y -ge $guide.y -and
+      ($document.x + $document.w) -le ($guide.x + $guide.w) -and
+      ($document.y + $document.h) -le ($guide.y + $guide.h))
+  if (-not $coherent -and ($document.x -le $guide.x -or $document.y -ne $guide.y -or
+      $document.w -ne $guide.w -or $document.h -ne $guide.h)) {
+    throw 'Der Wizard meldet einen unbekannten Document-Ueberlauf.'
+  }
+  [pscustomobject]@{ target=$fresh; document=$document; guide=$guide; geometry=$geometry
+    rootRid=[string]$ancestry.nodes[-1].rid; coherent=$coherent
+    heading=(Get-CurrentHeading $Window $null -CompactFallback) }
+}
+
+function Set-SSEWizardWindowPosition([IntPtr]$Window, $Expected, [int]$X, [int]$Y, $InputTick) {
+  $attempted = $false
+  $thread = [SW]::GetCurrentThreadId()
+  $previous = [IntPtr]::Zero
+  try {
+    $previous = [SW]::EnterPhysicalDpiContext()
+    if ($previous -eq [IntPtr]::Zero) { throw 'Physischer DPI-Kontext fuer die Wizardbewegung fehlt.' }
+    # Noch innerhalb desselben physischen Kontexts direkt vor dem Schreibaufruf
+    # erneut lesen. Die originale Eingabemarke wird nicht neu gesetzt.
+    $current = Get-SSEWizardWindowGeometry $Window
+    if (-not (Test-SSEWizardWindowGeometryEqual $current $Expected) -or
+        -not (Test-SSELastInputUnchanged $InputTick) -or [SW]::GetForegroundWindow() -ne $Window) {
+      throw 'Fenster-, Prozess- oder Eingabebindung vor der Wizardbewegung verloren.'
+    }
+    $width = $current.rect.R - $current.rect.L; $height = $current.rect.B - $current.rect.T
+    if ($current.showCmd -ne 1 -or $X -lt $current.work.L -or $Y -lt $current.work.T -or
+        ($X + $width) -gt $current.work.R -or ($Y + $height) -gt $current.work.B) {
+      throw 'Wizardbewegung braucht ein normales Fenster innerhalb desselben Monitor-Arbeitsbereichs.'
+    }
+    $attempted = $true
+    if (-not [SW]::SetWindowPos($Window, [IntPtr]::Zero, $X, $Y, 0, 0, 0x0215)) {
+      throw 'Wizardbewegung wurde nicht bestaetigt; kein erneuter Bewegungsversuch.'
+    }
+  } catch {
+    $_.Exception.Data['windowMutationAttempted'] = [bool]$attempted
+    throw
+  } finally {
+    if ($previous -ne [IntPtr]::Zero -and
+        ([SW]::GetCurrentThreadId() -ne $thread -or -not [SW]::RestoreDpiContext($previous))) {
+      $failure = [InvalidOperationException]::new('DPI-Kontext nach Wizardbewegung ist nicht bestaetigt.')
+      $failure.Data['dpiContextUnconfirmed'] = $true
+      $failure.Data['windowMutationAttempted'] = [bool]$attempted
+      throw $failure
+    }
+  }
+}
+
+function Sync-SSEWizardNavigationFrame([IntPtr]$Window, $Node, $InputTick, [string]$Heading) {
+  $moveAttempted = $false; $restoreAttempted = $false; $initial = $null; $moved = $null
+  $windowRestored = $true
+  $assertContext = {
+    if ($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick) -or
+        [SW]::GetForegroundWindow() -ne $Window) { throw 'Wizard-Aktualisierung verlor ihre Eingabe- oder Vordergrundbindung.' }
+  }
+  try {
+    & $assertContext
+    $initial = Get-SSEWizardNavigationFrame $Window $Node -AllowPositionChange
+    if ($initial.heading -cne $Heading) { throw 'Die Wizardseite wurde vor der Aktualisierung ersetzt.' }
+    if ($initial.coherent) {
+      $initial | Add-Member -NotePropertyName windowWriteAttempted -NotePropertyValue $false
+      return $initial
+    }
+    $g = $initial.geometry
+    if ($g.showCmd -ne 1 -or $g.rect.L -lt $g.work.L -or $g.rect.T -lt $g.work.T -or
+        $g.rect.R -gt $g.work.R -or $g.rect.B -gt $g.work.B) {
+      throw 'Veraltete Wizardgeometrie kann nur im normalen, vollstaendig im Monitor-Arbeitsbereich liegenden Fenster aktualisiert werden.'
+    }
+    # Mindestens zwei logische Pixel vermeiden einen nativen Rundungs-No-op.
+    # Dies ist eine Fensteraktualisierung, keine Korrektur der Klickkoordinaten.
+    $shift = [int]([Math]::Ceiling($g.dpi / 96.0) * 2)
+    if (($g.rect.R + $shift) -gt $g.work.R) { $shift = -$shift }
+    if (($g.rect.L + $shift) -lt $g.work.L) { throw 'Kein gebundener Platz fuer eine einmalige Wizardaktualisierung.' }
+    $moved = [pscustomobject]@{ pid=$g.pid; start=$g.start; dpi=$g.dpi; showCmd=$g.showCmd; monitor=$g.monitor; work=$g.work
+      rect=[pscustomobject]@{ L=($g.rect.L + $shift); T=$g.rect.T; R=($g.rect.R + $shift); B=$g.rect.B } }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $readReady = {
+      param($Expected, [int]$UntilMs)
+      for ($poll=0; $poll -lt 10; $poll++) {
+        & $assertContext
+        $frame = Get-SSEWizardNavigationFrame $Window $Node -AllowPositionChange
+        if (-not (Test-SSEWizardWindowGeometryEqual $frame.geometry $Expected) -or
+            $frame.rootRid -cne $initial.rootRid -or $frame.heading -cne $Heading -or
+            $frame.document.rid -cne $initial.document.rid -or $frame.guide.rid -cne $initial.guide.rid) {
+          throw 'Die gebundene Wizardidentitaet oder der erwartete Fenster-Zwischenstand ging verloren.'
+        }
+        $sameLayout = $frame.guide.x - $Expected.rect.L -eq $initial.guide.x - $g.rect.L -and
+          $frame.guide.y - $Expected.rect.T -eq $initial.guide.y - $g.rect.T -and
+          $frame.guide.w -eq $initial.guide.w -and $frame.guide.h -eq $initial.guide.h -and
+          $frame.target.x - $frame.document.x -eq $initial.target.x - $initial.document.x -and
+          $frame.target.y - $frame.document.y -eq $initial.target.y - $initial.document.y
+        if ($watch.ElapsedMilliseconds -ge $UntilMs) { break }
+        if ($frame.coherent -and $sameLayout) { & $assertContext; return $frame }
+        Start-Sleep -Milliseconds 100
+      }
+      return $null
+    }
+    $moveAttempted = $true
+    $windowRestored = $false
+    try { Set-SSEWizardWindowPosition $Window $g $moved.rect.L $moved.rect.T $InputTick }
+    catch {
+      if ($_.Exception.Data['windowMutationAttempted'] -is [bool] -and -not $_.Exception.Data['windowMutationAttempted']) {
+        $moveAttempted = $false; $windowRestored = $true
+      }
+      throw
+    }
+    $intermediate = & $readReady $moved 1400
+    if (-not $intermediate) { throw 'Der Wizard bestaetigte keinen verarbeiteten Geometrie-Zwischenstand.' }
+    $restoreAttempted = $true
+    Set-SSEWizardWindowPosition $Window $moved $g.rect.L $g.rect.T $InputTick
+    $windowRestored = Test-SSEWizardWindowGeometryEqual (Get-SSEWizardWindowGeometry $Window) $g
+    if (-not $windowRestored) { throw 'Der originale native Wizardrahmen wurde nicht bestaetigt.' }
+    $final = & $readReady $g 2800
+    if (-not $final) { throw 'Die wiederhergestellte Wizardgeometrie ist nicht bestaetigt.' }
+    $final | Add-Member -NotePropertyName windowWriteAttempted -NotePropertyValue $true
+    return $final
+  } catch {
+    $primary = $_.Exception; $cleanup = ''
+    $contextUnconfirmed = [bool]$primary.Data['dpiContextUnconfirmed']
+    # Keine Fensterbewegung im finally. Ein fehlender Qt-Readback erlaubt nur
+    # dann eine einzige Rueckstellung, wenn der eigene Zwischenframe und der
+    # gesamte Eingabekontext noch frisch bewiesen sind.
+    if ($moveAttempted -and -not $restoreAttempted -and $moved -and -not $primary.Data['dpiContextUnconfirmed']) {
+      try {
+        & $assertContext
+        $owned = Get-SSEWizardWindowGeometry $Window
+        if (-not (Test-SSEWizardWindowGeometryEqual $owned $moved)) { throw 'Keine frische eigene Rueckstellungsbindung.' }
+        $restoreAttempted = $true
+        Set-SSEWizardWindowPosition $Window $moved $initial.geometry.rect.L $initial.geometry.rect.T $InputTick
+        if (-not (Test-SSEWizardWindowGeometryEqual (Get-SSEWizardWindowGeometry $Window) $initial.geometry)) {
+          throw 'Die sichere Rueckstellung wurde nicht bestaetigt.'
+        }
+        $windowRestored = $true
+      } catch {
+        $cleanup = ' Rueckstellung blieb unbestaetigt: ' + $_.Exception.Message
+        $contextUnconfirmed = $contextUnconfirmed -or [bool]$_.Exception.Data['dpiContextUnconfirmed']
+      }
+    }
+    $failure = [InvalidOperationException]::new($primary.Message + $cleanup, $primary)
+    $failure.Data['reconciliationRequired'] = $true
+    $failure.Data['windowStateUnconfirmed'] = [bool]($moveAttempted -and -not $windowRestored)
+    $failure.Data['kind'] = $(if (-not (Test-SSELastInputUnchanged $InputTick) -or
+        [SW]::GetForegroundWindow() -ne $Window) { 'interference' } else { 'precondition-failed' })
+    if ($contextUnconfirmed) { $failure.Data['dpiContextUnconfirmed'] = $true }
+    throw $failure
+  }
+}
+
+function Test-SSEWizardNavigationFrameBeforeClick([IntPtr]$Window, $Binding, [int]$X, [int]$Y) {
+  try {
+    $fresh = Get-SSEWizardNavigationFrame $Window $Binding.target
+    if (-not $fresh.coherent -or $fresh.rootRid -cne $Binding.rootRid -or $fresh.heading -cne $Binding.heading -or
+        -not (Test-SSEWizardWindowGeometryEqual $fresh.geometry $Binding.geometry) -or
+        [int]($fresh.target.x + $fresh.target.w / 2) -ne $X -or [int]($fresh.target.y + $fresh.target.h / 2) -ne $Y) { return $false }
+    foreach ($part in @('document','guide')) {
+      foreach ($key in @('rid','aid','type','x','y','w','h','on')) {
+        if ($fresh.$part.$key -cne $Binding.$part.$key) { return $false }
+      }
+    }
+    return $true
+  } catch {
+    if ($_.Exception.Data['dpiContextUnconfirmed']) { throw }
+    return $false
+  }
+}
+
 function Click-VerifiedPoint(
   [IntPtr]$Window,
   $Node,
@@ -3593,15 +3858,33 @@ function Click-VerifiedPoint(
   [string]$ExpectedRuntimeId = '',
   [scriptblock]$BeforeClickCheck = $null,
   $BeforeClickBinding = $null,
-  [switch]$ThrowOnFailure
+  [switch]$ThrowOnFailure,
+  [scriptblock]$PrepareTarget = $null
 ) {
   $clickDispatched = $false
+  $foregroundAcquired = $false
+  $focusAttempted = $false
+  $preparationNeedsReconciliation = $false
   $pointFailure={
-    param($Message,[string]$Kind='error',$Details=$null)
+    param($Message,[string]$Kind='error',$Details=$null,[bool]$NeedsReconciliation=$false,[bool]$PreparationUnknown=$false)
+    # Ein ungesendeter Klick beweist keinen unberuehrten Benutzerkontext.
+    # Auch ein frueher Geometrie-/RID-Fehler muss inzwischen verlorene
+    # Eingabebindung erhalten, damit der Aufrufer nicht automatisch verwirft.
+    if (-not $clickDispatched -and
+        (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
+         ($RequireForeground -and $foregroundAcquired -and [SW]::GetForegroundWindow() -ne $Window))) {
+      $Kind = 'interference'
+      $Message = 'Eingabe- oder Vordergrundbindung waehrend der Punktpruefung verloren. ' + $Message
+    }
+    # Erst klassifizieren, dann die eigene Lease freigeben: deren Rueckgabe
+    # kann selbst den vorherigen Vordergrund wiederherstellen.
+    if ($focusAttempted) { Hide-SSETopmost $Window }
     if ($ThrowOnFailure) {
       $failure=[InvalidOperationException]::new([string]$Message)
       $failure.Data['kind']=$Kind
       $failure.Data['inputDispatched']=[bool]$clickDispatched
+      if ($NeedsReconciliation -or $preparationNeedsReconciliation) { $failure.Data['reconciliationRequired'] = $true }
+      if ($PreparationUnknown) { $failure.Data['preparationOutcomeUnknown'] = $true }
       if ($null -ne $Details) { $failure.Data['details']=$Details }
       throw $failure
     }
@@ -3609,7 +3892,6 @@ function Click-VerifiedPoint(
   }
   $cursorFailure = $(if ($ThrowOnFailure) {
     { param($Message, $Kind)
-      Hide-SSETopmost $Window
       & $pointFailure $Message $Kind
     }
   } else { $null })
@@ -3618,6 +3900,10 @@ function Click-VerifiedPoint(
     & $pointFailure 'Eigene Eingabe-Epoche vor der Fokusuebernahme verloren. NICHT geklickt.' 'interference'
   }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
+  if ($PrepareTarget -and ($null -eq $ExpectedInputTick -or -not $RequireForeground -or -not $ExpectedRuntimeId -or
+      -not $BeforeClickCheck -or -not $BeforeClickBinding -or -not $ThrowOnFailure)) {
+    & $pointFailure 'Eine Zielvorbereitung braucht die vollstaendige Eingabe-, Ziel- und Fehlerbindung.' 'precondition-failed'
+  }
   # Windows darf Vordergrundwechsel aus einem Hintergrundprozess ablehnen,
   # obwohl das Ziel weiterhin sichtbar und PID-/Root-gebunden ist. Vor einem
   # physischen Input sind deshalb bis zu drei reine Reakquisitionen erlaubt;
@@ -3625,6 +3911,7 @@ function Click-VerifiedPoint(
   # Ein dauerhaft verweigerter Vordergrund bleibt fail-closed.
   $foregroundReady = (-not $RequireForeground)
   for ($foregroundAttempt = 1; $foregroundAttempt -le $ForegroundAttempts; $foregroundAttempt++) {
+    $focusAttempted = $true
     $null = Show-SSEWindow $Window
     # Bei einer bereits gehaltenen Lease ist SSE schon oben und im Vordergrund.
     # Ein weiterer Settle pro Zell-/Pfeil-/Popup-Klick waere nur Flackern und
@@ -3638,12 +3925,39 @@ function Click-VerifiedPoint(
     if ($foregroundAttempt -lt $ForegroundAttempts) { Start-Sleep -Milliseconds 100 }
   }
   if (-not $foregroundReady) {
-    Hide-SSETopmost $Window
     & $pointFailure 'Gebundenes SSE-Fenster konnte vor dem verifizierten Klick nicht in den Vordergrund gebracht werden. NICHT geklickt.' 'interference'
+  }
+  $foregroundAcquired = [bool]$RequireForeground
+  if ($PrepareTarget) {
+    $preparationNeedsReconciliation = $true
+    try { $preparedNode = & $PrepareTarget $Window $BeforeClickBinding $Node $ExpectedInputTick }
+    catch {
+      $preparationFailure = $_.Exception
+      if ($preparationFailure.Data['dpiContextUnconfirmed'] -is [bool] -and $preparationFailure.Data['dpiContextUnconfirmed']) {
+        # Ohne bestaetigten DPI-Rueckweg keine alten Cursor-/Fokuskoordinaten
+        # durch das allgemeine Emit-Cleanup zurueckschreiben.
+        Exit-SSEForegroundLease -Hwnd $Window -Force -PreserveForeground -Reason 'wizard-dpi-context-unconfirmed'
+      }
+      $preparationUnknown = -not ($preparationFailure.Data['windowStateUnconfirmed'] -is [bool]) -or
+        $preparationFailure.Data['windowStateUnconfirmed'] -eq $true
+      $preparationKind = $(if ($preparationFailure.Data['kind'] -eq 'interference') { 'interference' } else { 'precondition-failed' })
+      & $pointFailure $preparationFailure.Message $preparationKind $null $true $preparationUnknown
+    }
+    if (-not $preparedNode -or -not $preparedNode.on -or $preparedNode.w -le 0 -or $preparedNode.h -le 0 -or
+        $preparedNode.rid -cne $ExpectedRuntimeId -or $preparedNode.aid -cne $Node.aid -or
+        $preparedNode.name -cne $Node.name -or $preparedNode.type -cne $Node.type) {
+      & $pointFailure 'Die Zielvorbereitung lieferte nicht dasselbe frisch gebundene Element.' 'stale' $null $true $true
+    }
+    # Nur ein expliziter boolscher No-op-Nachweis hebt die Unsicherheit der
+    # Vorbereitung auf. Fehlende oder ungueltige Angaben bleiben konservativ.
+    if ($BeforeClickBinding.windowWriteAttempted -is [bool] -and -not $BeforeClickBinding.windowWriteAttempted) {
+      $preparationNeedsReconciliation = $false
+    }
+    $Node = $preparedNode
+    $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
   }
   $obstruction = Get-SSEPointObstruction $Window $px $py
   if (-not $obstruction.isBoundTarget) {
-    Hide-SSETopmost $Window
     & $pointFailure ("An Position $px,$py liegt nicht das gebundene SSE-Hauptfenster " +
           "($($obstruction.blockerKind): $($obstruction.processName)/$($obstruction.className), " +
           "hit=$($obstruction.hitWindow), root=$($obstruction.hitRoot), bound=$($obstruction.boundWindow), " +
@@ -3653,24 +3967,19 @@ function Click-VerifiedPoint(
   if ($Node.source -eq 'msaa-point') {
     try { $fresh = [SSEAccessible]::DescribeDocumentHit([int64]$Window, $px, $py) }
     catch {
-      Hide-SSETopmost $Window
       & $pointFailure 'Gebundene MSAA-Schaltflaeche konnte nicht frisch gelesen werden. NICHT geklickt.' 'stale'
     }
     if (-not $fresh -or [int]$fresh.Role -ne 43 -or [string]$fresh.Name -ne [string]$Node.name) {
-      Hide-SSETopmost $Window
       & $pointFailure "MSAA-Schaltflaeche '$($Node.name)' ist unmittelbar vor dem Klick nicht mehr identisch. NICHT geklickt." 'stale'
     }
     if ($px -lt $fresh.X -or $py -lt $fresh.Y -or $px -ge ($fresh.X + $fresh.W) -or $py -ge ($fresh.Y + $fresh.H)) {
-      Hide-SSETopmost $Window
       & $pointFailure "MSAA-Mittelpunkt liegt unmittelbar vor dem Klick nicht mehr im aktuellen Zielrechteck. NICHT geklickt." 'stale'
     }
   }
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
-    Hide-SSETopmost $Window
     & $pointFailure 'Fremde Benutzereingabe unmittelbar vor dem verifizierten Klick erkannt. NICHT geklickt.' 'interference'
   }
   if ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) {
-    Hide-SSETopmost $Window
     & $pointFailure 'Gebundenes SSE-Fenster ist unmittelbar vor dem verifizierten Klick nicht im Vordergrund. NICHT geklickt.' 'interference'
   }
   $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
@@ -3689,24 +3998,32 @@ function Click-VerifiedPoint(
       try { $pointElement = $WLK.GetParent($pointElement) } catch { $pointElement = $null }
     }
     if (-not $pointBound) {
-      Hide-SSETopmost $Window
-      & $pointFailure 'Der Klickpunkt gehoert nicht mehr zum exakt gebundenen UIA-Element. NICHT geklickt.' 'stale'
+      & $pointFailure 'Der Klickpunkt gehoert nicht mehr zum exakt gebundenen UIA-Element. NICHT geklickt.' 'stale' `
+        ([pscustomobject]@{ obstruction=$obstruction })
     }
   }
-  if ($BeforeClickCheck -and -not (& $BeforeClickCheck $Window $BeforeClickBinding $px $py)) {
-    Hide-SSETopmost $Window
-    & $pointFailure 'Das gebundene Klickziel ist unmittelbar vor dem Mausklick nicht mehr bestaetigt. NICHT geklickt.' 'stale'
+  if ($BeforeClickCheck) {
+    if ($PrepareTarget) {
+      try { $beforeClickBound = & $BeforeClickCheck $Window $BeforeClickBinding $px $py }
+      catch {
+        if ($_.Exception.Data['dpiContextUnconfirmed']) {
+          Exit-SSEForegroundLease -Hwnd $Window -Force -PreserveForeground -Reason 'wizard-dpi-context-unconfirmed'
+        }
+        & $pointFailure $_.Exception.Message 'precondition-failed' $null $true $true
+      }
+    } else { $beforeClickBound = & $BeforeClickCheck $Window $BeforeClickBinding $px $py }
+    if (-not $beforeClickBound) {
+      & $pointFailure 'Das gebundene Klickziel ist unmittelbar vor dem Mausklick nicht mehr bestaetigt. NICHT geklickt.' 'stale'
+    }
   }
   if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
       ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) -or
       -not (Get-SSEPointObstruction $Window $px $py).isBoundTarget) {
-    Hide-SSETopmost $Window
     & $pointFailure 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
   }
   Assert-SSECursorPoint $px $py -OnFailure $cursorFailure
   if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
       ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window)) {
-    Hide-SSETopmost $Window
     & $pointFailure 'Eingabe-Epoche oder Vordergrund nach der letzten Cursorpruefung geaendert. NICHT geklickt.' 'interference'
   }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
@@ -3719,7 +4036,6 @@ function Click-VerifiedPoint(
   Set-SSEForegroundLeaseInputCheckpoint $inputTickAfterClick ([pscustomobject]@{ x=$px; y=$py }) -Context 'verified-point-click'
   Start-Sleep -Milliseconds 180
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $inputTickAfterClick)) {
-    Hide-SSETopmost $Window
     & $pointFailure 'Eingabe-Epoche nach dem bereits ausgefuehrten verifizierten Klick geaendert oder nicht lesbar.' 'interference'
   }
   if ([SW]::IsWindow($Window)) { Hide-SSETopmost $Window }
@@ -13780,14 +14096,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $navigationClickBinding = $null
     $emitNavigationPointFailure = {
-      param([string]$Message, [string]$Kind, $InputDispatched, $Details=$null)
+      param([string]$Message, [string]$Kind, $InputDispatched, $Details=$null,
+        [bool]$PreparationReconciliation=$false, [bool]$PreparationUnknown=$false)
       $needsReconciliation = -not ($InputDispatched -is [bool] -and $InputDispatched -eq $false)
+      $inputContextUnproven = $false
+      if (-not $needsReconciliation) {
+        if ($null -eq $navigationInputBaseline) { $inputContextUnproven = $true }
+        elseif (-not (Test-SSELastInputUnchanged $navigationInputBaseline)) {
+          $Kind = 'interference'; $inputContextUnproven = $true
+        }
+        if ($Kind -eq 'interference') { $inputContextUnproven = $true }
+      }
       $navigationPointResult = [pscustomobject]@{
         ok=$false; kind=$Kind; error=$Message; method='verified-point'
         clicked=$name; pattern=$pattern; kandidaten=$cands.Count; verified=$false
         ueberschriftVorher=$headingBefore; erwarteteUeberschrift=$expectedPageAfter
-        inputDispatched=$InputDispatched; outcomeUnknown=$needsReconciliation
-        reconciliationRequired=$needsReconciliation; clickBinding=$navigationClickBinding
+        inputDispatched=$InputDispatched; outcomeUnknown=($needsReconciliation -or $PreparationUnknown)
+        reconciliationRequired=($needsReconciliation -or $inputContextUnproven -or $PreparationReconciliation -or $PreparationUnknown); clickBinding=$navigationClickBinding
       }
       # Nur das konkrete Verdeckungsergebnis weiterreichen; fremde Details
       # duerfen keine Fehlerklasse oder Versand-/Abgleichsaussage ersetzen.
@@ -13869,17 +14194,41 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             [string]$freshLink.type -cne 'Hyperlink') {
           & $emitNavigationPointFailure 'Navigationslink hat sich vor dem Klick veraendert. NICHT geklickt.' 'stale' $false
         }
+        $navigationPointArguments = @{}
+        $wizardPreparation = $null
+        if ($freshLink.name -ceq 'Jetzt beginnen' -and
+            $expectedPageBefore -cmatch '^Gewinn-Erfassung für das Jahr \d{4}$' -and
+            $expectedPageAfter -ceq 'Beginn der Datenbearbeitung') {
+          $wizardPreparation = [pscustomobject]@{ frame=$null; heading=$expectedPageBefore; windowWriteAttempted=$null }
+          $navigationPointArguments = @{
+            BeforeClickBinding=$wizardPreparation
+            PrepareTarget={
+              param($Window,$Binding,$Node,$InputTick)
+              $Binding.frame = Sync-SSEWizardNavigationFrame $Window $Node $InputTick $Binding.heading
+              $Binding.windowWriteAttempted = $Binding.frame.windowWriteAttempted
+              $Binding.frame.target
+            }
+            BeforeClickCheck={
+              param($Window,$Binding,$X,$Y)
+              if (-not $Binding.frame) { return $false }
+              Test-SSEWizardNavigationFrameBeforeClick $Window $Binding.frame $X $Y
+            }
+          }
+        }
         try {
           $navigationClickBinding = Click-VerifiedPoint $hwnd $freshLink -ExpectedRuntimeId ([string]$freshLink.rid) `
-            -ExpectedInputTick $navigationInputBaseline -RequireForeground -ThrowOnFailure
+            -ExpectedInputTick $navigationInputBaseline -RequireForeground -ThrowOnFailure @navigationPointArguments
         } catch {
           # Nur echte boolsche Helperdaten belegen Nichtversand/Versand.
           # Unerwartete Ausnahmen bleiben unbekannt und brauchen Abgleich.
           $navigationDispatched = $null
           if ($_.Exception.Data['inputDispatched'] -is [bool]) { $navigationDispatched = $_.Exception.Data['inputDispatched'] }
           $navigationKind = $(if ($_.Exception.Data['kind'] -is [string] -and $_.Exception.Data['kind']) { $_.Exception.Data['kind'] } else { 'error' })
-          & $emitNavigationPointFailure $_.Exception.Message $navigationKind $navigationDispatched $_.Exception.Data['details']
+          $preparationReconciliation = $_.Exception.Data['reconciliationRequired'] -is [bool] -and $_.Exception.Data['reconciliationRequired'] -eq $true
+          $preparationUnknown = $_.Exception.Data['preparationOutcomeUnknown'] -is [bool] -and $_.Exception.Data['preparationOutcomeUnknown'] -eq $true
+          & $emitNavigationPointFailure $_.Exception.Message $navigationKind $navigationDispatched $_.Exception.Data['details'] $preparationReconciliation $preparationUnknown
         }
+        if ($wizardPreparation -and $wizardPreparation.frame) { $freshLink = $wizardPreparation.frame.target }
         $erfolg = $freshLink
         break
       }

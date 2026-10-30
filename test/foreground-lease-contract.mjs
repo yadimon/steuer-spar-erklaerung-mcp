@@ -117,9 +117,21 @@ assert(semanticClick.indexOf("$navigationInputBaseline =") < semanticClick.index
   "Die Eingabe-Epoche des direkten Links muss schon seine erste Seiten-/Zielbindung umfassen.");
 assert.match(semanticClick, /Click-VerifiedPoint \$hwnd \$freshLink[\s\S]*?-ExpectedInputTick \$navigationInputBaseline -RequireForeground -ThrowOnFailure/u,
   "Der direkte Link braucht Eingabe-Epoche, echten Vordergrund und auffangbare Versanddaten.");
-assert(semanticClick.includes("$_.Exception.Data['inputDispatched'] -is [bool]") &&
-  semanticClick.includes("reconciliationRequired=$needsReconciliation; clickBinding=$navigationClickBinding"),
+assert.match(semanticClick, /\$navigationDispatched = \$null\s+if \(\$_\.Exception\.Data\['inputDispatched'\] -is \[bool\]\) \{ \$navigationDispatched = \$_\.Exception\.Data\['inputDispatched'\] \}/u,
   "Fehlender oder ungueltiger Versandbeweis darf nicht als sicher ungesendet gelten.");
+assert.match(semanticClick, /\$needsReconciliation = -not \(\$InputDispatched -is \[bool\] -and \$InputDispatched -eq \$false\)/u,
+  "Nur ein echter boolscher Nichtversandbeweis darf die Versandunsicherheit aufheben.");
+assert.match(semanticClick, /inputDispatched=\$InputDispatched; outcomeUnknown=\(\$needsReconciliation -or \$PreparationUnknown\)\s+reconciliationRequired=\(\$needsReconciliation -or \$inputContextUnproven -or \$PreparationReconciliation -or \$PreparationUnknown\); clickBinding=\$navigationClickBinding/u,
+  "Versand-, Kontext- und Vorbereitungsunsicherheit muessen im gemeinsamen Navigationsfehler erhalten bleiben.");
+for (const [variable, field] of [
+  ["preparationReconciliation", "reconciliationRequired"],
+  ["preparationUnknown", "preparationOutcomeUnknown"],
+]) {
+  assert(semanticClick.includes(`$${variable} = $_.Exception.Data['${field}'] -is [bool] -and $_.Exception.Data['${field}'] -eq $true`),
+    `Navigationsfehler muss den boolschen Vorbereitungsnachweis '${field}' uebernehmen.`);
+}
+assert.match(semanticClick, /& \$emitNavigationPointFailure \$_\.Exception\.Message \$navigationKind \$navigationDispatched \$_\.Exception\.Data\['details'\] \$preparationReconciliation \$preparationUnknown/u,
+  "Der direkte Link muss dieselben Versand- und Vorbereitungsnachweise an seinen Fehlerbericht weitergeben.");
 assert.match(click, /\$script:AE::FromPoint[\s\S]*\$pointBound[\s\S]*if \(-not \$pointBound\)/u,
   "Der verifizierte Punktklick muss den UIA-Treffer unmittelbar vor dem Input binden.");
 assert.match(semanticClick, /\$requiresHyperlinkPageChange = \[bool\]\([\s\S]*\[string\]\$erfolg\.type -ceq 'Hyperlink'/u,

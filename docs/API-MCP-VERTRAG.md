@@ -139,6 +139,36 @@ gebundene Vordergrundfenster und prüft Marke und Vordergrund nach der letzten
 Punkt- und Cursorprüfung erneut. Höchstens drei reine Fokusübernahmen sind
 vor der Eingabe zulässig; sie senden keinen weiteren Klick.
 
+Für den ersten Startlink „Jetzt beginnen“ der Gewinn-Erfassung bindet der
+Worker zusätzlich das Document und dessen direkten GuideViewer-Viewport.
+Ein veralteter Bildschirmursprung kann bei gleicher Höhe, Breite und
+vertikaler Position einen reinen Document-Überlauf nach rechts erzeugen.
+Unter der bestehenden Vordergrundbindung darf die API in diesem bekannten
+Muster das normale Hauptfenster einmal geringfügig verschieben und auf seine
+gesicherte Position zurückstellen. Beide Positionen müssen vollständig im
+Arbeitsbereich desselben Monitors liegen. Vor jedem Eingriff werden
+Prozessgeneration, HWND, nativer Rahmen, DPI, ursprüngliche Eingabemarke und
+Vordergrund frisch geprüft. Eine Zeitgrenze und passive Readbacks binden den
+verarbeiteten Zwischenstand sowie die Rückkehr zum Originalrahmen.
+
+Erst danach wird derselbe Link mit seiner neuen rohen Provider-Geometrie
+gelesen. Der normale Mittelpunkt muss beim unveränderten Punkttest dieselbe
+Runtime-ID treffen. Link, Vorfahren, Seite und nativer Fensterzustand werden
+zuletzt nochmals geprüft. Es gibt keine ersatzweise verrechneten
+Klickkoordinaten. Bei bereits kohärenter Geometrie entfällt die Bewegung.
+Dieser bestätigte No-op allein verlangt keinen Zustandsabgleich; verlorener
+Eingabekontext und begonnene oder ungewisse Eingriffe bleiben abgleichpflichtig.
+Snapshots enthalten die rohen Provider-Rechtecke; `clickBinding` beschreibt
+den tatsächlich bestätigten Klickpunkt.
+
+Ein fehlgeschlagener Provider-Readback bestätigt keinen Erfolg. Die API darf
+den eigenen Zwischenrahmen trotzdem genau einmal zurückstellen, wenn die
+native Eigentums-, Fenster- und Eingabebindung weiterhin vollständig bewiesen
+ist. Bei Kontextverlust beginnt keine Rückbewegung. Unbestätigte Zustände
+bleiben abgleichpflichtig; weder die Bewegung noch der Klick werden blind
+wiederholt. Eine unbestätigte Fensterwirkung kann deshalb
+`outcomeUnknown: true` verlangen, obwohl kein Mausklick begonnen hat.
+
 `pattern` beschreibt die angeforderte Aktion, `method` den ausgeführten Pfad.
 Beim direkten Navigationsklick bedeutet `inputDispatched: false`, dass kein
 Mausklick begonnen hat; `true` bezeichnet den begonnenen Versand, `null` einen
@@ -147,8 +177,18 @@ bestätigte Punkt- und Vordergrundbindung. Sie fehlt, wenn der Helfer diese
 Bindung nicht vollständig zurückgeben konnte. Nach begonnenem oder unbestimmtem
 Versand verlangt ein Fehler einen Zustandsabgleich; der Klick wird nicht
 wiederholt. Erst der unabhängig bestätigte Seitenwechsel ergibt `verified: true`.
+Auch bei nachweislich ungesendetem Klick kann `reconciliationRequired: true`
+gelten: Eine fehlende oder inzwischen verlorene Eingabemarke sowie ein nach
+der Fokusübernahme verlorener Vordergrund lassen den Benutzerkontext offen.
+Eine erkannte Fremdeingabe behält `kind: "interference"`, auch wenn zuerst
+eine Geometrie- oder Zielprüfung scheitert. Die Fallanlage verwirft diesen
+Zustand nicht automatisch. Die Fehlerprüfung erfolgt vor der eigenen
+Fokusrückgabe, damit deren Rückkehr zum vorherigen Fenster keinen falschen
+Kontextverlust erzeugt.
 Bei einem verdeckten Punkt bleibt die gebundene Blockerdiagnose unter
 `obstruction` erhalten; sie ersetzt weder den Fehler noch den Versandstatus.
+Auch ein fehlgeschlagener Runtime-ID-Punkttest erhält dort die tatsächliche
+Fenster-/Punktdiagnose, einschließlich eines bestätigten eigenen Hauptfensters.
 
 ## Gezielt lesen und geprüft ändern
 

@@ -55,6 +55,22 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   begonnene und unbestimmte Eingaben. Begonnene oder unbestimmte Eingriffe
   verlangen vor weiteren Aktionen einen Abgleich. Die echte Wizard-Abnahme
   bleibt ein eigener Nachweis.
+  Beim ersten Startlink der Gewinn-Erfassung wird ein veralteter
+  Bildschirmursprung des Web-Documents über seinen direkten GuideViewer-
+  Viewport erkannt. Im bekannten Überlaufmuster kann eine einmalige gebundene
+  Fensterbewegung samt Rückstellung die Geometrie aktualisieren. Sie braucht
+  einen normalen Fensterzustand innerhalb desselben Monitor-Arbeitsbereichs,
+  unveränderte Prozessgeneration, DPI, Eingabemarke und Vordergrund. Erst ein
+  verarbeiteter Zwischenstand und der bestätigte Originalrahmen erlauben den
+  frisch gelesenen normalen Klick. Dieselbe Runtime-ID am tatsächlichen
+  Mittelpunkt bleibt Pflicht; eine Fensterbewegung wird nicht wiederholt.
+  Bei unlesbarem Provider ist eine einzige sichere Rückstellung nur mit
+  vollständig erhaltener nativer Bindung erlaubt. Unbewiesene Zustände bleiben
+  erhalten; daraus wird kein Navigationserfolg abgeleitet.
+  Ein ungesendeter Klick bestätigt keinen unberührten Benutzerkontext:
+  verlorene oder fehlende Eingabemarken bleiben abgleichpflichtig, auch wenn
+  zugleich eine Zielprüfung scheitert. Die eigene Fokusrückgabe erfolgt erst
+  nach dieser Fehlerklassifikation.
 - **Tabellen:** passives Standardlesen, explizites Grid-Lesen und geschütztes
   Cursorlesen haben unterschiedliche Verträge. Grid-Lesen löst keine Fokus-,
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische

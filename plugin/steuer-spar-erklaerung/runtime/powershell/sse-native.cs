@@ -189,6 +189,28 @@ public class SW {
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RC r);
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll", ExactSpelling=true)] private static extern IntPtr MonitorFromWindow(IntPtr h,uint flags);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetMonitorInfoW(IntPtr monitor,ref MONITORINFO info);
+  [StructLayout(LayoutKind.Sequential)]
+  private struct MONITORINFO {
+    public uint cbSize;
+    public RC monitor, work;
+    public uint flags;
+  }
+  // Read in the caller's DPI context; never choose a nearest off-screen monitor.
+  public static long[] GetMonitorWorkArea(IntPtr h) {
+    if (h == IntPtr.Zero || !IsWindow(h)) return null;
+    var monitor = MonitorFromWindow(h, 0); // MONITOR_DEFAULTTONULL
+    if (monitor == IntPtr.Zero) return null;
+    var info = new MONITORINFO();
+    info.cbSize = (uint)Marshal.SizeOf(typeof(MONITORINFO));
+    if (!GetMonitorInfoW(monitor, ref info) || !IsWindow(h)
+        || MonitorFromWindow(h, 0) != monitor || info.work.R <= info.work.L || info.work.B <= info.work.T)
+      return null;
+    return new long[] { monitor.ToInt64(), info.work.L, info.work.T, info.work.R, info.work.B };
+  }
   [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr h,ref PT point);
   [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   public static IntPtr EnterPhysicalDpiContext() { return SetThreadDpiAwarenessContext(new IntPtr(-4)); }

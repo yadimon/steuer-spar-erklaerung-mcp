@@ -30,7 +30,34 @@ $click=Function-Text 'Click-VerifiedPoint'
 $finalClickGuard=$click.LastIndexOf('if (($null -ne $ExpectedInputTick')
 Assert-True ($finalClickGuard -gt $click.IndexOf('Start-Sleep -Milliseconds 100') -and
   $finalClickGuard -lt $click.IndexOf('[SW]::mouse_event')) 'Final physical click guard does not follow cursor settling.'
-Assert-True (-not $click.Contains('if ($BeforeClickCheck) {')) 'Final physical click guard still depends on an optional callback.'
+$clickAst=[Management.Automation.Language.Parser]::ParseInput($click,[ref]$null,[ref]$null)
+$clickFunction=@($clickAst.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Click-VerifiedPoint'
+},$true))[0]
+$clickStatements=@($clickFunction.Body.EndBlock.Statements)
+$callbackStatements=@($clickStatements | Where-Object {
+  $_ -is [Management.Automation.Language.IfStatementAst] -and @($_.FindAll({param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+      $node.CommandElements[0].Extent.Text -ceq '$BeforeClickCheck'
+  },$true)).Count -gt 0
+})
+$mouseLoops=@($clickStatements | Where-Object {
+  $_ -is [Management.Automation.Language.ForStatementAst] -and @($_.FindAll({param($node)
+    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+      $node.Expression.Extent.Text -ceq '[SW]' -and $node.Member.Value -ceq 'mouse_event'
+  },$true)).Count -gt 0
+})
+Assert-True ($callbackStatements.Count -eq 1 -and $mouseLoops.Count -eq 1) 'Callback or physical click loop is not uniquely bound.'
+$independentGuards=@($clickStatements | Where-Object {
+  $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Extent.StartOffset -gt $callbackStatements[0].Extent.EndOffset -and
+    $_.Extent.EndOffset -lt $mouseLoops[0].Extent.StartOffset -and
+    $_.Clauses[0].Item1.Extent.Text.Contains('Test-SSELastInputUnchanged $ExpectedInputTick') -and
+    $_.Clauses[0].Item1.Extent.Text.Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $Window')
+})
+# A top-level sibling executes with or without the optional callback. A guard
+# nested inside that callback (or moved before it) must still fail this contract.
+Assert-True ($independentGuards.Count -ge 1) 'Final physical click guard still depends on an optional callback.'
 Assert-True ($click.Substring($finalClickGuard,$click.IndexOf('[SW]::mouse_event')-$finalClickGuard).Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $Window')) 'Final physical click guard lost exact foreground.'
 Assert-True ($click.Contains('inputTickAfterClick=$inputTickAfterClick') -and
   $click.Contains('Test-SSELastInputUnchanged $inputTickAfterClick')) 'Settling after a click silently accepts a new input epoch.'
