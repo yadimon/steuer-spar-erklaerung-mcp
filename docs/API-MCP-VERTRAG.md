@@ -32,6 +32,13 @@ ein verlorener Antwortweg wird als unbekannter Ausgang ohne Wiederholung behande
 Speichern bleibt hashgebunden separat; Verwerfen benötigt `discardChanges: true`.
 Unsichere Dialoge und verlorene Ergebnisse lösen keinen Wiederholungsversuch aus.
 
+`save` bindet den Schalter über seine eindeutige Hauptsymbolleisten-ID, auch
+wenn die Oberfläche nur ein Symbol ohne zugänglichen Namen zeigt. Typ,
+RuntimeId und Aktivierungszustand werden vor dem Speichern frisch geprüft;
+der Abschluss benötigt weiterhin Datei-, Hash- und Zustandsnachweise.
+Beim normalen `close` bleibt eine fehlende, mehrdeutige oder unlesbare
+Speicheranzeige unbekannt und sperrt das Schließen ohne explizites Verwerfen.
+
 Die lokale HTTP-API ist der ausführende Kern. Sie besitzt Konfiguration,
 Ressourcenauflösung, Queue, Szenarien und den Windows-Worker. MCP ist ein
 PC-blinder fachlicher Adapter: Er ruft für ein Werkzeug genau die zugeordnete

@@ -7338,6 +7338,19 @@ function Wait-SSEToggleSettled($TogglePattern, $Tree, [IntPtr]$Hwnd, [bool]$Want
   $false
 }
 
+function Get-SSESaveToolbarNode($Tree) {
+  # Dieselbe stabile Toolbar-Bindung wie beim Dirty-State. Qt kann den
+  # sichtbaren Schalter ohne zugreifbaren Namen exponieren (nur Symbol).
+  # Weder ein gleichnamiger anderer Button noch ein uneindeutiger Treffer
+  # bestaetigt diese Bindung.
+  $saveNodes = @($Tree.nodes | Where-Object {
+    $_.type -ceq 'Button' -and
+    ([string]$_.aid).EndsWith('.MainToolBar.tb_sichern', [StringComparison]::Ordinal)
+  })
+  if ($saveNodes.Count -ne 1) { return $null }
+  $saveNodes[0]
+}
+
 # Wartet begrenzt, bis die bereits gebundene Schaltflaeche 'Sichern' ueber eine
 # Bestaetigungsfrist hinweg deaktiviert bleibt. Nur ein gelesenes 'deaktiviert'
 # zaehlt: Ein fehlgeschlagener Eigenschaftsabruf liefert in PowerShell $null
@@ -16043,8 +16056,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $tree = Walk-Tree $hwnd 1200
       $searchClosedBeforeSave = $true
     }
-    $saveNode = @($tree.nodes | Where-Object { $_.type -eq 'Button' -and $_.name -eq 'Sichern' })[0]
-    if (-not $saveNode) { Fail "Schaltflaeche 'Sichern' nicht gefunden." 'not-found' }
+    $saveNode = Get-SSESaveToolbarNode $tree
+    if (-not $saveNode) { Fail "Schaltflaeche 'Sichern' ist nicht eindeutig an die Hauptsymbolleiste gebunden." 'not-found' }
+    if ($saveNode.on -isnot [bool]) { Fail "Aktivierungszustand von 'Sichern' ist nicht lesbar. NICHT gespeichert." 'unreadable' }
+    $saveElement = Get-LiveElement $hwnd $saveNode.rid $saveNode.aid
+    if (-not $saveElement) { Fail "Schaltflaeche 'Sichern' nicht mehr greifbar." 'stale' }
+    $saveCurrent = $null; $saveRuntimeId = ''
+    try {
+      $saveCurrent = $saveElement.Current
+      $saveRuntimeId = $saveElement.GetRuntimeId() -join '.'
+    } catch { $saveCurrent = $null }
+    if (-not $saveCurrent -or [string]$saveCurrent.AutomationId -cne [string]$saveNode.aid -or
+        [string]$saveCurrent.ControlType.ProgrammaticName -cne 'ControlType.Button' -or
+        -not [string]$saveNode.rid -or $saveRuntimeId -cne [string]$saveNode.rid) {
+      Fail "Schaltflaeche 'Sichern' hat ihre gebundene Identitaet verloren. NICHT gespeichert." 'stale'
+    }
+    if ($saveCurrent.IsEnabled -isnot [bool]) { Fail "Aktivierungszustand von 'Sichern' ist nicht frisch lesbar. NICHT gespeichert." 'unreadable' }
+    if ($saveCurrent.IsEnabled -cne $saveNode.on) { Fail "Aktivierungszustand von 'Sichern' hat sich geaendert. NICHT gespeichert." 'stale' }
     if (-not $saveNode.on) {
       Emit ([pscustomobject]@{
         ok = $true; saved = $false; noChanges = $true; path = $expectedPath
@@ -16054,8 +16082,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         note = 'Sichern ist deaktiviert; es gibt keine ungespeicherten Aenderungen.'
       })
     }
-    $saveElement = Get-LiveElement $hwnd $saveNode.rid
-    if (-not $saveElement) { Fail "Schaltflaeche 'Sichern' nicht mehr greifbar." 'stale' }
     try { $saveElement.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
     catch { Fail "Sichern liess sich nicht ausloesen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
 
@@ -16074,7 +16100,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $itemAfter = Get-Item -LiteralPath $expectedPath
     $summaryAfter = Get-CaseSummary $expectedPath
     $treeAfter = Walk-Tree $hwnd 1200
-    $saveAfter = @($treeAfter.nodes | Where-Object { $_.type -eq 'Button' -and $_.name -eq 'Sichern' })[0]
+    $saveAfter = Get-SSESaveToolbarNode $treeAfter
+    if ($saveAfter -and $saveAfter.on -isnot [bool]) { $saveAfter = $null }
     $dialogWindows = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     # FileSavedBy darf sich beim ersten Speichern nach einem Programmupdate
     # legitim aendern (z. B. 31.26 -> 31.30). Auch eine editierte Steuernummer
@@ -16580,8 +16607,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       try {
         $mainHwnd = [IntPtr][int64]$mainWindow[0].hwnd
         $treeBeforeClose = Walk-Tree $mainHwnd 1200
-        $saveButton = @($treeBeforeClose.nodes | Where-Object { $_.type -eq 'Button' -and $_.name -eq 'Sichern' })[0]
-        $hasUnsavedChanges = [bool]($saveButton -and $saveButton.on)
+        $saveButton = Get-SSESaveToolbarNode $treeBeforeClose
+        $hasUnsavedChanges = $(if ($saveButton -and $saveButton.on -is [bool]) { $saveButton.on } else { $null })
       } catch { $hasUnsavedChanges = $null }
       if ($hasUnsavedChanges -eq $true -and -not $save -and -not $discard) {
         Emit ([pscustomobject]@{
