@@ -24,6 +24,7 @@ import {
 const expectedNames = [
   "test-inventory-contract",
   "with-api-cleanup",
+  "save-toolbar",
   "live-state-journey-contract", "table-grid-read-contract", "fresh-raw-resolver-contract",
   "table-grid-api", "table-uia-delete-contract", "bulk-action-interruption-contract",
   "table-existing-cursor",
@@ -182,6 +183,7 @@ for (const required of [
   "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "startup-dialog-policy", "table-delete-rebinding", "table-window-scope", "dirty-state-binding", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract",
   "case-binding", "recovery-answer-policy", "desktop-stop-policy", "process-exit-wait", "launch-readiness", "describe-point-basic", "case-file", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-busy-retry", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata", "agent-plugin-contract",
   "mcp-operation-budget-contract",
+  "save-toolbar",
   "table-add-checkbox-contract",
   "receipt-vat-precondition",
   "receipt-rollback-ownership",

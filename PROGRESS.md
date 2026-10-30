@@ -41,6 +41,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Primärfehler und Child-Exit-Code auch bei einem zusätzlichen Cleanup-Fehler.
   Ihre Regression bindet die Diagnose-Datei über den kanonischen Elternpfad,
   damit ein Pfadalias weder Beobachtung noch Fehlerinjektion überspringt.
+  Speichern und die Änderungsprüfung vor dem Schließen binden die eindeutige
+  Hauptsymbolleisten-ID auch ohne zugänglichen Schalternamen. Fehlende oder
+  unlesbare Zustände bestätigen weder einen sauberen Fall noch einen Abschluss.
 - **Tabellen:** passives Standardlesen, explizites Grid-Lesen und geschütztes
   Cursorlesen haben unterschiedliche Verträge. Grid-Lesen löst keine Fokus-,
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische
