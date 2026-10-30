@@ -44,6 +44,14 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Speichern und die Änderungsprüfung vor dem Schließen binden die eindeutige
   Hauptsymbolleisten-ID auch ohne zugänglichen Schalternamen. Fehlende oder
   unlesbare Zustände bestätigen weder einen sauberen Fall noch einen Abschluss.
+- **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
+  tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
+  Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.
+  Erfolg und fehlgeschlagener Seitenwechsel erhalten die bestätigte
+  Klickbindung; eine Ausnahme unterscheidet nachweislich ungesendete,
+  begonnene und unbestimmte Eingaben. Begonnene oder unbestimmte Eingriffe
+  verlangen vor weiteren Aktionen einen Abgleich. Die echte Wizard-Abnahme
+  bleibt ein eigener Nachweis.
 - **Tabellen:** passives Standardlesen, explizites Grid-Lesen und geschütztes
   Cursorlesen haben unterschiedliche Verträge. Grid-Lesen löst keine Fokus-,
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische

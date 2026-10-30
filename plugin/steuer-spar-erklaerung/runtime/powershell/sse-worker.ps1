@@ -3602,6 +3602,7 @@ function Click-VerifiedPoint(
       $failure=[InvalidOperationException]::new([string]$Message)
       $failure.Data['kind']=$Kind
       $failure.Data['inputDispatched']=[bool]$clickDispatched
+      if ($null -ne $Details) { $failure.Data['details']=$Details }
       throw $failure
     }
     Fail $Message $Kind $Details
@@ -3703,6 +3704,11 @@ function Click-VerifiedPoint(
     & $pointFailure 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
   }
   Assert-SSECursorPoint $px $py -OnFailure $cursorFailure
+  if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
+      ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window)) {
+    Hide-SSETopmost $Window
+    & $pointFailure 'Eingabe-Epoche oder Vordergrund nach der letzten Cursorpruefung geaendert. NICHT geklickt.' 'interference'
+  }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
     $clickDispatched = $true
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
@@ -13720,13 +13726,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - neu starten." 'degraded' }
+    $expectedPageBefore = [string](Arg $a 'expectedPageBefore' (Arg $a 'headingBefore'))
+    $expectedPageAfter = [string](Arg $a 'expectedPageAfter')
+    $hasPagePostcondition = [bool]$expectedPageAfter
+    # Die Epoche umfasst bereits die erste Seiten-/Zielbindung. Nur der
+    # spaeter eindeutig bestaetigte direkte Qt-Link verwendet diesen Guard.
+    $navigationInputBaseline = $(if ($script:SSE_ENGINE_MAJOR -eq 31 -and $pattern -eq 'invoke' -and
+        $expectedPageBefore -and $expectedPageAfter -and -not $script:DESKTOP_NAME) { Get-SSELastInputTick } else { $null })
     $t = Walk-Tree $hwnd -WithValues:($pattern -eq 'select')
     $isNavigation = $name -in @('Weiter', 'Zurück')
     $headingBefore = Get-CurrentHeading $hwnd $t
     $dirtyBefore = Get-DirtyStateFast $hwnd
-    $expectedPageBefore = [string](Arg $a 'expectedPageBefore' (Arg $a 'headingBefore'))
-    $expectedPageAfter = [string](Arg $a 'expectedPageAfter')
-    $hasPagePostcondition = [bool]$expectedPageAfter
     if ($expectedPageBefore -and $headingBefore -ne $expectedPageBefore) {
       Fail ("Vorbedingung verletzt: aktuelle Seite ist '$headingBefore', erwartet wurde " +
             "'$expectedPageBefore'. NICHT ausgeloest.") 'precondition-failed'
@@ -13767,6 +13777,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     )
     if ($directNavigationLink -and $script:DESKTOP_NAME) {
       Fail 'Der gebundene Navigationslink braucht einen sichtbaren, verifizierten Klick.' 'hidden-desktop'
+    }
+    $navigationClickBinding = $null
+    $emitNavigationPointFailure = {
+      param([string]$Message, [string]$Kind, $InputDispatched, $Details=$null)
+      $needsReconciliation = -not ($InputDispatched -is [bool] -and $InputDispatched -eq $false)
+      $navigationPointResult = [pscustomobject]@{
+        ok=$false; kind=$Kind; error=$Message; method='verified-point'
+        clicked=$name; pattern=$pattern; kandidaten=$cands.Count; verified=$false
+        ueberschriftVorher=$headingBefore; erwarteteUeberschrift=$expectedPageAfter
+        inputDispatched=$InputDispatched; outcomeUnknown=$needsReconciliation
+        reconciliationRequired=$needsReconciliation; clickBinding=$navigationClickBinding
+      }
+      # Nur das konkrete Verdeckungsergebnis weiterreichen; fremde Details
+      # duerfen keine Fehlerklasse oder Versand-/Abgleichsaussage ersetzen.
+      if ($null -ne $Details -and $null -ne $Details.PSObject.Properties['obstruction']) {
+        $navigationPointResult | Add-Member -NotePropertyName obstruction -NotePropertyValue $Details.obstruction
+      }
+      Emit $navigationPointResult
+    }
+    if ($directNavigationLink -and $null -eq $navigationInputBaseline) {
+      & $emitNavigationPointFailure 'Windows-Eingabe-Epoche ist nicht lesbar; Navigationslink nicht geklickt.' 'precondition-failed' $false
     }
     if ($script:SSE_ENGINE_MAJOR -eq 31 -and $pattern -eq 'invoke' -and $expectedPageAfter) {
       $headingNode = Get-SSEContainerChild $t.nodes (Get-SSEMainWindowSelectors).heading 'Text'
@@ -13823,7 +13854,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       Assert-SSEDestructiveAcknowledgement $a @($node.name, $node.aid)
       $el = Get-LiveElement $hwnd $node.rid
-      if (-not $el) { $letzterFehler = 'Knoten nicht mehr greifbar'; continue }
+      if (-not $el) {
+        if ($directNavigationLink) {
+          & $emitNavigationPointFailure 'Navigationslink ist nicht mehr greifbar. NICHT geklickt.' 'stale' $false
+        }
+        $letzterFehler = 'Knoten nicht mehr greifbar'; continue
+      }
       if ($directNavigationLink) {
         $freshLink = Convert-ExactElementToNode $el
         if (-not $freshLink -or -not $freshLink.on -or
@@ -13831,9 +13867,19 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             [string]$freshLink.name -cne [string]$node.name -or
             [string]$freshLink.aid -cne [string]$node.aid -or
             [string]$freshLink.type -cne 'Hyperlink') {
-          Fail 'Navigationslink hat sich vor dem Klick veraendert. NICHT geklickt.' 'stale'
+          & $emitNavigationPointFailure 'Navigationslink hat sich vor dem Klick veraendert. NICHT geklickt.' 'stale' $false
         }
-        $null = Click-VerifiedPoint $hwnd $freshLink -ExpectedRuntimeId ([string]$freshLink.rid)
+        try {
+          $navigationClickBinding = Click-VerifiedPoint $hwnd $freshLink -ExpectedRuntimeId ([string]$freshLink.rid) `
+            -ExpectedInputTick $navigationInputBaseline -RequireForeground -ThrowOnFailure
+        } catch {
+          # Nur echte boolsche Helperdaten belegen Nichtversand/Versand.
+          # Unerwartete Ausnahmen bleiben unbekannt und brauchen Abgleich.
+          $navigationDispatched = $null
+          if ($_.Exception.Data['inputDispatched'] -is [bool]) { $navigationDispatched = $_.Exception.Data['inputDispatched'] }
+          $navigationKind = $(if ($_.Exception.Data['kind'] -is [string] -and $_.Exception.Data['kind']) { $_.Exception.Data['kind'] } else { 'error' })
+          & $emitNavigationPointFailure $_.Exception.Message $navigationKind $navigationDispatched $_.Exception.Data['details']
+        }
         $erfolg = $freshLink
         break
       }
@@ -14051,7 +14097,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             "'$name' wechselte die Seite '$headingBefore' nicht. Keine automatische Wiederholung."
           }
         )
-        Emit ([pscustomobject]@{
+        $navigationFailureResult = [pscustomobject]@{
           ok=$false; kind=$kind; error=$navigationError
           clicked=$name; pattern=$pattern; kandidaten=$cands.Count
           ueberschriftVorher=$headingBefore; ueberschriftNachher=$nachher
@@ -14066,16 +14112,29 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           } else {
             'sse_ui_state lesen; Pflichtfelder, Seitenpruefer und aktuellen Zustand klaeren.'
           })
-        })
+        }
+        if ($directNavigationLink) {
+          $navigationFailureResult | Add-Member -NotePropertyMembers @{
+            method=$activationMethod; inputDispatched=$true; outcomeUnknown=$true
+            reconciliationRequired=$true; clickBinding=$navigationClickBinding
+          }
+        }
+        Emit $navigationFailureResult
       }
     }
-    Emit ([pscustomobject]@{
+    $clickResult = [pscustomobject]@{
       ok = $true; clicked = $(if($erfolg.name){$erfolg.name}else{$name}); pattern = $pattern; kandidaten = $cands.Count; method=$activationMethod
       ueberschriftVorher=$headingBefore; ueberschriftNachher=$nachher
       navigiert=$navigiert; verified=$(if ($isNavigation -or $hasNavigationPostcondition) { $true } elseif ($pattern -eq 'select') { $radioVerified } else { $null })
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyStateFast $hwnd)
       dialoge=@($dialogsAfter); node = $erfolg
-    })
+    }
+    if ($directNavigationLink) {
+      $clickResult | Add-Member -NotePropertyMembers @{
+        inputDispatched=$true; outcomeUnknown=$false; reconciliationRequired=$false; clickBinding=$navigationClickBinding
+      }
+    }
+    Emit $clickResult
   }
 
   'toggle' {

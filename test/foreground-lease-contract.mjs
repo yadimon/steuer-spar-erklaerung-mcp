@@ -113,6 +113,13 @@ assert.match(semanticClick, /\$directNavigationLink = \[bool\]\([\s\S]*\$script:
   "Der direkte Linkklick braucht Qt 31, beide Seitenbindungen und genau einen Hyperlink.");
 assert.match(semanticClick, /\$freshLink = Convert-ExactElementToNode \$el[\s\S]*Click-VerifiedPoint \$hwnd \$freshLink -ExpectedRuntimeId \(\[string\]\$freshLink\.rid\)/u,
   "Der direkte Linkklick muss einen frisch gebundenen Knoten samt RuntimeId-Punktpruefung nutzen.");
+assert(semanticClick.indexOf("$navigationInputBaseline =") < semanticClick.indexOf("$t = Walk-Tree"),
+  "Die Eingabe-Epoche des direkten Links muss schon seine erste Seiten-/Zielbindung umfassen.");
+assert.match(semanticClick, /Click-VerifiedPoint \$hwnd \$freshLink[\s\S]*?-ExpectedInputTick \$navigationInputBaseline -RequireForeground -ThrowOnFailure/u,
+  "Der direkte Link braucht Eingabe-Epoche, echten Vordergrund und auffangbare Versanddaten.");
+assert(semanticClick.includes("$_.Exception.Data['inputDispatched'] -is [bool]") &&
+  semanticClick.includes("reconciliationRequired=$needsReconciliation; clickBinding=$navigationClickBinding"),
+  "Fehlender oder ungueltiger Versandbeweis darf nicht als sicher ungesendet gelten.");
 assert.match(click, /\$script:AE::FromPoint[\s\S]*\$pointBound[\s\S]*if \(-not \$pointBound\)/u,
   "Der verifizierte Punktklick muss den UIA-Treffer unmittelbar vor dem Input binden.");
 assert.match(semanticClick, /\$requiresHyperlinkPageChange = \[bool\]\([\s\S]*\[string\]\$erfolg\.type -ceq 'Hyperlink'/u,

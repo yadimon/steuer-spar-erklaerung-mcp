@@ -132,6 +132,24 @@ und Selektornamensräume nicht gewechselt werden, um einen Fehler zu umgehen.
 Die ausdrücklich dokumentierten internen API-Kompatibilitätspfade bleiben
 auf ihre jeweiligen Voraussetzungen begrenzt.
 
+Ein exakt gebundener Qt-Navigationslink mit Ausgangs- und Zielseite wird über
+einen geprüften physischen Klick ausgelöst. Dafür bleibt die vor dem Baumlauf
+gelesene Eingabemarke bis zum Klick gebunden. Die API verlangt das tatsächliche
+gebundene Vordergrundfenster und prüft Marke und Vordergrund nach der letzten
+Punkt- und Cursorprüfung erneut. Höchstens drei reine Fokusübernahmen sind
+vor der Eingabe zulässig; sie senden keinen weiteren Klick.
+
+`pattern` beschreibt die angeforderte Aktion, `method` den ausgeführten Pfad.
+Beim direkten Navigationsklick bedeutet `inputDispatched: false`, dass kein
+Mausklick begonnen hat; `true` bezeichnet den begonnenen Versand, `null` einen
+unbestimmten Versandzustand. Die optionale `clickBinding` enthält die tatsächlich
+bestätigte Punkt- und Vordergrundbindung. Sie fehlt, wenn der Helfer diese
+Bindung nicht vollständig zurückgeben konnte. Nach begonnenem oder unbestimmtem
+Versand verlangt ein Fehler einen Zustandsabgleich; der Klick wird nicht
+wiederholt. Erst der unabhängig bestätigte Seitenwechsel ergibt `verified: true`.
+Bei einem verdeckten Punkt bleibt die gebundene Blockerdiagnose unter
+`obstruction` erhalten; sie ersetzt weder den Fehler noch den Versandstatus.
+
 ## Gezielt lesen und geprüft ändern
 
 Die API bietet gezielte Zustandsabfragen und darauf aufbauende, stärker
