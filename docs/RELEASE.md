@@ -159,16 +159,16 @@ Scope `@yadimon` zeigen. Beide `latest`-Tags müssen exakt `$version` nennen.
 Das Projekt veröffentlicht und unterstützt bewusst nur den npm-Kanal
 `latest`. Historische dist-tags können in der Registry noch sichtbar sein;
 sie sind weder Installationsziel noch Supportzusage und werden nicht bei jedem
-OIDC-Release nachträglich verwaltet. Der Grund ist eine Eigenschaft von Trusted Publishing: Laut
-npm-Dokumentation deckt OIDC ausschließlich `npm publish` und `npm stage publish`
-ab. `npm dist-tag` ist nicht enthalten und scheitert in der CI an `ENEEDAUTH`.
+OIDC-Release nachträglich verwaltet. Der bestehende Trusted Publisher ist für
+den Publish eingerichtet. Die [npm-Dokumentation](https://docs.npmjs.com/trusted-publishers/)
+beschreibt inzwischen auch eine gesonderte Freigabe für `npm dist-tag`;
+diese zusätzliche Berechtigung setzt der Projektworkflow nicht voraus.
 
 Ein Kanal lässt sich ohne Zusatzanmeldung deshalb nur an genau einer Stelle
-setzen: beim Publish selbst über `npm publish --tag <kanal>`. Jeder weitere
-Kanal bräuchte eine eigene Anmeldung — entweder einen Einmalcode des
-Maintainers bei jedem Release oder ein langlebiges Write-Token. Token sind hier
-ausgeschlossen, und ein wiederkehrender Handgriff pro Release ist eine
-Fehlerquelle.
+setzen: beim Publish selbst über `npm publish --tag <kanal>`. Weitere Kanäle
+würden einen getrennten Berechtigungsschritt und zusätzliche Verwaltung
+benötigen. Der Projektworkflow bleibt deshalb bei einem Kanal und benötigt
+weder ein langlebiges Write-Token noch einen wiederkehrenden Einmalcode.
 
 Daraus folgt: Jeder Publish setzt `latest`; auch `publishConfig` und der
 Publish-Dry-run der beiden Paketmanifeste müssen diesen Tag tragen.
