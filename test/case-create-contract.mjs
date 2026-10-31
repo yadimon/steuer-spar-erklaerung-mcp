@@ -81,7 +81,8 @@ function scriptedWorker(overrides = {}, calls = []) {
       ok: true, menue: "Datei", anzahl: 2,
       eintraege: [{ name: "Steuerfall öffnen...", aktiv: true, gesperrt: false }, { name: SAVE_ENTRY, aktiv: true, gesperrt: false }],
     }),
-    menu_click: () => ({ ok: true, ausgeloest: SAVE_ENTRY, fenster: 2 }),
+    menu_click: () => ({ ok: true, ausgeloest: SAVE_ENTRY, fenster: 2,
+      saveDialogOpened: true, dialogTitle: saveDialog.title }),
     menu_close: () => ({ ok: true, collapsed: ["Datei"], verified: true }),
     dialog_list: () => ({
       ok: true, count: 1,
@@ -200,7 +201,7 @@ try {
     assert.equal(result.error, "Synthetic save-dialog ownership lost.");
     assert.equal(result.failedStep, operation);
     assert.equal(result.processPreserved, true);
-    assert.equal(result.outcomeUnknown, failure.outcomeUnknown);
+    assert.equal(result.outcomeUnknown, operation === "dialog_list" ? true : failure.outcomeUnknown);
     assert.equal(operationsOf(calls).at(-1), operation);
     assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
   }
@@ -215,6 +216,40 @@ try {
     assert.equal(result.processPreserved, true);
     assert.equal(operationsOf(calls).at(-1), operation);
     assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const acknowledgement of [
+    {}, { saveDialogOpened: false, dialogTitle: SAVE_TITLE },
+    { saveDialogOpened: true, dialogTitle: "Anderer Speicherdialog" },
+    { saveDialogOpened: true, dialogTitle: SAVE_TITLE, outcomeUnknown: true },
+    { saveDialogOpened: true, dialogTitle: SAVE_TITLE, reconciliationRequired: true },
+    { saveDialogOpened: true, dialogTitle: SAVE_TITLE, cleanupRequired: true },
+  ]) {
+    const { worker, calls } = scriptedWorker({ menu_click: () => ({ ok: true, ...acknowledgement }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, "postcondition-failed");
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(operationsOf(calls).at(-1), "menu_click");
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const kind of ["timeout", "aborted", "parse", "empty", "worker", "worker-isolation-lost", "spawn"]) {
+    const { worker, calls } = scriptedWorker({ menu_click: () => { throw new WorkerError("Synthetic private menu reply lost.", kind); } });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, kind); assert.equal(result.failedStep, "menu_click");
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(operationsOf(calls).at(-1), "menu_click");
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  {
+    const { worker, calls } = scriptedWorker();
+    const result = await createApiExecutor(config, worker)("menu_click", {
+      name: SAVE_ENTRY, hwnd: HWND, __caseCreateSaveDialog: {
+        kind: "case-create", expectedPage: MASTER_PAGE, expectedDialogTitle: SAVE_TITLE,
+      },
+    });
+    assert.equal(result.ok, false); assert.equal(result.kind, "bad-args");
+    assert.deepEqual(calls, [], "Der interne Fallanlagevertrag darf ueber die oeffentliche API nicht erreichbar sein.");
   }
   {
     const { worker, calls } = scriptedWorker({ ui_state: () => ({
@@ -236,7 +271,8 @@ try {
     { stop: (controller, clock) => { clock.value = 239_000; }, expectedKind: "timeout" },
   ]) {
     const controller = new AbortController(); const clock = { value: 0 };
-    const { worker, calls } = scriptedWorker({ menu_click: () => { stop(controller, clock); return { ok: true }; } });
+    const { worker, calls } = scriptedWorker({ menu_click: () => { stop(controller, clock);
+      return { ok: true, saveDialogOpened: true, dialogTitle: SAVE_TITLE }; } });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, controller.signal, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
       profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
@@ -244,8 +280,8 @@ try {
     });
     assert.equal(result.kind, expectedKind);
     assert.equal(result.processPreserved, true);
-    assert.equal(result.cleanup.operation, "menu_close");
-    assert.equal(result.cleanup.kind, expectedKind);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.cleanup, undefined);
     assert.equal(operationsOf(calls).at(-1), "menu_click");
     assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
   }
@@ -257,15 +293,16 @@ try {
   ]) {
     let clock = 0;
     const { worker, calls } = scriptedWorker({
-      dialog_list: () => ({ ok: true, count: 0, dialogs: [], windows: [] }), menu_close: menuClose,
+      menu_click: () => ({ ok: false, kind: "not-found", error: "Synthetic unsent menu selection failure.",
+        mutationStarted: false, outcomeUnknown: false }), menu_close: menuClose,
     });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
       profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
       now: () => clock, wait: async ms => { clock += ms; },
     });
-    assert.equal(result.kind, "save-dialog", "Ein Bereinigungsfehler darf den primaeren Fehler nicht ersetzen.");
-    assert.match(result.error, /nativen Dialog/u);
+    assert.equal(result.kind, "not-found", "Ein Bereinigungsfehler darf den primaeren Fehler nicht ersetzen.");
+    assert.equal(result.error, "Synthetic unsent menu selection failure.");
     assert.equal(result.processPreserved, true);
     assert.equal(result.processStillRunning, null);
     assert.equal(result.reconciliationRequired, true);
@@ -283,7 +320,7 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.deepEqual(operationsOf(calls), [
       "instances", "desktop_status", "launch", "launch_probe", "instances", "ui_state", "subpages",
-      "click", "click", "click", "menu", "menu_click", "dialog_list", "file_dialog_select", "instances",
+      "click", "click", "click", "menu_click", "dialog_list", "file_dialog_select", "instances",
     ]);
     assert.equal(result.created, true);
     assert.equal(result.caseRef, TARGET);
@@ -329,7 +366,10 @@ try {
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(dialogReads, 2);
-    assert.equal(calls.find((entry) => entry.operation === "menu_click").args.waitMs, 100);
+    const atomic = calls.find((entry) => entry.operation === "menu_click");
+    assert.deepEqual(atomic.args.__caseCreateSaveDialog,
+      { kind: "case-create", expectedPage: MASTER_PAGE, expectedDialogTitle: SAVE_TITLE });
+    assert(atomic.timeoutMs <= 20_000); assert.equal(calls.filter(entry => entry.operation === "menu").length, 0);
     assert.equal(closes(calls).length, 0);
     resetTarget();
   }
@@ -417,16 +457,17 @@ try {
   {
     // 7 Menueeintrag gesperrt.
     const { worker, calls } = scriptedWorker({
-      menu: () => ({ ok: true, menue: "Datei", anzahl: 1, eintraege: [{ name: SAVE_ENTRY, aktiv: true, gesperrt: true }] }),
+      menu_click: () => ({ ok: false, kind: "blocked", error: "Synthetic blocked save entry.", mutationStarted: false, outcomeUnknown: false }),
     });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
-    assert.equal(result.kind, "menu-entry");
+    assert.equal(result.kind, "blocked");
     assert.equal(closes(calls).length, 1);
-    assert(!operationsOf(calls).includes("menu_click"));
+    assert.equal(calls.filter(entry => entry.operation === "menu_click").length, 1);
+    assert.equal(calls.filter(entry => entry.operation === "file_dialog_select").length, 0);
   }
 
   {
-    // 8 Kein passender nativer Dialog: Menue schliessen, dann Cleanup.
+    // 8 Ein bestaetigter Speicherdialog verschwindet: erhalten, keine Folgeeingabe.
     const { worker, calls } = scriptedWorker({ dialog_list: () => ({ ok: true, count: 0, dialogs: [], windows: [] }) });
     let clock = 0;
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
@@ -436,8 +477,9 @@ try {
     });
     assert.equal(result.kind, "save-dialog");
     assert(clock >= 5_000);
-    const tail = operationsOf(calls).slice(-4);
-    assert.deepEqual(tail, ["dialog_list", "menu_close", "close", "product_info"]);
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
   }
 
   {

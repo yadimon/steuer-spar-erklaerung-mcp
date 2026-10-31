@@ -12084,7 +12084,7 @@ function Read-SSEMenuTree([IntPtr]$MainHwnd, [int]$TargetPid) {
 }
 
 function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string]$EntryName) {
-  $matches = New-Object System.Collections.ArrayList
+  $entryMatches = New-Object System.Collections.ArrayList
   $seen = @{}
   $wantedLabel = ConvertTo-MenuLabel $EntryName
   # Qt stellt dasselbe Popup teilweise sowohl ueber sein echtes Popupfenster als
@@ -12103,15 +12103,92 @@ function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string
     }
       foreach ($node in @($windowTree.nodes | Where-Object {
         $_.type -eq 'MenuItem' -and $_.name -and
-        ($_.name -eq $EntryName -or (ConvertTo-MenuLabel $_.name) -eq $wantedLabel)
+        (-not $EntryName -or $_.name -eq $EntryName -or (ConvertTo-MenuLabel $_.name) -eq $wantedLabel)
       })) {
         $key = "$(ConvertTo-MenuLabel $node.name)|$($node.rid)"
         if ($seen.ContainsKey($key)) { continue }
         $seen[$key] = $true
-        $null = $matches.Add([pscustomobject]@{ hwnd = [IntPtr][int64]$window.hwnd; node = $node })
+        $null = $entryMatches.Add([pscustomobject]@{ hwnd = [IntPtr][int64]$window.hwnd; node = $node })
       }
   }
-  @($matches)
+  @($entryMatches)
+}
+
+function Open-SSESaveAsDialog([IntPtr]$MainHwnd, [int]$TargetPid) {
+  if ($script:DESKTOP_NAME) { Fail 'Speichern unter braucht den sichtbaren Desktop.' 'hidden-desktop' }
+  $existingPeers = @(Get-Windows 'SSE' | Where-Object {
+    [int]$_.pid -eq $TargetPid -and [int64]$_.hwnd -ne [int64]$MainHwnd -and $_.cls -notmatch 'PopupDropShadow|SysShadow'
+  })
+  if ($existingPeers.Count) {
+    Fail 'Vor dem Menueweg ist ein weiteres eigenes Fenster offen; Zustand erhalten.' 'precondition-failed' ([pscustomobject]@{
+      mutationStarted=$false; inputDispatched=$false; outcomeUnknown=$false
+      processPreserved=$true; reconciliationRequired=$true; retryable=$false
+    })
+  }
+  # ExpandCollapse allein ist hinter einem anderen aktiven Programm nicht
+  # verlaesslich. Popup oeffnen, exakt klicken und den nativen Dialog bestaetigen,
+  # bevor Emit die gemeinsame Foreground-Lease wieder freigibt.
+  if (-not (Show-SSEWindow $MainHwnd)) {
+    Fail 'Das gebundene Hauptfenster konnte fuer Speichern unter nicht aktiviert werden.' 'foreground-failed'
+  }
+  $null = Open-SSEMenuByName $MainHwnd 'Datei'
+  $saveMatches = @(Get-SSEOpenMenuEntryMatches $MainHwnd $TargetPid 'Speichern unter...')
+  if ($saveMatches.Count -ne 1) {
+    Fail "$($saveMatches.Count) Menueeintraege passen zu 'Speichern unter...'; nichts ausgeloest." $(if ($saveMatches.Count) { 'ambiguous' } else { 'not-found' })
+  }
+  $match = $saveMatches[0]
+  if (-not $match.node.on) { Fail "Menueeintrag 'Speichern unter...' ist nicht aktiv." 'precondition-failed' }
+  try { $null = Click-VerifiedPoint $match.hwnd $match.node -ThrowOnFailure }
+  catch {
+    $dispatched = $null
+    if ($_.Exception.Data['inputDispatched'] -is [bool]) { $dispatched = $_.Exception.Data['inputDispatched'] }
+    $clickKind = $(if ($_.Exception.Data['kind']) { [string]$_.Exception.Data['kind'] } else { 'worker' })
+    Fail $_.Exception.Message $clickKind ([pscustomobject]@{
+      mutationStarted=($dispatched -ne $false); inputDispatched=$dispatched; outcomeUnknown=($dispatched -ne $false)
+      processPreserved=$true; reconciliationRequired=$true; retryable=$false
+    })
+  }
+  # Der Klick wird niemals wiederholt. Ein fehlender oder mehrdeutiger Dialog
+  # nach diesem Punkt braucht Zustandsabgleich statt einer weiteren Eingabe.
+  $uncertain = [pscustomobject]@{ mutationStarted=$true; inputDispatched=$true; outcomeUnknown=$true
+    processPreserved=$true; reconciliationRequired=$true; retryable=$false }
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    $dialogs = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $TargetPid -and [int64]$_.hwnd -ne [int64]$MainHwnd -and
+      $_.cls -eq '#32770' -and $_.title -match 'Speichern|Save'
+    })
+    if ($dialogs.Count -gt 1) { Fail "$($dialogs.Count) Speichern-unter-Dialoge gefunden; nichts bedient." 'ambiguous' $uncertain }
+    if ($dialogs.Count -eq 1) { return $dialogs[0] }
+    $remaining = 5000 - $wait.ElapsedMilliseconds
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(100, $remaining))
+  } while ($true)
+  Fail 'Nach dem verifizierten Menueweg wurde kein Speichern-unter-Dialog bestaetigt.' 'dialog-not-found' $uncertain
+}
+
+function Open-SSECaseCreateSaveDialog($MainWindow, $Request) {
+  if (-not ($Request -is [Collections.IDictionary] -or $Request -is [pscustomobject]) -or
+      [string]$Request.kind -cne 'case-create' -or
+      -not ($Request.expectedPage -is [string]) -or -not $Request.expectedPage -or
+      -not ($Request.expectedDialogTitle -is [string]) -or -not $Request.expectedDialogTitle) {
+    Fail 'Interner Fallanlage-Speicherdialogvertrag ist unvollstaendig.' 'bad-args'
+  }
+  $hwnd = [IntPtr][int64]$MainWindow.hwnd
+  if (-not ($MainWindow.minimiert -is [bool]) -or $MainWindow.minimiert -or
+      (Get-CurrentHeading $hwnd) -cne [string]$Request.expectedPage -or
+      (Get-CasePathFromTitle ([string]$MainWindow.title))) {
+    Fail 'Der neue dateilose Fall ist nicht mehr auf der gebundenen Assistentenseite; Zustand erhalten.' 'interference' ([pscustomobject]@{
+      mutationStarted=$false; outcomeUnknown=$false; processPreserved=$true; reconciliationRequired=$true; retryable=$false
+    })
+  }
+  $dialog = Open-SSESaveAsDialog $hwnd ([int]$MainWindow.pid)
+  if ([string]$dialog.title -cne [string]$Request.expectedDialogTitle) {
+    Fail 'Der geoeffnete Speicherdialog entspricht nicht dem Fallanlagevertrag; Zustand erhalten.' 'postcondition-failed' ([pscustomobject]@{
+      mutationStarted=$true; inputDispatched=$true; outcomeUnknown=$true; processPreserved=$true; reconciliationRequired=$true; retryable=$false
+    })
+  }
+  $dialog
 }
 
 function Resolve-SSEDialogFieldHandle([IntPtr]$DialogHwnd, $Field) {
@@ -16815,36 +16892,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (-not $sourceBinding.ok) {
       Fail "Fensterpfad stimmt nicht mit '$sourcePath' ueberein." 'precondition-failed'
     }
-    # Qt oeffnet das Datei-Menue hinter einem anderen aktiven Programm nicht
-    # verlaesslich per ExpandCollapse. Erst nach Pfad- und Hashpruefung das
-    # gebundene Fenster ueber die bestehende Foreground-Lease aktivieren.
-    if (-not (Show-SSEWindow $hwnd)) {
-      Fail 'Das gebundene Hauptfenster konnte fuer Speichern unter nicht aktiviert werden.' 'foreground-failed'
-    }
-    $null = Open-SSEMenuByName $hwnd 'Datei'
-    $saveAsMatches = @(Get-SSEOpenMenuEntryMatches $hwnd $targetPid 'Speichern unter...')
-    if ($saveAsMatches.Count -ne 1) {
-      Fail "$($saveAsMatches.Count) Menueeintraege passen zu 'Speichern unter...'; nichts ausgeloest." $(if ($saveAsMatches.Count) { 'ambiguous' } else { 'not-found' })
-    }
-    $saveAsMatch = $saveAsMatches[0]
-    if (-not $saveAsMatch.node.on) { Fail "Menueeintrag 'Speichern unter...' ist nicht aktiv." 'precondition-failed' }
-    $null = Click-VerifiedPoint $saveAsMatch.hwnd $saveAsMatch.node
-
-    # Der native Dialog wird nach dem einmaligen, verifizierten Menueklick nur
-    # neu erfasst. Kein zweiter Klick und kein Tastenkürzel dürfen ein Rennen
-    # mit einem verspäteten Dialog erzeugen.
-    $dialogWait = [Diagnostics.Stopwatch]::StartNew()
-    $dialog = $null
-    while ($dialogWait.ElapsedMilliseconds -lt 5000) {
-      $dialogs = @(Get-Windows 'SSE' | Where-Object {
-        [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -ne [int64]$hwnd -and
-        $_.cls -eq '#32770' -and $_.title -match 'Speichern|Save'
-      } | Sort-Object { $_.w * $_.h } -Descending)
-      if ($dialogs.Count -gt 1) { Fail "$($dialogs.Count) Speichern-unter-Dialoge gefunden; nichts bedient." 'ambiguous' }
-      if ($dialogs.Count -eq 1) { $dialog = $dialogs[0]; break }
-      Start-Sleep -Milliseconds 100
-    }
-    if (-not $dialog) { Fail "Nach dem verifizierten Menueweg wurde kein Speichern-unter-Dialog gefunden." 'dialog-not-found' }
+    $dialog = Open-SSESaveAsDialog $hwnd $targetPid
     $dialogHwnd = [IntPtr][int64]$dialog.hwnd
     $dialogTree = Walk-Tree $dialogHwnd 1500 -WithValues
     $fileHosts = @($dialogTree.nodes | Where-Object { $_.aid -eq 'FileNameControlHost' -and $_.name -eq 'Dateiname:' })
@@ -24201,29 +24249,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         hinweis = "Mit name='Datei' oeffnen und die Eintraege lesen." })
     }
     if (Test-Versand $wunsch) { Fail "GESPERRT: Menue '$wunsch'." 'blocked' }
-    $m = Open-SSEMenuByName $hwnd $wunsch
-
-    # Die aufgeklappten Eintraege liegen in einem eigenen Popupfenster.
+    $null = Open-SSEMenuByName $hwnd $wunsch
+    # Inventar und Klick verwenden dieselben vollstaendig gelesenen Popups.
+    # Ein virtueller Eintrag im Hauptbaum beweist kein klickbares Menue.
     $eintraege = New-Object System.Collections.ArrayList
-    foreach ($w in @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })) {
-      if ([int64]$w.hwnd -eq [int64]$hwnd) { continue }
-      try {
-        $tw = Walk-Tree ([IntPtr][int64]$w.hwnd) 400 10
-        foreach ($n in ($tw.nodes | Where-Object { $_.type -eq 'MenuItem' -and $_.name })) {
-          $null = $eintraege.Add([pscustomobject]@{
-            name = $n.name; aktiv = $n.on; gesperrt = [bool](Test-Versand $n.name)
-            destruktiv = [bool](Test-SSEDestructiveAction $n.name); hwnd = $w.hwnd; rid = $n.rid })
-        }
-      } catch { }
-    }
-    # Fallback: manche Qt-Menues haengen im Hauptfenster
-    if (-not $eintraege.Count) {
-      $t2 = Walk-Tree $hwnd 1500
-      foreach ($n in ($t2.nodes | Where-Object { $_.type -eq 'MenuItem' -and $_.name -and $_.y -gt ($m.y + 20) })) {
-        $null = $eintraege.Add([pscustomobject]@{
-          name = $n.name; aktiv = $n.on; gesperrt = [bool](Test-Versand $n.name)
-          destruktiv = [bool](Test-SSEDestructiveAction $n.name); hwnd = [int64]$hwnd; rid = $n.rid })
-      }
+    foreach ($match in @(Get-SSEOpenMenuEntryMatches $hwnd $targetPid '')) {
+      $n = $match.node
+      $null = $eintraege.Add([pscustomobject]@{
+        name = $n.name; aktiv = $n.on; gesperrt = [bool](Test-Versand $n.name)
+        destruktiv = [bool](Test-SSEDestructiveAction $n.name); hwnd = [int64]$match.hwnd; rid = $n.rid })
     }
     Emit ([pscustomobject]@{ ok = $true; menue = $wunsch; anzahl = $eintraege.Count; eintraege = @($eintraege)
       hinweis = 'Mit sse_menu_click name="<Eintrag>" ausloesen. Zum sicheren Schliessen sse_menu_close verwenden.' })
@@ -24235,9 +24269,24 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 1500 100 10000
     if (Test-Versand $eintrag) { Fail "GESPERRT: '$eintrag' fuehrt zu einer Uebermittlung." 'blocked' }
     Assert-SSEDestructiveAcknowledgement $a @($eintrag)
-    $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
+    $caseCreateSaveDialog = Arg $a '__caseCreateSaveDialog'
+    $mainWindow = if ($null -ne $caseCreateSaveDialog) { Resolve-SSEMainWindowDescriptor $a }
+      else { Resolve-SSEMainWindowDescriptor $a -RestoreMinimized }
     $targetPid = [int]$mainWindow.pid
     $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
+    if ($null -ne $caseCreateSaveDialog) {
+      if ((ConvertTo-MenuLabel $eintrag) -cne (ConvertTo-MenuLabel 'Speichern unter...')) {
+        Fail 'Interner Fallanlagevertrag erlaubt ausschliesslich Speichern unter.' 'bad-args'
+      }
+      $dialog = Open-SSECaseCreateSaveDialog $mainWindow $caseCreateSaveDialog
+      Emit ([pscustomobject]@{
+        ok=$true; ausgeloest=$eintrag; angefordert=$eintrag; method='verified-point'; fenster=(@(Get-Windows 'SSE')).Count
+        saveDialogOpened=$true; dialogTitle=[string]$dialog.title
+      })
+    }
+    if (@(Get-SSEMenuPopupWindows $targetPid).Count -eq 0) {
+      Fail 'Kein Menue-Popup offen; sse_menu frisch aufrufen.' 'precondition-failed'
+    }
     $gefunden = @(Get-SSEOpenMenuEntryMatches $mainHwnd $targetPid $eintrag)
     if (-not $gefunden.Count) { Fail "Menueeintrag '$eintrag' nicht gefunden. Vorher sse_menu aufrufen." 'not-found' }
     if ($gefunden.Count -ne 1) { Fail "$($gefunden.Count) Menueeintraege passen zu '$eintrag'; nichts ausgeloest." 'ambiguous' }

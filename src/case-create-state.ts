@@ -1,5 +1,6 @@
 /** Reine Assistenten- und Fehlerzustände der Fallanlage; keine Produktaktionen. */
 import type { WorkerResult } from "./api-contract.js";
+import { executionError } from "./executor-errors.js";
 
 export interface CaseCreateWizard {
   startHeading: RegExp;
@@ -41,6 +42,19 @@ export function mustPreserveFailedCase(error: unknown): boolean {
   const result = error.result;
   return result.processPreserved === true || result.outcomeUnknown === true
     || result.reconciliationRequired === true || result.kind === "interference";
+}
+
+export function preserveCaseCreateSaveDialogFailure(error: unknown, failedStep: string): StepFailure {
+  const failure = error instanceof StepFailure ? error.result : executionError("menu_click", error);
+  return new StepFailure({ ...failure, failedStep: failure.failedStep ?? failedStep, processPreserved: true, outcomeUnknown: true,
+    reconciliationRequired: true, retryable: false });
+}
+
+export function assertCaseCreateSaveDialog(opened: WorkerResult, expectedTitle: string): void {
+  if (opened.saveDialogOpened === true && opened.dialogTitle === expectedTitle
+    && !mustPreserveFailedCase(new StepFailure(opened)) && opened.cleanupRequired !== true) return;
+  throw preserveCaseCreateSaveDialogFailure(new StepFailure({ ok: false, kind: "postcondition-failed",
+    error: "Der Worker bestaetigt den gebundenen Fallanlage-Speicherdialog nicht; Zustand frisch abgleichen." }), "menu_click");
 }
 
 export function isStartupUiaRootFailure(result: WorkerResult, pid: number, hwnd: number): boolean {

@@ -1163,7 +1163,7 @@ trotzdem übergebenes `expectedPage` wird gegen die Lesung gehalten.
 `case_create` komponiert in der API den Startassistenten eines neuen Falls:
 `launch` ohne Datei, `instances` und bei fehlendem Produktfenster `dialog_list`
 der gestarteten PID, anschließend `ui_state` bis zur Startseite, `subpages` und
-`click` bis zur ersten Stammdatenseite, `menu`/`menu_click` „Speichern
+`click` bis zur ersten Stammdatenseite, einen intern gebundenen Menüweg „Speichern
 unter…“, `dialog_list` und `file_dialog_select` im Modus `save-new` sowie den
 `instances`-Readback. Vor dem Speichern kann ein gewöhnlicher Fehler die exakt
 gestartete PID ohne Speichern beenden. Unbekannte Ausgänge, erforderlicher
@@ -1176,6 +1176,19 @@ einem solchen Fehler keine weitere Eingabe. Nach dem Speichern wird nie gelösch
 Eine zulässige Menübereinigung hält dasselbe Zeitbudget und Abbruchsignal ein.
 Bleibt ihr Ergebnis unbestätigt, wird der Fall ebenfalls erhalten; der
 ursprüngliche Fehler bleibt bestehen und `cleanup` beschreibt die Menübereinigung.
+Der interne Menüweg prüft die Stammdatenseite und den dateilosen Fall frisch.
+Ein minimierter Fall wird dafür nicht automatisch wiederhergestellt; ein
+bereits offenes zusätzliches eigenes Fenster stoppt den Weg vor der
+Fokusübernahme. Das umfasst native und Qt-Dialoge; Menü-Popups werden gesondert geprüft.
+Er aktiviert das gebundene Hauptfenster, öffnet „Datei“, wählt genau einen
+aktiven Eintrag und bestätigt den Speicherdialog innerhalb derselben
+Vordergrundbindung. Der Menüpunkt wird einmal ausgelöst. Fehlt danach der
+Dialognachweis oder geht eine folgende Dialoglesung verloren, bleibt der
+Prozess für den Zustandsabgleich erhalten. Die private Bindung ist kein
+öffentliches Argument von `menu_click`.
+`menu` und `menu_click` verwenden dieselbe Suche in den eigenen Menü-Popups.
+Ein virtueller Menüeintrag im Hauptbaum oder ein unvollständig gelesener
+Popup-Baum beweist keinen auswählbaren Eintrag.
 Die Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,
 ein neues Ziel mit modusgerechter Endung und ist auf live verifizierte
 Startmodi begrenzt. Kann der Worker nach dem Speichern keinen Dateihash

@@ -58,6 +58,12 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   eigene Hauptfensterbindung beweist keinen leeren Startzustand. Die gewöhnliche
   Bereinigung bekannter Fehler vor dem Speichern bleibt nach bestätigter
   Startseite möglich.
+  Der kurzlebige Speichern-unter-Menüweg der Fallanlage bleibt bis zur
+  Bestätigung des nativen Dialogs in einer Vordergrundbindung. Eine frisch
+  geprüfte Seite und ein dateiloser Fall sind Pflicht; der Menüpunkt wird
+  einmal ausgelöst. Fehlende Dialogbelege erhalten den Prozess. Menüinventar
+  und Auswahl prüfen dieselben eigenen Popup-Fenster und lehnen unvollständige
+  Bäume ab.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.

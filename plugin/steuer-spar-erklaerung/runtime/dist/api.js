@@ -24270,6 +24270,25 @@ function mustPreserveFailedCase(error62) {
   const result = error62.result;
   return result.processPreserved === true || result.outcomeUnknown === true || result.reconciliationRequired === true || result.kind === "interference";
 }
+function preserveCaseCreateSaveDialogFailure(error62, failedStep2) {
+  const failure7 = error62 instanceof StepFailure ? error62.result : executionError("menu_click", error62);
+  return new StepFailure({
+    ...failure7,
+    failedStep: failure7.failedStep ?? failedStep2,
+    processPreserved: true,
+    outcomeUnknown: true,
+    reconciliationRequired: true,
+    retryable: false
+  });
+}
+function assertCaseCreateSaveDialog(opened, expectedTitle) {
+  if (opened.saveDialogOpened === true && opened.dialogTitle === expectedTitle && !mustPreserveFailedCase(new StepFailure(opened)) && opened.cleanupRequired !== true) return;
+  throw preserveCaseCreateSaveDialogFailure(new StepFailure({
+    ok: false,
+    kind: "postcondition-failed",
+    error: "Der Worker bestaetigt den gebundenen Fallanlage-Speicherdialog nicht; Zustand frisch abgleichen."
+  }), "menu_click");
+}
 function isStartupUiaRootFailure(result, pid2, hwnd) {
   return result.ok === false && result.backend === void 0 && result.kind === "uia-root-unavailable" && result.operation === "ui_state" && result.phase === "snapshot-root" && result.mutationStarted === false && result.outcomeUnknown === false && result.windowStateChanged === false && result.windowAlive === true && result.windowSetMainOnly === true && result.pid === pid2 && result.hwnd === hwnd;
 }
@@ -24306,6 +24325,7 @@ var CASE_CREATE_WIZARDS, StepFailure;
 var init_case_create_state = __esm({
   "src/case-create-state.ts"() {
     "use strict";
+    init_executor_errors();
     CASE_CREATE_WIZARDS = Object.freeze({
       einurvor: {
         startHeading: /^Gewinn-Erfassung für das Jahr (\d{4})$/u,
@@ -24450,7 +24470,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     let waitingForCaseWindow = false;
     for (; ; ) {
       const bound2 = await step("instances", {});
-      const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid2);
+      const instance = asArray(bound2.instances).find((entry) => Number(entry.pid) === pid2);
       if (instance && (instance.recoveredState === true || instance.hung === true)) {
         throw new StepFailure({
           ok: false,
@@ -24590,7 +24610,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       await wait(START_PAGE_POLL_MS);
     }
     const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
-    const begin = asArray(subpages.unterseiten).filter((entry2) => String(entry2.schalter ?? "") === wizard.beginLink && entry2.typ === "Hyperlink" && entry2.aktiviert === true);
+    const begin = asArray(subpages.unterseiten).filter((entry) => String(entry.schalter ?? "") === wizard.beginLink && entry.typ === "Hyperlink" && entry.aktiviert === true);
     if (begin.length !== 1) fail("wizard-page", `Der Startlink '${wizard.beginLink}' ist auf '${startHeading}' nicht eindeutig aktiv gebunden.`);
     const began = await step("click", {
       name: wizard.beginLink,
@@ -24614,13 +24634,19 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (String(master.ueberschriftNachher ?? "") !== wizard.masterDataHeading) {
       fail("wizard-page", `Nach '${wizard.nextButton}' steht '${String(master.ueberschriftNachher ?? "")}' statt '${wizard.masterDataHeading}'.`);
     }
-    const menu = await step("menu", { name: wizard.saveMenu, hwnd });
-    const entry = asArray(menu.eintraege).find((candidate) => String(candidate.name ?? "") === wizard.saveMenuEntry);
-    if (!entry || entry.gesperrt === true || entry.aktiv === false) {
-      fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
-    }
+    let saveDialogOpened = false;
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      const opened = await step("menu_click", {
+        name: wizard.saveMenuEntry,
+        hwnd,
+        __caseCreateSaveDialog: {
+          kind: "case-create",
+          expectedPage: wizard.masterDataHeading,
+          expectedDialogTitle: wizard.saveDialogTitle
+        }
+      }, 2e4, dependencies.worker);
+      assertCaseCreateSaveDialog(opened, wizard.saveDialogTitle);
+      saveDialogOpened = true;
       const dialogDeadline = Math.min(deadline, now() + 5e3);
       for (; ; ) {
         const dialogs = await step("dialog_list", { pid: pid2 });
@@ -24632,12 +24658,15 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         await wait(100);
       }
     } catch (error62) {
+      if (saveDialogOpened || !(error62 instanceof StepFailure)) {
+        throw preserveCaseCreateSaveDialogFailure(error62, activeStep ?? "save-dialog");
+      }
       if (!mustPreserveFailedCase(error62)) {
         try {
           const closed = await step("menu_close", { hwnd }, MIN_STEP_MS * 5);
           if (mustPreserveFailedCase(new StepFailure(closed))) throw new StepFailure(closed);
         } catch (cleanupError) {
-          const primary = error62 instanceof StepFailure ? error62.result : operationError(error62 instanceof Error ? error62.message : String(error62), "case-create");
+          const primary = error62.result;
           const cleanup = cleanupError instanceof StepFailure ? cleanupError.result : operationError(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "menu-cleanup");
           const cleanupUnknown = cleanup.outcomeUnknown === true || !(cleanupError instanceof StepFailure) && activeStep !== void 0;
           throw new StepFailure({
@@ -24666,7 +24695,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     let bound;
     for (; ; ) {
       const readback = await step("instances", { includeHash: true });
-      bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid2);
+      bound = asArray(readback.instances).find((entry) => Number(entry.pid) === pid2);
       if (bound?.recoveredState === true) {
         fail("postcondition-failed", "Der gespeicherte Fall wurde als Wiederherstellung statt als regulaeres Fallfenster erkannt.");
       }

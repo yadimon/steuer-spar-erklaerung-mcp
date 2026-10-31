@@ -2,8 +2,8 @@
  * case_create: einen neuen Steuerfall ueber den echten Startassistenten
  * anlegen und sofort unter der gewuenschten Falldatei speichern.
  *
- * Die Komposition benutzt ausschliesslich bereits veroeffentlichte, einzeln
- * verifizierte Operationen ueber den verschachtelten API-Executor. Jeder
+ * Die Komposition benutzt vorhandene Operationen; der kurzlebige Menueweg
+ * bleibt in einem privaten Worker-Aufruf. Jeder
  * Schritt hat eine harte Vor- und Nachbedingung; scheitert ein Schritt vor
  * dem Speichern, wird die exakt gestartete PID ohne Speichern beendet, sofern
  * kein ungewisser Ausgang, fremder Eingabekontext oder ungepruefter
@@ -23,9 +23,11 @@ import {
 import { operationError } from "./executor-errors.js";
 import {
   CASE_CREATE_WIZARDS,
+  assertCaseCreateSaveDialog,
   getStartupDialogFailure,
   isStartupUiaRootFailure,
   mustPreserveFailedCase,
+  preserveCaseCreateSaveDialogFailure,
   StepFailure,
   type CaseCreateWizard,
 } from "./case-create-state.js";
@@ -42,7 +44,7 @@ export interface CaseCreateTarget {
 export interface CaseCreateDependencies {
   /** Verschachtelter API-Executor mit Schema-, Ressourcen- und Profilpruefung. */
   execute: NestedApiExecutor;
-  /** Roher Worker nur fuer das Cleanup der exakt gestartetenPID. */
+  /** Worker fuer gebundene interne Schritte und das eigene PID-Cleanup. */
   worker: ScenarioExecutor;
   resolveTarget: (args: Record<string, unknown>) => CaseCreateTarget;
   profile: Pick<ProductProfile, "taxYear" | "startModes" | "additionalCaseYears">;
@@ -312,15 +314,15 @@ export async function executeCaseCreate(
       fail("wizard-page", `Nach '${wizard.nextButton}' steht '${String(master.ueberschriftNachher ?? "")}' statt '${wizard.masterDataHeading}'.`);
     }
 
-    // Mit name liefert der Worker die Eintraege des einen geoeffneten Menues flach.
-    const menu = await step("menu", { name: wizard.saveMenu, hwnd });
-    const entry = asArray<Record<string, unknown>>(menu.eintraege)
-      .find((candidate) => String(candidate.name ?? "") === wizard.saveMenuEntry);
-    if (!entry || entry.gesperrt === true || entry.aktiv === false) {
-      fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
-    }
+    let saveDialogOpened = false;
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      // Qt-Popups koennen beim Fokuswechsel zwischen Arbeitern verschwinden.
+      // Der private Worker-Aufruf verbraucht das Popup vor der Lease-Freigabe.
+      const opened = await step("menu_click", { name: wizard.saveMenuEntry, hwnd,
+        __caseCreateSaveDialog: { kind: "case-create", expectedPage: wizard.masterDataHeading,
+          expectedDialogTitle: wizard.saveDialogTitle } }, 20_000, dependencies.worker);
+      assertCaseCreateSaveDialog(opened, wizard.saveDialogTitle);
+      saveDialogOpened = true;
       const dialogDeadline = Math.min(deadline, now() + 5_000);
       for (;;) {
         const dialogs = await step("dialog_list", { pid });
@@ -333,6 +335,9 @@ export async function executeCaseCreate(
         await wait(100);
       }
     } catch (error) {
+      if (saveDialogOpened || !(error instanceof StepFailure)) {
+        throw preserveCaseCreateSaveDialogFailure(error, activeStep ?? "save-dialog");
+      }
       // Nach unbekannter Aktion oder fremder Eingabe beginnt auch keine
       // vermeintlich harmlose Menuebereinigung mit einer neuen Eingabe.
       if (!mustPreserveFailedCase(error)) {
@@ -340,8 +345,7 @@ export async function executeCaseCreate(
           const closed = await step("menu_close", { hwnd }, MIN_STEP_MS * 5);
           if (mustPreserveFailedCase(new StepFailure(closed))) throw new StepFailure(closed);
         } catch (cleanupError) {
-          const primary = error instanceof StepFailure ? error.result
-            : operationError(error instanceof Error ? error.message : String(error), "case-create");
+          const primary = error.result;
           const cleanup = cleanupError instanceof StepFailure ? cleanupError.result
             : operationError(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "menu-cleanup");
           const cleanupUnknown = cleanup.outcomeUnknown === true || (!(cleanupError instanceof StepFailure) && activeStep !== undefined);
