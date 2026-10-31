@@ -199,7 +199,14 @@ function emittedResultObjects(body) {
       continue;
     }
     const openingBrace = assignment.index + assignment[0].length - 1;
-    results.push(readOuterPowerShellObject(body, openingBrace));
+    const result = readOuterPowerShellObject(body, openingBrace);
+    const emittedSource = body.slice(assignment.index,
+      emittedVariable.index + `Emit $${emittedVariable[1]}`.length);
+    for (const addition of parsedEmittedVariableAdditions(emittedSource)) {
+      result.fields.add(addition.field);
+      result.source += `\n${addition.field}=${addition.value}`;
+    }
+    results.push(result);
   }
   for (const emittedCall of body.matchAll(/^\s*Emit\s+\((Invoke-SSEWindowCloseTransaction)\s+\$a\)\s*$/gmu)) {
     assertLoadedWorkerHelper("windowCloseHelpers", "window-close.ps1");
@@ -282,15 +289,79 @@ function emittedWorkerHelperObjects(body, variable, source) {
 /** Parse source only: never dot-source or execute production helper functions. */
 function inspectPowerShellHelperObjects(entries) {
   const program = String.raw`
+param($entries)
 $ErrorActionPreference='Stop'
-[Console]::InputEncoding=New-Object Text.UTF8Encoding($false)
-[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
-$entries=@(([Console]::In.ReadToEnd() | ConvertFrom-Json))
 $results=@(foreach($entry in $entries) {
   try {
     $errors=$null
     $tree=[Management.Automation.Language.Parser]::ParseInput([string]$entry.source,[ref]$null,[ref]$errors)
     if($errors.Count){throw 'Helper source has parse errors.'}
+    if($entry.mode -ceq 'emitted-additions') {
+      $emits=@($tree.FindAll({param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ieq 'Emit' -and
+        $node.CommandElements.Count -eq 2 -and $node.CommandElements[1] -is [Management.Automation.Language.VariableExpressionAst]
+      },$true))
+      $proofs=@(foreach($emit in $emits) {
+        $variable=$emit.CommandElements[1].VariablePath.UserPath
+        if($variable.Contains(':')){continue}
+        $owner=$emit.Parent
+        while($owner -and $owner -isnot [Management.Automation.Language.ScriptBlockAst]){$owner=$owner.Parent}
+        $assignments=@($owner.FindAll({param($node)
+          $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+          $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+          ($node.Left.VariablePath.UserPath -split ':')[-1] -ieq $variable
+        },$true)|Where-Object{
+          $scope=$_.Parent;while($scope -and $scope -isnot [Management.Automation.Language.ScriptBlockAst]){$scope=$scope.Parent}
+          $scope -eq $owner -and $_.Extent.StartOffset -lt $emit.Extent.StartOffset
+        })
+        $initializers=@($assignments|Where-Object{
+          $ancestor=$emit.Parent;$dominates=$false
+          while($ancestor -and $ancestor -ne $owner){if($ancestor -eq $_.Parent){$dominates=$true;break};$ancestor=$ancestor.Parent}
+          $dominates -and $_.Operator -eq 'Equals' -and
+          $_.Right -is [Management.Automation.Language.CommandExpressionAst] -and
+          $_.Right.Expression -is [Management.Automation.Language.ConvertExpressionAst] -and
+          $_.Right.Expression.Type.TypeName.FullName -ieq 'pscustomobject' -and
+          $_.Right.Expression.Child -is [Management.Automation.Language.HashtableAst]
+        })
+        if($initializers.Count -ne 1){continue}
+        $initializer=$initializers[0]
+        if(@($assignments|Where-Object{$_.Extent.StartOffset -ge $initializer.Extent.StartOffset}).Count -ne 1){continue}
+        $priorEmits=@($emits|Where-Object{
+          $prior=$_;$ancestor=$emit.Parent;$dominates=$false
+          while($ancestor -and $ancestor -ne $owner){if($ancestor -eq $prior.Parent.Parent){$dominates=$true;break};$ancestor=$ancestor.Parent}
+          $dominates -and $prior.Extent.StartOffset -gt $initializer.Extent.EndOffset -and
+          $prior.Extent.StartOffset -lt $emit.Extent.StartOffset
+        })
+        if($priorEmits.Count){continue}
+        $additions=@(foreach($pipeline in @($owner.FindAll({param($node)
+          $node -is [Management.Automation.Language.PipelineAst] -and $node.PipelineElements.Count -eq 2
+        },$true))) {
+          if($pipeline.Extent.StartOffset -le $initializer.Extent.EndOffset -or $pipeline.Extent.EndOffset -ge $emit.Extent.StartOffset){continue}
+          $scope=$pipeline.Parent;$nested=$false
+          while($scope -and $scope -isnot [Management.Automation.Language.ScriptBlockAst]){
+            if($scope -is [Management.Automation.Language.HashtableAst] -or $scope -is [Management.Automation.Language.AssignmentStatementAst]){$nested=$true}
+            $scope=$scope.Parent
+          }
+          if($scope -ne $owner -or $nested){continue}
+          $receiver=$pipeline.PipelineElements[0];$command=$pipeline.PipelineElements[1]
+          if($receiver -isnot [Management.Automation.Language.CommandExpressionAst] -or
+             $receiver.Expression -isnot [Management.Automation.Language.VariableExpressionAst] -or
+             $receiver.Expression.VariablePath.UserPath -ine $variable -or
+             $command -isnot [Management.Automation.Language.CommandAst] -or $command.GetCommandName() -ine 'Add-Member'){continue}
+          $elements=$command.CommandElements
+          $names=@(for($i=1;$i -lt $elements.Count;$i++){if($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -ieq 'NotePropertyName'){$i}})
+          $values=@(for($i=1;$i -lt $elements.Count;$i++){if($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -ieq 'NotePropertyValue'){$i}})
+          if($names.Count -ne 1 -or $values.Count -ne 1 -or $elements[$names[0]].Argument -or $elements[$values[0]].Argument){continue}
+          $name=$elements[$names[0]+1];$value=$elements[$values[0]+1]
+          if($name -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $name.Value -cnotmatch '^[A-Za-z][A-Za-z0-9_]*$' -or
+             $null -eq $value -or $value -is [Management.Automation.Language.CommandParameterAst]){continue}
+          [pscustomobject]@{field=[string]$name.Value;value=$value.Extent.Text}
+        })
+        if($additions.Count){[pscustomobject]@{source=([string]$entry.source).Substring($initializer.Extent.StartOffset,$emit.Extent.EndOffset-$initializer.Extent.StartOffset);additions=@($additions)}}
+      })
+      [pscustomobject]@{objects=@();additions=@($proofs);error=$null}
+      continue
+    }
     $definitions=@($tree.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $entry.name},$true))
     if($definitions.Count -ne 1){throw 'Result helper definition must be unique.'}
     $definition=$definitions[0]
@@ -448,9 +519,20 @@ $results=@(foreach($entry in $entries) {
 })
 ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
 `;
+  // Keep the fixed inspector off Windows' bounded command line. Only this
+  // test program executes; every supplied production source goes to ParseInput.
+  const bootstrap = String.raw`
+$ErrorActionPreference='Stop'
+[Console]::InputEncoding=New-Object Text.UTF8Encoding($false)
+[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
+$inspectionRequest=[Console]::In.ReadToEnd() | ConvertFrom-Json
+& ([ScriptBlock]::Create([string]$inspectionRequest.program)) -entries @($inspectionRequest.entries)
+`;
   const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
-    Buffer.from(program, "utf16le").toString("base64")], {
-    input: JSON.stringify(entries), encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 2 * 1024 * 1024,
+    Buffer.from(bootstrap, "utf16le").toString("base64")], {
+    // PowerShell startup and AST walks share CPU with the parallel test suite.
+    // This bounded test deadline is independent of production operation budgets.
+    input: JSON.stringify({ program, entries }), encoding: "utf8", windowsHide: true, timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
   });
   assert.equal(result.error, undefined, "PowerShell result-source AST inspection failed.");
   assert.equal(result.status, 0, result.stderr);
@@ -463,6 +545,26 @@ const projectionFixture = "function ConvertTo-SSEGridTableProjection { [pscustom
 const closeFixture = "function Invoke-SSEWindowCloseTransaction { if($bad){return [pscustomobject]@{ok=$false;kind='bad';error='bad'}} return ([pscustomobject]@{ok=$true;closed=$true}) }";
 const delegateFixture = "function Invoke-Wrapper($Arguments) { try { Invoke-Producer $Arguments } finally { [void]0 } }";
 const mutableFixture = "function Invoke-Mutable { try { $result=[ordered]@{ok=$false;before='1'}; if($good){$result.ok=$true; return [pscustomobject]$result}; $result.kind='bad'; $result.error='bad'; return [pscustomobject]$result } catch { [pscustomobject]@{ok=$false;kind='bad';error='bad'} } }";
+const emittedAdditionFixture = "$result=[pscustomobject]@{ok=$false;kind='bad';error='bad';binding=[pscustomobject]@{nestedOnly=1}}\n";
+const emittedAdditionCases = [
+  { source: emittedAdditionFixture + "if($details){$result | Add-Member -NotePropertyName obstruction -NotePropertyValue $details.obstruction}\nEmit $result", fields: ["obstruction"] },
+  { source: emittedAdditionFixture + "$RESULT | Add-Member -NotePropertyName 'obstruction' -NotePropertyValue ([pscustomobject]@{nestedOnly=1})\nEmit $result", fields: ["obstruction"] },
+  ...[
+    "$other | Add-Member -NotePropertyName unrelated -NotePropertyValue 1\nEmit $result",
+    "$result.binding | Add-Member -NotePropertyName nested -NotePropertyValue 1\nEmit $result",
+    "# $result | Add-Member -NotePropertyName comment -NotePropertyValue 1\nEmit $result",
+    "<# $result | Add-Member -NotePropertyName blockComment -NotePropertyValue 1 #>\nEmit $result",
+    "'$result | Add-Member -NotePropertyName quoted -NotePropertyValue 1'\nEmit $result",
+    "$unused={$result | Add-Member -NotePropertyName unused -NotePropertyValue 1}\nEmit $result",
+    "function Unused {$result | Add-Member -NotePropertyName unused -NotePropertyValue 1}\nEmit $result",
+    "$result=Unknown-Producer\n$result | Add-Member -NotePropertyName rebound -NotePropertyValue 1\nEmit $result",
+    "$RESULT=Unknown-Producer\n$result | Add-Member -NotePropertyName rebound -NotePropertyValue 1\nEmit $result",
+    "$local:result=Unknown-Producer\n$result | Add-Member -NotePropertyName rebound -NotePropertyValue 1\nEmit $result",
+    "$result | Add-Member -NotePropertyName $dynamic -NotePropertyValue 1\nEmit $result",
+    "Emit $result\n$result | Add-Member -NotePropertyName late -NotePropertyValue 1",
+    "Emit $result\n$result | Add-Member -NotePropertyName late -NotePropertyValue 1\nEmit $result",
+  ].map(source => ({ source: emittedAdditionFixture + source, fields: [] })),
+];
 const inspectedHelperEntries = [
   { source: gridProjectionSource, name: "ConvertTo-SSEGridTableProjection", mode: "final" },
   { source: windowCloseSource, name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
@@ -501,7 +603,18 @@ const inspectedHelperEntries = [
     "function Invoke-Mutable { try { if($good){$result=[ordered]@{ok=$false;kind='bad';error='bad'}}; return [pscustomobject]$result } catch { [pscustomobject]@{ok=$false;kind='bad';error='bad'} } }",
   ].map(source => ({ source, name: "Invoke-Mutable", mode: "mutable-results" })),
 ];
-const inspectedHelpers = inspectPowerShellHelperObjects(inspectedHelperEntries);
+const emittedAdditionEntries = [workerSource, ...emittedAdditionCases.map(entry => entry.source)]
+  // ParseInput receives text, whereas ParseFile consumes the UTF-8 BOM itself.
+  .map(source => ({ source: source.replace(/^\uFEFF/u, ""), mode: "emitted-additions" }));
+const inspections = inspectPowerShellHelperObjects([...inspectedHelperEntries, ...emittedAdditionEntries]);
+const inspectedHelpers = inspections.slice(0, inspectedHelperEntries.length);
+const inspectedAdditions = inspections.slice(inspectedHelperEntries.length);
+function parsedEmittedVariableAdditions(source) {
+  return inspectedAdditions.flatMap((inspected, index) => {
+    assert.equal(inspected.error, null, `Emitted result AST source ${index}: ${inspected.error ?? ""}`);
+    return inspected.additions.filter(result => result.source === source).flatMap(result => result.additions);
+  });
+}
 function parsedPowerShellHelperObjects(source, name, mode) {
   const index = inspectedHelperEntries.findIndex(entry => entry.source === source && entry.name === name && entry.mode === mode);
   assert(index >= 0, "Uninspected external worker result helper.");
@@ -634,6 +747,11 @@ assert.deepEqual(
   ["ok", "value"],
   "Explizit aufgebaute und anschliessend emittierte Ergebnisobjekte muessen belegt bleiben.",
 );
+for (const fixture of emittedAdditionCases) {
+  assert.deepEqual([...emittedResultFields(fixture.source)].sort(),
+    ["binding", "error", "kind", "ok", ...fixture.fields].sort(),
+    "Nur echte Top-Level-Add-Member-Felder derselben emittierten Variable vor Emit zaehlen.");
+}
 const workerHelperFixture = "function Invoke-SSETableNativeCursorStep {\n  try {\n" +
   "    [pscustomobject]@{ok=$true;steps=1;binding=[pscustomobject]@{privateOnly=1}}\n  } catch {\n" +
   "    [pscustomobject]@{ok=$false;kind='failed';error='failed'}\n  }\n}";

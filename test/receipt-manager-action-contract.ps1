@@ -187,11 +187,21 @@ $menuBlock = $worker.Substring($menuStart, $menuEnd - $menuStart)
 $namedMenuIndex = $menuBlock.IndexOf("`$wunsch = [string](Arg `$a 'name')")
 $listOnlyIndex = $menuBlock.IndexOf('if (-not $wunsch) {')
 $listWalkIndex = $menuBlock.IndexOf('$t = Walk-Tree $hwnd 1200')
-$openNamedIndex = $menuBlock.IndexOf('$m = Open-SSEMenuByName $hwnd $wunsch')
+$openNamedCalls = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and
+    $node.Extent.StartOffset -ge $menuStart -and $node.Extent.EndOffset -le $menuEnd -and
+    $node.Extent.Text -ceq 'Open-SSEMenuByName $hwnd $wunsch'
+}, $true))
+Assert-True ($openNamedCalls.Count -eq 1) 'Der benannte Menuepfad muss genau einen gebundenen Oeffnungsaufruf enthalten.'
+$openNamedIndex = $openNamedCalls[0].Extent.StartOffset - $menuStart
 Assert-True ($namedMenuIndex -ge 0 -and $listOnlyIndex -gt $namedMenuIndex -and $listWalkIndex -gt $listOnlyIndex) `
   'Die Menuezeilen-Ermittlung ist nicht auf den namenlosen Listenmodus begrenzt.'
 Assert-True ($openNamedIndex -gt $listWalkIndex) `
   'Der benannte Menuepfad ist nicht eindeutig hinter dem optionalen Listenmodus gebunden.'
+$popupInventoryIndex = $menuBlock.IndexOf("Get-SSEOpenMenuEntryMatches `$hwnd `$targetPid ''")
+Assert-True ($popupInventoryIndex -gt $openNamedIndex) `
+  'Das benannte Menue muss nach dem Oeffnen dieselbe Popup-Suche wie menu_click verwenden.'
 Assert-True (([regex]::Matches($menuBlock, [regex]::Escape('$t = Walk-Tree $hwnd 1200'))).Count -eq 1) `
   'Der menu-Block enthaelt mehr als einen Menuezeilen-Walk.'
 

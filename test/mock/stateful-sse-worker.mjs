@@ -1671,6 +1671,22 @@ export function createStatefulSseWorker({
         if (entry.blocked) {
           return { ok: false, kind: "blocked", error: `Menueeintrag '${name}' ist gesperrt; dieser Server uebermittelt nichts.` };
         }
+        const creation = args.__caseCreateSaveDialog;
+        if (creation !== undefined) {
+          if (creation?.kind !== "case-create" || typeof creation.expectedPage !== "string" || !creation.expectedPage
+            || typeof creation.expectedDialogTitle !== "string" || !creation.expectedDialogTitle || entry.opens !== "save-dialog") {
+            return { ok: false, kind: "bad-args", error: "Interner Fallanlage-Speicherdialogvertrag ist unvollstaendig." };
+          }
+          if (openPath || !pendingNewCase || minimised || currentPage !== creation.expectedPage) {
+            return { ok: false, kind: "interference", error: "Der dateilose Fall steht nicht auf der gebundenen Seite.",
+              mutationStarted: false, outcomeUnknown: false, processPreserved: true, reconciliationRequired: true, retryable: false };
+          }
+          if (fileDialog || vast || dialogs.length || receiptManagerOpen || checkerWindowOpen) {
+            return { ok: false, kind: "precondition-failed", error: "Ein weiteres eigenes Fenster ist bereits offen.",
+              mutationStarted: false, inputDispatched: false, outcomeUnknown: false,
+              processPreserved: true, reconciliationRequired: true, retryable: false };
+          }
+        }
         openMenu = entry.menu;
         if (entry.opens === "file-dialog") {
           fileDialog = { hwnd: 6161, title: "Steuerfall öffnen", fingerprint: sha256("synthetic-file-dialog") };
@@ -1680,8 +1696,14 @@ export function createStatefulSseWorker({
         }
         if (entry.opens === "vast") vast = createVastDialog();
         if (entry.opens === "receipt-manager") receiptManagerOpen = true;
+        if (creation !== undefined && fileDialog.title !== creation.expectedDialogTitle) {
+          return { ok: false, kind: "postcondition-failed", error: "Der geoeffnete Dialog entspricht nicht dem Fallanlagevertrag.",
+            mutationStarted: true, inputDispatched: true, outcomeUnknown: true,
+            processPreserved: true, reconciliationRequired: true, retryable: false };
+        }
         return {
           ok: true,
+          ...(creation === undefined ? {} : { saveDialogOpened: true, dialogTitle: fileDialog.title }),
           ausgeloest: name,
           angefordert: name,
           method: "synthetic-bound-action",

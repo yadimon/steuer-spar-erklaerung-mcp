@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { executeCaseCreate } from "../dist/case-create-executor.js";
+import { WorkerError } from "../dist/worker.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-case-create-"));
 const caseDir = join(temporary, "cases");
@@ -35,6 +36,8 @@ const SAVE_ENTRY = "Speichern unter... Strg+Alt+S";
 const SAVE_TITLE = "Gewinn-Erfassung speichern";
 const TARGET = "cases:neu.GewErfass2026";
 const targetPath = join(caseDir, "neu.GewErfass2026");
+const saveDialog = { hwnd: 7001, pid: PID, cls: "#32770", kind: "native-dialog", title: SAVE_TITLE,
+  buttons: [], texts: [], fingerprint: "D".repeat(64) };
 
 const instance = (extra = {}) => ({
   ok: true, count: 1, ambiguous: false, foregroundHwnd: HWND,
@@ -78,12 +81,12 @@ function scriptedWorker(overrides = {}, calls = []) {
       ok: true, menue: "Datei", anzahl: 2,
       eintraege: [{ name: "Steuerfall öffnen...", aktiv: true, gesperrt: false }, { name: SAVE_ENTRY, aktiv: true, gesperrt: false }],
     }),
-    menu_click: () => ({ ok: true, ausgeloest: SAVE_ENTRY, fenster: 2 }),
+    menu_click: () => ({ ok: true, ausgeloest: SAVE_ENTRY, fenster: 2,
+      saveDialogOpened: true, dialogTitle: saveDialog.title }),
     menu_close: () => ({ ok: true, collapsed: ["Datei"], verified: true }),
     dialog_list: () => ({
       ok: true, count: 1,
-      dialogs: [{ hwnd: 7001, pid: PID, cls: "#32770", kind: "native-dialog", title: SAVE_TITLE, buttons: [], texts: [], fingerprint: "D".repeat(64) }],
-      windows: [],
+      dialogs: [saveDialog], windows: [saveDialog],
     }),
     file_dialog_select: () => ({ ok: true, selected: targetPath, sha256: HASH, mode: "save-new", dialogClosed: true, verified: true }),
     close: () => ({ ok: true, closed: true, killed: true, stillRunning: false }),
@@ -102,8 +105,213 @@ function scriptedWorker(overrides = {}, calls = []) {
 const operationsOf = (calls) => calls.map((entry) => entry.operation);
 const closes = (calls) => calls.filter((entry) => entry.operation === "close");
 const resetTarget = () => rmSync(targetPath, { force: true });
+const emptyStartupDialogs = { ok: true, count: 0, dialogs: [], windows: [] };
 
 try {
+  for (const failure of [
+    { outcomeUnknown: true, inputDispatched: true },
+    { outcomeUnknown: true, inputDispatched: null },
+    { outcomeUnknown: false, reconciliationRequired: true, inputDispatched: false },
+    { outcomeUnknown: true, reconciliationRequired: true, processStillRunning: false },
+    { processPreserved: true },
+    { kind: "interference", inputDispatched: false, outcomeUnknown: false, reconciliationRequired: false },
+  ]) {
+    const clickBinding = { x: 30, y: 30, clickCount: 1 };
+    const { worker, calls } = scriptedWorker({ click: () => ({
+      ok: false, kind: "navigation-blocked", error: "Synthetic first click failed.", clickBinding, ...failure,
+    }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, failure.kind ?? "navigation-blocked");
+    assert.equal(result.error, "Synthetic first click failed.");
+    assert.equal(result.outcomeUnknown, failure.outcomeUnknown);
+    assert.equal(result.inputDispatched, failure.inputDispatched);
+    assert.deepEqual(result.clickBinding, clickBinding);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, failure.processStillRunning ?? null);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(result.failedStep, "click");
+    assert.equal(result.pid, PID);
+    assert.equal(result.created, false);
+    assert.deepEqual(operationsOf(calls), [
+      "instances", "desktop_status", "launch", "launch_probe", "instances", "ui_state", "subpages", "click",
+    ], "Ein ungewisser oder fremd beeinflusster Fall darf weder weiter bedient noch automatisch verworfen werden.");
+  }
+  for (const failure of [
+    { kind: "precondition-failed", inputDispatched: false, outcomeUnknown: false, reconciliationRequired: false },
+    { kind: "timeout", inputDispatched: false, outcomeUnknown: false, reconciliationRequired: false },
+  ]) {
+    const { worker, calls } = scriptedWorker({ click: () => ({
+      ok: false, error: "Synthetic known-unsent failure.", ...failure,
+    }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, failure.kind);
+    assert.equal(result.outcomeUnknown, false);
+    assert.equal(result.reconciliationRequired, false);
+    assert.deepEqual(operationsOf(calls).slice(-2), ["close", "product_info"]);
+    assert.deepEqual(closes(calls).map(entry => entry.args), [{ pid: PID, force: true, discardChanges: true }]);
+  }
+  {
+    const { worker, calls } = scriptedWorker({ click: () => { throw new Error("Synthetic click response lost."); } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.error, "Synthetic click response lost.");
+    assert.equal(result.failedStep, "click");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "product_info").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 1);
+  }
+  for (const kind of ["timeout", "aborted", "parse", "empty", "output-too-large", "worker", "worker-isolation-lost", "worker-transport-cleanup", "spawn"]) {
+    const { worker, calls } = scriptedWorker({ click: () => {
+      throw new WorkerError("Synthetic worker response lost through the API executor.", kind);
+    } });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, kind);
+    assert.equal(result.error, "Synthetic worker response lost through the API executor.");
+    assert.equal(result.failedStep, "click");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "product_info").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 1);
+  }
+  for (const [operation, failure] of ["menu_click", "dialog_list"].flatMap(operation => [
+    [operation, { kind: "interference", outcomeUnknown: false, reconciliationRequired: false }],
+    [operation, { kind: "precondition-failed", outcomeUnknown: true }],
+    [operation, { kind: "precondition-failed", outcomeUnknown: false, reconciliationRequired: true }],
+  ])) {
+    const { worker, calls } = scriptedWorker({ [operation]: () => ({
+      ok: false, error: "Synthetic save-dialog ownership lost.", ...failure,
+    }) });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.error, "Synthetic save-dialog ownership lost.");
+    assert.equal(result.failedStep, operation);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.outcomeUnknown, operation === "dialog_list" ? true : failure.outcomeUnknown);
+    assert.equal(operationsOf(calls).at(-1), operation);
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const operation of ["menu_click", "dialog_list"]) {
+    const { worker, calls } = scriptedWorker({ [operation]: () => { throw new Error("Synthetic save-dialog response lost."); } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.failedStep, operation);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.processPreserved, true);
+    assert.equal(operationsOf(calls).at(-1), operation);
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const acknowledgement of [
+    {}, { saveDialogOpened: false, dialogTitle: SAVE_TITLE },
+    { saveDialogOpened: true, dialogTitle: "Anderer Speicherdialog" },
+    { saveDialogOpened: true, dialogTitle: SAVE_TITLE, outcomeUnknown: true },
+    { saveDialogOpened: true, dialogTitle: SAVE_TITLE, reconciliationRequired: true },
+    { saveDialogOpened: true, dialogTitle: SAVE_TITLE, cleanupRequired: true },
+  ]) {
+    const { worker, calls } = scriptedWorker({ menu_click: () => ({ ok: true, ...acknowledgement }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, "postcondition-failed");
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(operationsOf(calls).at(-1), "menu_click");
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const kind of ["timeout", "aborted", "parse", "empty", "worker", "worker-isolation-lost", "spawn"]) {
+    const { worker, calls } = scriptedWorker({ menu_click: () => { throw new WorkerError("Synthetic private menu reply lost.", kind); } });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, kind); assert.equal(result.failedStep, "menu_click");
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(operationsOf(calls).at(-1), "menu_click");
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  {
+    const { worker, calls } = scriptedWorker();
+    const result = await createApiExecutor(config, worker)("menu_click", {
+      name: SAVE_ENTRY, hwnd: HWND, __caseCreateSaveDialog: {
+        kind: "case-create", expectedPage: MASTER_PAGE, expectedDialogTitle: SAVE_TITLE,
+      },
+    });
+    assert.equal(result.ok, false); assert.equal(result.kind, "bad-args");
+    assert.deepEqual(calls, [], "Der interne Fallanlagevertrag darf ueber die oeffentliche API nicht erreichbar sein.");
+  }
+  {
+    const { worker, calls } = scriptedWorker({ ui_state: () => ({
+      ok: true, running: true, heading: "", blockiert: false, instance: { pid: PID, hwnd: HWND },
+    }) });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      wait: async () => { throw new Error("Synthetic wait failed outside a step."); },
+    });
+    assert.equal(result.failedStep, "case-create", "Ein Fehler ausserhalb eines Aufrufs darf keinen erfolgreichen Schritt beschuldigen.");
+    assert.equal(result.outcomeUnknown, undefined, "Ohne laufenden Aufruf darf kein verlorener Eingabeausgang erfunden werden.");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(closes(calls).length, 0);
+  }
+  for (const { stop, expectedKind } of [
+    { stop: (controller, clock) => controller.abort(), expectedKind: "aborted" },
+    { stop: (controller, clock) => { clock.value = 239_000; }, expectedKind: "timeout" },
+  ]) {
+    const controller = new AbortController(); const clock = { value: 0 };
+    const { worker, calls } = scriptedWorker({ menu_click: () => { stop(controller, clock);
+      return { ok: true, saveDialogOpened: true, dialogTitle: SAVE_TITLE }; } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock.value,
+    });
+    assert.equal(result.kind, expectedKind);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.cleanup, undefined);
+    assert.equal(operationsOf(calls).at(-1), "menu_click");
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
+  }
+  for (const menuClose of [
+    () => ({ ok: false, kind: "interference", error: "Synthetic menu cleanup interference.", outcomeUnknown: true }),
+    () => ({ ok: false, kind: "precondition-failed", error: "Synthetic menu remains open." }),
+    () => ({ ok: true, outcomeUnknown: true }),
+    () => { throw new Error("Synthetic menu cleanup response lost."); },
+  ]) {
+    let clock = 0;
+    const { worker, calls } = scriptedWorker({
+      menu_click: () => ({ ok: false, kind: "not-found", error: "Synthetic unsent menu selection failure.",
+        mutationStarted: false, outcomeUnknown: false }), menu_close: menuClose,
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "not-found", "Ein Bereinigungsfehler darf den primaeren Fehler nicht ersetzen.");
+    assert.equal(result.error, "Synthetic unsent menu selection failure.");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(result.cleanup.operation, "menu_close");
+    assert.equal(calls.filter(entry => entry.operation === "menu_close").length, 1);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "product_info").length, 0);
+  }
   {
     // 1 Erfolg: exakte Schrittfolge, Bindung, Redaktion, kein Cleanup.
     const { worker, calls } = scriptedWorker();
@@ -112,7 +320,7 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.deepEqual(operationsOf(calls), [
       "instances", "desktop_status", "launch", "launch_probe", "instances", "ui_state", "subpages",
-      "click", "click", "click", "menu", "menu_click", "dialog_list", "file_dialog_select", "instances",
+      "click", "click", "click", "menu_click", "dialog_list", "file_dialog_select", "instances",
     ]);
     assert.equal(result.created, true);
     assert.equal(result.caseRef, TARGET);
@@ -158,7 +366,10 @@ try {
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(dialogReads, 2);
-    assert.equal(calls.find((entry) => entry.operation === "menu_click").args.waitMs, 100);
+    const atomic = calls.find((entry) => entry.operation === "menu_click");
+    assert.deepEqual(atomic.args.__caseCreateSaveDialog,
+      { kind: "case-create", expectedPage: MASTER_PAGE, expectedDialogTitle: SAVE_TITLE });
+    assert(atomic.timeoutMs <= 20_000); assert.equal(calls.filter(entry => entry.operation === "menu").length, 0);
     assert.equal(closes(calls).length, 0);
     resetTarget();
   }
@@ -246,16 +457,17 @@ try {
   {
     // 7 Menueeintrag gesperrt.
     const { worker, calls } = scriptedWorker({
-      menu: () => ({ ok: true, menue: "Datei", anzahl: 1, eintraege: [{ name: SAVE_ENTRY, aktiv: true, gesperrt: true }] }),
+      menu_click: () => ({ ok: false, kind: "blocked", error: "Synthetic blocked save entry.", mutationStarted: false, outcomeUnknown: false }),
     });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
-    assert.equal(result.kind, "menu-entry");
+    assert.equal(result.kind, "blocked");
     assert.equal(closes(calls).length, 1);
-    assert(!operationsOf(calls).includes("menu_click"));
+    assert.equal(calls.filter(entry => entry.operation === "menu_click").length, 1);
+    assert.equal(calls.filter(entry => entry.operation === "file_dialog_select").length, 0);
   }
 
   {
-    // 8 Kein passender nativer Dialog: Menue schliessen, dann Cleanup.
+    // 8 Ein bestaetigter Speicherdialog verschwindet: erhalten, keine Folgeeingabe.
     const { worker, calls } = scriptedWorker({ dialog_list: () => ({ ok: true, count: 0, dialogs: [], windows: [] }) });
     let clock = 0;
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
@@ -265,8 +477,9 @@ try {
     });
     assert.equal(result.kind, "save-dialog");
     assert(clock >= 5_000);
-    const tail = operationsOf(calls).slice(-4);
-    assert.deepEqual(tail, ["dialog_list", "menu_close", "close", "product_info"]);
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(calls.filter(entry => ["menu_close", "close", "product_info", "file_dialog_select"].includes(entry.operation)).length, 0);
   }
 
   {
@@ -479,6 +692,165 @@ try {
     resetTarget();
   }
 
+  // A ready generic startup can disappear behind an own recovery/modal question.
+  // These tests use the existing absolute clock; they start no product or real worker.
+  async function startupDialogScenario(readback, pollInstances = [noInstance]) {
+    let clock = 0, index = 0;
+    const inventories = [noInstance, ...pollInstances];
+    const { worker, calls } = scriptedWorker({
+      instances: () => inventories[Math.min(index++, inventories.length - 1)],
+      dialog_list: () => typeof readback === "function" ? readback() : readback,
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    return { result, calls, clock };
+  }
+  const startupMain = { pid: PID, hwnd: HWND - 1, kind: "main", uiaReadOk: false, msaaReadOk: false };
+  for (const dialog of [
+    { pid: PID, hwnd: HWND + 1, kind: "qt-dialog", recoveryPrompt: true, requiresCaseBinding: true,
+      uiaReadOk: true, texts: ["Synthetic recovery question"], fingerprint: "D".repeat(64) },
+    { pid: PID, hwnd: HWND + 2, kind: "native-dialog", uiaReadOk: false, msaaReadOk: false,
+      uiaError: "Native modal content was not readable" },
+  ]) {
+    const inventory = { ok: true, count: 2, windows: [startupMain, dialog], dialogs: [dialog] };
+    const { result, calls, clock } = await startupDialogScenario(inventory);
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.failedStep, "dialog_list");
+    assert.equal(result.ready, false); assert.equal(result.blockedByDialog, true);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(result.created, false); assert.equal(result.pid, PID);
+    assert.deepEqual(result.dialogs, inventory.dialogs); assert.deepEqual(result.windows, inventory.windows);
+    assert.equal(result.count, 2, "count includes the main window, not only the modal.");
+    assert.equal(clock, 0, "A confirmed own modal must not consume the remaining startup polling budget.");
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list"]);
+    assert.deepEqual(calls.at(-1).args, { pid: PID }); assert.equal(calls.at(-1).timeoutMs, 5_000);
+    assert.equal(closes(calls).length, 0);
+  }
+  {
+    const dialog = { pid: PID, hwnd: HWND + 3, kind: "qt-dialog", recoveryPrompt: true, requiresCaseBinding: true };
+    const inventory = { ok: true, count: 1, windows: [dialog], dialogs: [dialog] };
+    let reads = 0;
+    const { result, calls, clock } = await startupDialogScenario(
+      () => ++reads === 1 ? emptyStartupDialogs : inventory,
+      [instance({ title: "Steuerprogramm", hwnd: HWND - 1 }), noInstance],
+    );
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.blockedByDialog, true);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, true);
+    assert.deepEqual(result.dialogs, [dialog]); assert.equal(clock, 1_500); assert.equal(reads, 2);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list", "instances", "dialog_list"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  const foreignDialog = { pid: PID + 1, hwnd: HWND + 4, kind: "qt-dialog", recoveryPrompt: true };
+  for (const inventory of [
+    { ok: true, count: 1, windows: [foreignDialog], dialogs: [foreignDialog] },
+    // A modal present in windows must not disappear from the modal payload.
+    { ok: true, count: 1, windows: [{ ...startupMain, kind: "qt-dialog" }], dialogs: [] },
+    { ok: true, count: 0, windows: [], dialogs: [{ ...startupMain, kind: "qt-dialog" }] },
+    { ok: true, count: 1, windows: [], dialogs: [] },
+    { ok: true, count: 0, dialogs: [] },
+    { ok: true, count: 0, windows: [], dialogs: "unreadable" },
+    { ok: true, count: 1, windows: [{ ...startupMain, uiaReadOk: "false" }], dialogs: [] },
+    { ok: true, count: 1, windows: [{ ...startupMain, kind: "other", uiaError: "Synthetic unreadable startup window" }], dialogs: [] },
+    { ok: true, count: 1, windows: [{ ...startupMain, uiaError: "Synthetic unreadable main inventory" }], dialogs: [] },
+    { ...emptyStartupDialogs, outcomeUnknown: true },
+  ]) {
+    const { result, calls, clock } = await startupDialogScenario(inventory);
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.failedStep, "dialog_list");
+    assert.equal(result.blockedByDialog, null, "Incomplete inventory cannot prove dialog absence."); assert.equal(result.ready, false);
+    assert.deepEqual(result.dialogs, inventory.dialogs); assert.deepEqual(result.windows, inventory.windows);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(clock, 0);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  for (const failure of [
+    { ok: false, kind: "timeout", error: "Synthetic startup dialog timeout", outcomeUnknown: false },
+    { ok: false, kind: "uia-root-unavailable", error: "Synthetic poisoned startup read", outcomeUnknown: false },
+  ]) {
+    const { result, calls } = await startupDialogScenario(failure);
+    assert.equal(result.kind, failure.kind); assert.equal(result.error, failure.error);
+    assert.equal(result.failedStep, "dialog_list"); assert.equal(result.processPreserved, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(call => call.operation === "dialog_list").length, 1, "No failed UIA read is retried.");
+  }
+  {
+    const { result, calls } = await startupDialogScenario(() => { throw new Error("Synthetic thrown startup read"); });
+    assert.equal(result.kind, "startup-probe"); assert.equal(result.error, "Synthetic thrown startup read");
+    assert.equal(result.processPreserved, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.failedStep, "dialog_list");
+    assert.equal(closes(calls).length, 0); assert.equal(calls.filter(call => call.operation === "dialog_list").length, 1);
+  }
+  {
+    const { result, calls, clock } = await startupDialogScenario(emptyStartupDialogs);
+    assert.equal(result.kind, "startup-not-ready"); assert.equal(result.ready, false);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(clock, 61_500, "Empty startup inventories use the existing absolute deadline and reserve.");
+    assert.equal(calls.filter(call => call.operation === "launch").length, 1);
+    assert.equal(calls.filter(call => call.operation === "dialog_list").length, calls.filter(call => call.operation === "instances").length - 1);
+    assert.equal(calls.filter(call => call.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
+  }
+
+  {
+    const controller = new AbortController();
+    let clock = 0, inventories = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm" }),
+      dialog_list: () => emptyStartupDialogs,
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; controller.abort(); },
+    });
+    assert.equal(result.kind, "aborted"); assert.equal(clock, 1500);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(result.created, false);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances", "dialog_list"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  {
+    let inventories = 0;
+    // A known-unsent failing read still leaves the launched application uninspected.
+    const failing = scriptedWorker({ instances: () => ++inventories === 1 ? noInstance
+      : { ok: false, kind: "timeout", error: "Synthetic unsent startup inventory", outcomeUnknown: false } });
+    const failed = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: failing.worker, worker: failing.worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => 0,
+    });
+    assert.equal(failed.kind, "timeout"); assert.equal(failed.error, "Synthetic unsent startup inventory");
+    assert.equal(failed.processPreserved, true); assert.equal(failed.processStillRunning, null);
+    assert.equal(failed.outcomeUnknown, true); assert.equal(failed.reconciliationRequired, true);
+    assert.equal(failed.retryable, false); assert.equal(closes(failing.calls).length, 0);
+    assert.deepEqual(operationsOf(failing.calls), ["instances", "desktop_status", "launch", "instances"]);
+  }
+  {
+    const controller = new AbortController();
+    let inventories = 0, clock = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm" }),
+      dialog_list: () => { controller.abort(); return emptyStartupDialogs; },
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "aborted"); assert.equal(clock, 0);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(calls.filter(call => call.operation === "launch").length, 1);
+    assert.equal(calls.filter(call => call.operation === "dialog_list").length, 1);
+    assert.equal(closes(calls).length, 0);
+  }
+
   {
     // The generic startup frame can exceed the main-window width threshold
     // before the product replaces it. Never bind UIA to that transient HWND.
@@ -494,6 +866,15 @@ try {
         }
         return instance();
       },
+      dialog_list: (() => {
+        let reads = 0;
+        // The real inventory includes the generic main, but skips its deep
+        // UIA content: both read flags may be false without an error.
+        return () => ++reads <= 2 ? { ok: true, count: 1, windows: [startupMain], dialogs: [] } : {
+          ok: true, count: 1,
+          dialogs: [saveDialog], windows: [saveDialog],
+        };
+      })(),
       ui_state: args => {
         assert.equal(args.hwnd, HWND, "The generic startup frame must never reach UIA.");
         return { ok: true, heading: START_PAGE, blockiert: false, instance: { pid: PID, hwnd: HWND } };
@@ -507,8 +888,8 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(clock, 3_000);
     assert.equal(result.hwnd, HWND);
-    assert.deepEqual(operationsOf(calls).slice(0, 7),
-      ["instances", "desktop_status", "launch", "instances", "instances", "instances", "ui_state"]);
+    assert.deepEqual(operationsOf(calls).slice(0, 9),
+      ["instances", "desktop_status", "launch", "instances", "dialog_list", "instances", "dialog_list", "instances", "ui_state"]);
     assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
     assert.deepEqual(calls.filter(entry => entry.operation === "ui_state").map(entry => entry.args.hwnd), [HWND]);
     assert.equal(closes(calls).length, 0);
@@ -518,6 +899,7 @@ try {
     let inventories = 0, clock = 0;
     const { worker, calls } = scriptedWorker({
       instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm", w: 1500 }),
+      dialog_list: () => emptyStartupDialogs,
     });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
@@ -543,6 +925,7 @@ try {
         inventories++;
         return inventories === 2 ? instance({ title: "Steuerprogramm" }) : noInstance;
       },
+      dialog_list: () => emptyStartupDialogs,
     });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
@@ -601,7 +984,10 @@ try {
     assert.equal(calls.filter(entry => entry.operation === "ui_state").length, 1);
     assert.equal(calls.filter(entry => entry.operation === "click").length, 0);
     assert.equal(clock, 0);
-    assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, failure.outcomeUnknown);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(closes(calls).length, 0);
   }
 
   {
@@ -619,7 +1005,9 @@ try {
     assert.equal(clock, 61_500);
     assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
     assert.equal(calls.filter(entry => entry.operation === "click").length, 0);
-    assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(closes(calls).length, 0);
   }
 
   {
@@ -732,23 +1120,35 @@ try {
   {
     const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure()});
     assert.equal(result.kind, "uia-root-unavailable"); assert.equal(result.attempts, 3); assert.equal(result.created, false);
-    assert.equal(result.retryable, false); assert.equal(result.processStillRunning, false);
+    assert.equal(result.retryable, false); assert.equal(result.processStillRunning, null);
+    assert.equal(result.processPreserved, true); assert.equal(result.outcomeUnknown, false);
+    assert.equal(result.reconciliationRequired, true);
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 3); assert.equal(clock, 3000);
     assert.equal(calls.filter(c => c.operation === "launch").length, 1);
     assert.equal(calls.filter(c => c.operation === "click" || c.operation === "file_dialog_select").length, 0);
-    assert.equal(closes(calls).length, 1); assert.equal(closes(calls)[0].args.pid, PID);
+    assert.equal(closes(calls).length, 0);
   }
   for (const extra of [
     {kind: "worker-init"}, {operation: "subpages"}, {phase: "dispatch"}, {phase: undefined}, {backend: "qt"},
     {windowAlive: false}, {windowAlive: undefined}, {windowSetMainOnly: false}, {windowSetMainOnly: undefined},
     {windowStateChanged: true}, {windowStateChanged: undefined},
-    {mutationStarted: true}, {mutationStarted: undefined}, {outcomeUnknown: true}, {outcomeUnknown: undefined},
+    {mutationStarted: true}, {mutationStarted: undefined}, {outcomeUnknown: undefined},
     {pid: PID+1}, {hwnd: HWND+1},
   ]) {
     const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure(extra)});
     assert.equal(result.ok, false); assert.equal(result.created, false);
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(clock, 0);
-    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
+  }
+  {
+    const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure({outcomeUnknown: true})});
+    assert.equal(result.ok, false); assert.equal(result.created, false);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null); assert.equal(result.reconciliationRequired, true);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(clock, 0);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
   }
   for (const extra of [{recoveredState: true}, {hung: true}]) {
     let counts = 0;
@@ -757,15 +1157,39 @@ try {
     assert.equal(result.processPreserved, true); assert.equal(result.startupUiaRootFailures, 1);
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
   }
+  for (const spec of [
+    { inventory: emptyStartupDialogs, kind: "startup-binding-changed", blocked: undefined, processStillRunning: null },
+    { inventory: { ok: true, count: 1,
+      dialogs: [{ pid: PID, hwnd: HWND + 7, kind: "qt-dialog", recoveryPrompt: true }],
+      windows: [{ pid: PID, hwnd: HWND + 7, kind: "qt-dialog", recoveryPrompt: true }] },
+      kind: "startup-not-ready", blocked: true, processStillRunning: true },
+  ]) {
+    let counts = 0;
+    const { result, calls } = await rootScenario({
+      instances: () => ++counts === 2 ? instance() : noInstance,
+      ui_state: () => rootFailure(), dialog_list: () => spec.inventory,
+    });
+    assert.equal(result.kind, spec.kind); assert.equal(result.blockedByDialog, spec.blocked);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, spec.processStillRunning);
+    assert.equal(result.outcomeUnknown, true); assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false); assert.equal(result.created, false);
+    assert.equal(result.startupUiaRootFailures, 1);
+    assert.deepEqual(calls.filter(c => c.operation === "dialog_list").map(c => c.args), [{ pid: PID }]);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
+  }
   {
     let counts = 0;
     const { result, calls } = await rootScenario({
       instances: () => ++counts === 1 ? noInstance : instance({hwnd: counts < 3 ? HWND : HWND+1}),
       ui_state: () => rootFailure(),
+      dialog_list: () => emptyStartupDialogs,
     });
     assert.equal(result.kind, "startup-binding-changed");
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
-    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
   }
   {
     const {result, calls} = await rootScenario({ui_state: () => rootFailure({windowSetMainOnly: false,
@@ -778,12 +1202,16 @@ try {
     const { result, calls } = await rootScenario({ui_state: () => ++reads % 2 ? rootFailure()
       : {ok: true, heading: "", instance: {pid: PID, hwnd: HWND}}});
     assert.equal(result.kind, "uia-root-unavailable"); assert.equal(result.attempts, 3); assert.equal(reads, 5);
-    assert.equal(calls.filter(c => c.operation === "launch").length, 1); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, false); assert.equal(result.reconciliationRequired, true);
+    assert.equal(calls.filter(c => c.operation === "launch").length, 1); assert.equal(closes(calls).length, 0);
   }
   {
     const { result, calls } = await rootScenario({ui_state: () => ({ok: true, heading: START_PAGE, instance: {pid: PID+1, hwnd: HWND}})});
     assert.equal(result.kind, "startup-binding-changed");
-    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 0);
   }
   {
     let clock = 0;
@@ -795,7 +1223,24 @@ try {
       now: () => clock, wait: async ms => {clock += ms;},
     });
     assert.equal(result.kind, "aborted"); assert.equal(clock, 0); assert.equal(result.startupUiaRootFailures, 1);
-    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 1);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
+  }
+  {
+    let clock = 0, reads = 0;
+    const controller = new AbortController();
+    const responses = [() => rootFailure(), () => rootFailure(), () => { controller.abort(); return rootFailure(); }];
+    const { worker, calls } = scriptedWorker({ ui_state: () => responses[reads++]() });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "uia-root-unavailable"); assert.equal(result.attempts, 3);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.reconciliationRequired, true); assert.equal(result.outcomeUnknown, true);
+    assert.equal(reads, 3); assert.equal(closes(calls).length, 0);
   }
   {
     let clock = 0;
@@ -807,7 +1252,57 @@ try {
     });
     assert.equal(result.ok, false); assert.equal(clock, 89_999); assert.equal(result.startupUiaRootFailures, 1);
     assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
-    assert.equal(calls.filter(c => c.operation === "launch").length, 1); assert.equal(closes(calls).length, 1);
+    assert.equal(calls.filter(c => c.operation === "launch").length, 1); assert.equal(closes(calls).length, 0);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, undefined); assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+  }
+  {
+    let clock = 0, reads = 0;
+    const {worker, calls} = scriptedWorker({instances: () => {
+      if (++reads === 1) return noInstance;
+      clock = 89_999;
+      return instance();
+    }});
+    const result = await executeCaseCreate({targetRef: TARGET, mode: "einurvor"}, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({path: targetPath, ref: TARGET}),
+      profile: {taxYear: 2025, startModes: {einurvor: "GewErfass"}, additionalCaseYears: {einurvor: [2026]}},
+      now: () => clock, wait: async ms => {clock += ms;},
+    });
+    assert.equal(result.kind, "timeout"); assert.equal(result.failedStep, undefined);
+    assert.equal(result.created, false); assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, undefined); assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "instances"]);
+    assert.equal(closes(calls).length, 0);
+  }
+  {
+    const {result, calls} = await rootScenario({ui_state: () => ({
+      ok: false, kind: "not-found", error: "Synthetic determinate startup read failure",
+      mutationStarted: false, outcomeUnknown: false,
+    })});
+    assert.equal(result.kind, "not-found"); assert.equal(result.failedStep, "ui_state");
+    assert.equal(result.created, false); assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, false); assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
+  }
+  {
+    const {result, calls} = await rootScenario({ui_state: () => ({
+      ok: true, heading: "Gewinn-Erfassung für das Jahr 2025", blockiert: false, instance: {pid: PID, hwnd: HWND},
+    })});
+    assert.equal(result.kind, "wizard-page"); assert.equal(result.created, false);
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, undefined); assert.equal(result.reconciliationRequired, true); assert.equal(result.retryable, false);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
+    assert.equal(calls.filter(c => c.operation === "click" || c.operation === "file_dialog_select").length, 0);
+    assert.equal(closes(calls).length, 0);
+  }
+  {
+    const {result, calls} = await rootScenario({click: () => ({
+      ok: false, kind: "not-found", error: "Synthetic determinate refusal after confirmed startup",
+      mutationStarted: false, outcomeUnknown: false,
+    })});
+    assert.equal(result.kind, "not-found"); assert.equal(result.failedStep, "click");
+    assert.equal(result.processStillRunning, false); assert.notEqual(result.processPreserved, true);
+    assert.equal(calls.filter(c => c.operation === "click").length, 1); assert.equal(closes(calls).length, 1);
   }
 } finally {
   rmSync(temporary, { recursive: true, force: true });

@@ -24264,6 +24264,92 @@ var init_bulk_plan_executor = __esm({
   }
 });
 
+// src/case-create-state.ts
+function mustPreserveFailedCase(error62) {
+  if (!(error62 instanceof StepFailure)) return true;
+  const result = error62.result;
+  return result.processPreserved === true || result.outcomeUnknown === true || result.reconciliationRequired === true || result.kind === "interference";
+}
+function preserveCaseCreateSaveDialogFailure(error62, failedStep2) {
+  const failure7 = error62 instanceof StepFailure ? error62.result : executionError("menu_click", error62);
+  return new StepFailure({
+    ...failure7,
+    failedStep: failure7.failedStep ?? failedStep2,
+    processPreserved: true,
+    outcomeUnknown: true,
+    reconciliationRequired: true,
+    retryable: false
+  });
+}
+function assertCaseCreateSaveDialog(opened, expectedTitle) {
+  if (opened.saveDialogOpened === true && opened.dialogTitle === expectedTitle && !mustPreserveFailedCase(new StepFailure(opened)) && opened.cleanupRequired !== true) return;
+  throw preserveCaseCreateSaveDialogFailure(new StepFailure({
+    ok: false,
+    kind: "postcondition-failed",
+    error: "Der Worker bestaetigt den gebundenen Fallanlage-Speicherdialog nicht; Zustand frisch abgleichen."
+  }), "menu_click");
+}
+function isStartupUiaRootFailure(result, pid2, hwnd) {
+  return result.ok === false && result.backend === void 0 && result.kind === "uia-root-unavailable" && result.operation === "ui_state" && result.phase === "snapshot-root" && result.mutationStarted === false && result.outcomeUnknown === false && result.windowStateChanged === false && result.windowAlive === true && result.windowSetMainOnly === true && result.pid === pid2 && result.hwnd === hwnd;
+}
+function getStartupDialogFailure(inventory, pid2) {
+  const ownWindow = (entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const window = entry;
+    return window.pid === pid2 && Number.isInteger(window.hwnd) && Number(window.hwnd) > 0;
+  };
+  const dialogs = Array.isArray(inventory.dialogs) ? inventory.dialogs : [];
+  const windows = Array.isArray(inventory.windows) ? inventory.windows : [];
+  const ownDialogs = dialogs.filter((dialog2) => ownWindow(dialog2) && ["native-dialog", "qt-dialog"].includes(String(dialog2.kind)) && windows.some((window) => ownWindow(window) && window.hwnd === dialog2.hwnd && window.kind === dialog2.kind));
+  const completeInventory = Array.isArray(inventory.dialogs) && Array.isArray(inventory.windows) && Number.isInteger(inventory.count) && inventory.count === windows.length && windows.every((window) => ownWindow(window) && typeof window.kind === "string" && window.kind.length > 0) && ownDialogs.length === dialogs.length && windows.every((window) => !["native-dialog", "qt-dialog"].includes(String(window.kind)) || ownDialogs.some((dialog2) => dialog2.hwnd === window.hwnd && dialog2.kind === window.kind)) && ["cleanupRequired", "reconciliationRequired", "outcomeUnknown", "processPreserved"].every((flag) => inventory[flag] === void 0 || inventory[flag] === false) && !windows.some((window) => ownWindow(window) && (["uiaReadOk", "msaaReadOk"].some((flag) => window[flag] !== void 0 && typeof window[flag] !== "boolean") || (window.uiaError || window.msaaError) && window.uiaReadOk !== true && window.msaaReadOk !== true));
+  if (ownDialogs.length > 0 || !completeInventory) {
+    return {
+      ...inventory,
+      ok: false,
+      kind: "startup-not-ready",
+      failedStep: "dialog_list",
+      pid: pid2,
+      error: ownDialogs.length > 0 ? "Ein eigener Startdialog blockiert die Fallanlage; Dialog und Wiederherstellungszustand bleiben erhalten." : "Das eigene Startdialoginventar ist nicht vollstaendig bestaetigt; Zustand erhalten und frisch abgleichen.",
+      ready: false,
+      blockedByDialog: ownDialogs.length > 0 ? true : null,
+      processPreserved: true,
+      processStillRunning: ownDialogs.length > 0 ? true : null,
+      outcomeUnknown: true,
+      reconciliationRequired: true,
+      retryable: false
+    };
+  }
+  return void 0;
+}
+var CASE_CREATE_WIZARDS, StepFailure;
+var init_case_create_state = __esm({
+  "src/case-create-state.ts"() {
+    "use strict";
+    init_executor_errors();
+    CASE_CREATE_WIZARDS = Object.freeze({
+      einurvor: {
+        startHeading: /^Gewinn-Erfassung für das Jahr (\d{4})$/u,
+        beginLink: "Jetzt beginnen",
+        modeChoiceHeading: "Beginn der Datenbearbeitung",
+        modeChoiceAid: "btnNavigatormodusEinURVor",
+        nextButton: "Weiter",
+        masterDataHeading: "Allgemeine Angaben zum Unternehmen",
+        saveMenu: "Datei",
+        saveMenuEntry: "Speichern unter... Strg+Alt+S",
+        saveDialogTitle: "Gewinn-Erfassung speichern",
+        yearOffset: 1
+      }
+    });
+    StepFailure = class extends Error {
+      constructor(result) {
+        super(String(result.error ?? result.kind ?? "Schritt scheiterte."));
+        this.result = result;
+      }
+      result;
+    };
+  }
+});
+
 // src/case-create-executor.ts
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync7, readFileSync } from "node:fs";
@@ -24302,9 +24388,6 @@ function expectedFileSuffix(profile, mode, wizard) {
   }
   return { suffix: `.${documentType}${taxYear}`, taxYear };
 }
-function isStartupUiaRootFailure(result, pid2, hwnd) {
-  return result.ok === false && result.backend === void 0 && result.kind === "uia-root-unavailable" && result.operation === "ui_state" && result.phase === "snapshot-root" && result.mutationStarted === false && result.outcomeUnknown === false && result.windowStateChanged === false && result.windowAlive === true && result.windowSetMainOnly === true && result.pid === pid2 && result.hwnd === hwnd;
-}
 async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   const now = dependencies.now ?? Date.now;
   const budgetMs = Math.min(timeoutMs ?? LAUNCH_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS);
@@ -24313,10 +24396,12 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   let pid2 = 0;
   let hwnd = 0;
   let launchDispatched = false;
+  let startupWindowUnconfirmed = false;
   let target;
   let uiaRootFailures = 0;
   let uiaRootPinnedHwnd;
   let lastUiaRootFailure;
+  let activeStep;
   const rootDiagnostics = () => uiaRootFailures > 0 ? {
     startupUiaRootFailures: uiaRootFailures,
     lastUiaRootFailure
@@ -24330,8 +24415,17 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     steps.push(operation);
     if (operation === "launch") launchDispatched = true;
+    activeStep = operation;
     const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
-    if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
+    activeStep = void 0;
+    if (result.ok !== true) {
+      const uncertain = pid2 > 0 && result.outcomeUnknown !== false && UNCERTAIN_EXECUTION_KINDS.has(String(result.kind));
+      throw new StepFailure({
+        ...result,
+        failedStep: operation,
+        ...uncertain ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}
+      });
+    }
     return result;
   };
   const wait = dependencies.wait ?? ((ms) => new Promise((resolve17) => setTimeout(resolve17, ms)));
@@ -24358,6 +24452,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     const launchedPid = Number(launched.pid);
     if (!Number.isInteger(launchedPid) || launchedPid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
     pid2 = launchedPid;
+    startupWindowUnconfirmed = true;
     if (launched.ready !== true || launched.blockedByDialog === true || launched.outcomeUnknown === true || launched.processPreserved === true) {
       throw new StepFailure({
         ...launched,
@@ -24375,7 +24470,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     let waitingForCaseWindow = false;
     for (; ; ) {
       const bound2 = await step("instances", {});
-      const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid2);
+      const instance = asArray(bound2.instances).find((entry) => Number(entry.pid) === pid2);
       if (instance && (instance.recoveredState === true || instance.hung === true)) {
         throw new StepFailure({
           ok: false,
@@ -24391,11 +24486,44 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
           retryable: false
         });
       }
-      if (uiaRootPinnedHwnd !== void 0 && (!instance || Number(bound2.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
-        fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
-      }
       const productWindow = instance && String(instance.title ?? "").includes("SteuerSparErklärung");
-      if (instance && !productWindow) waitingForCaseWindow = true;
+      const pinnedBindingChanged = uiaRootPinnedHwnd !== void 0 && (!instance || Number(bound2.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd);
+      if (!productWindow || pinnedBindingChanged) {
+        waitingForCaseWindow = true;
+        let inventory;
+        try {
+          inventory = await step("dialog_list", { pid: pid2 }, START_DIALOG_READ_CEILING_MS);
+        } catch (error62) {
+          const failure7 = error62 instanceof StepFailure ? error62.result : operationError(error62 instanceof Error ? error62.message : String(error62), signal?.aborted ? "aborted" : "startup-probe");
+          throw new StepFailure({
+            ...failure7,
+            failedStep: "dialog_list",
+            pid: pid2,
+            ready: false,
+            processPreserved: true,
+            outcomeUnknown: true,
+            reconciliationRequired: true,
+            retryable: false
+          });
+        }
+        const startupFailure = getStartupDialogFailure(inventory, pid2);
+        if (startupFailure) throw new StepFailure(startupFailure);
+      }
+      if (pinnedBindingChanged) {
+        throw new StepFailure({
+          ok: false,
+          kind: "startup-binding-changed",
+          failedStep: "instances",
+          pid: pid2,
+          error: "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; Zustand erhalten, keine Assistentenaktion.",
+          ready: false,
+          processPreserved: true,
+          processStillRunning: null,
+          outcomeUnknown: true,
+          reconciliationRequired: true,
+          retryable: false
+        });
+      }
       if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true && productWindow) {
         waitingForCaseWindow = false;
         hwnd = Number(instance.hwnd);
@@ -24436,7 +24564,19 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         }
         const heading2 = String(state?.heading ?? "");
         if (state && (Number(state.instance?.pid) !== pid2 || Number(state.instance?.hwnd) !== hwnd)) {
-          fail("startup-binding-changed", "Die Startlesung bestaetigt nicht die gebundene PID und HWND; keine Assistentenaktion.");
+          throw new StepFailure({
+            ok: false,
+            kind: "startup-binding-changed",
+            failedStep: "ui_state",
+            pid: pid2,
+            error: "Die Startlesung bestaetigt nicht die gebundene PID und HWND; Zustand erhalten, keine Assistentenaktion.",
+            ready: false,
+            processPreserved: true,
+            processStillRunning: null,
+            outcomeUnknown: true,
+            reconciliationRequired: true,
+            retryable: false
+          });
         }
         const match = wizard.startHeading.exec(heading2);
         if (match) {
@@ -24444,6 +24584,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
             fail("wizard-page", `Der Assistent bietet das Jahr ${match[1]} an, das Profil erlaubt fuer '${mode}' nur ${taxYear}.`);
           }
           startHeading = heading2;
+          startupWindowUnconfirmed = false;
           break;
         }
       }
@@ -24469,7 +24610,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       await wait(START_PAGE_POLL_MS);
     }
     const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
-    const begin = asArray(subpages.unterseiten).filter((entry2) => String(entry2.schalter ?? "") === wizard.beginLink && entry2.typ === "Hyperlink" && entry2.aktiviert === true);
+    const begin = asArray(subpages.unterseiten).filter((entry) => String(entry.schalter ?? "") === wizard.beginLink && entry.typ === "Hyperlink" && entry.aktiviert === true);
     if (begin.length !== 1) fail("wizard-page", `Der Startlink '${wizard.beginLink}' ist auf '${startHeading}' nicht eindeutig aktiv gebunden.`);
     const began = await step("click", {
       name: wizard.beginLink,
@@ -24493,13 +24634,19 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (String(master.ueberschriftNachher ?? "") !== wizard.masterDataHeading) {
       fail("wizard-page", `Nach '${wizard.nextButton}' steht '${String(master.ueberschriftNachher ?? "")}' statt '${wizard.masterDataHeading}'.`);
     }
-    const menu = await step("menu", { name: wizard.saveMenu, hwnd });
-    const entry = asArray(menu.eintraege).find((candidate) => String(candidate.name ?? "") === wizard.saveMenuEntry);
-    if (!entry || entry.gesperrt === true || entry.aktiv === false) {
-      fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
-    }
+    let saveDialogOpened = false;
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      const opened = await step("menu_click", {
+        name: wizard.saveMenuEntry,
+        hwnd,
+        __caseCreateSaveDialog: {
+          kind: "case-create",
+          expectedPage: wizard.masterDataHeading,
+          expectedDialogTitle: wizard.saveDialogTitle
+        }
+      }, 2e4, dependencies.worker);
+      assertCaseCreateSaveDialog(opened, wizard.saveDialogTitle);
+      saveDialogOpened = true;
       const dialogDeadline = Math.min(deadline, now() + 5e3);
       for (; ; ) {
         const dialogs = await step("dialog_list", { pid: pid2 });
@@ -24511,7 +24658,28 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         await wait(100);
       }
     } catch (error62) {
-      await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => void 0);
+      if (saveDialogOpened || !(error62 instanceof StepFailure)) {
+        throw preserveCaseCreateSaveDialogFailure(error62, activeStep ?? "save-dialog");
+      }
+      if (!mustPreserveFailedCase(error62)) {
+        try {
+          const closed = await step("menu_close", { hwnd }, MIN_STEP_MS * 5);
+          if (mustPreserveFailedCase(new StepFailure(closed))) throw new StepFailure(closed);
+        } catch (cleanupError) {
+          const primary = error62.result;
+          const cleanup = cleanupError instanceof StepFailure ? cleanupError.result : operationError(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "menu-cleanup");
+          const cleanupUnknown = cleanup.outcomeUnknown === true || !(cleanupError instanceof StepFailure) && activeStep !== void 0;
+          throw new StepFailure({
+            ...primary,
+            cleanup: { ...cleanup, operation: "menu_close" },
+            cleanupError: String(cleanup.error ?? "Die Menuebereinigung wurde nicht bestaetigt."),
+            ...cleanupUnknown ? { outcomeUnknown: true } : {},
+            processPreserved: true,
+            reconciliationRequired: true,
+            retryable: false
+          });
+        }
+      }
       throw error62;
     }
     const saved = await step("file_dialog_select", {
@@ -24527,7 +24695,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     let bound;
     for (; ; ) {
       const readback = await step("instances", { includeHash: true });
-      bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid2);
+      bound = asArray(readback.instances).find((entry) => Number(entry.pid) === pid2);
       if (bound?.recoveredState === true) {
         fail("postcondition-failed", "Der gespeicherte Fall wurde als Wiederherstellung statt als regulaeres Fallfenster erkannt.");
       }
@@ -24561,6 +24729,17 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   } catch (error62) {
     let failure7 = error62 instanceof StepFailure ? error62.result : operationError(error62 instanceof Error ? error62.message : String(error62), signal?.aborted ? "aborted" : "case-create");
     failure7 = { ...failure7, ...rootDiagnostics() };
+    if (pid2 > 0 && startupWindowUnconfirmed && failure7.processPreserved !== true) {
+      failure7 = {
+        ...failure7,
+        ready: false,
+        processPreserved: true,
+        processStillRunning: null,
+        ...failure7.kind === "aborted" || signal?.aborted || failure7.failedStep === "instances" ? { outcomeUnknown: true } : {},
+        reconciliationRequired: true,
+        retryable: false
+      };
+    }
     if (launchDispatched && pid2 <= 0 && !(failure7.mutationStarted === false && failure7.resultingState === "unchanged")) {
       failure7 = {
         ...failure7,
@@ -24568,6 +24747,19 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         processPreserved: true,
         processStillRunning: failure7.processStillRunning ?? null,
         outcomeUnknown: true,
+        reconciliationRequired: true,
+        retryable: false
+      };
+    }
+    if (pid2 > 0 && mustPreserveFailedCase(error62)) {
+      failure7 = {
+        ...failure7,
+        ...!(error62 instanceof StepFailure) ? {
+          ...activeStep !== void 0 ? { outcomeUnknown: true } : {},
+          failedStep: failure7.failedStep ?? activeStep ?? "case-create"
+        } : {},
+        processPreserved: true,
+        processStillRunning: typeof failure7.processStillRunning === "boolean" ? failure7.processStillRunning : null,
         reconciliationRequired: true,
         retryable: false
       };
@@ -24586,38 +24778,31 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     };
   }
 }
-var CASE_CREATE_WIZARDS, MIN_STEP_MS, MIN_LAUNCH_MS, WIZARD_RESERVE_MS, START_PAGE_POLL_MS, EFFECTS, StepFailure, fail;
+var MIN_STEP_MS, MIN_LAUNCH_MS, WIZARD_RESERVE_MS, START_PAGE_POLL_MS, START_DIALOG_READ_CEILING_MS, UNCERTAIN_EXECUTION_KINDS, EFFECTS, fail;
 var init_case_create_executor = __esm({
   "src/case-create-executor.ts"() {
     "use strict";
     init_api_contract();
     init_executor_errors();
-    CASE_CREATE_WIZARDS = Object.freeze({
-      einurvor: {
-        startHeading: /^Gewinn-Erfassung für das Jahr (\d{4})$/u,
-        beginLink: "Jetzt beginnen",
-        modeChoiceHeading: "Beginn der Datenbearbeitung",
-        modeChoiceAid: "btnNavigatormodusEinURVor",
-        nextButton: "Weiter",
-        masterDataHeading: "Allgemeine Angaben zum Unternehmen",
-        saveMenu: "Datei",
-        saveMenuEntry: "Speichern unter... Strg+Alt+S",
-        saveDialogTitle: "Gewinn-Erfassung speichern",
-        yearOffset: 1
-      }
-    });
+    init_case_create_state();
+    init_case_create_state();
     MIN_STEP_MS = 2e3;
     MIN_LAUNCH_MS = 3e4;
     WIZARD_RESERVE_MS = 6e4;
     START_PAGE_POLL_MS = 1500;
+    START_DIALOG_READ_CEILING_MS = 5e3;
+    UNCERTAIN_EXECUTION_KINDS = /* @__PURE__ */ new Set([
+      "timeout",
+      "aborted",
+      "parse",
+      "empty",
+      "output-too-large",
+      "worker",
+      "worker-isolation-lost",
+      "worker-transport-cleanup",
+      "spawn"
+    ]);
     EFFECTS = Object.freeze({ taxDataChanged: false, savePerformed: true, submissionPerformed: false });
-    StepFailure = class extends Error {
-      constructor(result) {
-        super(String(result.error ?? result.kind ?? "Schritt scheiterte."));
-        this.result = result;
-      }
-      result;
-    };
     fail = (kind, error62) => {
       throw new StepFailure(operationError(error62, kind));
     };
@@ -36187,6 +36372,11 @@ var init_result_schema_types = __esm({
       clicked: OPTIONAL_STRING,
       pattern: OPTIONAL_STRING,
       method: OPTIONAL_STRING,
+      inputDispatched: OPTIONAL_BOOLEAN.describe("Physischer Klick begonnen: true, nachweislich nicht begonnen: false, unbestimmt: null"),
+      clickBinding: OPTIONAL_OBJECT.describe("Bestaetigte Punkt- und Vordergrundbindung des direkten Navigationsklicks"),
+      obstruction: OPTIONAL_OBJECT.describe("Gebundene Diagnose eines verdeckten Klickpunkts"),
+      outcomeUnknown: OPTIONAL_BOOLEAN,
+      reconciliationRequired: OPTIONAL_BOOLEAN,
       kandidaten: OPTIONAL_NON_NEGATIVE_NUMBER,
       ueberschriftVorher: OPTIONAL_STRING,
       ueberschriftNachher: OPTIONAL_STRING,

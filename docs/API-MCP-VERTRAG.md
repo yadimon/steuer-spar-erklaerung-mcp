@@ -132,6 +132,64 @@ und Selektornamensräume nicht gewechselt werden, um einen Fehler zu umgehen.
 Die ausdrücklich dokumentierten internen API-Kompatibilitätspfade bleiben
 auf ihre jeweiligen Voraussetzungen begrenzt.
 
+Ein exakt gebundener Qt-Navigationslink mit Ausgangs- und Zielseite wird über
+einen geprüften physischen Klick ausgelöst. Dafür bleibt die vor dem Baumlauf
+gelesene Eingabemarke bis zum Klick gebunden. Die API verlangt das tatsächliche
+gebundene Vordergrundfenster und prüft Marke und Vordergrund nach der letzten
+Punkt- und Cursorprüfung erneut. Höchstens drei reine Fokusübernahmen sind
+vor der Eingabe zulässig; sie senden keinen weiteren Klick.
+
+Für den ersten Startlink „Jetzt beginnen“ der Gewinn-Erfassung bindet der
+Worker zusätzlich das Document und dessen direkten GuideViewer-Viewport.
+Ein veralteter Bildschirmursprung kann bei gleicher Höhe, Breite und
+vertikaler Position einen reinen Document-Überlauf nach rechts erzeugen.
+Unter der bestehenden Vordergrundbindung darf die API in diesem bekannten
+Muster das normale Hauptfenster einmal geringfügig verschieben und auf seine
+gesicherte Position zurückstellen. Beide Positionen müssen vollständig im
+Arbeitsbereich desselben Monitors liegen. Vor jedem Eingriff werden
+Prozessgeneration, HWND, nativer Rahmen, DPI, ursprüngliche Eingabemarke und
+Vordergrund frisch geprüft. Eine Zeitgrenze und passive Readbacks binden den
+verarbeiteten Zwischenstand sowie die Rückkehr zum Originalrahmen.
+
+Erst danach wird derselbe Link mit seiner neuen rohen Provider-Geometrie
+gelesen. Der normale Mittelpunkt muss beim unveränderten Punkttest dieselbe
+Runtime-ID treffen. Link, Vorfahren, Seite und nativer Fensterzustand werden
+zuletzt nochmals geprüft. Es gibt keine ersatzweise verrechneten
+Klickkoordinaten. Bei bereits kohärenter Geometrie entfällt die Bewegung.
+Dieser bestätigte No-op allein verlangt keinen Zustandsabgleich; verlorener
+Eingabekontext und begonnene oder ungewisse Eingriffe bleiben abgleichpflichtig.
+Snapshots enthalten die rohen Provider-Rechtecke; `clickBinding` beschreibt
+den tatsächlich bestätigten Klickpunkt.
+
+Ein fehlgeschlagener Provider-Readback bestätigt keinen Erfolg. Die API darf
+den eigenen Zwischenrahmen trotzdem genau einmal zurückstellen, wenn die
+native Eigentums-, Fenster- und Eingabebindung weiterhin vollständig bewiesen
+ist. Bei Kontextverlust beginnt keine Rückbewegung. Unbestätigte Zustände
+bleiben abgleichpflichtig; weder die Bewegung noch der Klick werden blind
+wiederholt. Eine unbestätigte Fensterwirkung kann deshalb
+`outcomeUnknown: true` verlangen, obwohl kein Mausklick begonnen hat.
+
+`pattern` beschreibt die angeforderte Aktion, `method` den ausgeführten Pfad.
+Beim direkten Navigationsklick bedeutet `inputDispatched: false`, dass kein
+Mausklick begonnen hat; `true` bezeichnet den begonnenen Versand, `null` einen
+unbestimmten Versandzustand. Die optionale `clickBinding` enthält die tatsächlich
+bestätigte Punkt- und Vordergrundbindung. Sie fehlt, wenn der Helfer diese
+Bindung nicht vollständig zurückgeben konnte. Nach begonnenem oder unbestimmtem
+Versand verlangt ein Fehler einen Zustandsabgleich; der Klick wird nicht
+wiederholt. Erst der unabhängig bestätigte Seitenwechsel ergibt `verified: true`.
+Auch bei nachweislich ungesendetem Klick kann `reconciliationRequired: true`
+gelten: Eine fehlende oder inzwischen verlorene Eingabemarke sowie ein nach
+der Fokusübernahme verlorener Vordergrund lassen den Benutzerkontext offen.
+Eine erkannte Fremdeingabe behält `kind: "interference"`, auch wenn zuerst
+eine Geometrie- oder Zielprüfung scheitert. Die Fallanlage verwirft diesen
+Zustand nicht automatisch. Die Fehlerprüfung erfolgt vor der eigenen
+Fokusrückgabe, damit deren Rückkehr zum vorherigen Fenster keinen falschen
+Kontextverlust erzeugt.
+Bei einem verdeckten Punkt bleibt die gebundene Blockerdiagnose unter
+`obstruction` erhalten; sie ersetzt weder den Fehler noch den Versandstatus.
+Auch ein fehlgeschlagener Runtime-ID-Punkttest erhält dort die tatsächliche
+Fenster-/Punktdiagnose, einschließlich eines bestätigten eigenen Hauptfensters.
+
 ## Gezielt lesen und geprüft ändern
 
 Die API bietet gezielte Zustandsabfragen und darauf aufbauende, stärker
@@ -695,14 +753,40 @@ vor einem späteren UIA-Zugriff das aktuelle Fallfenster über `instances` frisc
 
 ## UIA-Startlesefehler bei der Fallanlage
 
-Vor dem ersten UIA-Zugriff wartet `case_create` auf ein eindeutig an die gestartete
-PID gebundenes Fallfenster mit Produktnamen im Titel. Das generische Fenster
+Vor der UIA-Lesung der Assistentenseite wartet `case_create` auf ein eindeutig
+an die gestartete PID gebundenes Fallfenster mit Produktnamen im Titel. Das generische Fenster
 `Steuerprogramm` kann bereits breit sein und trotzdem noch durch eine neue HWND
 ersetzt werden. `case_create` wiederholt die rein lesende Instanzabfrage innerhalb
 des bestehenden Zeitbudgets und wartet auf diesen Übergang. Start und
 Assistentenklicks werden nicht wiederholt. Bleibt der Übergang nach einem
-generischen Fenster unbestätigt, endet der Aufruf mit `startup-not-ready` und
-erhält die gestartete PID samt möglichen Rückfragen zur frischen Prüfung.
+generischen oder fehlenden Fenster unbestätigt, endet der Aufruf mit
+`startup-not-ready` und erhält die gestartete PID samt möglichen Rückfragen
+zur frischen Prüfung.
+
+Solange dieses Produktfenster fehlt, liest dieselbe Warteschleife auch das
+Dialoginventar der gestarteten PID. Jede Dialoglesung hat höchstens fünf
+Sekunden innerhalb der ursprünglichen Gesamtfrist. Ein bestätigter eigener
+Startdialog beendet die Fallanlage sofort mit `startup-not-ready`,
+`blockedByDialog: true` und dem gelesenen Inventar. Das gilt auch für eine
+Wiederherstellungsfrage; die API beantwortet sie nicht automatisch.
+Widersprüchliche, fremde oder unvollständige Inventare und fehlgeschlagene
+Dialoglesungen beenden den Ablauf ebenfalls mit erhaltenem Prozess und
+erforderlichem Zustandsabgleich. Ein ursprünglicher Lesefehler bleibt als
+Ursache bestehen. Ohne aktuellen Lebensnachweis bleibt
+`processStillRunning: null`. Diese Prüfung startet weder SSE noch eine
+Assistentenaktion erneut und verlängert das Zeitbudget nicht.
+Jeder abschließende Fehler vor bestätigter unterstützter Startseite erhält
+den Prozess ebenfalls. Das gilt für Abbruch, erschöpfte Fristen, dauerhaft
+unlesbare UIA-Wurzeln, sonstige Lesefehler und verlorene Fensterbindungen.
+Eine native Hauptfensterbindung und ein bestätigter Nicht-Schreibzugriff
+beweisen keinen leeren Fallzustand. Deshalb wird hier kein erzwungenes
+Schließen oder Verwerfen als Bereinigung gestartet. Bestehende Hinweise zum
+Eingabeausgang bleiben erhalten; eine reine Lesestörung wird dadurch nicht zu
+einem behaupteten verlorenen Eingriff. Nach bestätigter Startseite bleibt die
+gewöhnliche Bereinigung bekannter Fehler vor dem Speichern möglich. Die Dialogprüfung
+geht der Behandlung einer verlorenen Bindung vor. Ist das Inventar
+widersprüchlich, bedeutet `blockedByDialog: null`, dass auch eine Blockade
+noch nicht sicher bestimmt ist; die gelesenen Einträge bleiben erhalten.
 
 Der Standard-Worker kennzeichnet einen fehlgeschlagenen UIA-Wurzelzugriff
 innerhalb einer gebundenen `ui_state`-Lesung als `uia-root-unavailable`.
@@ -1077,12 +1161,35 @@ weil dort die Lesung der Nachweis für das aktive Kennzeichen „Beträge manuel
 erfassen“ ist und eine Zusicherung des Aufrufers keine Prüfung wäre. Ein dort
 trotzdem übergebenes `expectedPage` wird gegen die Lesung gehalten.
 `case_create` komponiert in der API den Startassistenten eines neuen Falls:
-`launch` ohne Datei, `instances`/`ui_state` bis zur Startseite, `subpages` und
-`click` bis zur ersten Stammdatenseite, `menu`/`menu_click` „Speichern
+`launch` ohne Datei, `instances` und bei fehlendem Produktfenster `dialog_list`
+der gestarteten PID, anschließend `ui_state` bis zur Startseite, `subpages` und
+`click` bis zur ersten Stammdatenseite, einen intern gebundenen Menüweg „Speichern
 unter…“, `dialog_list` und `file_dialog_select` im Modus `save-new` sowie den
-`instances`-Readback. Vor dem Speichern beendet jeder Fehler die exakt
-gestartete PID ohne Speichern; nach dem Speichern wird nie gelöscht. Die
-Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,
+`instances`-Readback. Vor dem Speichern kann ein gewöhnlicher Fehler die exakt
+gestartete PID ohne Speichern beenden. Unbekannte Ausgänge, erforderlicher
+Zustandsabgleich und fremde Eingaben erhalten den gestarteten Fall dagegen:
+`processPreserved=true`, `reconciliationRequired=true` und `retryable=false`.
+Das gilt auch für unerwartete Ausnahmen nach dem gebundenen Start. Ohne einen
+aktuellen Nachweis bleibt `processStillRunning=null`; ein früherer Start
+beweist keine spätere Erreichbarkeit. Auch eine Menübereinigung sendet nach
+einem solchen Fehler keine weitere Eingabe. Nach dem Speichern wird nie gelöscht.
+Eine zulässige Menübereinigung hält dasselbe Zeitbudget und Abbruchsignal ein.
+Bleibt ihr Ergebnis unbestätigt, wird der Fall ebenfalls erhalten; der
+ursprüngliche Fehler bleibt bestehen und `cleanup` beschreibt die Menübereinigung.
+Der interne Menüweg prüft die Stammdatenseite und den dateilosen Fall frisch.
+Ein minimierter Fall wird dafür nicht automatisch wiederhergestellt; ein
+bereits offenes zusätzliches eigenes Fenster stoppt den Weg vor der
+Fokusübernahme. Das umfasst native und Qt-Dialoge; Menü-Popups werden gesondert geprüft.
+Er aktiviert das gebundene Hauptfenster, öffnet „Datei“, wählt genau einen
+aktiven Eintrag und bestätigt den Speicherdialog innerhalb derselben
+Vordergrundbindung. Der Menüpunkt wird einmal ausgelöst. Fehlt danach der
+Dialognachweis oder geht eine folgende Dialoglesung verloren, bleibt der
+Prozess für den Zustandsabgleich erhalten. Die private Bindung ist kein
+öffentliches Argument von `menu_click`.
+`menu` und `menu_click` verwenden dieselbe Suche in den eigenen Menü-Popups.
+Ein virtueller Menüeintrag im Hauptbaum oder ein unvollständig gelesener
+Popup-Baum beweist keinen auswählbaren Eintrag.
+Die Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,
 ein neues Ziel mit modusgerechter Endung und ist auf live verifizierte
 Startmodi begrenzt. Kann der Worker nach dem Speichern keinen Dateihash
 liefern, weil der Prozess ohne Datei gestartet wurde und der Titel gekürzt ist,

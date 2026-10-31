@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "3682a4108954edeb56c7f65f4ad426f3a7baf5aad406a81c898be2f974274d25",
-      "size": 1752038
+      "sha256": "2dc14cf0cb778d741daf92899438b07f1097e2e9c0381181c2f217d1fe08caaf",
+      "size": 1760694
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "e5478dd9ca847ec89ae4d7975dec508e73793690b4d90e5edcf20c584e7a6c09",
-      "size": 1802923
+      "sha256": "290ca48ad9482a22ae87eac93283dfad795e84bc35316c0f9b2174c69db617d4",
+      "size": 1803368
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -48,8 +48,8 @@
     },
     {
       "path": "powershell/load-native.ps1",
-      "sha256": "30cff4ee75d48480cff51b76b02fc8cd34b3afe4baac270c7b6784dcebc9b004",
-      "size": 9574
+      "sha256": "1a079e62c790c2c7c5023cbff8d27fd7aafd0129bca89be99cc8c8892d6984de",
+      "size": 9595
     },
     {
       "path": "powershell/ocr-image.ps1",
@@ -73,23 +73,23 @@
     },
     {
       "path": "powershell/sse-native.cs",
-      "sha256": "ca2cc84303f84f2ee0b6836f7484d06228a062ba2b153d75a275f649f56668fb",
-      "size": 66831
+      "sha256": "d32b6d4251426f9a8a92e926c2bc1c81f47dd71acb4f9691e6df733d6c8a7cd6",
+      "size": 67983
     },
     {
       "path": "powershell/sse-native.dll",
-      "sha256": "0fba25bde6844990d1943e5120f710ef8c5ad3294c6c51e6f8674fa3856cb896",
-      "size": 47616
+      "sha256": "e8293645c02238f653477e547393604812900d8af425f010947f7aeebb52dfaa",
+      "size": 48128
     },
     {
       "path": "powershell/sse-native.sha256",
-      "sha256": "daf96d2e967c890bd1ad34108e179470c62ac186c3ef0adeb07eb785fa0e96bc",
+      "sha256": "6fc9eb78441647213cc20784be5115568f5b92e3b017dcd224b430d6b821f036",
       "size": 181
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "1f7709c0ecfc3bb73719e7890172832b976a101526e8ce1ab79bbc04b36a3af6",
-      "size": 1560135
+      "sha256": "598c89b979a6a2a849025be98f463879b360aa1991f4b77a7bd99c30fbbe6bae",
+      "size": 1587573
     },
     {
       "path": "powershell/structure-binding.ps1",

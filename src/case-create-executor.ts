@@ -2,12 +2,13 @@
  * case_create: einen neuen Steuerfall ueber den echten Startassistenten
  * anlegen und sofort unter der gewuenschten Falldatei speichern.
  *
- * Die Komposition benutzt ausschliesslich bereits veroeffentlichte, einzeln
- * verifizierte Operationen ueber den verschachtelten API-Executor. Jeder
+ * Die Komposition benutzt vorhandene Operationen; der kurzlebige Menueweg
+ * bleibt in einem privaten Worker-Aufruf. Jeder
  * Schritt hat eine harte Vor- und Nachbedingung; scheitert ein Schritt vor
  * dem Speichern, wird die exakt gestartete PID ohne Speichern beendet, sofern
- * der Start keinen ungeprueften Dialog-/Wiederherstellungszustand erhalten
- * muss. Nach dem Speichern wird die neue Datei niemals wieder geloescht.
+ * kein ungewisser Ausgang, fremder Eingabekontext oder ungepruefter
+ * Dialog-/Wiederherstellungszustand erhalten bleiben muss. Nach dem Speichern
+ * wird die neue Datei niemals wieder geloescht.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -20,6 +21,17 @@ import {
   type WorkerResult,
 } from "./api-contract.js";
 import { operationError } from "./executor-errors.js";
+import {
+  CASE_CREATE_WIZARDS,
+  assertCaseCreateSaveDialog,
+  getStartupDialogFailure,
+  isStartupUiaRootFailure,
+  mustPreserveFailedCase,
+  preserveCaseCreateSaveDialogFailure,
+  StepFailure,
+  type CaseCreateWizard,
+} from "./case-create-state.js";
+export { CASE_CREATE_WIZARDS } from "./case-create-state.js";
 import type { ProductProfile } from "./product-profiles.js";
 import type { ScenarioExecutor } from "./scenario.js";
 import type { NestedApiExecutor } from "./ustva-executor.js";
@@ -32,7 +44,7 @@ export interface CaseCreateTarget {
 export interface CaseCreateDependencies {
   /** Verschachtelter API-Executor mit Schema-, Ressourcen- und Profilpruefung. */
   execute: NestedApiExecutor;
-  /** Roher Worker nur fuer das Cleanup der exakt gestartetenPID. */
+  /** Worker fuer gebundene interne Schritte und das eigene PID-Cleanup. */
   worker: ScenarioExecutor;
   resolveTarget: (args: Record<string, unknown>) => CaseCreateTarget;
   profile: Pick<ProductProfile, "taxYear" | "startModes" | "additionalCaseYears">;
@@ -40,47 +52,19 @@ export interface CaseCreateDependencies {
   wait?: (ms: number) => Promise<void>;
 }
 
-interface CaseCreateWizard {
-  startHeading: RegExp;
-  beginLink: string;
-  modeChoiceHeading: string;
-  modeChoiceAid: string;
-  nextButton: string;
-  masterDataHeading: string;
-  saveMenu: string;
-  saveMenuEntry: string;
-  saveDialogTitle: string;
-  yearOffset: number;
-}
-
-/** Live verifizierte Assistentenwege je Startmodus; andere Modi bleiben gesperrt. */
-export const CASE_CREATE_WIZARDS: Readonly<Record<string, CaseCreateWizard>> = Object.freeze({
-  einurvor: {
-    startHeading: /^Gewinn-Erfassung für das Jahr (\d{4})$/u,
-    beginLink: "Jetzt beginnen",
-    modeChoiceHeading: "Beginn der Datenbearbeitung",
-    modeChoiceAid: "btnNavigatormodusEinURVor",
-    nextButton: "Weiter",
-    masterDataHeading: "Allgemeine Angaben zum Unternehmen",
-    saveMenu: "Datei",
-    saveMenuEntry: "Speichern unter... Strg+Alt+S",
-    saveDialogTitle: "Gewinn-Erfassung speichern",
-    yearOffset: 1,
-  },
-});
-
 const MIN_STEP_MS = 2_000;
 const MIN_LAUNCH_MS = 30_000;
 const WIZARD_RESERVE_MS = 60_000;
 const START_PAGE_POLL_MS = 1_500;
+const START_DIALOG_READ_CEILING_MS = 5_000;
+// Der verschachtelte Executor normalisiert Worker-Ausnahmen zu Ergebnissen.
+// Diese Transportfehler beweisen ohne ausdrueckliches false keinen Nichtversand.
+const UNCERTAIN_EXECUTION_KINDS = new Set([
+  "timeout", "aborted", "parse", "empty", "output-too-large", "worker",
+  "worker-isolation-lost", "worker-transport-cleanup", "spawn",
+]);
 
 const EFFECTS = Object.freeze({ taxDataChanged: false, savePerformed: true, submissionPerformed: false });
-
-class StepFailure extends Error {
-  constructor(readonly result: WorkerResult) {
-    super(String(result.error ?? result.kind ?? "Schritt scheiterte."));
-  }
-}
 
 const fail = (kind: string, error: string): never => {
   throw new StepFailure(operationError(error, kind));
@@ -128,13 +112,6 @@ function expectedFileSuffix(
   return { suffix: `.${documentType}${taxYear}`, taxYear };
 }
 
-function isStartupUiaRootFailure(result: WorkerResult, pid: number, hwnd: number): boolean {
-  return result.ok === false && result.backend === undefined && result.kind === "uia-root-unavailable"
-    && result.operation === "ui_state" && result.phase === "snapshot-root"
-    && result.mutationStarted === false && result.outcomeUnknown === false && result.windowStateChanged === false
-    && result.windowAlive === true && result.windowSetMainOnly === true && result.pid === pid && result.hwnd === hwnd;
-}
-
 export async function executeCaseCreate(
   args: Record<string, unknown>,
   timeoutMs: number | undefined,
@@ -148,10 +125,12 @@ export async function executeCaseCreate(
   let pid = 0;
   let hwnd = 0;
   let launchDispatched = false;
+  let startupWindowUnconfirmed = false;
   let target: CaseCreateTarget | undefined;
   let uiaRootFailures = 0;
   let uiaRootPinnedHwnd: number | undefined;
   let lastUiaRootFailure: Record<string, unknown> | undefined;
+  let activeStep: SseApiOperation | undefined;
   const rootDiagnostics = () => uiaRootFailures > 0 ? { startupUiaRootFailures: uiaRootFailures,
     lastUiaRootFailure } : {};
 
@@ -165,8 +144,15 @@ export async function executeCaseCreate(
     }
     steps.push(operation);
     if (operation === "launch") launchDispatched = true;
+    activeStep = operation;
     const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
-    if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
+    activeStep = undefined;
+    if (result.ok !== true) {
+      const uncertain = pid > 0 && result.outcomeUnknown !== false
+        && UNCERTAIN_EXECUTION_KINDS.has(String(result.kind));
+      throw new StepFailure({ ...result, failedStep: operation,
+        ...(uncertain ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}) });
+    }
     return result;
   };
   const wait = dependencies.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -198,6 +184,7 @@ export async function executeCaseCreate(
     const launchedPid = Number(launched.pid);
     if (!Number.isInteger(launchedPid) || launchedPid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
     pid = launchedPid;
+    startupWindowUnconfirmed = true;
     if (launched.ready !== true || launched.blockedByDialog === true || launched.outcomeUnknown === true || launched.processPreserved === true) {
       throw new StepFailure({ ...launched, ok: false, kind: "startup-not-ready", failedStep: "launch",
         error: "Der gestartete Prozess ist nicht bereit fuer die Fallanlage. Startdialog und moegliche Wiederherstellung frisch lesen; " +
@@ -205,8 +192,8 @@ export async function executeCaseCreate(
         ready: false, processPreserved: true, reconciliationRequired: true, retryable: false });
     }
 
-    // Wait for a product-titled case window before touching UIA. A generic
-    // startup frame can already be wide but still gets replaced.
+    // Wait for a product-titled case window before reading its UIA page.
+    // A generic startup frame can be replaced or hidden by a startup dialog.
     let startHeading = "";
     let waitingForCaseWindow = false;
     for (;;) {
@@ -218,11 +205,29 @@ export async function executeCaseCreate(
           failedStep: "instances", pid, ready: false, processPreserved: true, processStillRunning: true,
           outcomeUnknown: true, reconciliationRequired: true, retryable: false });
       }
-      if (uiaRootPinnedHwnd !== undefined && (!instance || Number(bound.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
-        fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
-      }
       const productWindow = instance && String(instance.title ?? "").includes("SteuerSparErklärung");
-      if (instance && !productWindow) waitingForCaseWindow = true;
+      const pinnedBindingChanged = uiaRootPinnedHwnd !== undefined
+        && (!instance || Number(bound.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd);
+      if (!productWindow || pinnedBindingChanged) {
+        waitingForCaseWindow = true;
+        let inventory: WorkerResult;
+        try {
+          inventory = await step("dialog_list", { pid }, START_DIALOG_READ_CEILING_MS);
+        } catch (error) {
+          const failure = error instanceof StepFailure ? error.result
+            : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "startup-probe");
+          throw new StepFailure({ ...failure, failedStep: "dialog_list", pid, ready: false,
+            processPreserved: true, outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+        }
+        const startupFailure = getStartupDialogFailure(inventory, pid);
+        if (startupFailure) throw new StepFailure(startupFailure);
+      }
+      if (pinnedBindingChanged) {
+        throw new StepFailure({ ok: false, kind: "startup-binding-changed", failedStep: "instances", pid,
+          error: "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; Zustand erhalten, keine Assistentenaktion.",
+          ready: false, processPreserved: true, processStillRunning: null,
+          outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+      }
       if (instance && Number(bound.count) === 1 && instance.hung !== true && instance.recoveredState !== true && productWindow) {
         waitingForCaseWindow = false;
         hwnd = Number(instance.hwnd);
@@ -254,7 +259,10 @@ export async function executeCaseCreate(
         const heading = String(state?.heading ?? "");
         if (state && (Number((state.instance as Record<string, unknown> | undefined)?.pid) !== pid
           || Number((state.instance as Record<string, unknown> | undefined)?.hwnd) !== hwnd)) {
-          fail("startup-binding-changed", "Die Startlesung bestaetigt nicht die gebundene PID und HWND; keine Assistentenaktion.");
+          throw new StepFailure({ ok: false, kind: "startup-binding-changed", failedStep: "ui_state", pid,
+            error: "Die Startlesung bestaetigt nicht die gebundene PID und HWND; Zustand erhalten, keine Assistentenaktion.",
+            ready: false, processPreserved: true, processStillRunning: null,
+            outcomeUnknown: true, reconciliationRequired: true, retryable: false });
         }
         const match = wizard.startHeading.exec(heading);
         if (match) {
@@ -262,6 +270,7 @@ export async function executeCaseCreate(
             fail("wizard-page", `Der Assistent bietet das Jahr ${match[1]} an, das Profil erlaubt fuer '${mode}' nur ${taxYear}.`);
           }
           startHeading = heading;
+          startupWindowUnconfirmed = false;
           break;
         }
       }
@@ -305,15 +314,15 @@ export async function executeCaseCreate(
       fail("wizard-page", `Nach '${wizard.nextButton}' steht '${String(master.ueberschriftNachher ?? "")}' statt '${wizard.masterDataHeading}'.`);
     }
 
-    // Mit name liefert der Worker die Eintraege des einen geoeffneten Menues flach.
-    const menu = await step("menu", { name: wizard.saveMenu, hwnd });
-    const entry = asArray<Record<string, unknown>>(menu.eintraege)
-      .find((candidate) => String(candidate.name ?? "") === wizard.saveMenuEntry);
-    if (!entry || entry.gesperrt === true || entry.aktiv === false) {
-      fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
-    }
+    let saveDialogOpened = false;
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      // Qt-Popups koennen beim Fokuswechsel zwischen Arbeitern verschwinden.
+      // Der private Worker-Aufruf verbraucht das Popup vor der Lease-Freigabe.
+      const opened = await step("menu_click", { name: wizard.saveMenuEntry, hwnd,
+        __caseCreateSaveDialog: { kind: "case-create", expectedPage: wizard.masterDataHeading,
+          expectedDialogTitle: wizard.saveDialogTitle } }, 20_000, dependencies.worker);
+      assertCaseCreateSaveDialog(opened, wizard.saveDialogTitle);
+      saveDialogOpened = true;
       const dialogDeadline = Math.min(deadline, now() + 5_000);
       for (;;) {
         const dialogs = await step("dialog_list", { pid });
@@ -326,8 +335,26 @@ export async function executeCaseCreate(
         await wait(100);
       }
     } catch (error) {
-      // Ein offen gebliebenes Menue darf das Cleanup nicht blockieren.
-      await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => undefined);
+      if (saveDialogOpened || !(error instanceof StepFailure)) {
+        throw preserveCaseCreateSaveDialogFailure(error, activeStep ?? "save-dialog");
+      }
+      // Nach unbekannter Aktion oder fremder Eingabe beginnt auch keine
+      // vermeintlich harmlose Menuebereinigung mit einer neuen Eingabe.
+      if (!mustPreserveFailedCase(error)) {
+        try {
+          const closed = await step("menu_close", { hwnd }, MIN_STEP_MS * 5);
+          if (mustPreserveFailedCase(new StepFailure(closed))) throw new StepFailure(closed);
+        } catch (cleanupError) {
+          const primary = error.result;
+          const cleanup = cleanupError instanceof StepFailure ? cleanupError.result
+            : operationError(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "menu-cleanup");
+          const cleanupUnknown = cleanup.outcomeUnknown === true || (!(cleanupError instanceof StepFailure) && activeStep !== undefined);
+          throw new StepFailure({ ...primary, cleanup: { ...cleanup, operation: "menu_close" },
+            cleanupError: String(cleanup.error ?? "Die Menuebereinigung wurde nicht bestaetigt."),
+            ...(cleanupUnknown ? { outcomeUnknown: true } : {}),
+            processPreserved: true, reconciliationRequired: true, retryable: false });
+        }
+      }
       throw error;
     }
 
@@ -372,9 +399,27 @@ export async function executeCaseCreate(
       ? error.result
       : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
     failure = { ...failure, ...rootDiagnostics() };
+    if (pid > 0 && startupWindowUnconfirmed && failure.processPreserved !== true) {
+      // Until the supported start page is confirmed, a failed read or deadline
+      // cannot exclude unread startup/recovery state. Never discard that process.
+      failure = { ...failure, ready: false, processPreserved: true, processStillRunning: null,
+        ...(failure.kind === "aborted" || signal?.aborted || failure.failedStep === "instances"
+          ? { outcomeUnknown: true } : {}),
+        reconciliationRequired: true, retryable: false };
+    }
     if (launchDispatched && pid <= 0 && !(failure.mutationStarted === false && failure.resultingState === "unchanged")) {
       failure = { ...failure, failedStep: failure.failedStep ?? "launch", processPreserved: true, processStillRunning: failure.processStillRunning ?? null,
         outcomeUnknown: true, reconciliationRequired: true, retryable: false };
+    }
+    if (pid > 0 && mustPreserveFailedCase(error)) {
+      failure = { ...failure,
+        ...(!(error instanceof StepFailure) ? {
+          ...(activeStep !== undefined ? { outcomeUnknown: true } : {}),
+          failedStep: failure.failedStep ?? activeStep ?? "case-create",
+        } : {}),
+        processPreserved: true,
+        processStillRunning: typeof failure.processStillRunning === "boolean" ? failure.processStillRunning : null,
+        reconciliationRequired: true, retryable: false };
     }
     const created = target !== undefined && existsSync(target.path);
     if (pid > 0 && !created && failure.processPreserved !== true) {

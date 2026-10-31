@@ -1479,8 +1479,13 @@ test("33 case_create builds a new follow-year case through the wizard and the sa
     assert.equal(sha256File(targetPath), created.sha256);
     assert.deepEqual(created.steps, [
       "instances", "desktop_status", "launch", "instances", "ui_state", "subpages",
-      "click", "click", "click", "menu", "menu_click", "dialog_list", "file_dialog_select", "instances",
+      "click", "click", "click", "menu_click", "dialog_list", "file_dialog_select", "instances",
     ]);
+    const menuSteps = harness.model.journal.filter(entry => entry.operation === "menu_click");
+    assert.equal(menuSteps.length, 1, "Der kurzlebige Menueweg muss in einem Worker-Aufruf bleiben");
+    assert.deepEqual(menuSteps[0].args.__caseCreateSaveDialog, {
+      kind: "case-create", expectedPage: "Allgemeine Angaben zum Unternehmen", expectedDialogTitle: "Gewinn-Erfassung speichern",
+    });
     assert.equal(harness.model.journal.filter((entry) => entry.operation === "close").length, 0,
       "Eine erfolgreiche Anlage schliesst nichts");
 

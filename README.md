@@ -36,6 +36,9 @@ Schluss die Umsatzsteuer-Voranmeldung zeigen. Nichts wird an ELSTER gesendet.
   echten Startassistenten anlegen (`sse_case_create`) und dessen Stammdaten
   über katalogisierte Seiten füllen.
 
+Bei Startfragen oder unklaren Startzuständen hält die Fallanlage an und erhält
+den Prozess zur Prüfung. Rückfragen werden nicht automatisch beantwortet.
+
 Profil 2025 / Engine 31 ist freigegeben. Profil 2024 bleibt experimentell und
 auf Verifikation begrenzt. `GewErfass2026` ist ausschließlich für den belegten
 Folgejahr-Leseweg und die neu angelegte Gewinn-Erfassung freigegeben. Im

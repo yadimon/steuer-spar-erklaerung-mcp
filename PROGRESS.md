@@ -44,6 +44,50 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Speichern und die Änderungsprüfung vor dem Schließen binden die eindeutige
   Hauptsymbolleisten-ID auch ohne zugänglichen Schalternamen. Fehlende oder
   unlesbare Zustände bestätigen weder einen sauberen Fall noch einen Abschluss.
+  Die Fallanlage erhält nach ungewissem Ausgang oder fremder Eingabe den
+  gestarteten Fall statt ihn automatisch zu verwerfen. Auch eine zusätzliche
+  Menübereinigung bleibt dann aus; unbekannte Prozesszustände bleiben unbekannt.
+  Während des Übergangs vom Startfenster zum Produktfenster prüft dieselbe
+  Warteschleife auch eigene Startdialoge. Bestätigte Rückfragen und unvollständige
+  oder fehlgeschlagene Dialoglesungen stoppen den Ablauf mit erhaltenem Prozess.
+  Die API beantwortet keine Startfrage automatisch und erweitert die ursprüngliche
+  Frist nicht. Auch ein bis zum Fristende fehlendes Produktfenster bleibt zur
+  Zustandsklärung erhalten. Bis die unterstützte Startseite bestätigt ist,
+  erhält jeder abschließende Fehler den Prozess. Das umfasst erschöpfte
+  Fristen, dauerhaft unlesbare UIA-Wurzeln und andere Lesefehler. Eine einzelne
+  eigene Hauptfensterbindung beweist keinen leeren Startzustand. Die gewöhnliche
+  Bereinigung bekannter Fehler vor dem Speichern bleibt nach bestätigter
+  Startseite möglich.
+  Der kurzlebige Speichern-unter-Menüweg der Fallanlage bleibt bis zur
+  Bestätigung des nativen Dialogs in einer Vordergrundbindung. Eine frisch
+  geprüfte Seite und ein dateiloser Fall sind Pflicht; der Menüpunkt wird
+  einmal ausgelöst. Fehlende Dialogbelege erhalten den Prozess. Menüinventar
+  und Auswahl prüfen dieselben eigenen Popup-Fenster und lehnen unvollständige
+  Bäume ab.
+- **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
+  tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
+  Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.
+  Erfolg und fehlgeschlagener Seitenwechsel erhalten die bestätigte
+  Klickbindung; eine Ausnahme unterscheidet nachweislich ungesendete,
+  begonnene und unbestimmte Eingaben. Begonnene oder unbestimmte Eingriffe
+  verlangen vor weiteren Aktionen einen Abgleich. Die echte Wizard-Abnahme
+  bleibt ein eigener Nachweis.
+  Beim ersten Startlink der Gewinn-Erfassung wird ein veralteter
+  Bildschirmursprung des Web-Documents über seinen direkten GuideViewer-
+  Viewport erkannt. Im bekannten Überlaufmuster kann eine einmalige gebundene
+  Fensterbewegung samt Rückstellung die Geometrie aktualisieren. Sie braucht
+  einen normalen Fensterzustand innerhalb desselben Monitor-Arbeitsbereichs,
+  unveränderte Prozessgeneration, DPI, Eingabemarke und Vordergrund. Erst ein
+  verarbeiteter Zwischenstand und der bestätigte Originalrahmen erlauben den
+  frisch gelesenen normalen Klick. Dieselbe Runtime-ID am tatsächlichen
+  Mittelpunkt bleibt Pflicht; eine Fensterbewegung wird nicht wiederholt.
+  Bei unlesbarem Provider ist eine einzige sichere Rückstellung nur mit
+  vollständig erhaltener nativer Bindung erlaubt. Unbewiesene Zustände bleiben
+  erhalten; daraus wird kein Navigationserfolg abgeleitet.
+  Ein ungesendeter Klick bestätigt keinen unberührten Benutzerkontext:
+  verlorene oder fehlende Eingabemarken bleiben abgleichpflichtig, auch wenn
+  zugleich eine Zielprüfung scheitert. Die eigene Fokusrückgabe erfolgt erst
+  nach dieser Fehlerklassifikation.
 - **Tabellen:** passives Standardlesen, explizites Grid-Lesen und geschütztes
   Cursorlesen haben unterschiedliche Verträge. Grid-Lesen löst keine Fokus-,
   Scroll- oder Schreibaktion aus. Ein Cursorweg braucht zusätzlich frische

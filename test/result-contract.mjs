@@ -347,6 +347,30 @@ assert.throws(
   /string/i,
   "click_point.at muss wie im Worker die kompakte gelesene Koordinate tragen.",
 );
+for (const inputDispatched of [false, true, null]) {
+  const result = parseApiOperationResult("click", {
+    ok: false, kind: "interference", error: "Synthetischer Bindungsverlust",
+    method: "verified-point", inputDispatched,
+    outcomeUnknown: inputDispatched !== false,
+    reconciliationRequired: inputDispatched !== false,
+    clickBinding: null,
+  });
+  assert.equal(result.inputDispatched, inputDispatched,
+    "Ein unbestimmter Klickversand darf nicht in false umgedeutet werden.");
+}
+for (const field of ["inputDispatched", "outcomeUnknown", "reconciliationRequired"]) {
+  for (const invalid of [0, "false", {}]) {
+    assert.throws(() => parseApiOperationResult("click", {
+      ok: false, kind: "interference", error: "Synthetischer Bindungsverlust", [field]: invalid,
+    }), /boolean/i,
+      `click.${field} muss boolesch oder ausdruecklich null bleiben.`);
+  }
+}
+assert.throws(() => parseApiOperationResult("click", { ok: true, clickBinding: "unbestaetigt" }), /record|object/i,
+  "Die Klickbindung muss ein strukturiertes Teilresultat sein.");
+assert.throws(() => parseApiOperationResult("click", {
+  ok: false, kind: "obstructed", error: "Synthetische Verdeckung", obstruction: "unbestaetigt",
+}), /record|object/i, "Die Verdeckungsdiagnose muss ein strukturiertes Teilresultat sein.");
 assert.throws(
   () => parseApiOperationResult("vast_apply", { ok: true, applied: 1 }),
   /boolean/i,
