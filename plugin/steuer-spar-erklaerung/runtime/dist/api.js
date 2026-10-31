@@ -24700,13 +24700,13 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   } catch (error62) {
     let failure7 = error62 instanceof StepFailure ? error62.result : operationError(error62 instanceof Error ? error62.message : String(error62), signal?.aborted ? "aborted" : "case-create");
     failure7 = { ...failure7, ...rootDiagnostics() };
-    if (pid2 > 0 && startupWindowUnconfirmed && failure7.processPreserved !== true && (failure7.kind === "aborted" || signal?.aborted || failure7.failedStep === "instances")) {
+    if (pid2 > 0 && startupWindowUnconfirmed && failure7.processPreserved !== true) {
       failure7 = {
         ...failure7,
         ready: false,
         processPreserved: true,
         processStillRunning: null,
-        outcomeUnknown: true,
+        ...failure7.kind === "aborted" || signal?.aborted || failure7.failedStep === "instances" ? { outcomeUnknown: true } : {},
         reconciliationRequired: true,
         retryable: false
       };

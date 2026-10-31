@@ -775,9 +775,15 @@ erforderlichem Zustandsabgleich. Ein ursprünglicher Lesefehler bleibt als
 Ursache bestehen. Ohne aktuellen Lebensnachweis bleibt
 `processStillRunning: null`. Diese Prüfung startet weder SSE noch eine
 Assistentenaktion erneut und verlängert das Zeitbudget nicht.
-Ein Abbruch oder eine fehlgeschlagene Instanzlesung vor bestätigter Startseite
-oder eine verlorene Fensterbindung
-nach einem UIA-Lesefehler erhält den Prozess ebenfalls. Die Dialogprüfung
+Jeder abschließende Fehler vor bestätigter unterstützter Startseite erhält
+den Prozess ebenfalls. Das gilt für Abbruch, erschöpfte Fristen, dauerhaft
+unlesbare UIA-Wurzeln, sonstige Lesefehler und verlorene Fensterbindungen.
+Eine native Hauptfensterbindung und ein bestätigter Nicht-Schreibzugriff
+beweisen keinen leeren Fallzustand. Deshalb wird hier kein erzwungenes
+Schließen oder Verwerfen als Bereinigung gestartet. Bestehende Hinweise zum
+Eingabeausgang bleiben erhalten; eine reine Lesestörung wird dadurch nicht zu
+einem behaupteten verlorenen Eingriff. Nach bestätigter Startseite bleibt die
+gewöhnliche Bereinigung bekannter Fehler vor dem Speichern möglich. Die Dialogprüfung
 geht der Behandlung einer verlorenen Bindung vor. Ist das Inventar
 widersprüchlich, bedeutet `blockedByDialog: null`, dass auch eine Blockade
 noch nicht sicher bestimmt ist; die gelesenen Einträge bleiben erhalten.

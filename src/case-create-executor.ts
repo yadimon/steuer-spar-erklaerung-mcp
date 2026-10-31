@@ -395,12 +395,13 @@ export async function executeCaseCreate(
       ? error.result
       : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
     failure = { ...failure, ...rootDiagnostics() };
-    if (pid > 0 && startupWindowUnconfirmed && failure.processPreserved !== true
-      && (failure.kind === "aborted" || signal?.aborted || failure.failedStep === "instances")) {
-      // Cancellation or a failed inventory cannot prove that no new startup
-      // question appeared after the last read. Never discard that process.
+    if (pid > 0 && startupWindowUnconfirmed && failure.processPreserved !== true) {
+      // Until the supported start page is confirmed, a failed read or deadline
+      // cannot exclude unread startup/recovery state. Never discard that process.
       failure = { ...failure, ready: false, processPreserved: true, processStillRunning: null,
-        outcomeUnknown: true, reconciliationRequired: true, retryable: false };
+        ...(failure.kind === "aborted" || signal?.aborted || failure.failedStep === "instances"
+          ? { outcomeUnknown: true } : {}),
+        reconciliationRequired: true, retryable: false };
     }
     if (launchDispatched && pid <= 0 && !(failure.mutationStarted === false && failure.resultingState === "unchanged")) {
       failure = { ...failure, failedStep: failure.failedStep ?? "launch", processPreserved: true, processStillRunning: failure.processStillRunning ?? null,

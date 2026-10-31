@@ -52,8 +52,12 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   oder fehlgeschlagene Dialoglesungen stoppen den Ablauf mit erhaltenem Prozess.
   Die API beantwortet keine Startfrage automatisch und erweitert die ursprüngliche
   Frist nicht. Auch ein bis zum Fristende fehlendes Produktfenster bleibt zur
-  Zustandsklärung erhalten. Dasselbe gilt bei Abbruch vor bestätigter Startseite
-  oder verlorener Fensterbindung nach einem UIA-Lesefehler.
+  Zustandsklärung erhalten. Bis die unterstützte Startseite bestätigt ist,
+  erhält jeder abschließende Fehler den Prozess. Das umfasst erschöpfte
+  Fristen, dauerhaft unlesbare UIA-Wurzeln und andere Lesefehler. Eine einzelne
+  eigene Hauptfensterbindung beweist keinen leeren Startzustand. Die gewöhnliche
+  Bereinigung bekannter Fehler vor dem Speichern bleibt nach bestätigter
+  Startseite möglich.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.

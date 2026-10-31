@@ -530,7 +530,9 @@ $inspectionRequest=[Console]::In.ReadToEnd() | ConvertFrom-Json
 `;
   const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
     Buffer.from(bootstrap, "utf16le").toString("base64")], {
-    input: JSON.stringify({ program, entries }), encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 2 * 1024 * 1024,
+    // PowerShell startup and AST walks share CPU with the parallel test suite.
+    // This bounded test deadline is independent of production operation budgets.
+    input: JSON.stringify({ program, entries }), encoding: "utf8", windowsHide: true, timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
   });
   assert.equal(result.error, undefined, "PowerShell result-source AST inspection failed.");
   assert.equal(result.status, 0, result.stderr);
