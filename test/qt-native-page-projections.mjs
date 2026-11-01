@@ -565,7 +565,8 @@ export async function testNativePageProjections() {
   receiptNode("Table", "", "receipt.tableWidget_mainTabel", 0, 100, { w: 900, h: 300 });
   receiptNode("Text", "MEINE BELEGE (1)", "receipt.label_infoText1", 0, 70);
   receiptNode("Edit", "", "receipt.widget_mainWindowInfoBar.frame_container.lineEdit_suche", 500, 70, { val: "" });
-  receiptNode("Header", "Titel", "receipt.tableWidget_mainTabel", 160, 100);
+  ["", "", "Bezeichnung", "Typ", "Datum", "Erstellt", "Geändert", "Ungelesen", "Nummer"].forEach((name, column) =>
+    receiptNode("Header", name, "receipt.tableWidget_mainTabel", column * 80, 100));
   for (let column = 0; column < 9; column += 1) {
     receiptNode("DataItem", column === 2 ? "Synthetic receipt*" : column === 8 ? "DOC-1" : "",
       "receipt.tableWidget_mainTabel", column * 80, 140, { selected: column === 2 });
@@ -765,4 +766,45 @@ export async function testNativePageProjections() {
   assert.equal(detailRead.clickBinding.method, "qt-table-cell-activate");
   assert.equal(detailRead.closeBinding.method, "qt-accessibility-press");
   assert.deepEqual(detailActions, ["activate-table-cell", "press"]);
+
+  async function readTransition({ narrowPolls = 0, neverRestored = false, panelStaysOpen = false, foreignCell = false } = {}) {
+    detailState = "list"; detailActions.length = 0;
+    let remaining = narrowPolls;
+    const client = { ...detailClient,
+      request: async (operation, args) => {
+        const measurement = await detailClient.request(operation, args);
+        if (operation !== "accessibility_snapshot" || args.toolTitle !== "BelegManager" || !detailActions.includes("press")) return measurement;
+        const narrow = neverRestored || remaining-- > 0;
+        const selectedNodes = measurement.result.nodes.map(node => {
+          if (!node.aid.endsWith(".tableWidget_mainTabel")) return node;
+          if (narrow && ["Header", "DataItem"].includes(node.type) && node.x >= 240) return { ...node, w: 0, h: 0 };
+          if (foreignCell && node.type === "DataItem" && node.x === 320) return { ...node, name: "Foreign value" };
+          return node;
+        });
+        return { ...measurement, result: { ...measurement.result, nodes: selectedNodes } };
+      },
+      requestAcknowledged: async (operation, args) => {
+        const reply = await detailClient.requestAcknowledged(operation, args);
+        if (panelStaysOpen && args.action === "press") detailState = "detail";
+        return reply;
+      },
+    };
+    const result = await executeQtNativeOperation("receipt_manager_read", {
+      rowRid: receipts.rows[0].rowRid, rowFingerprint: receipts.rows[0].rowFingerprint,
+      expectedListFingerprint: receipts.listFingerprint, waitMs: neverRestored || panelStaysOpen || foreignCell ? 100 : 1000,
+    }, { qtNativeClient: client }, 5000, undefined, loadProductProfile("2025"));
+    assert.deepEqual(detailActions, ["activate-table-cell", "press"], "A restore read cannot repeat the close or selection");
+    return result;
+  }
+  const delayedReceiptRead = await readTransition({ narrowPolls: 2 });
+  assert.equal(delayedReceiptRead.ok, true);
+  assert.equal(delayedReceiptRead.listFingerprint, receipts.listFingerprint);
+  assert.equal(delayedReceiptRead.row.cells.length, 9);
+  const incompleteReceiptRead = await readTransition({ neverRestored: true });
+  assert.equal(incompleteReceiptRead.ok, false);
+  assert.equal(incompleteReceiptRead.semanticListUnchanged, false);
+  const unclosedReceiptRead = await readTransition({ panelStaysOpen: true });
+  assert.equal(unclosedReceiptRead.ok, false);
+  assert.equal(unclosedReceiptRead.dialogFreeAfter, false);
+  assert.equal((await readTransition({ foreignCell: true })).ok, false);
 }

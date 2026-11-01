@@ -25,6 +25,7 @@ import {
   megaSourceFingerprint,
 } from "./performance/api-mega-fingerprint.mjs";
 import { writeDeterministicDocument } from "./performance/receipt-workload.mjs";
+import { receiptPolicySchema, receiptState } from "../dist/qt-native-receipts.js";
 
 const baseUrl = process.env.SSE_API_URL;
 const rawReportPath = process.env.SSE_MEGA_RAW_REPORT;
@@ -1308,6 +1309,30 @@ try {
       },
       { mutationTimeoutMs: 180_000, readbackTimeoutMs: 120_000 },
     );
+    // Vor dem Feldzyklus die nach dem Import offene Detailansicht verlassen
+    // und einen unabhaengig rueckgelesenen Listenbestand als Basis verwenden.
+    await mutateAndRead("receipt-post-import-home", { actionId: "goHome", hwnd: currentHwnd },
+      (result) => assert.equal(result.stateAfter, "start"),
+      { hwnd: currentHwnd, toolWindow: "receiptManager", namedOnly: false, maxNodes: 5000 },
+      (result) => {
+        assert.equal(result.stats.truncated, false);
+        assert.equal(result.stats.depthLimited, false);
+        assert.equal(result.stats.err, 0);
+        assert.equal(result.stats.cyc, 0);
+        const state = receiptState(result.nodes, result.hwnd,
+          receiptPolicySchema.parse(profile.pageObjectsCatalog.windows.receiptManager));
+        assert.equal(state.error, undefined);
+        assert.equal(state.state, "start");
+      });
+    await mutateAndRead("receipt-post-import-list", { actionId: "showAllReceipts", hwnd: currentHwnd },
+      (result) => assert.equal(result.stateAfter, "list"), { hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.count, 1);
+        assert.equal(result.rowsComplete, true);
+        assert.deepEqual(result.headers, emptyList.headers);
+        assert.equal(receiptBinding(result).cells.length, result.headers.length);
+        importedList = result;
+      });
     let detail = await read("receipt_manager_read",
       readReceiptArgs(receiptBinding(importedList), importedList.listFingerprint, currentHwnd),
       (result) => {

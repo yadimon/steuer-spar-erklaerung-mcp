@@ -7,53 +7,15 @@ import type { QtSnapshotNode } from "./qt-native-snapshot.js";
 import {
   detailBindingFingerprint, detailIdentityMatches, exactDetailClose, fail, receiptDetailFields, receiptDetailSnapshot,
   receiptDirtyState, receiptEditableValues, receiptList, receiptPolicySchema, receiptReadableFieldNode, receiptState,
-  receiptWindowSet, sameSemanticRow, validReceiptDate, type ReceiptListProjection, type ReceiptRow,
+  receiptWindowSet, sameSemanticRow, sameReceiptListLayout, validReceiptDate, type ReceiptListProjection, type ReceiptRow,
 } from "./qt-native-receipts.js";
+import { ReceiptUpdateError, equalValue, rawValue, type ReceiptEditField as Field } from "./qt-native-receipt-update-values.js";
 
-type Field = "title" | "date" | "documentNumber" | "amount" | "vatRate" | "net" | "note";
 const fields: readonly Field[] = ["title", "date", "documentNumber", "amount", "net", "vatRate", "note"];
 type Values = Record<string, unknown>;
 type Detail = Awaited<ReturnType<typeof receiptDetailSnapshot>>;
 type Policy = ReturnType<typeof receiptPolicySchema.parse>;
 type Edit = { field: Field; before: unknown; requested: unknown; verified: boolean };
-
-class ReceiptUpdateError extends Error {
-  constructor(message: string, readonly kind = "postcondition-failed", readonly outcomeUnknown = false) { super(message); }
-}
-
-function amountCents(value: unknown): bigint | null {
-  let text = String(value);
-  if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/u.test(text)) text = text.replaceAll(".", "");
-  const match = /^(-?)(\d+)(?:[.,](\d{1,2}))?$/u.exec(text);
-  if (!match) return null;
-  const magnitude = BigInt(match[2]!) * 100n + BigInt((match[3] ?? "").padEnd(2, "0") || "0");
-  return match[1] ? -magnitude : magnitude;
-}
-
-function equalValue(field: Field, actual: unknown, expected: unknown): boolean {
-  if (actual === expected) return true;
-  if (field === "amount") {
-    const left = amountCents(actual), right = amountCents(expected);
-    return left !== null && right !== null && left === right;
-  }
-  return actual === expected;
-}
-
-function rawValue(field: Field, value: unknown): string {
-  if (field === "date") {
-    if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value))) return String(value);
-    const [year, month, day] = String(value).split("-");
-    return `${day}.${month}.${year}`;
-  }
-  if (field === "amount") {
-    if (value === "") return "";
-    const cents = amountCents(value);
-    if (cents === null) throw new ReceiptUpdateError("Receipt amount is not an exact decimal.", "bad-args");
-    const magnitude = cents < 0n ? -cents : cents;
-    return `${cents < 0n ? "-" : ""}${magnitude / 100n},${String(magnitude % 100n).padStart(2, "0")}`;
-  }
-  return String(value);
-}
 
 function readableFieldNode(detail: Detail, policy: Policy, field: Field): QtSnapshotNode {
   const node = receiptReadableFieldNode(detail.nodes, policy.controls.editableFields[field]);
@@ -237,6 +199,12 @@ export async function executeQtNativeReceiptManagerUpdate(
         ...common(), outcomeUnknown: false, resultingState: "unknown", retryable: false,
         detailClosed: false, cleanupRequired: true, verified: false };
     }
+    if (receiptDetailFields(detail.nodes).length > 0) return {
+      ok: false, kind: "precondition-failed",
+      error: "Close the existing receipt detail and read the restored list before editing; no action dispatched.",
+      ...common(), outcomeUnknown: false, resultingState: "unchanged", retryable: false,
+      cleanupRequired: false, detailClosed: false, verified: false,
+    };
     if (!detailIdentityMatches(initialValues.values, rowBefore, policy)) {
       const target = detail.nodes.filter(node => node.rid === rowBefore.rowRid && node.type === "DataItem"
         && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.name === rowBefore.primaryText);
@@ -282,7 +250,12 @@ export async function executeQtNativeReceiptManagerUpdate(
     let restored = await closeDetail(detail);
     let listAfter = receiptList(restored.nodes, policy);
     const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
-    while (("error" in listAfter || !listAfter.rowsComplete || !reboundRow(listAfter, valuesAfter, policy).identityProjectionComplete)
+    const listReady = (list: ReceiptListProjection) => {
+      const identity = reboundRow(list, valuesAfter!, policy);
+      return list.rowsComplete && list.count === listBefore.count && sameReceiptListLayout(listBefore, list)
+        && identity.identityProjectionComplete && identity.row !== null && otherRowsEqual(listBefore, rowBefore, list, identity.row);
+    };
+    while (("error" in listAfter || !listReady(listAfter) || receiptDetailFields(restored.nodes).length > 0)
       && performance.now() < deadline) {
       await delay(Math.min(25, Math.max(1, deadline - performance.now())), undefined, { signal });
       restored = await detailRead();
@@ -300,8 +273,10 @@ export async function executeQtNativeReceiptManagerUpdate(
     const otherRowsUnchanged = Boolean(identity.row && otherRowsEqual(listBefore, rowBefore, listAfter, identity.row));
     const windowSetUnchanged = windowsBefore.fingerprint === windowsAfter.fingerprint;
     const dirtyStateUnchanged = dirtyBefore.dirty === dirtyAfter.dirty;
-    const detailClosed = exactDetailClose(restored.nodes, policy).length === 0;
-    const verified = countUnchanged && otherRowsUnchanged && windowSetUnchanged && dirtyStateUnchanged && detailClosed && identity.identityProjectionComplete;
+    const detailClosed = exactDetailClose(restored.nodes, policy).length === 0 && receiptDetailFields(restored.nodes).length === 0;
+    const layoutRestored = sameReceiptListLayout(listBefore, listAfter);
+    const verified = countUnchanged && otherRowsUnchanged && windowSetUnchanged && dirtyStateUnchanged && detailClosed
+      && layoutRestored && identity.identityProjectionComplete;
     const { row: rowAfter, ...identityProof } = identity;
     const result = { ...common(), rowAfter, ...identityProof,
       valuesComplete: true, draftBefore: rowBefore.draft, draftAfter: identity.row?.draft ?? null,
@@ -311,7 +286,7 @@ export async function executeQtNativeReceiptManagerUpdate(
       ungespeichertNachher: dirtyAfter.dirty, dirtyStateUnchanged, rollback: { attempted: false, ok: true, complete: null, fields: [] },
       cleanupRequired: !verified, verified };
     if (verified) return { ok: true, ...result };
-    const offeneBedingungen = [!countUnchanged && "count-drift", !otherRowsUnchanged && "other-row-drift",
+    const offeneBedingungen = [!countUnchanged && "count-drift", !layoutRestored && "list-layout-drift", !otherRowsUnchanged && "other-row-drift",
       !windowSetUnchanged && "window-set-drift", !dirtyStateUnchanged && "dirty-state-drift",
       !detailClosed && "detail-not-closed", !identity.identityProjectionComplete && "target-identity-ambiguous"].filter(Boolean);
     return { ok: false, kind: "postcondition-failed", error: "Receipt update postconditions were not fully proven; do not replay.", offeneBedingungen, ...result };

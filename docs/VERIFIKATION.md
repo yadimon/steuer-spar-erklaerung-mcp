@@ -362,6 +362,18 @@ verwendbar. Unbestätigte Details bleiben abgleichpflichtig und erlauben keinen
 automatischen Schließschritt.
 Bereits geöffnete unlesbare Details erlauben auch keine Zeilenaktivierung;
 die Komposition prüft das mit und ohne sichtbaren Schließknopf.
+Der native Updatepfad verlangt vor dem Schreiben eine geschlossene
+Detailansicht und eine frisch gelesene Liste. Ein bereits offenes Detail wird
+vor jeder Aktion abgewiesen. Nach dem eigenen Detailabschluss prüfen native
+Lesung und Update innerhalb der bestehenden Frist auch die wiederhergestellten
+sichtbaren Spalten und unveränderte Zeilen. Ein schmalerer Zwischenstand oder
+ein noch offenes Detail bestätigt keinen Abschluss. Die Regressionen prüfen
+verzögert wiederkehrende Spalten, ausbleibende Wiederherstellung und fremde Werte;
+der Schließknopf wird nicht wiederholt ausgelöst. Die Mega-Reise verlässt nach
+dem Import die eigene Detailansicht über `goHome` und `showAllReceipts` und
+bindet deren Zustände beziehungsweise die ursprünglichen sichtbaren Spalten
+unabhängig zurück. Verborgene Spalten werden nicht mit geratenen Werten ergänzt;
+nach einem Ansichtswechsel sind vorherige Fingerprints gegebenenfalls veraltet.
 Die tatsächlichen USt-Clear-Helfer und ihre
 Ergebnisübergabe werden zusätzlich mit ausgeführter Eingabe, verweigerter
 Eingabe und unlesbarem Nachwert geprüft; ein Nullwert bestätigt keinen Nullsatz

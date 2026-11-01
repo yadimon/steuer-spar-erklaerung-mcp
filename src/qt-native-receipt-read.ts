@@ -15,9 +15,10 @@ import {
   receiptList,
   receiptPolicySchema,
   receiptState,
-  receiptToolSnapshot,
   receiptWindowSet,
   sameSemanticRow,
+  sameReceiptListLayout,
+  sameReceiptRows,
   type ReceiptListProjection,
 } from "./qt-native-receipts.js";
 
@@ -140,23 +141,22 @@ export async function executeQtNativeReceiptManagerRead(
   const detailFingerprint = editable.complete ? detailBindingFingerprint(editable.values) : null;
   const closeTargets = exactDetailClose(detail.nodes, policy);
   let listAfter: ReceiptListProjection | null = null;
-  let restored: Awaited<ReturnType<typeof receiptToolSnapshot>> | null = null;
+  let restored: Awaited<ReturnType<typeof receiptDetailSnapshot>> | null = null;
+  const listRestored = (list: ReceiptListProjection) => list.rowsComplete && list.count === listBefore.count
+    && sameReceiptListLayout(listBefore, list) && sameReceiptRows(listBefore.rows, list.rows);
   if (closeTargets.length === 1) {
     const closed = await action(closeTargets[0]!, "press", "qt-accessibility-press");
     closeBinding = closed.binding;
     if (closed.reply.result.ok === true) {
       const restoreDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
-      const expectedSemanticRows = listBefore.rows.map(row => row.contentFingerprint).sort();
       do {
         await delay(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
-        restored = await receiptToolSnapshot(client, policy, budget(), signal);
+        restored = await receiptDetailSnapshot(client, policy, budget(), signal);
         nativeDurationMs += restored.nativeDurationMs;
         const candidate = receiptList(restored.nodes, policy);
         if (!("error" in candidate)) {
           listAfter = candidate;
-          const actual = candidate.rows.map(row => row.contentFingerprint).sort();
-          if (candidate.rowsComplete && candidate.count === listBefore.count
-            && JSON.stringify(actual) === JSON.stringify(expectedSemanticRows)) break;
+          if (listRestored(candidate) && receiptDetailFields(restored.nodes).length === 0) break;
         }
       } while (performance.now() < restoreDeadline && remaining() > 0);
     }
@@ -172,17 +172,15 @@ export async function executeQtNativeReceiptManagerRead(
     String(windowSetAfter.error.error ?? "Window-set postcondition failed."),
     String(windowSetAfter.error.kind ?? "postcondition-failed"), true);
   nativeDurationMs += windowSetAfter.durationMs!;
-  const expectedSemanticRows = listBefore.rows.map(row => row.contentFingerprint).sort();
-  const actualSemanticRows = listAfter ? listAfter.rows.map(row => row.contentFingerprint).sort() : [];
   const exactRowsAfter = listAfter
     ? listAfter.rows.filter(row => row.rowRid === rowBefore.rowRid && row.rowFingerprint === rowBefore.rowFingerprint) : [];
   const semanticRowsAfter = listAfter
     ? listAfter.rows.filter(row => sameSemanticRow(row, rowBefore)) : [];
-  const semanticListUnchanged = Boolean(listAfter && listAfter.rowsComplete
-    && listAfter.count === listBefore.count && JSON.stringify(actualSemanticRows) === JSON.stringify(expectedSemanticRows)
-    && semanticRowsAfter.length === 1);
+  const semanticListUnchanged = Boolean(listAfter && listRestored(listAfter) && semanticRowsAfter.length === 1);
   const windowSetUnchanged = windowSetAfter.fingerprint === windowSetBefore.fingerprint;
-  const dialogFreeAfter = Boolean(restored && restored.windowEnabled && !restored.modalBlocked);
+  const detailClosed = Boolean(restored && receiptDetailFields(restored.nodes).length === 0);
+  const layoutRestored = Boolean(listAfter && sameReceiptListLayout(listBefore, listAfter));
+  const dialogFreeAfter = Boolean(restored && restored.windowEnabled && !restored.modalBlocked && detailClosed);
   const dirtyStateUnchanged = dirtyAfter.dirty === dirtyBefore.dirty;
   const verified = Boolean(fields.length && detailFingerprint && editable.complete && identityMatches
     && semanticListUnchanged && windowSetUnchanged && dialogFreeAfter && dirtyStateUnchanged && closeBinding);
@@ -223,6 +221,8 @@ export async function executeQtNativeReceiptManagerRead(
   };
   if (verified) return { ok: true, ...common };
   const openConditions = [
+    ...(!layoutRestored ? ["list-layout-drift"] : []),
+    ...(!detailClosed ? ["detail-not-closed"] : []),
     ...(!fields.length ? ["detail-fields-missing"] : []),
     ...(!identityMatches ? ["detail-identity-mismatch"] : []),
     ...(!semanticListUnchanged ? ["semantic-list-drift"] : []),

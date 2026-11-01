@@ -190,6 +190,8 @@ export const MEGA_MUTATION_READBACKS = Object.freeze([
   mutation("receipt-manager-open", "receipts", "menu_click", "windows", "the profiled BelegManager tool window is listed"),
   mutation("receipt-show-list", "receipts", "receipt_manager_action", "receipt_manager_list", "complete expected baseline list is visible"),
   mutation("receipt-import", "receipts", "receipt_manager_import", "receipt_manager_list", "exactly one synthetic draft was added"),
+  mutation("receipt-post-import-home", "receipts", "receipt_manager_action", "snapshot", "owned manager start state is independently bound after the import detail"),
+  mutation("receipt-post-import-list", "receipts", "receipt_manager_action", "receipt_manager_list", "original visible header layout is restored before binding receipt detail"),
   mutation("receipt-update", "receipts", "receipt_manager_update", "receipt_manager_read", "typed synthetic metadata values round-trip"),
   mutation("receipt-classify", "receipts", "receipt_manager_classify", "receipt_manager_list", "classification removes draft state and preserves one unique synthetic receipt"),
   mutation("receipt-upsert-idempotence", "receipts", "receipt_manager_bulk_upsert", "receipt_manager_list", "skip-on-existing keeps the count and semantic identity unique"),
