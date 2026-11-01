@@ -530,6 +530,26 @@ Auch der profilierte Prüferstart erkennt die reine Symbolanzeige seiner exakt
 gebundenen Toolbar-Checkbox. Der frische Aus-Zustand und der Invoke-Nachweis
 bleiben Pflicht; fremde Beschriftungen und unbeschriftete Seitenschalter werden
 abgewiesen. Die Steuerwissen-Reise öffnet ihren Toolbar-Schalter über dessen feste ID.
+
+`page-scroll-contract.ps1` prüft die tatsächlichen Dispatcher für `scroll_page`
+und `read_full`. Ohne Modus liest `scroll_page` nur die Position. Der zentrale
+Qt-Inhalt wird über seinen eindeutigen Viewport, Inhaltskörper und vertikalen
+Scrollbalken gebunden. Ein einzelner `RangeValue`-Aufruf muss sowohl die
+gelesene Stellung als auch die tatsächliche Inhaltsbewegung bestätigen.
+Windows-DPI ersetzt dabei keinen Qt-Geometrienachweis. Fehlende, mehrdeutige
+oder veraltete Bindungen werden abgewiesen; ein unbestätigter Aufruf wird nicht
+wiederholt. `read_full` beginnt in diesem Bereich oben, liest fünf begrenzte
+Scrollstufen und bestätigt die Rückkehr nach oben. Unlesbare Werte oder ein
+fehlgeschlagener Schritt ergeben einen Fehler statt eines scheinbar vollständigen Reads.
+Bereich und Layout müssen über alle Stufen unverändert bleiben. Würden die
+begrenzten Sprünge bei einer sehr langen Seite Leselücken lassen, wird der
+Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
+müssen zusätzlich überlappen.
+Die UStVA-Mega-Reise stellt vor dem Betragscommit die Sichtbarkeit des konkreten
+Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
+Rollposition zurück. Die Fall-, Vorwert-, Fokus- und Eingabeprüfungen des
+Feldcommits bleiben eigenständige Voraussetzungen.
+
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
 [Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt

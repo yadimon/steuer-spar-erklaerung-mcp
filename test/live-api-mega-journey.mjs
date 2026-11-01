@@ -7,6 +7,7 @@ import { loadProductProfile } from "../dist/product-profiles.js";
 import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "../dist/table-cursor-position.js";
 import { USTVA_PERIOD_SELECTORS } from "../dist/ustva.js";
 import { formatCents, parseCents } from "./currency-cents.mjs";
+import { readUstvaViewport, assertUstvaFieldVisible } from "./ustva-viewport.mjs";
 import {
   classifyPassiveExportDialog,
   classifyPassiveExportSuccessDialog,
@@ -873,6 +874,26 @@ try {
       { hwnd: currentHwnd },
       (result) => assert.equal(result.flags.documents, originalFlag),
     );
+    const scrollBefore = await read("scroll_page", { mode: "info", hwnd: currentHwnd }, (result) => {
+      assert.equal(typeof result.scrollbar, "boolean");
+    }, "ustva-viewport-before");
+    const viewportBefore = readUstvaViewport(await read("snapshot", {
+      hwnd: currentHwnd, namedOnly: false, maxNodes: 5000,
+    }, null, "ustva-viewport-geometry-before"));
+    assert.equal(scrollBefore.scrollbar, viewportBefore.overflow,
+      "Scroll support must agree with the actual body and viewport geometry.");
+    const originalScrollPercent = scrollBefore.position ?? 0;
+    assert(Number.isFinite(originalScrollPercent) && originalScrollPercent >= 0 && originalScrollPercent <= 100);
+    await mutateAndRead(
+      "ustva-viewport-prepare",
+      { mode: "percent", vPercent: 100, hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.scrollbar, viewportBefore.overflow);
+        assert.equal(result.nachher ?? 0, viewportBefore.overflow ? 100 : 0);
+      },
+      { hwnd: currentHwnd, namedOnly: false, maxNodes: 5000 },
+      assertUstvaFieldVisible,
+    );
     const special = original.amounts.specialAdvancePayment;
     const changedDisplay = special.cents === 0 ? "100,00" : "0,00";
     const changedCents = special.cents === 0 ? 10_000 : 0;
@@ -891,6 +912,8 @@ try {
           original.amounts.settlement.cents + special.cents - changedCents);
       },
     );
+    await read("snapshot", { hwnd: currentHwnd, namedOnly: false, maxNodes: 5000 },
+      assertUstvaFieldVisible, "ustva-viewport-before-value-restore");
     await mutateAndRead(
       "ustva-value-restore",
       {
@@ -903,6 +926,19 @@ try {
       (result) => {
         assert.equal(result.amounts.specialAdvancePayment.cents, special.cents);
         assert.equal(result.amounts.settlement.cents, original.amounts.settlement.cents);
+      },
+    );
+    await mutateAndRead(
+      "ustva-viewport-restore",
+      { mode: "percent", vPercent: originalScrollPercent, hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.scrollbar, viewportBefore.overflow);
+        assert.equal(result.nachher ?? 0, originalScrollPercent);
+      },
+      { mode: "info", hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.scrollbar, viewportBefore.overflow);
+        assert.equal(result.position ?? 0, originalScrollPercent);
       },
     );
     await mutateAndRead(

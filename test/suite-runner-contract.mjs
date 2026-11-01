@@ -63,6 +63,7 @@ const expectedNames = [
   "cursor-input",
   "table-add-seek",
   "tracked-native-text",
+  "page-scroll",
   "receipt-vat-precondition",
   "receipt-rollback-ownership",
   "receipt-vat-selection",
