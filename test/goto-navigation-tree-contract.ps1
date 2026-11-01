@@ -24,6 +24,11 @@ $workerPath = Join-Path $root 'powershell\sse-worker.ps1'
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$null, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
+$headingDefinitions = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-KnownPageHeading'
+}, $true))
+if ($headingDefinitions.Count -ne 1) { throw 'Katalogisierte Zielregel ist nicht eindeutig vorhanden.' }
+. ([scriptblock]::Create($headingDefinitions[0].Extent.Text))
 
 function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
@@ -79,7 +84,7 @@ function FreshTarget([hashtable]$Changes = @{}) {
 
 function Invoke-NavigationBlock {
   param([string]$Target, [string]$DesktopName, [string]$HeadingAfter, [object[]]$Windows,
-        [string]$Blocker = 'none', $Fresh = (FreshTarget), [string]$NavigationName = '')
+        [string]$Blocker = 'none', $Fresh = (FreshTarget), [string]$NavigationName = '', $KnownPage = $null)
   $script:clicks = New-Object System.Collections.ArrayList
   $script:waits = New-Object System.Collections.ArrayList
   $script:probes = New-Object System.Collections.ArrayList
@@ -89,7 +94,9 @@ function Invoke-NavigationBlock {
   $script:failed = $null
   $script:DESKTOP_NAME = $DesktopName
   $ziel = $Target
-  $knownTarget = $(if ($NavigationName) {
+  $knownTarget = $(if ($KnownPage) {
+    [pscustomobject]@{ page=$KnownPage }
+  } elseif ($NavigationName) {
     [pscustomobject]@{ page=[pscustomobject]@{ navigationTreeItemName=$NavigationName } }
   } else { $null })
   $hwnd = [IntPtr]4242
@@ -173,6 +180,31 @@ Assert-True ($wrongHeading.clicks.Count -eq 1 -and $null -eq $wrongHeading.emitt
 $blockedName = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() -NavigationName 'Anmeldungen versenden'
 Assert-True ($blockedName.clicks.Count -eq 0 -and $blockedName.liveReads.Count -eq 0 -and
   $null -eq $blockedName.emitted) 'Ein katalogisierter Uebermittlungsname umging Test-Versand.'
+$navTree.nodes[2].name = 'Zielseite'
+
+# Die produktive Auswahl verwendet auch fuer dynamische Baumtitel dieselbe
+# Katalogregel, behaelt aber Eindeutigkeit, Frischbindung und Zielpruefung.
+$navTree.nodes[2].name = 'Zielseite Beispiel'
+$dynamicPage = [pscustomobject]@{ heading='Zielseite'; headingPrefix='Zielseite ' }
+$dynamic = Invoke-NavigationBlock 'Zielseite ' '' 'Zielseite Beispiel' @() `
+  -KnownPage $dynamicPage -Fresh (FreshTarget @{ name='Zielseite Beispiel' })
+Assert-True ($dynamic.clicks.Count -eq 1 -and $dynamic.liveReads.Count -eq 1) `
+  'Der dynamische katalogisierte Titel wurde nicht frisch und genau einmal aktiviert.'
+$withoutPage = Invoke-NavigationBlock 'Zielseite ' '' 'Zielseite Beispiel' @()
+Assert-True ($withoutPage.clicks.Count -eq 0) 'Ohne Seitenobjekt wurde ein Praefixname aktiviert.'
+$navTree.nodes[1].name = 'Zielseite Andere'
+$ambiguousDynamic = Invoke-NavigationBlock 'Zielseite ' '' 'Zielseite Beispiel' @() -KnownPage $dynamicPage
+Assert-True ($ambiguousDynamic.clicks.Count -eq 0 -and $ambiguousDynamic.liveReads.Count -eq 0) `
+  'Mehrere dynamische Seitentitel fuehrten zu einer geratenen Auswahl.'
+$navTree.nodes[1].name = 'Steuererklaerung'
+$explicitPage = [pscustomobject]@{ heading='Zielseite'; headingPrefix='Zielseite '; navigationTreeItemName='Baumtitel' }
+$explicitOnly = Invoke-NavigationBlock 'Zielseite ' '' 'Zielseite Beispiel' @() -KnownPage $explicitPage
+Assert-True ($explicitOnly.clicks.Count -eq 0) 'Ein expliziter Baumname wurde durch die dynamische Zielregel ersetzt.'
+$navTree.nodes[2].name = '1. Reise'
+$ordinalPage = [pscustomobject]@{ heading='1. Wirtschaftsgut'; headingPrefix='1. ' }
+$ordinalOnly = Invoke-NavigationBlock '1. ' '' '1. Reise' @() -KnownPage $ordinalPage
+Assert-True ($ordinalOnly.clicks.Count -eq 0 -and $ordinalOnly.liveReads.Count -eq 0) `
+  'Ein reines Nummernpraefix waehlte eine fachlich andere Baumseite.'
 $navTree.nodes[2].name = 'Zielseite'
 
 # 2. Versteckter Desktop: kein physischer Klick, die Suche bleibt zustaendig.

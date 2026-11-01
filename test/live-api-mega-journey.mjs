@@ -1157,6 +1157,19 @@ try {
         seite: unique.page.ueberschrift, label: unique.field.label, wert: unique.field.wert,
       }],
     }, (result) => assert.equal(result.vergleichOk, true));
+    // Die separate Vorbereitungsseite besitzt keinen Formular-Blaetterpfad.
+    // Vor dem Feldzyklus deshalb den profilierten Formularbereich und dessen
+    // Arbeitnehmerseite oeffnen; jede Navigation hat einen eigenen Readback.
+    const formHeading = fixtures.est.knownFieldNavigation?.formHeading;
+    const employmentHeading = fixtures.est.knownFieldNavigation?.employmentHeading;
+    assert.equal(typeof formHeading, "string");
+    assert.equal(typeof employmentHeading, "string");
+    await mutateAndRead("est-form-entry", { name: formHeading, hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, formHeading), { hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, formHeading));
+    await mutateAndRead("est-employment-entry", { name: employmentHeading, hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, employmentHeading), { hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, employmentHeading));
     const pageId = "est.sonstige_werbungskosten_fahrten";
     const fieldId = "kontofuehrungsgebuehren_pauschal";
     const fieldLabel = "Kontoführungsgebühren (pauschal)";

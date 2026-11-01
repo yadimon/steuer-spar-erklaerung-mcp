@@ -20984,7 +20984,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $baumName = $(if ($knownTarget -and [string]$knownTarget.page.navigationTreeItemName) {
           [string]$knownTarget.page.navigationTreeItemName
         } else { $ziel })
-        Get-SSEVisibleNavigationItem $ts.nodes $baumName
+        # Dynamische Seitentitel verwenden dieselbe Katalogregel wie die
+        # Zielpruefung. Mehrere passende Eintraege bleiben mehrdeutig; ein
+        # expliziter abweichender Baumname bleibt dagegen zeichengenau.
+        $baumRegel = $(if ($knownTarget -and -not [string]$knownTarget.page.navigationTreeItemName -and
+            [string]$knownTarget.page.headingPrefix -notmatch '^[1-9][0-9]*\.\s*$') {
+          { param($titel) Test-KnownPageHeading $titel $knownTarget.page }
+        } else { $null })
+        Get-SSEVisibleNavigationItem $ts.nodes $baumName -Accept $baumRegel
       })
       # Unmittelbar vor dem Klick frisch binden: Typ, Name, RuntimeId und
       # Aktivierbarkeit muessen noch stimmen, und der Punkt kommt aus dem

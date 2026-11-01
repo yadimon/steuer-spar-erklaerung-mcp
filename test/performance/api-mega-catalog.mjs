@@ -180,6 +180,8 @@ export const MEGA_MUTATION_READBACKS = Object.freeze([
   mutation("launch-est-recovery-discard", "est-and-collect", "dialog_answer", "instances", "the exact recovery prompt is discarded only for the hash-bound regular ESt case"),
   mutation("launch-est-startup-dialog", "est-and-collect", "dialog_answer", "dialog_list", "the exact passive ESt startup dialog is gone"),
   mutation("collect-result", "est-and-collect", "collect", "workspace_file_read_text", "complete terminal-page collect JSON is hash-bound, readable and structurally valid"),
+  mutation("est-form-entry", "est-and-collect", "goto", "page", "profiled ESt form area is open before field navigation"),
+  mutation("est-employment-entry", "est-and-collect", "goto", "page", "profiled employment area is open before dynamic pageId navigation"),
   mutation("goto-known-field", "est-and-collect", "goto", "known_page_state", "dynamic person-bound ESt pageId is current"),
   mutation("known-field-write", "est-and-collect", "fill_fields", "known_page_state", "profiled currency field equals the temporary value"),
   mutation("known-field-correction", "est-and-collect", "fill_fields", "known_page_state", "corrected profiled currency value is visible"),

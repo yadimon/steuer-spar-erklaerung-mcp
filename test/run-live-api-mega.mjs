@@ -110,6 +110,7 @@ const fixtures = Object.fromEntries(Object.entries(official).map(([id, entry]) =
     targetRef: `cases:${targetName}`,
     sourceHash: entry.hashBefore,
     terminalCollect: entry.definition.terminalCollect ?? null,
+    knownFieldNavigation: entry.definition.knownFieldNavigation ?? null,
   }];
 }));
 const preflightWallMs = rounded(performance.now() - orchestrationStartedAt);

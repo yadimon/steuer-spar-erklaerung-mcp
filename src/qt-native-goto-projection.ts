@@ -63,10 +63,11 @@ export function gotoLanding(route: GotoRoute, order: string[], position: number,
 }
 
 /** Only a unique enabled label fully inside the catalogue's navigation tree. */
-export function visibleNavigationItem(nodes: QtSnapshotNode[], name: string): QtSnapshotNode | null {
+export function visibleNavigationItem(nodes: QtSnapshotNode[], name: string, page?: GotoPage): QtSnapshotNode | null {
   const tree = findContainerNode(nodes, "NavWidgetSSE", "Tree");
   if (!name || !tree || tree.w <= 0 || tree.h <= 0) return null;
-  const matches = containerDescendants(nodes, "NavWidgetSSE", "TreeItem", "Tree").filter(node => node.name === name);
+  const matches = containerDescendants(nodes, "NavWidgetSSE", "TreeItem", "Tree").filter(node =>
+    node.name === name || page && knownHeadingMatches(node.name, page));
   const item = matches.length === 1 ? matches[0]! : null;
   return item && item.on && item.w > 0 && item.h > 0 && item.x >= tree.x && item.y >= tree.y
     && item.y + item.h <= tree.y + tree.h ? item : null;

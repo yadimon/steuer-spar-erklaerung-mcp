@@ -33101,10 +33101,10 @@ function gotoLanding(route, order, position, landing) {
   if (index < 0) return { verdict: "continue", position };
   return { verdict: route.targetIndex >= 0 && index > route.targetIndex ? "overshoot" : "continue", position: index };
 }
-function visibleNavigationItem(nodes, name) {
+function visibleNavigationItem(nodes, name, page) {
   const tree = findContainerNode(nodes, "NavWidgetSSE", "Tree");
   if (!name || !tree || tree.w <= 0 || tree.h <= 0) return null;
-  const matches = containerDescendants(nodes, "NavWidgetSSE", "TreeItem", "Tree").filter((node2) => node2.name === name);
+  const matches = containerDescendants(nodes, "NavWidgetSSE", "TreeItem", "Tree").filter((node2) => node2.name === name || page && knownHeadingMatches(node2.name, page));
   const item = matches.length === 1 ? matches[0] : null;
   return item && item.on && item.w > 0 && item.h > 0 && item.x >= tree.x && item.y >= tree.y && item.y + item.h <= tree.y + tree.h ? item : null;
 }
@@ -33312,7 +33312,8 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
     path.push(start ?? "");
     if (args.viaSuche !== false) {
       const navName = page ? String(page.navigationTreeItemName || target) : target;
-      const item = visibleNavigationItem(snapshot.nodes, navName);
+      const treePage = page && !page.navigationTreeItemName && !/^[1-9][0-9]*\.\s*$/u.test(String(page.headingPrefix ?? "")) ? page : void 0;
+      const item = visibleNavigationItem(snapshot.nodes, navName, treePage);
       if (item && !transmissionName3(item.name)) {
         phase = "navigation-tree";
         await dispatch(snapshot, item, "activate-navigation-item");

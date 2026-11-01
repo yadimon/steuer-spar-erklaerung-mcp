@@ -27,7 +27,8 @@ foreach ($case in $inputData.search) {
   $hits += $(if ($hit) { $hit.rid } else { $null })
 }
 foreach ($case in $inputData.navigation) {
-  $hit = Get-SSEVisibleNavigationItem $case.nodes $case.target
+  $accept = $(if ($case.page) { { param($title) Test-KnownPageHeading $title $case.page } } else { $null })
+  $hit = Get-SSEVisibleNavigationItem $case.nodes $case.target -Accept $accept
   $navigation += $(if ($hit) { $hit.rid } else { $null })
 }
 foreach ($case in $inputData.summaries) {

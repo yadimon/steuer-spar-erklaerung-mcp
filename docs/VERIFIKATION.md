@@ -508,6 +508,15 @@ Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
 `receipt_manager_update`, `receipt_manager_link`,
 `receipt_manager_classification_options` und `receipt_manager_classify`.
 Sie werden nur mit expliziter Konfiguration aktiviert.
+Die Navigation per `pageId` erkennt dynamische Titel auch im sichtbaren
+Navigationsbaum über dieselbe Katalogregel wie auf der Zielseite. Der Eintrag
+muss eindeutig, aktiv und vollständig im Baumausschnitt liegen; ein expliziter
+abweichender Baumname bleibt exakt gebunden. Erfolg verlangt weiterhin die
+passende Überschrift und sämtliche Pflichtfelder. Ein reines Nummernpräfix
+wie `1. ` gilt nicht als dynamischer Baumanker. Die Mega-Reise öffnet nach
+der separaten ESt-Vorbereitungsseite zunächst den profilierten Formular- und
+Arbeitnehmerbereich, jeweils mit eigenem Seiten-Readback. Ein geschlossener
+Formularbereich wird nicht durch ungezielte Suchtreffer oder Klicks ersetzt.
 Die native Qt-Prüfung vergleicht Suchtreffer, Seitenzeilen und Unterseiten mit
 den tatsächlichen Worker-Projektionsfunktionen über unabhängig gelesene UIA-Knoten
 und Win32-Fenstergrenzen. Die Offline-Suite prüft zusätzlich Wildcards,
