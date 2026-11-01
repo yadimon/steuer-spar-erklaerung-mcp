@@ -2,8 +2,43 @@ import assert from "node:assert/strict";
 import { executeQtNativeHelp, qtNativeHelpProjection } from "../dist/qt-native-help.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
+import { qtNativeContentBounds } from "../dist/qt-native-pages.js";
 
 const profile = loadProductProfile("2025");
+
+// A wide introduction column has no Eingabehilfe/Steuertipps heading. Bind
+// the actual public container rather than guessing a fraction of the window.
+const libraryAid = "Fixture.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE";
+const centralNode = { i: 0, p: -1, d: 0, type: "Group", name: "", aid: "Fixture.centralWidget", rid: "42.42.4.1", x: 0, y: 0, w: 1000, h: 500, on: true };
+const libraryNode = { i: 1, p: 0, d: 1, type: "Group", name: "", aid: libraryAid, rid: "42.42.4.2", x: 720, y: 0, w: 280, h: 500, on: true };
+const withClient = (...entries) => [centralNode, ...entries];
+const introductionNodes = [
+  centralNode, libraryNode,
+  { i: 2, p: 1, d: 2, type: "Button", name: "Einführung", aid: libraryAid + ".Header", rid: "42.42.4.3", x: 730, y: 10, w: 240, h: 30, on: true },
+  { i: 3, p: 1, d: 2, type: "Text", name: "Synthetischer Hilfetext", aid: libraryAid + ".Text", rid: "42.42.4.4", x: 730, y: 50, w: 240, h: 30, on: true },
+];
+assert.equal(qtNativeContentBounds(introductionNodes, { x: 0, w: 1000 }).maxX, 710);
+assert.deepEqual(qtNativeHelpProjection(introductionNodes, { x: 0, w: 1000 }).abschnitte,
+  { Allgemein: { text: "Einführung Synthetischer Hilfetext", zeilen: ["Einführung", "Synthetischer Hilfetext"], verweise: [] } });
+assert.equal(qtNativeContentBounds(withClient({ ...libraryNode, on: false }), { x: 0, w: 1000 }).maxX, 710);
+const closedLibrary = { ...libraryNode, x: -1, w: 0, h: 0, on: true };
+assert.equal(qtNativeContentBounds(withClient(closedLibrary), { x: 0, w: 1000 }).maxX, 790);
+assert.deepEqual(qtNativeHelpProjection(withClient(closedLibrary,
+  { ...introductionNodes[3], aid: "owned-tips.Text", x: 820, name: "Synthetischer Hinweis im Nebenfenster" }), { x: 0, w: 1000 }).abschnitte.Allgemein.zeilen,
+  ["Synthetischer Hinweis im Nebenfenster"]);
+assert.throws(() => qtNativeContentBounds(withClient(libraryNode, libraryNode), { x: 0, w: 1000 }));
+assert.equal(qtNativeContentBounds(withClient({ ...libraryNode, x: 100 }), { x: 0, w: 1000 }).minX, 0);
+assert.throws(() => qtNativeContentBounds(withClient({ ...libraryNode, x: 100 },
+  { ...introductionNodes[2], type: "Tree", x: 0, w: 250 }), { x: 0, w: 1000 }));
+assert.throws(() => qtNativeContentBounds(withClient({ ...libraryNode, x: 0 }), { x: 0, w: 1000 }));
+assert.throws(() => qtNativeContentBounds(withClient({ ...libraryNode, w: 500 }), { x: 0, w: 1000 }));
+assert.throws(() => qtNativeContentBounds(withClient({ ...libraryNode, type: "Button" }), { x: 0, w: 1000 }));
+assert.equal(qtNativeContentBounds(withClient({ ...libraryNode, on: null }), { x: 0, w: 1000 }).maxX, 710);
+assert.throws(() => qtNativeContentBounds([libraryNode], { x: 0, w: 1000 }));
+assert.throws(() => qtNativeContentBounds(withClient(centralNode, libraryNode), { x: 0, w: 1000 }));
+assert.equal(qtNativeContentBounds([{ ...centralNode, w: 1500 },
+  { ...libraryNode, x: 1200, w: 300 }], { x: 0, w: 1000 }).maxX, 1190,
+  "Client and help edges must be compared in the same tree coordinate space.");
 
 // Synthetic page: navigation tree on the left (0..200), content in the middle,
 // help column on the right of the 'Eingabehilfe' heading (maxX = 800 - 10 = 790).

@@ -29848,9 +29848,31 @@ function roundEven(value) {
 }
 function contentBounds(nodes, rect2) {
   const nav = nodes.filter((node2) => node2.type === "Tree" && node2.w > 100).sort((a, b) => a.x - b.x)[0];
-  const minX = nav ? nav.x + nav.w + 5 : roundEven(rect2.x + rect2.w * 0.28);
+  let minX = nav ? nav.x + nav.w + 5 : roundEven(rect2.x + rect2.w * 0.28);
   const help = nodes.filter((node2) => ["eingabehilfe", "steuertipps"].includes(node2.name.toLowerCase()) && node2.x > minX).sort((a, b) => a.x - b.x)[0];
-  return { minX, maxX: help ? help.x - 10 : roundEven(rect2.x + rect2.w * 0.79), winX: rect2.x, winW: rect2.w, navErkannt: !!nav };
+  let maxX = help ? help.x - 10 : roundEven(rect2.x + rect2.w * 0.79);
+  const helpFrames = nodes.filter((node2) => node2.aid.endsWith(".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE"));
+  if (helpFrames.length > 1) throw new QtNativeTransportError("The help column identity is ambiguous.", "native-incomplete");
+  const helpFrame = helpFrames[0];
+  if (helpFrame) {
+    if (helpFrame.type !== "Group") {
+      throw new QtNativeTransportError("The help column state is unavailable.", "native-incomplete");
+    }
+    if (helpFrame.w > 0 && helpFrame.h > 0) {
+      const clientAid = helpFrame.aid.slice(0, -".SearchSplitter.TopLevelHSplitter.LibraryFrameSSE".length);
+      const clients = nodes.filter((node2) => node2.aid === clientAid);
+      const client = clients[0];
+      if (clients.length !== 1 || client?.type !== "Group" || client.w <= 0 || client.h <= 0) {
+        throw new QtNativeTransportError("The help column client geometry is unavailable.", "native-incomplete");
+      }
+      if (!nav && helpFrame.x - 10 <= minX) minX = client.x;
+      if (helpFrame.x - 10 <= minX || helpFrame.x + helpFrame.w > client.x + client.w + 1) {
+        throw new QtNativeTransportError("The help column geometry contradicts the bound window.", "native-incomplete");
+      }
+      maxX = helpFrame.x - 10;
+    }
+  }
+  return { minX, maxX, winX: rect2.x, winW: rect2.w, navErkannt: !!nav };
 }
 function heading(nodes, profile, visibleOnly = false) {
   const parsed = external_exports.object({ headingContainerAutomationIdSuffix: external_exports.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);

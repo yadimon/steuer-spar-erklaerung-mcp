@@ -15,17 +15,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureCaseRef } from "./fixture-case-ref.mjs";
+import { NEUTRAL_TOOLBAR_AID_SUFFIX as AID_SUFFIX, NEUTRAL_TOOLBAR_SNAPSHOT_ARGUMENTS, neutralToolbarCheckbox } from "./neutral-toolbar-checkbox.mjs";
 
 const fixture = process.env.SSE_TOGGLE_FIXTURE;
 if (!fixture) {
-  process.stdout.write("SKIP: SSE_TOGGLE_FIXTURE ist nicht gesetzt.\n");
-  process.exit(0);
+  throw new Error("SSE_TOGGLE_FIXTURE mit einer eigenen neutralen Fallkopie ist Pflicht.");
 }
 if (!existsSync(fixture) || extname(fixture).toLowerCase() !== ".gew2025") {
   throw new Error("SSE_TOGGLE_FIXTURE muss eine vorhandene neutrale .Gew2025-Kopie sein.");
 }
 
-const AID_SUFFIX = ".MainToolBar.tb_faden";
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex").toUpperCase();
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const fullText = (result) => result?.content?.filter((part) => part.type === "text")
@@ -68,11 +67,9 @@ try {
   assert(typeof heading === "string" && heading.length > 0, "Aktuelle Seitenueberschrift fehlt.");
   const snapshot = parsed(await client.callTool({
     name: "sse_snapshot",
-    arguments: { types: ["CheckBox"], namedOnly: true },
+    arguments: NEUTRAL_TOOLBAR_SNAPSHOT_ARGUMENTS,
   }), "snapshot-before");
-  const target = (snapshot.nodes ?? []).find((node) => String(node.aid ?? "").endsWith(AID_SUFFIX));
-  assert(target && target.name === "Roter Faden" && typeof target.checked === "boolean",
-    "Steuerneutrale Toolbar-CheckBox 'Roter Faden' ist nicht eindeutig lesbar.");
+  const target = neutralToolbarCheckbox(snapshot);
   const original = target.checked;
   const changed = !original;
 
@@ -120,9 +117,9 @@ try {
 
   const finalSnapshot = parsed(await client.callTool({
     name: "sse_snapshot",
-    arguments: { types: ["CheckBox"], namedOnly: true },
+    arguments: NEUTRAL_TOOLBAR_SNAPSHOT_ARGUMENTS,
   }), "snapshot-final");
-  const finalTarget = (finalSnapshot.nodes ?? []).find((node) => String(node.aid ?? "").endsWith(AID_SUFFIX));
+  const finalTarget = neutralToolbarCheckbox(finalSnapshot);
   assert(finalTarget?.checked === original, "Toolbar-CheckBox stimmt am Ende nicht mit dem Ausgangszustand ueberein.");
 } finally {
   try {

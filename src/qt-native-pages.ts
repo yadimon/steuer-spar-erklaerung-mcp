@@ -14,10 +14,38 @@ function roundEven(value: number): number {
 }
 function contentBounds(nodes: QtSnapshotNode[], rect: { x: number; w: number }) {
   const nav = nodes.filter(node => node.type === "Tree" && node.w > 100).sort((a, b) => a.x - b.x)[0];
-  const minX = nav ? nav.x + nav.w + 5 : roundEven(rect.x + rect.w * 0.28);
+  let minX = nav ? nav.x + nav.w + 5 : roundEven(rect.x + rect.w * 0.28);
   const help = nodes.filter(node => ["eingabehilfe", "steuertipps"].includes(node.name.toLowerCase()) && node.x > minX)
     .sort((a, b) => a.x - b.x)[0];
-  return { minX, maxX: help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79), winX: rect.x, winW: rect.w, navErkannt: !!nav };
+  let maxX = help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79);
+  // Match the worker's exact container binding. Introduction text has no
+  // Eingabehilfe/Steuertipps heading and may start left of the old fraction.
+  const helpFrames = nodes.filter(node => node.aid.endsWith(".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE"));
+  if (helpFrames.length > 1) throw new QtNativeTransportError("The help column identity is ambiguous.", "native-incomplete");
+  const helpFrame = helpFrames[0];
+  if (helpFrame) {
+    if (helpFrame.type !== "Group") {
+      throw new QtNativeTransportError("The help column state is unavailable.", "native-incomplete");
+    }
+    // on is enabled state. Positive geometry bounds even a disabled pane;
+    // zero geometry retains the existing closed-pane/owned-window behavior.
+    if (helpFrame.w > 0 && helpFrame.h > 0) {
+      // Use the same-tree client geometry as UIA, independent of the caller's
+      // GetWindowRect DPI context or a guessed window-width fraction.
+      const clientAid = helpFrame.aid.slice(0, -".SearchSplitter.TopLevelHSplitter.LibraryFrameSSE".length);
+      const clients = nodes.filter(node => node.aid === clientAid);
+      const client = clients[0];
+      if (clients.length !== 1 || client?.type !== "Group" || client.w <= 0 || client.h <= 0) {
+        throw new QtNativeTransportError("The help column client geometry is unavailable.", "native-incomplete");
+      }
+      if (!nav && helpFrame.x - 10 <= minX) minX = client.x;
+      if (helpFrame.x - 10 <= minX || helpFrame.x + helpFrame.w > client.x + client.w + 1) {
+        throw new QtNativeTransportError("The help column geometry contradicts the bound window.", "native-incomplete");
+      }
+      maxX = helpFrame.x - 10;
+    }
+  }
+  return { minX, maxX, winX: rect.x, winW: rect.w, navErkannt: !!nav };
 }
 function heading(nodes: QtSnapshotNode[], profile?: ProductProfile, visibleOnly = false): string | null {
   const parsed = z.object({ headingContainerAutomationIdSuffix: z.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);

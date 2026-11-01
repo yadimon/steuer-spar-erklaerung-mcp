@@ -5742,6 +5742,28 @@ function Get-ContentBounds {
   if ($navTree) { $minX = $navTree.x + $navTree.w + 5 }
   $help = @($tree.nodes | Where-Object { $_.name -in @('Eingabehilfe','Steuertipps') -and $_.x -gt $minX } | Sort-Object x)[0]
   if ($help) { $maxX = $help.x - 10 }
+  # The introduction column has no Eingabehilfe/Steuertipps heading and can
+  # be wider than the historical fraction. Its exact public container takes
+  # precedence over label and width guesses, independent of toolbar layout.
+  $helpFrames=@($tree.nodes | Where-Object { ([string]$_.aid).EndsWith('.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE',[StringComparison]::Ordinal) })
+  if($helpFrames.Count -gt 1){throw 'The help column identity is ambiguous.'}
+  if($helpFrames.Count -eq 1){
+    $helpFrame=$helpFrames[0]
+    if($helpFrame.type -cne 'Group'){throw 'The help column state is unavailable.'}
+    # on is IsEnabled, not visibility. A disabled visible pane still bounds
+    # the form; zero geometry keeps the established closed-pane projection.
+    if($helpFrame.w -gt 0 -and $helpFrame.h -gt 0){
+      # UIA and GetWindowRect may use different DPI spaces. Bind the exact
+      # central widget from the same tree before comparing physical edges.
+      $clientAid=([string]$helpFrame.aid).Substring(0,([string]$helpFrame.aid).Length-'.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE'.Length)
+      $clients=@($tree.nodes | Where-Object { $_.aid -ceq $clientAid })
+      if($clients.Count -ne 1 -or $clients[0].type -cne 'Group' -or $clients[0].w -le 0 -or $clients[0].h -le 0){throw 'The help column client geometry is unavailable.'}
+      $client=$clients[0]
+      if(-not $navTree -and $helpFrame.x-10 -le $minX){$minX=$client.x}
+      if($helpFrame.x-10 -le $minX -or $helpFrame.x+$helpFrame.w -gt $client.x+$client.w+1){throw 'The help column geometry contradicts the bound window.'}
+      $maxX=$helpFrame.x-10
+    }
+  }
   # navErkannt sagt, ob die linke Grenze gemessen oder nur geraten ist. Eine
   # eingeklappte Navigationsspalte liefert einen Tree mit Breite 0; dann greift
   # der Anteilsrueckfall, und links davon steht Inhalt statt Navigation.

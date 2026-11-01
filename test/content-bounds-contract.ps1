@@ -27,8 +27,8 @@ foreach ($name in @('Get-ContentBounds', 'Get-CaptionMinX')) {
   Invoke-Expression $definition[0].Extent.Text
 }
 
-# Festes Fenster von 1086 Pixeln Breite ab x = -8, wie in der Testmaschine
-# gemessen. Daraus folgt der Rueckfall minX = 296 und maxX = 850.
+# Synthetisches Fenster von 1086 Pixeln Breite ab x = -8.
+# Daraus folgt der Rueckfall minX = 296 und maxX = 850.
 Add-Type @'
 public class SW {
   public struct RC { public int L; public int T; public int R; public int B; }
@@ -67,6 +67,50 @@ Assert-True ($aufgeklappt.minX -eq 255) "Die gemessene Grenze war $($aufgeklappt
 $mitHilfe = Get-ContentBounds (Baumlos @((Marke 'Steuertipps' 800))) $null_
 Assert-True ($mitHilfe.maxX -eq 790) "Die Hilfespalte begrenzte auf $($mitHilfe.maxX) statt 790."
 Assert-True (-not $mitHilfe.navErkannt) 'Eine Hilfespalte darf die linke Grenze nicht als gemessen ausweisen.'
+
+# Die Einfuehrungsansicht hat keine der bisherigen Hilfsueberschriften.
+# Ihr echter Container ist breiter als der geratene rechte Anteil.
+$library=[pscustomobject]@{type='Group';name='';aid='Fixture.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE';x=720;y=50;w=358;h=600;on=$true}
+$central=[pscustomobject]@{type='Group';name='';aid='Fixture.centralWidget';x=-8;y=36;w=1086;h=685;on=$true}
+function HelpTree($Nodes){[pscustomobject]@{nodes=@($central)+@($Nodes)}}
+$introduction=Get-ContentBounds (HelpTree @($library,(Marke 'Einführung' 730),(Marke 'Steuertipps' 950))) $null_
+Assert-True ($introduction.maxX -eq 710) 'Der eindeutig gebundene Hilfecontainer wurde durch eine Breitenannahme oder Textmarke ersetzt.'
+$library.on=$false
+$disabledLibrary=Get-ContentBounds (HelpTree @($library)) $null_
+Assert-True ($disabledLibrary.maxX -eq 710) 'Eine deaktivierte sichtbare Hilfespalte verlor ihre Inhaltsgrenze.'
+$library.on=$true
+$library.x=-1;$library.w=0;$library.h=0
+$closedLibrary=Get-ContentBounds (HelpTree @($library)) $null_
+Assert-True ($closedLibrary.maxX -eq 850) 'Ein geschlossener Hilfecontainer veraenderte die bestehende Projektion ohne sichtbare Hilfespalte.'
+$library.x=720;$library.w=358;$library.h=600
+$duplicateRefused=$false
+try{$null=Get-ContentBounds (HelpTree @($library,$library)) $null_}catch{$duplicateRefused=$true}
+Assert-True $duplicateRefused 'Mehrere passende Hilfecontainer wurden durch eine geratene Grenze verdeckt.'
+$library.x=100
+$wideWithoutNavigation=Get-ContentBounds (HelpTree @($library)) $null_
+Assert-True ($wideWithoutNavigation.minX -eq -8 -and $wideWithoutNavigation.maxX -eq 90) 'Eine breite Hilfespalte ohne Navigationsbaum erzeugte einen invertierten geratenen Inhaltsbereich.'
+$misplacedRefused=$false
+try{$null=Get-ContentBounds (HelpTree @((Baum 0 250),$library)) $null_}catch{$misplacedRefused=$true}
+Assert-True $misplacedRefused 'Ein Hilfecontainer links vom gebundenen Inhalt wurde akzeptiert.'
+$library.x=720;$library.w=500;$overflowRefused=$false
+try{$null=Get-ContentBounds (HelpTree @($library)) $null_}catch{$overflowRefused=$true}
+Assert-True $overflowRefused 'Ein Hilfecontainer ausserhalb des gebundenen Fensters wurde akzeptiert.'
+$library.w=358;$library.type='Button';$wrongTypeRefused=$false
+try{$null=Get-ContentBounds (HelpTree @($library)) $null_}catch{$wrongTypeRefused=$true}
+Assert-True $wrongTypeRefused 'Die Hilfeidentitaet eines falschen Steuerelementtyps wurde akzeptiert.'
+$library.type='Group';$library.on=$null
+$noEnabledValue=Get-ContentBounds (HelpTree @($library)) $null_
+Assert-True ($noEnabledValue.maxX -eq 710) 'Der Aktivierungszustand wurde als Geometrie- oder Sichtbarkeitsbeweis verwendet.'
+$missingClientRefused=$false
+try{$null=Get-ContentBounds (Baumlos @($library)) $null_}catch{$missingClientRefused=$true}
+Assert-True $missingClientRefused 'Eine sichtbare Hilfespalte ohne gebundenen Client wurde akzeptiert.'
+$duplicateClientRefused=$false
+try{$null=Get-ContentBounds (HelpTree @($central,$library)) $null_}catch{$duplicateClientRefused=$true}
+Assert-True $duplicateClientRefused 'Ein mehrdeutiger Client wurde zur Hilfespaltenbindung verwendet.'
+# Synthetic UIA coordinates at a different scale from the stubbed Win32 rect.
+$central.x=-12;$central.w=1629;$library.x=1200;$library.w=400
+$scaled=Get-ContentBounds (HelpTree @($library)) $null_
+Assert-True ($scaled.maxX -eq 1190) 'Physische UIA-Kanten wurden gegen eine anders skalierte Win32-Grenze verworfen.'
 
 # Die Beschriftungssuche folgt der gemessenen Grenze und weicht der geratenen
 # nach links aus - sonst faellt die Beschriftungsspalte heraus.

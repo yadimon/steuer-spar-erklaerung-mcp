@@ -516,6 +516,16 @@ die Seiten-, Hilfe-, Tabellen-, Prüfer- und Zustandsprojektionen der fünf
 zuletzt angeschlossenen Lesepfade gegen synthetische Qt-Bäume; unter Windows
 führt der Differenzorakel-Test dieselben Worker-Zweige über denselben
 Knotenbestand aus.
+Die rechte Inhaltsgrenze bindet in UIA und Qt bevorzugt den eindeutigen
+`LibraryFrameSSE`-Container. Damit wird auch eine breite Einführungsansicht
+ohne die Überschrift „Eingabehilfe“ gelesen. Positive Geometrie begrenzt den
+Inhalt auch bei einem deaktivierten Container. Bei eingeklappter Hilfespalte
+bleibt die bisherige Projektion einschließlich der Nebenfenster bestehen;
+mehrdeutige Container und widersprüchliche Geometrie werden abgewiesen.
+Die rechte Kante wird gegen den exakt gebundenen Client desselben Baums
+geprüft, damit unterschiedliche DPI-Koordinatenräume nicht vermischt werden.
+Die neutrale Toggle-Reise liest auch unbeschriftete Toolbar-Checkboxen und
+bindet ihr Ziel über AutomationId, Typ, Aktivierung, Geometrie und booleschen Zustand.
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
 [Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt
