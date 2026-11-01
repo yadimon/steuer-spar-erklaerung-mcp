@@ -29842,6 +29842,7 @@ var init_position_inventory = __esm({
 
 // src/qt-native-pages.ts
 import { createHash as createHash12 } from "node:crypto";
+import { setTimeout as delay2 } from "node:timers/promises";
 function roundEven(value) {
   const floor = Math.floor(value);
   return value - floor === 0.5 ? floor + Math.abs(floor) % 2 : Math.round(value);
@@ -30063,19 +30064,43 @@ async function executeQtNativePositions(client, args, timeoutMs, signal, profile
     }
     return fail4("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
   }
-  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, timeoutMs, signal);
-  if (!result.windowEnabled || result.modalBlocked) return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-  const inventory = readPositionInventory(result.nodes, result.stats, heading(result.nodes, profile, true));
-  if (!inventory.ok) return fail4("position-inventory-incomplete", inventory.error);
-  const positionen = inventory.rows.map((row) => row.name);
-  return {
-    ok: true,
-    backend: "qt",
-    positionen,
-    anzahl: positionen.length,
-    hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
-    nativeDurationMs: result.nativeDurationMs
-  };
+  const started = performance.now();
+  let boundHeading = null, nativeDurationMs = 0;
+  let incomplete;
+  for (let attempt = 1; ; attempt++) {
+    const remaining = Math.max(1, Math.floor(timeoutMs - (performance.now() - started)));
+    if (incomplete && remaining < MIN_READ_RETRY_BUDGET_MS) return incomplete;
+    const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, remaining, signal);
+    nativeDurationMs += result.nativeDurationMs;
+    if (!result.windowEnabled || result.modalBlocked)
+      return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+    const currentHeading = heading(result.nodes, profile, true);
+    if (attempt === 1) boundHeading = currentHeading;
+    if (currentHeading !== boundHeading)
+      return fail4("position-inventory-incomplete", "Die Positionsuebersicht wechselte waehrend der Lesung.");
+    const inventory = readPositionInventory(result.nodes, result.stats, currentHeading);
+    if (inventory.ok) {
+      const positionen = inventory.rows.map((row) => row.name);
+      return {
+        ok: true,
+        backend: "qt",
+        positionen,
+        anzahl: positionen.length,
+        hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
+        nativeDurationMs
+      };
+    }
+    incomplete = fail4("position-inventory-incomplete", inventory.error);
+    if (attempt === 3 || result.stats.truncated || !POSITION_OVERVIEW_HEADINGS.some((value) => value === currentHeading) || timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 75) return incomplete;
+    if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+    try {
+      await delay2(25, void 0, { signal });
+    } catch (error62) {
+      if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+      throw error62;
+    }
+    if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) return incomplete;
+  }
 }
 var byPosition, fail4;
 var init_qt_native_pages = __esm({
@@ -30944,7 +30969,7 @@ var init_qt_native_receipts = __esm({
 });
 
 // src/qt-native-receipt-read.ts
-import { setTimeout as delay2 } from "node:timers/promises";
+import { setTimeout as delay3 } from "node:timers/promises";
 async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal, profile) {
   const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
   if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager detail policy.");
@@ -31055,7 +31080,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
       }
       const openDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
       do {
-        await delay2(Math.min(100, Math.max(1, openDeadline - performance.now())));
+        await delay3(Math.min(100, Math.max(1, openDeadline - performance.now())));
         detail = await receiptDetailSnapshot(client, policy, budget(), signal);
         nativeDurationMs += detail.nativeDurationMs;
         fields2 = receiptDetailFields(detail.nodes);
@@ -31075,7 +31100,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
       if (closed.reply.result.ok === true) {
         const restoreDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
         do {
-          await delay2(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
+          await delay3(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
           restored = await receiptDetailSnapshot(client, policy, budget(), signal);
           nativeDurationMs += restored.nativeDurationMs;
           const candidate = receiptList(restored.nodes, policy);
@@ -31249,7 +31274,7 @@ var init_qt_native_receipt_update_values = __esm({
 });
 
 // src/qt-native-receipt-update.ts
-import { setTimeout as delay3 } from "node:timers/promises";
+import { setTimeout as delay4 } from "node:timers/promises";
 function readableFieldNode(detail, policy, field) {
   const node2 = receiptReadableFieldNode(detail.nodes, policy.controls.editableFields[field]);
   if (!node2) throw new ReceiptUpdateError(`The exact readable receipt field '${field}' is not unique.`, "stale");
@@ -31380,7 +31405,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
     const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
     let detail = await detailRead();
     while (!predicate(detail) && performance.now() < deadline) {
-      await delay3(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+      await delay4(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
       detail = await detailRead();
     }
     return detail;
@@ -31395,7 +31420,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
     do {
       restored = await detailRead();
       if (exactDetailClose(restored.nodes, policy).length === 0) return restored;
-      await delay3(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+      await delay4(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
     } while (performance.now() < deadline);
     throw new ReceiptUpdateError("Receipt detail did not close within its bound.");
   };
@@ -31523,7 +31548,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
       return list.rowsComplete && list.count === listBefore.count && sameReceiptListLayout(listBefore, list) && identity2.identityProjectionComplete && identity2.row !== null && otherRowsEqual(listBefore, rowBefore, list, identity2.row);
     };
     while (("error" in listAfter || !listReady(listAfter) || receiptDetailFields(restored.nodes).length > 0) && performance.now() < deadline) {
-      await delay3(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+      await delay4(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
       restored = await detailRead();
       listAfter = receiptList(restored.nodes, policy);
     }
@@ -31756,7 +31781,7 @@ var init_qt_native_receipt_link_projection = __esm({
 });
 
 // src/qt-native-receipt-link-dialog.ts
-import { setTimeout as delay4 } from "node:timers/promises";
+import { setTimeout as delay5 } from "node:timers/promises";
 function receiptLinkDialogFingerprint(title, nodes) {
   const observed = [...new Set(nodes.filter((node2) => ["Button", "Pane"].includes(node2.type) && node2.name).map((node2) => normalized(node2.name)))];
   const canonical = (name) => SSE_DIALOG_BUTTONS.find((button) => button.toLowerCase() === name.toLowerCase());
@@ -31779,7 +31804,7 @@ async function cancelKnownReceiptLinkTransfer(client, policy, waitMs, budget, pr
       break;
     }
     if (performance.now() >= deadline) break;
-    await delay4(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+    await delay5(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
   } while (performance.now() < deadline);
   if (!observed) return { transferDialogObserved: false, valueTransferCancelled: false };
   if (!new RegExp(transfer.classPattern, "u").test(observed.class) || observed.minimized || observed.hung)
@@ -31800,7 +31825,7 @@ async function cancelKnownReceiptLinkTransfer(client, policy, waitMs, budget, pr
     measured(inventory.durationMs);
     if (!inventory.windows.some((window) => window.hwnd === observed.hwnd) && !inventory.windows.some((window) => window.pid === client.binding.pid && window.title === transfer.title))
       return { transferDialogObserved: true, valueTransferCancelled: true, transferDialogFingerprint: fingerprint, transferCancelClick: cancelBinding };
-    await delay4(Math.min(25, Math.max(1, closeDeadline - performance.now())), void 0, { signal });
+    await delay5(Math.min(25, Math.max(1, closeDeadline - performance.now())), void 0, { signal });
   } while (performance.now() < closeDeadline);
   throw new ReceiptLinkError("The exact receipt value-transfer dialog remained open after cancellation; do not replay.", "postcondition-failed", true);
 }
@@ -31818,7 +31843,7 @@ var init_qt_native_receipt_link_dialog = __esm({
 });
 
 // src/qt-native-receipt-link.ts
-import { setTimeout as delay5 } from "node:timers/promises";
+import { setTimeout as delay6 } from "node:timers/promises";
 async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, signal, profile) {
   const parsed = SSE_API_RECEIPT_MANAGER_LINK_SCHEMA.safeParse(input2);
   if (!parsed.success) return fail5("bad-args", parsed.error.message);
@@ -31947,7 +31972,7 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
       const value = await read();
       if (value !== null) return value;
       if (performance.now() >= deadline) break;
-      await delay5(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+      await delay6(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
     } while (performance.now() < deadline);
     throw new ReceiptLinkError(message);
   };
@@ -32200,7 +32225,7 @@ var init_qt_native_receipt_link = __esm({
 });
 
 // src/qt-native-receipt-action.ts
-import { setTimeout as delay6 } from "node:timers/promises";
+import { setTimeout as delay7 } from "node:timers/promises";
 async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, signal, profile) {
   const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
   if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager action policy.");
@@ -32295,7 +32320,7 @@ async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, sign
           true
         );
       }
-      await delay6(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
+      await delay7(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
       after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
       stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
       if (!stateAfter.error && stateAfter.state === action.toState) break;
@@ -33230,7 +33255,7 @@ var init_qt_native_goto_projection = __esm({
 });
 
 // src/qt-native-goto.ts
-import { setTimeout as delay7 } from "node:timers/promises";
+import { setTimeout as delay8 } from "node:timers/promises";
 async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
   const parsed = SSE_API_GOTO_SCHEMA.safeParse(input2);
   if (!parsed.success || !profile) return { ok: false, backend: "qt", kind: "bad-args", error: parsed.success ? "goto requires a product profile." : parsed.error.message };
@@ -33252,7 +33277,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
     return remaining;
   };
   const wait = async (deadline) => {
-    await delay7(Math.max(1, Math.min(25, deadline - performance.now(), budget())), void 0, { signal });
+    await delay8(Math.max(1, Math.min(25, deadline - performance.now(), budget())), void 0, { signal });
   };
   const read = async () => {
     const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
@@ -33595,7 +33620,7 @@ var init_qt_native_classification_projection = __esm({
 });
 
 // src/qt-native-classification-session.ts
-import { setTimeout as delay8 } from "node:timers/promises";
+import { setTimeout as delay9 } from "node:timers/promises";
 var ReceiptClassificationSession;
 var init_qt_native_classification_session = __esm({
   "src/qt-native-classification-session.ts"() {
@@ -33751,7 +33776,7 @@ var init_qt_native_classification_session = __esm({
           do {
             detail = await this.detailRead();
             if (this.boundDetail(detail)) break;
-            await delay8(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+            await delay9(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
           } while (performance.now() < deadline);
         }
         const selected = receiptList(detail.nodes, this.policy);
@@ -33772,7 +33797,7 @@ var init_qt_native_classification_session = __esm({
             return window;
           }
           if (!wanted && !window && !inventory.windows.some((window2) => window2.hwnd === hwnd)) return null;
-          await delay8(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+          await delay9(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
         } while (performance.now() < deadline);
         this.error("The classification window did not reach its required presence state.", "postcondition-failed", this.modal?.closeStarted === true);
       }
@@ -33883,7 +33908,7 @@ var init_qt_native_classification_session = __esm({
             break;
           }
           if (!save || performance.now() >= deadline) this.error("The exact dialog completion button did not become enabled.", "button-not-ready");
-          await delay8(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+          await delay9(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
         }
         modal.closeStarted = true;
         await this.action(snapshot.hwnd, policy.title, button, "press");
@@ -33899,7 +33924,7 @@ var init_qt_native_classification_session = __esm({
         do {
           detail = await this.detailRead();
           if (exactDetailClose(detail.nodes, this.policy).length === 0) break;
-          await delay8(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+          await delay9(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
         } while (performance.now() < deadline);
         const list = receiptList(detail.nodes, this.policy);
         const windows = await receiptWindowSet(this.client, this.budget(), this.signal);

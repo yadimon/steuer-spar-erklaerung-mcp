@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
 import { resolvePageObjectDefinition, type ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
-import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
-import { readPositionInventory } from "./position-inventory.js";
+import { MIN_READ_RETRY_BUDGET_MS, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { POSITION_OVERVIEW_HEADINGS, readPositionInventory } from "./position-inventory.js";
 
 const byPosition = (a: QtSnapshotNode, b: QtSnapshotNode) => a.y - b.y || a.x - b.x;
 // PowerShell's [int] conversion uses midpoint-to-even rounding, including negative coordinates.
@@ -261,18 +262,37 @@ export async function executeQtNativePositions(
     }
     return fail("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
   }
-  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, timeoutMs, signal);
-  if (!result.windowEnabled || result.modalBlocked) return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-  const inventory = readPositionInventory(result.nodes, result.stats, heading(result.nodes, profile, true));
-  if (!inventory.ok) return fail("position-inventory-incomplete", inventory.error);
-  const positionen = inventory.rows.map(row => row.name);
-  return {
-    ok: true,
-    backend: "qt",
-    positionen,
-    anzahl: positionen.length,
-    hinweis: positionen.length ? null
-      : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
-    nativeDurationMs: result.nativeDurationMs,
-  };
+  const started = performance.now();
+  let boundHeading: string | null = null, nativeDurationMs = 0;
+  let incomplete: WorkerResult | undefined;
+  for (let attempt = 1; ; attempt++) {
+    const remaining = Math.max(1, Math.floor(timeoutMs - (performance.now() - started)));
+    if (incomplete && remaining < MIN_READ_RETRY_BUDGET_MS) return incomplete;
+    const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, remaining, signal);
+    nativeDurationMs += result.nativeDurationMs;
+    if (!result.windowEnabled || result.modalBlocked)
+      return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+    const currentHeading = heading(result.nodes, profile, true);
+    if (attempt === 1) boundHeading = currentHeading;
+    if (currentHeading !== boundHeading)
+      return fail("position-inventory-incomplete", "Die Positionsuebersicht wechselte waehrend der Lesung.");
+    const inventory = readPositionInventory(result.nodes, result.stats, currentHeading);
+    if (inventory.ok) {
+      const positionen = inventory.rows.map(row => row.name);
+      return { ok: true, backend: "qt", positionen, anzahl: positionen.length,
+        hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.", nativeDurationMs };
+    }
+    // Qt can expose the new heading before its queued overview body. Only
+    // reread that same page; incomplete trees and navigation remain failures.
+    incomplete = fail("position-inventory-incomplete", inventory.error);
+    if (attempt === 3 || result.stats.truncated || !POSITION_OVERVIEW_HEADINGS.some(value => value === currentHeading)
+      || timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 75) return incomplete;
+    if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+    try { await delay(25, undefined, { signal }); }
+    catch (error) {
+      if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+      throw error;
+    }
+    if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) return incomplete;
+  }
 }

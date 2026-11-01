@@ -31,7 +31,8 @@ const snapshotSchema = z.object({
   }).strict(),
 });
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
-const MIN_READ_RETRY_BUDGET_MS = 2500;
+/** Leave room for the bridge's fixed queue deadline before submitting another read. */
+export const MIN_READ_RETRY_BUDGET_MS = 2500;
 
 /** A fresh GUI-thread content tree with UIA-compatible runtime IDs. No UIA client or PowerShell process. */
 export async function readQtNativeSnapshot(

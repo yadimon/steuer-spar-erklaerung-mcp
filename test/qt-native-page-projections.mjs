@@ -422,6 +422,87 @@ export async function testNativePageProjections() {
   const emptyPositionNodes = [...completePositionNodes.slice(0, 3),
     { ...completePositionNodes[3], type: "Text", name: "Sie haben noch keine Angaben erfasst" },
     { ...completePositionNodes[4], type: "Hyperlink", name: "Position erfassen" }];
+  const delayedPositionClient = snapshots => {
+    const calls = [];
+    return { calls, binding: knownClient.binding, request: async (operation, args, timeout, signal) => {
+      assert.equal(operation, "accessibility_snapshot");
+      assert.deepEqual(args, { maxNodes: 4000 });
+      assert(timeout > 0 && timeout <= 5000);
+      calls.push({ operation, timeout });
+      const nodes = snapshots[Math.min(calls.length - 1, snapshots.length - 1)];
+      return knownSnapshotClient(nodes).request(operation, args, timeout, signal);
+    } };
+  };
+  const delayedEmpty = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const readyEmpty = await executeQtNativePositions(delayedEmpty, { hwnd: 42 }, 5000, undefined, knownProfile);
+  assert.equal(readyEmpty.ok, true); assert.deepEqual(readyEmpty.positionen, []);
+  assert.equal(readyEmpty.nativeDurationMs, 4); assert.equal(delayedEmpty.calls.length, 2);
+  assert(delayedEmpty.calls[1].timeout < delayedEmpty.calls[0].timeout, "A reread reset the request deadline.");
+  const delayedRows = delayedPositionClient([draftPositionNodes.slice(0, 3), draftPositionNodes, completePositionNodes]);
+  assert.deepEqual((await executeQtNativePositions(delayedRows, { hwnd: 42 }, 5000, undefined, knownProfile)).positionen,
+    positions.positionen);
+  assert.equal(delayedRows.calls.length, 3);
+  const neverReady = delayedPositionClient([draftPositionNodes]);
+  assert.equal((await executeQtNativePositions(neverReady, { hwnd: 42 }, 5000, undefined, knownProfile)).kind,
+    "position-inventory-incomplete");
+  assert.equal(neverReady.calls.length, 3, "An incomplete inventory must stop after three reads.");
+  const lowBudget = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  assert.equal((await executeQtNativePositions(lowBudget, { hwnd: 42 }, 2000, undefined, knownProfile)).kind,
+    "position-inventory-incomplete");
+  assert.equal(lowBudget.calls.length, 1, "A short remaining budget must not submit a doomed reread.");
+  const truncatedInventory = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const truncatedRead = truncatedInventory.request;
+  truncatedInventory.request = async (...args) => {
+    const response = await truncatedRead(...args);
+    return { ...response, result: { ...response.result, stats: { ...response.result.stats, truncated: true } } };
+  };
+  assert.equal((await executeQtNativePositions(truncatedInventory, { hwnd: 42 }, 5000, undefined, knownProfile)).ok, false);
+  assert.equal(truncatedInventory.calls.length, 1, "A truncated tree must not be polled.");
+  for (const obstruction of [{ windowEnabled: false }, { modalBlocked: true }]) {
+    const obstructed = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+    const read = obstructed.request;
+    obstructed.request = async (...args) => {
+      const response = await read(...args);
+      return { ...response, result: { ...response.result, ...(obstructed.calls.length === 2 ? obstruction : {}) } };
+    };
+    assert.equal((await executeQtNativePositions(obstructed, { hwnd: 42 }, 5000, undefined, knownProfile)).kind,
+      "window-obstructed");
+    assert.equal(obstructed.calls.length, 2, "An obstructed reread must prevent another request.");
+  }
+  const foreignPage = delayedPositionClient([knownNodes]);
+  assert.equal((await executeQtNativePositions(foreignPage, { hwnd: 42 }, 5000, undefined, knownProfile)).ok, false);
+  assert.equal(foreignPage.calls.length, 1, "A foreign page must not be polled.");
+  const changedOverview = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes.map(node => node.i === 2
+    ? { ...node, name: "Betriebsausgaben: Eigene Positionen" } : node)]);
+  assert.equal((await executeQtNativePositions(changedOverview, { hwnd: 42 }, 5000, undefined, knownProfile)).ok, false);
+  assert.equal(changedOverview.calls.length, 2, "Another valid overview must not replace the initial page binding.");
+  const abortedInventory = new AbortController(), abortingClient = delayedPositionClient([draftPositionNodes]);
+  const abortRead = abortingClient.request;
+  abortingClient.request = async (...args) => { const result = await abortRead(...args); abortedInventory.abort(); return result; };
+  await assert.rejects(executeQtNativePositions(abortingClient, { hwnd: 42 }, 5000, abortedInventory.signal, knownProfile),
+    error => error.kind === "aborted" && error.outcomeUnknown === false);
+  assert.equal(abortingClient.calls.length, 1, "Cancellation must prevent another snapshot.");
+  const publicAbort = new AbortController(), publicAbortClient = delayedPositionClient([draftPositionNodes]);
+  const publicAbortRead = publicAbortClient.request;
+  publicAbortClient.request = async (...args) => {
+    const response = await publicAbortRead(...args);
+    setTimeout(() => publicAbort.abort(), 1);
+    return response;
+  };
+  const publicAbortResult = await executeQtNativeOperation("positions", { hwnd: 42 },
+    { qtNativeClient: publicAbortClient }, 5000, publicAbort.signal, knownProfile);
+  assert.equal(publicAbortResult.kind, "aborted"); assert.equal(publicAbortResult.outcomeUnknown, false);
+  assert.equal(publicAbortClient.calls.length, 1, "The executor must preserve cancellation during the delay.");
+  const failedReread = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const failedRead = failedReread.request;
+  failedReread.request = async (...args) => {
+    const response = await failedRead(...args);
+    if (failedReread.calls.length === 2) throw new QtNativeTransportError("Synthetic read failure.", "native-incomplete");
+    return response;
+  };
+  const failedRereadResult = await executeQtNativeOperation("positions", { hwnd: 42 },
+    { qtNativeClient: failedReread }, 5000, undefined, knownProfile);
+  assert.equal(failedRereadResult.kind, "native-incomplete"); assert.equal(failedReread.calls.length, 2);
   const positionCases = [
     { label: "complete", nodes: completePositionNodes, ok: true },
     { label: "empty", nodes: emptyPositionNodes, ok: true },
