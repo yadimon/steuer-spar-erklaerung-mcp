@@ -82,8 +82,62 @@ try {
   freshRun.restore();
   assert.deepEqual(readFileSync(iniPath), freshOriginal);
 
+  // Unrelated legacy INI bytes must survive isolation and allowed runtime drift.
+  // Only the ASCII section/key and the UTF-8 directory value belong to this edit.
+  const legacyOriginal = Buffer.from(
+    "[Darstellung]\r\nNotiz=Pr\xfcfung \x80\r\n" +
+    "[BelegManager]\r\nDataDir=C:\\synthetic\\original\r\nBreite=42\r\n" +
+    "[MainWindowPos]\r\nH=600\r\n",
+    "latin1",
+  );
+  assert.throws(() => new TextDecoder("utf-8", { fatal: true }).decode(legacyOriginal));
+  writeFileSync(iniPath, legacyOriginal);
+  rmSync(isolatedDataDir, { recursive: true, force: true });
+  const legacyRun = beginBelegManagerConfigIsolation(options);
+  const legacySwapped = readFileSync(iniPath);
+  const expectedLegacySwapped = Buffer.from(legacyOriginal.toString("latin1").replace(
+    "DataDir=C:\\synthetic\\original",
+    "DataDir=" + Buffer.from(isolatedDataDir, "utf8").toString("latin1"),
+  ), "latin1");
+  assert.deepEqual(legacySwapped, expectedLegacySwapped);
+  writeFileSync(iniPath, Buffer.from(legacySwapped.toString("latin1").replace("H=600", "H=800"), "latin1"));
+  legacyRun.restore();
+  assert.deepEqual(readFileSync(iniPath), legacyOriginal);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), false);
+
+  // UTF-8 paths and unrelated UTF-8 values retain their existing byte contract.
+  const unicodeDataDir = join(temporary, "isolated-\u00e4-\u03a9");
+  const unicodeOriginal = Buffer.from(
+    "[Darstellung]\r\nNotiz=Gr\u00fc\u00dfe \u03a9\r\n" +
+    "[BelegManager]\r\nDataDir=C:\\synthetic\\original\r\n",
+    "utf8",
+  );
+  writeFileSync(iniPath, unicodeOriginal);
+  const unicodeRun = beginBelegManagerConfigIsolation({ ...options, isolatedDataDir: unicodeDataDir });
+  assert.equal(readFileSync(iniPath, "utf8"), unicodeOriginal.toString("utf8").replace(
+    "DataDir=C:\\synthetic\\original", "DataDir=" + unicodeDataDir,
+  ));
+  unicodeRun.restore();
+  assert.deepEqual(readFileSync(iniPath), unicodeOriginal);
+
+  // An opaque byte change outside the permitted runtime keys is still rejected.
+  writeFileSync(iniPath, legacyOriginal);
+  rmSync(isolatedDataDir, { recursive: true, force: true });
+  const legacyGuarded = beginBelegManagerConfigIsolation(options);
+  const legacyUnrelatedChange = Buffer.from(readFileSync(iniPath).toString("latin1").replace(
+    "Notiz=Pr\xfcfung \x80", "Notiz=Pr\xfcfung \x81",
+  ), "latin1");
+  writeFileSync(iniPath, legacyUnrelatedChange);
+  assert.throws(() => legacyGuarded.restore(), /driftete ausserhalb der bekannten Laufzeitwerte/u);
+  assert.deepEqual(readFileSync(iniPath), legacyUnrelatedChange);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), true);
+  writeFileSync(iniPath, legacySwapped);
+  legacyGuarded.restore();
+  assert.deepEqual(readFileSync(iniPath), legacyOriginal);
+
   // Darstellungsoptionen ausserhalb der Erlaubnisliste bleiben fail-closed:
   // nichts wird ueberschrieben, die Artefakte bleiben liegen.
+  writeFileSync(iniPath, freshOriginal);
   rmSync(isolatedDataDir, { recursive: true, force: true });
   const guarded = beginBelegManagerConfigIsolation(options);
   writeFileSync(iniPath, readFileSync(iniPath, "utf8") +

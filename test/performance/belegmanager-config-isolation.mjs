@@ -85,11 +85,10 @@ function dropSectionKeyLine(text, sectionName, keyName) {
 }
 
 function assertOnlyKnownRuntimeDrift(current, swapped) {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const currentText = decoder.decode(current);
-  const swappedText = decoder.decode(swapped);
-  assert.deepEqual(Buffer.from(currentText, "utf8"), current);
-  assert.deepEqual(Buffer.from(swappedText, "utf8"), swapped);
+  // latin1 is a reversible byte view, not a guess at the INI's text encoding.
+  // Section names and permitted runtime keys are ASCII; every other byte stays opaque.
+  const currentText = current.toString("latin1");
+  const swappedText = swapped.toString("latin1");
   // SSE darf diese Laufzeitwerte waehrend eines Laufs anlegen ODER aendern.
   // Fehlte der Eintrag in der Vergleichskonfiguration (frische Installation
   // schreibt [Files] erst beim ersten Fallkontakt), wird der neue Eintrag
@@ -125,7 +124,7 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     if (swappedLine === null) return dropSectionKeyLine(text, sectionName, keyName);
     return replaceSectionKeyLine(text, sectionName, keyName, swappedLine);
   }, currentText);
-  assert.deepEqual(Buffer.from(normalized, "utf8"), swapped,
+  assert.deepEqual(Buffer.from(normalized, "latin1"), swapped,
     "SSE-Benutzerkonfiguration driftete ausserhalb der bekannten Laufzeitwerte; nichts ueberschrieben.");
 }
 
@@ -158,9 +157,7 @@ function restoreExistingIsolation(options) {
 }
 
 function replaceDataDir(original, isolatedDataDir) {
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(original);
-  assert.deepEqual(Buffer.from(text, "utf8"), original,
-    "SSE-Benutzerkonfiguration ist nicht round-trip-faehiges UTF-8.");
+  const text = original.toString("latin1");
   const sectionStart = text.search(/^[ \t]*\[BelegManager\][ \t]*$/imu);
   assert(sectionStart >= 0, "SSE-Benutzerkonfiguration enthaelt keinen [BelegManager]-Abschnitt.");
   const afterSection = text.slice(sectionStart);
@@ -171,10 +168,11 @@ function replaceDataDir(original, isolatedDataDir) {
   assert.equal(matches.length, 1, "[BelegManager] braucht genau einen DataDir-Eintrag.");
   const match = matches[0];
   const absoluteMatchStart = sectionStart + match.index;
-  const replacement = `${match[1]}${isolatedDataDir}`;
+  // Keep the existing UTF-8 directory-value contract without decoding unrelated values.
+  const replacement = `${match[1]}${Buffer.from(isolatedDataDir, "utf8").toString("latin1")}`;
   return Buffer.from(
     text.slice(0, absoluteMatchStart) + replacement + text.slice(absoluteMatchStart + match[0].length),
-    "utf8",
+    "latin1",
   );
 }
 
