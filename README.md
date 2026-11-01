@@ -103,6 +103,13 @@ Es ist kein `npm install`, kein separates API-Terminal und kein weiterer
 Runtime-Download nötig. Beim MCP-Start laufen weder npm noch npx und es wird
 kein Netzwerkzugriff benötigt.
 
+Eine daneben vorhandene globale npm-Installation ersetzt das Plugin nicht.
+Das Plugin startet seine mitgelieferte Runtime; ein `npm uninstall -g` repariert
+deshalb keine fehlenden Plugin-Werkzeuge. Prüfe nach dem Neustart den
+Werkzeugkatalog im Client: Auch `sse_preflight` muss tatsächlich aufrufbar sein.
+Nur einen Teil der Werkzeuge zu sehen ist keine abgeschlossene Einrichtung;
+die [Fehlerbehebung](docs/INSTALLATION.md#fehlerbehebung) beschreibt die Prüfung.
+
 `plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei beiden Zielen in
 clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Beim
 Claude-Code-Ziel ist `--scope user` absichtlich gewählt: Ein vom Installer als

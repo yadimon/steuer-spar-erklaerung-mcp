@@ -88,6 +88,25 @@ Node direkt gegen einen Pfad unter `${PLUGIN_ROOT}`. Ein Runtime-Eintrag mit
 `npx @yadimon/steuer-spar-erklaerung-mcp`, `npm install` oder einem
 Postinstall-Download ist fehlerhaft.
 
+### Globales npm-Paket und Plugin sind getrennte Installationen
+
+Der Plugin-Weg benötigt weder ein global installiertes API-/MCP-npm-Paket noch
+ein `node_modules` im Auftragsordner. Das Plugin verwendet seine mitgelieferte
+Runtime im clientverwalteten Plugin-Verzeichnis. Eine daneben vorhandene
+globale npm-Installation wird dadurch nicht automatisch verwendet.
+
+Prüfe bei Codex mit `codex mcp get steuer-spar-erklaerung --json`, welchen
+Startbefehl die Konfiguration tatsächlich auswählt. Der Plugin-Weg muss Node
+direkt mit der Plugin-Runtime starten. Der zurückgelesene Befehl beschreibt
+die Konfiguration; er belegt noch nicht den Werkzeugkatalog eines bereits
+laufenden Chats. Die Ausgabe kann private Pfade oder Umgebungswerte enthalten
+und gehört nicht unverändert in ein öffentliches Issue.
+
+Ein `npm uninstall -g` entfernt die separate npm-Installation, repariert aber
+keine fehlenden Werkzeuge eines Servers aus dem Plugin-Verzeichnis. Auch eine
+erneute Installation aus Git ersetzt nicht die Prüfung im Client. Ein neuer
+Auftragsordner benötigt keine zweite Installation desselben Benutzer-Plugins.
+
 ### Was die Scopes hier bedeuten
 
 `plugins@1.3.4` ignoriert den Scope bei Codex vollständig. `--scope project`
@@ -311,6 +330,18 @@ abwarten und den Hash erneut lesen.
 - **Skill oder `sse_preflight` fehlt:** Client vollständig neu starten und
   prüfen, ob beim Installieren das Ziel explizit `codex` oder `claude-code`
   war. Nicht mit automatischer Erkennung wiederholen.
+- **Einige MCP-Werkzeuge sind sichtbar, andere fehlen:** Die Einrichtung ist
+  unvollständig. Prüfe den aktiven MCP-Server und seine Werkzeuge im Client;
+  bei Codex CLI zeigt `/mcp` die aktiven Server. Vergleiche die tatsächlich
+  verfügbaren Namen mit der [MCP-Referenz](API-REFERENZ.md). Prüfe zusätzlich
+  `enabled_tools` und `disabled_tools` in der wirksamen Clientkonfiguration.
+  Serverregistrierung, direkter MCP-Handshake und Werkzeugverfügbarkeit im
+  Chat sind getrennte Prüfungen. Liefert der direkte Server den vollständigen
+  Katalog, während im Chat nur eine Teilmenge ankommt, ist als Nächstes die
+  Werkzeugbereitstellung des Clients zu untersuchen. Eine globale npm-
+  Deinstallation ist dafür kein Nachweis und keine gezielte Reparatur. Bis
+  `sse_preflight` im Chat aufrufbar ist, keine Steuerdaten bearbeiten und keine
+  Shell- oder UI-Ersatzwege verwenden.
 - **MCP versucht npm, npx oder Netzwerk:** Der installierte Runtime-Eintrag ist
   nicht der Agent-Plugin-1.0-Vertrag. Er muss Node direkt gegen einen
   `${PLUGIN_ROOT}`-Pfad starten.
