@@ -296,7 +296,8 @@ async function run(options = {}) {
     ...(options.date ? { werte: [null, options.date, null, null, null, null, null] } : {}),
     ...(options.numeric ? { werte: [null, null, null, "10.00", null, null, null] } : {}),
     ...(options.checkbox ? { werte: [null, null, null, null, "true", null, null] } : {}),
-    ...(options.callerCatalog ? { pageObjectsCatalog: copy(enumCatalog) } : {}) };
+    ...(options.callerCatalog ? { pageObjectsCatalog: copy(enumCatalog) } : {}),
+    ...(options.requestArgs ?? {}) };
   const catalog = options.catalogMissing ? undefined : copy(enumCatalog);
   if (options.profileWrongSection) catalog.pages.synthetic.tables.exact.automationIdSection = "OtherSection";
   if (options.profileWrongOccurrence) catalog.pages.synthetic.tables.exact.sumOccurrence = 2;
@@ -776,17 +777,41 @@ assert.equal(date.result.ok, true, "A concrete existing native date display/edit
 assert.equal(date.mutations.length, 1);
 assert.equal((await run({ numeric: true })).result.ok, true, "Proven native amount roles retain numeric equivalence.");
 assert.equal((await run({ checkbox: true })).result.ok, true, "Requested checkbox state and native bool role are both proven.");
-for (const options of [
-  { category: true, enumUnknown: true }, { category: true, enumAmbiguous: true }, { category: true, catalogMissing: true },
-  { category: true, profileWrongSection: true }, { category: true, profileWrongOccurrence: true }, { category: true, profileAmbiguous: true },
-  { category: true, catalogMissing: true, callerCatalog: true },
-  { date: "03.01" }, { date: "02.01", initial: model => {
-    model.values[0][1] = { ...scalar("02.01"), edit: "2026-01-02" }; model.values[1][1] = { ...scalar("02.01"), edit: "Other role" };
-  } }, { initial: model => { model.values[7][2].edit = 99; } },
+for (const [expectedProofCheck, options] of [
+  ["mutation-requested-edit-role-unknown-or-ambiguous", { category: true, enumUnknown: true }],
+  ["mutation-requested-edit-role-unknown-or-ambiguous", { category: true, enumAmbiguous: true }],
+  ["mutation-requested-enum-profile-missing", { category: true, catalogMissing: true }],
+  ["mutation-requested-enum-profile-missing", { category: true, profileWrongSection: true }],
+  ["mutation-requested-enum-profile-missing", { category: true, profileWrongOccurrence: true }],
+  ["mutation-requested-enum-profile-ambiguous", { category: true, profileAmbiguous: true }],
+  ["mutation-requested-enum-profile-missing", { category: true, catalogMissing: true, callerCatalog: true }],
+  ["mutation-requested-edit-role-unknown-or-ambiguous", { date: "03.01" }],
+  ["mutation-requested-edit-role-unknown-or-ambiguous", { date: "02.01", initial: model => {
+    model.values[0][1] = { ...scalar("02.01"), edit: "2026-01-02" };
+    model.values[1][1] = { ...scalar("02.01"), edit: "Other role" };
+  } }],
+  ["mutation-requested-text-edit-format", { initial: model => { model.values[7][2].edit = 99; } }],
+  ["mutation-requested-values-shape", { requestArgs: { werte: {} } }],
+  ["mutation-requested-values-shape", { requestArgs: { werte: Array(8).fill(null) } }],
+  ["mutation-requested-value-type", { requestArgs: { werte: [null, null, 17] } }],
+  ["mutation-requested-checkbox-value", { requestArgs: { werte: [null, null, null, null, "yes"] } }],
+  ["mutation-requested-numeric-edit-format", { numeric: true, initial: model => {
+    model.values[7][3].edit = true;
+  } }],
+  ["mutation-requested-numeric-edit-format", { numeric: true, initial: model => {
+    model.values[7][3].edit = "11,00";
+  } }],
+  ["mutation-requested-numeric-edit-format", { requestArgs: { werte: [null, null, null, "not-an-amount"] } }],
 ]) {
   const failure = await run(options); assert.equal(failure.result.ok, false);
   assert.equal(failure.result.phase, "mutation-requested-role-preflight");
+  assert.equal(failure.result.proofCheck, expectedProofCheck, "Each rejected role must reach its intended guard.");
   assert.deepEqual(failure.keys, []); assert.equal(failure.focuses.length, 0); assert.equal(failure.mutations.length, 0);
+  assert.equal(failure.positions.length, 0, "Role rejection must precede cursor positioning.");
+  assert.deepEqual(failure.phases, ["prebind"], "Role rejection must precede even cursor acquisition.");
+  assert.equal(failure.probes.length, 0);
+  assert.equal(failure.releases.length, 0);
+  assert.equal(failure.result.mutationStarted, false);
   assert.equal(failure.result.outcomeUnknown, false, "Missing format authority is rejected before any write.");
 }
 for (const options of [

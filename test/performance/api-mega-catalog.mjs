@@ -17,7 +17,7 @@ const groups = [
       "combo_options", "dialog_answer", "dialog_list", "export_csv", "file_dialog_select",
       "fill_fields", "find", "get_value", "goto", "health", "help", "instances",
       "known_page_state", "launch", "list_cases", "make_working_copy", "menu", "menu_click",
-      "menu_close", "page", "page_objects", "positions", "product_info", "read_full", "read_page",
+      "menu_close", "page", "page_objects", "product_info", "read_full", "read_page",
       "read_table", "receipt_manager_action", "receipt_manager_bulk_upsert",
       "receipt_manager_classification_options", "receipt_manager_classify", "receipt_manager_delete",
       "receipt_manager_import", "receipt_manager_link", "receipt_manager_list", "receipt_manager_read",
@@ -33,6 +33,12 @@ const groups = [
     subclassification: "redundant-navigation-read",
     reason: "Safe but redundant UI navigation/read coverage; omitted to keep one journey representative rather than repetitive.",
     operations: ["scroll", "scroll_page", "tree_scroll", "tree_top"],
+  },
+  {
+    classification: "safely-skipped-read-only",
+    subclassification: "dedicated-position-overview-fixture",
+    reason: "Needs a complete supported position overview; positive coverage belongs to the separate generated income-position journey, not an arbitrary sample start page.",
+    operations: ["positions"],
   },
   {
     classification: "requires-external-state",

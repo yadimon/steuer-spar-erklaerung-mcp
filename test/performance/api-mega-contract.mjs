@@ -40,6 +40,15 @@ assert.deepEqual([...byOperation.keys()].sort(), [...SSE_API_OPERATIONS].sort(),
   "Jede aktuelle API-Operation braucht genau eine Mega-Klassifikation.");
 assert(MEGA_OPERATION_CATALOG.some((entry) => entry.classification !== "covered"),
   "Der Benchmark darf nicht behaupten, alle Operationen seien happy-path-faehig.");
+assert.equal(byOperation.get("positions").classification, "safely-skipped-read-only");
+assert.equal(byOperation.get("positions").subclassification, "dedicated-position-overview-fixture");
+const incomePositionSource = readFileSync("test/live-income-positions.mjs", "utf8");
+assert.match(incomePositionSource, /call\("positions"/u);
+assert.match(incomePositionSource, /call\("position_create"/u);
+assert.match(readFileSync("test/run-live-suite.mjs", "utf8"), /runIncomePositionCoverage\(\);/u,
+  "Die getrennte positive Positionsreise muss im vollstaendigen Live-Gate registriert bleiben.");
+assert.equal(JSON.parse(readFileSync("package.json", "utf8")).scripts["test:live-income-positions"],
+  "npm run build && node test/with-api.mjs node test/live-income-positions.mjs");
 
 const declaredIds = new Set();
 for (const declaration of MEGA_MUTATION_READBACKS) {

@@ -462,9 +462,11 @@ Ledger-Regeneration. Manuelle Stichproben ersetzen keinen automatisierten
 Nachweis. Die weiteren Freigabekriterien stehen in der
 [Stable-Abnahme](entwicklung/stable-freigabe.md).
 
-`position_create` wird durch
-`node test/with-api.mjs node test/live-income-positions.mjs` geprüft: eine separate,
-optionale Live-Prüfung mit einem vollständig neuen synthetischen Folgejahresfall.
+`positions` und `position_create` werden durch
+`npm run test:live-income-positions` geprüft: eine getrennte opt-in Live-Prüfung
+mit einem vollständig neuen synthetischen Folgejahresfall. Sie ist auch im
+vollständigen `npm run test:live` registriert. Eine beliebige Musterfallseite
+ersetzt die ausdrücklich unterstützte Positionsübersicht nicht.
 Sie prüft die erste und eine weitere Einnahmenposition, das genaue Inventar,
 Speichern und Wiederöffnen. Falscher Dateihash, fehlendes Backup, ein anderer
 Fall, doppelte Namen und abweichende erwartete Nettobeträge müssen vor einer

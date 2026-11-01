@@ -15,6 +15,7 @@ try {
   const original = Buffer.from(
     "[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n" +
     "[MainWindowPos]\r\nH=1260\r\nMinMax=0\r\nW=1800\r\nX=50\r\nY=30\r\n" +
+    "[ShortHelpWindow]\r\nH=330\r\nW=440\r\n" +
     "[Files]\r\nLastWorkDir=C:\\private\\work\r\n" +
     "[License]\r\nLastCheck=2026-08-28\r\n" +
     "[WerteInfoPos]\r\nCount=4\r\nH=400\r\nMinMax=-2\r\nSize1=288\r\nSize2=100\r\n" +
@@ -33,6 +34,7 @@ try {
     "LastWorkDir=C:\\synthetic\\runtime",
   ).replace("[MainWindowPos]\r\nH=1260\r\nMinMax=0\r\nW=1800\r\nX=50\r\nY=30",
     "[MainWindowPos]\r\nH=1036\r\nMinMax=-1\r\nW=1600\r\nX=0\r\nY=10")
+    .replace("[ShortHelpWindow]\r\nH=330\r\nW=440", "[ShortHelpWindow]\r\nH=550\r\nW=660")
     .replace("Count=4", "Count=5")
     .replace("H=400", "H=768")
     .replace("MinMax=-2", "MinMax=0")
@@ -80,6 +82,19 @@ try {
   writeFileSync(iniPath, readFileSync(iniPath, "utf8") +
     "[Files]\r\nLastWorkDir=C:\\synthetic\\sandbox\r\n");
   freshRun.restore();
+  assert.deepEqual(readFileSync(iniPath), freshOriginal);
+
+  const freshHelp = beginBelegManagerConfigIsolation(options);
+  writeFileSync(iniPath, readFileSync(iniPath, "utf8") +
+    "[ShortHelpWindow]\r\nH=550\r\nW=660\r\n");
+  freshHelp.restore();
+  assert.deepEqual(readFileSync(iniPath), freshOriginal);
+
+  const insertedHelp = beginBelegManagerConfigIsolation(options);
+  writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
+    "[WerteInfoPos]", "[ShortHelpWindow]\r\nH=550\r\nW=660\r\n[WerteInfoPos]",
+  ));
+  insertedHelp.restore();
   assert.deepEqual(readFileSync(iniPath), freshOriginal);
 
   // Unrelated legacy INI bytes must survive isolation and allowed runtime drift.
@@ -135,14 +150,77 @@ try {
   legacyGuarded.restore();
   assert.deepEqual(readFileSync(iniPath), legacyOriginal);
 
+  // Non-ASCII bytes are opaque foreign changes even when Unicode trim calls them blank.
+  writeFileSync(iniPath, freshOriginal);
+  const opaqueGuarded = beginBelegManagerConfigIsolation(options);
+  const opaqueSwapped = readFileSync(iniPath);
+  const opaqueChange = Buffer.concat([opaqueSwapped,
+    Buffer.from("[ShortHelpWindow]\r\nH=550\r\nW=660\r\n\xa0\r\n", "latin1")]);
+  writeFileSync(iniPath, opaqueChange);
+  assert.throws(() => opaqueGuarded.restore(), /driftete ausserhalb der bekannten Laufzeitwerte/u);
+  assert.deepEqual(readFileSync(iniPath), opaqueChange);
+  writeFileSync(iniPath, opaqueSwapped);
+  opaqueGuarded.restore();
+  assert.deepEqual(readFileSync(iniPath), freshOriginal);
+
+  const duplicateOriginal = Buffer.from(
+    "[BelegManager]\r\nDataDir=C:\\synthetic\\one\r\n" +
+    "[BelegManager]\r\nDataDir=C:\\synthetic\\two\r\n", "utf8");
+  writeFileSync(iniPath, duplicateOriginal);
+  assert.throws(() => beginBelegManagerConfigIsolation(options), /Abschnitt.*mehrfach/u);
+  assert.deepEqual(readFileSync(iniPath), duplicateOriginal);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), false);
+
+  const duplicateRuntimeOriginal = Buffer.concat([freshOriginal, Buffer.from(
+    "[MainWindowPos]\r\nH=600\r\n[MainWindowPos]\r\nH=800\r\n", "utf8")]);
+  writeFileSync(iniPath, duplicateRuntimeOriginal);
+  assert.throws(() => beginBelegManagerConfigIsolation(options), /Abschnitt.*mehrfach/u);
+  assert.deepEqual(readFileSync(iniPath), duplicateRuntimeOriginal);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), false);
+
+  const indentedOriginal = Buffer.from(
+    "  [BelegManager]\r\nDataDir=C:\\synthetic\\original\r\n" +
+    "\t[MainWindowPos] \t\r\nH=600\r\n[Other]\r\nValue=unchanged\r\n", "utf8");
+  writeFileSync(iniPath, indentedOriginal);
+  const indentedRun = beginBelegManagerConfigIsolation(options);
+  writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace("H=600", "H=800"));
+  indentedRun.restore();
+  assert.deepEqual(readFileSync(iniPath), indentedOriginal);
+
+  // A later section's same-named keys must never become authority for this one.
+  const boundaryOriginal = Buffer.from(
+    "  [BelegManager]\r\nDataDir=C:\\synthetic\\original\r\n" +
+    "  [Archiv]\r\nDataDir=C:\\synthetic\\foreign\r\n" +
+    "\t[MainWindowPos] \t\r\nH=600\r\n  [Other]\r\nX=1\r\n", "utf8");
+  writeFileSync(iniPath, boundaryOriginal);
+  const boundaryRun = beginBelegManagerConfigIsolation(options);
+  const boundarySwapped = readFileSync(iniPath);
+  assert.deepEqual(boundarySwapped, Buffer.from(boundaryOriginal.toString("utf8").replace(
+    "DataDir=C:\\synthetic\\original", "DataDir=" + isolatedDataDir,
+  ), "utf8"));
+  const boundaryChange = Buffer.from(boundarySwapped.toString("utf8").replace("X=1", "X=2").replace("H=600", "H=800"));
+  writeFileSync(iniPath, boundaryChange);
+  assert.throws(() => boundaryRun.restore(), /driftete ausserhalb der bekannten Laufzeitwerte/u);
+  assert.deepEqual(readFileSync(iniPath), boundaryChange);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), true);
+  writeFileSync(iniPath, boundarySwapped);
+  boundaryRun.restore();
+  assert.deepEqual(readFileSync(iniPath), boundaryOriginal);
+
   // Darstellungsoptionen ausserhalb der Erlaubnisliste bleiben fail-closed:
   // nichts wird ueberschrieben, die Artefakte bleiben liegen.
   writeFileSync(iniPath, freshOriginal);
   rmSync(isolatedDataDir, { recursive: true, force: true });
   const guarded = beginBelegManagerConfigIsolation(options);
   writeFileSync(iniPath, readFileSync(iniPath, "utf8") +
-    "[WerteInfo]\r\nShowGrid=0\r\nShowToolbar=1\r\n");
-  assert.throws(() => guarded.restore(), /driftete ausserhalb der bekannten Laufzeitwerte/u);
+    "[ShortHelpWindow]\r\nH=330\r\nW=440\r\nUnrelatedSetting=synthetic-sensitive-value\r\n");
+  assert.throws(() => guarded.restore(), (error) => {
+    assert.match(error.message, /driftete ausserhalb der bekannten Laufzeitwerte/u);
+    assert.equal(Buffer.isBuffer(error.actual), false, "Recovery errors must not expose configuration bytes.");
+    assert.equal(Buffer.isBuffer(error.expected), false, "Recovery errors must not expose the original configuration.");
+    assert.equal(error.message.includes("synthetic-sensitive-value"), false);
+    return true;
+  });
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), true);
 } finally {
   rmSync(temporary, { recursive: true, force: true });

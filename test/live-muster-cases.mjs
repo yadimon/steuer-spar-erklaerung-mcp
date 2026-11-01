@@ -6,8 +6,10 @@
  *
  * Im Modus `full` entscheidet die Faehigkeitsmatrix des Profils aus
  * `sse_capabilities`, welche fallunveraendernden Operationen der Lauf
- * versucht. Was die Matrix erlaubt, wird ausgefuehrt; fuer alles andere muss
- * sie ausdruecklich einen Sperrgrund nennen. `core-read` ist dagegen ein
+ * versucht. Unterstuetzte generische Lesewege laufen hier; Positionsinventare
+ * werden mit ihrer eigenen erzeugten Uebersichtsfixture im vollstaendigen
+ * Live-Gate geprueft. Weitere unzulaessige Operationen brauchen einen
+ * ausdruecklichen Sperrgrund der Matrix. `core-read` ist dagegen ein
  * bewusst kleinerer Evidenzmodus fuer die geoeffnete Musterfallseite und weist
  * seine nicht enthaltenen UI-Zweigwechsel im Ergebnis aus. Ein stiller SKIP
  * ist in beiden Modi ausgeschlossen.
@@ -764,8 +766,8 @@ async function assertDeepReadOnlySweep(definition, hwnd, pages) {
   // Die MCP-Textprojektion einiger Werkzeuge fuehrt kein 'ok'; ein
   // zurueckgegebenes Objekt beweist den Erfolg bereits, weil call() bei
   // isError wirft. Geprueft werden deshalb fachliche Felder.
-  const positions = await callCanonical("sse_positions", { aktion: "list", hwnd });
-  assert.equal(typeof positions.anzahl, "number", `${id}: positions ohne numerische anzahl.`);
+  // Positions require a supported complete overview, not an arbitrary sample page.
+  // Their positive product proof belongs to the generated income-position journey.
 
   const checked = await callCanonical("sse_check_page", { hwnd });
   assert.equal(typeof checked.beanstandungsfrei, "boolean", `${id}: check ohne Gesamturteil.`);
