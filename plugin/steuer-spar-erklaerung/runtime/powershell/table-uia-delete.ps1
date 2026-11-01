@@ -61,8 +61,9 @@ function Test-SSEUiaDeleteRestoredDirty {
 }
 
 function Get-SSEUiaDeleteRawEditors {
-  param($Table,[int]$ProcessId,[scriptblock]$Guard,[int]$MaxNodes=102000)
+  param($Table,[int]$ProcessId,[scriptblock]$Guard,[int]$MaxNodes=102000,[hashtable]$Observation=$null)
   if($MaxNodes -lt 1 -or $MaxNodes -gt 102000){throw 'The editor observation bound is invalid.'}
+  if($null -ne $Observation){$Observation.descendantCount=0;$Observation.focusAdded=$false;$Observation.focusDepth=-1}
   $watch=[Diagnostics.Stopwatch]::StartNew();$walker=[Windows.Automation.TreeWalker]::RawViewWalker
   $pending=New-Object Collections.Stack;$pending.Push([pscustomobject]@{element=$Table;depth=0})
   $seen=New-Object 'Collections.Generic.HashSet[string]';$editors=New-Object Collections.ArrayList
@@ -83,6 +84,7 @@ function Get-SSEUiaDeleteRawEditors {
       $pending.Push([pscustomobject]@{element=$child;depth=($entry.depth+1)});$child=$walker.GetNextSibling($child)
     }
   }
+  if($null -ne $Observation){$Observation.descendantCount=$editors.Count}
   # Qt can omit an active delegate from both downward views while exposing
   # its exact table through the focused element's raw parent chain.
   $focused=[Windows.Automation.AutomationElement]::FocusedElement
@@ -94,7 +96,10 @@ function Get-SSEUiaDeleteRawEditors {
       $rid=$probe.GetRuntimeId() -join '.'
       if([int]$probe.Current.ProcessId -ne $ProcessId -or -not $rid -or -not $parents.Add($rid)){throw 'The focused editor has unproven raw ancestry.'}
       if($rid -ceq ($Table.GetRuntimeId() -join '.') -and [string]$probe.Current.AutomationId -ceq [string]$Table.Current.AutomationId){
-        if($focusRid -cnotin @($editors|ForEach-Object{$_.GetRuntimeId() -join '.'})){$null=$editors.Add($focused)}
+        if($focusRid -cnotin @($editors|ForEach-Object{$_.GetRuntimeId() -join '.'})){
+          $null=$editors.Add($focused)
+          if($null -ne $Observation){$Observation.focusAdded=$true;$Observation.focusDepth=$depth}
+        }
         break
       }
       if($probe.Current.ControlType -eq [Windows.Automation.ControlType]::Window){break}
@@ -102,6 +107,36 @@ function Get-SSEUiaDeleteRawEditors {
     }
   }
   ,@($editors)
+}
+
+function Get-SSEUiaDeleteEditorEvidence {
+  param($SnapshotState,$RawEditors,[hashtable]$Observation)
+  # Failure-only, value-free observations explain a refusal; they never
+  # authorize editor cancellation, a click, deletion or a retry.
+  $evidence=[ordered]@{snapshotOk=[bool]$SnapshotState.ok;snapshotEditorFree=[bool]$SnapshotState.editorFree;
+    snapshotEditorCount=@($SnapshotState.editorNodes).Count;rawEditorCount=@($RawEditors).Count;
+    descendantCount=[int]$Observation.descendantCount;focusAdded=[bool]$Observation.focusAdded;focusDepth=[int]$Observation.focusDepth}
+  if(@($RawEditors).Count){
+    try{
+      $current=$RawEditors[0].Current
+      $type=$current.ControlType;$offscreen=$current.IsOffscreen;$hasFocus=$current.HasKeyboardFocus;$bounds=$current.BoundingRectangle
+      $empty=$bounds.IsEmpty;$width=$bounds.Width;$height=$bounds.Height
+      # PowerShell can turn a failing provider getter into null instead of
+      # entering catch. Validate each observation before projecting booleans.
+      if($null -eq $type -or $offscreen -isnot [bool] -or $hasFocus -isnot [bool] -or $empty -isnot [bool] -or
+          $width -isnot [double] -or $height -isnot [double] -or [double]::IsNaN($width) -or [double]::IsInfinity($width) -or
+          [double]::IsNaN($height) -or [double]::IsInfinity($height)){throw 'Editor observation is unavailable.'}
+      $evidence.firstEditor=[pscustomobject]@{isEdit=($type -eq [Windows.Automation.ControlType]::Edit);
+        isComboBox=($type -eq [Windows.Automation.ControlType]::ComboBox);
+        isSpinner=($type -eq [Windows.Automation.ControlType]::Spinner);
+        offscreen=$offscreen;hasKeyboardFocus=$hasFocus;
+        boundsEmpty=$empty;positiveBounds=[bool](-not $empty -and $width -gt 0 -and $height -gt 0)}
+    }catch{
+      # A stale provider during diagnosis must preserve the original refusal.
+      $evidence.observationIncomplete=$true
+    }
+  }
+  [pscustomobject]$evidence
 }
 
 function Test-SSEUiaDeleteEditorAgreement {
@@ -135,9 +170,13 @@ function Read-SSEUiaDeleteState {
   $model=ConvertTo-SSEGridLogicalModel $first $second 1000 $Binding.processId $root.aid
   $rawBound=Get-SSEUiaDeleteRawBound $first.rows $first.columns
   $rawWatch=[Diagnostics.Stopwatch]::StartNew()
-  $rawEditors=Get-SSEUiaDeleteRawEditors $resolved.element $Binding.processId $Binding.guard $rawBound
+  $rawObservation=@{}
+  $rawEditors=Get-SSEUiaDeleteRawEditors $resolved.element $Binding.processId $Binding.guard $rawBound $rawObservation
   $Binding.maxRawMs=[Math]::Max([double]$Binding.maxRawMs,[Math]::Max(1.0,$rawWatch.Elapsed.TotalMilliseconds))
-  if(-not (Test-SSEUiaDeleteEditorAgreement $state $rawEditors -AllowOwnEditor:$AllowOwnEditor)){throw 'The exact table contains an unaccounted editor.'}
+  if(-not (Test-SSEUiaDeleteEditorAgreement $state $rawEditors -AllowOwnEditor:$AllowOwnEditor)){
+    $Binding.transaction.editorEvidence=Get-SSEUiaDeleteEditorEvidence $state $rawEditors $rawObservation
+    throw 'The exact table contains an unaccounted editor.'
+  }
   $headers=@($first.headers|Where-Object{$_.visible})
   # Qt also exposes row headers as direct Header children. The raw Grid scan
   # already proves the cached column order; bind exactly those IDs here.
@@ -300,7 +339,7 @@ function Wait-SSEUiaDeleteRows {
 
 function Invoke-SSEUiaTableDelete {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Arguments,[Diagnostics.Process]$Process)
-  $transaction=[pscustomobject]@{started=$false;touched=$false;epoch=$null;foreground=[SW]::GetForegroundWindow();windows=$null;phase='initial'}
+  $transaction=[pscustomobject]@{started=$false;touched=$false;epoch=$null;foreground=[SW]::GetForegroundWindow();windows=$null;phase='initial';editorEvidence=$null}
   $binding=[pscustomobject]@{hwnd=$Hwnd;processId=$ProcessId;sumLabel=[string](Arg $Arguments 'sumLabel');
     expectedPage=[string](Arg $Arguments 'expectedPage');expectedBefore=[string](Arg $Arguments 'expectedBefore');
     sumOccurrence=[int](Arg $Arguments 'sumOccurrence' 0);summaryAid='';tableAid='';watch=[Diagnostics.Stopwatch]::StartNew();maxReadMs=0.0;maxRawMs=0.0;guard=$null;transaction=$transaction}
@@ -505,6 +544,7 @@ function Invoke-SSEUiaTableDelete {
     $clean=[bool](-not $transaction.touched -and -not $transaction.started)
     [pscustomobject]@{ok=$false;verified=$false;kind='uia-delete-unproven';error=$_.Exception.Message;phase=$transaction.phase;
       mutationStarted=$transaction.started;outcomeUnknown=(-not $clean);resultingState=$(if($clean){'unchanged'}else{'unknown'});
+      mutationState=$(if($transaction.editorEvidence){[pscustomobject]@{editorMismatch=$transaction.editorEvidence}}else{$null});
       reconciliationRequired=(-not $clean);retryable=$false;geloescht=$null;nochVorhanden=$null;
       rollbackAttempted=($transaction.phase -ceq 'undo');rolledBack=$null}
   }

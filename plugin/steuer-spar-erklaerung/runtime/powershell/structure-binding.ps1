@@ -96,14 +96,15 @@ angeschnittene Randzeile oder eine Namensgleichheit liefert $null.
 function Get-SSEVisibleNavigationItem {
   param(
     [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
-    [string]$Name
+    [string]$Name,
+    [scriptblock]$Accept = $null
   )
   if (-not $Name) { return $null }
   $baumEndung = 'NavWidgetSSE'
   $baum = Find-SSEContainerNode $Nodes $baumEndung 'Tree'
   if (-not $baum -or $baum.w -le 0 -or $baum.h -le 0) { return $null }
   $treffer = @(Get-SSEContainerDescendants $Nodes $baumEndung 'TreeItem' 'Tree' |
-    Where-Object { [string]$_.name -ceq $Name })
+    Where-Object { [string]$_.name -ceq $Name -or ($Accept -and [string]$_.name -and (& $Accept ([string]$_.name))) })
   if ($treffer.Count -ne 1) { return $null }
   $eintrag = $treffer[0]
   if (-not $eintrag.on -or $eintrag.w -le 0 -or $eintrag.h -le 0) { return $null }

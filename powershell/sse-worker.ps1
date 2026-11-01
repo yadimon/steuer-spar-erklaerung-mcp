@@ -5657,6 +5657,16 @@ function Get-SSECheckerStartPolicy($Window, $Catalog) {
   [pscustomobject]@{ok=$true;policy=$policies[0];caseType=$caseType}
 }
 
+function Test-SSECheckerStartCaption($Name, $Policy) {
+  if ($Name -isnot [string]) { return $false }
+  if ([string]::Equals($Name, [string]$Policy.name, [StringComparison]::Ordinal)) { return $true }
+  # The exact checker toolbar also has an icon-only presentation. An absent
+  # caption cannot identify other controls or replace the Off/Invoke proof.
+  [bool]($Name.Length -eq 0 -and $Policy.controlType -ceq 'CheckBox' -and
+    $Policy.automationIdSuffix -ceq '.MainToolBar.tb_pruefer' -and
+    $Policy.pattern -ceq 'Invoke' -and $Policy.expectedToggleState -ceq 'Off' -and -not $Policy.heading)
+}
+
 function Resolve-SSECheckerStartNode($Tree, $Policy, [IntPtr]$Hwnd) {
   if (-not $Tree.stats -or $Tree.stats.truncated -or $Tree.stats.depthLimited -or
       [int]$Tree.stats.err -ne 0 -or [int]$Tree.stats.cyc -ne 0 -or [int]$Tree.stats.valErr -ne 0) {
@@ -5672,7 +5682,7 @@ function Resolve-SSECheckerStartNode($Tree, $Policy, [IntPtr]$Hwnd) {
     return [pscustomobject]@{ok=$false;kind='precondition-failed';error="Prueferstart dieser Fallart braucht die Seite '$($Policy.heading)'."}
   }
   $nodes = @($Tree.nodes | Where-Object {
-    $_.type -ceq [string]$Policy.controlType -and $_.name -ceq [string]$Policy.name -and
+    $_.type -ceq [string]$Policy.controlType -and (Test-SSECheckerStartCaption $_.name $Policy) -and
     ([string]$_.aid).EndsWith([string]$Policy.automationIdSuffix,[StringComparison]::Ordinal) -and
     $_.on -and $_.w -gt 0 -and $_.h -gt 0
   })
@@ -5692,7 +5702,8 @@ function Invoke-SSECheckerStart([IntPtr]$Hwnd, $Window, $Tree, $Policy) {
   }
   $element = Get-LiveElement $Hwnd $resolved.node.rid
   if (-not $element -or $element.Current.ProcessId -ne [int]$Window.pid -or
-      $element.Current.Name -cne [string]$Policy.name -or $element.Current.AutomationId -cne [string]$resolved.node.aid -or
+      -not (Test-SSECheckerStartCaption $element.Current.Name $Policy) -or
+      $element.Current.Name -cne $resolved.node.name -or $element.Current.AutomationId -cne [string]$resolved.node.aid -or
       -not $element.Current.IsEnabled -or $element.Current.IsOffscreen -or
       $element.Current.ControlType.ProgrammaticName -cne ('ControlType.'+[string]$Policy.controlType)) {
     return [pscustomobject]@{ok=$false;kind='stale';error='Der profilierte Prueferstart ist nicht mehr exakt greifbar.'}
@@ -5742,6 +5753,28 @@ function Get-ContentBounds {
   if ($navTree) { $minX = $navTree.x + $navTree.w + 5 }
   $help = @($tree.nodes | Where-Object { $_.name -in @('Eingabehilfe','Steuertipps') -and $_.x -gt $minX } | Sort-Object x)[0]
   if ($help) { $maxX = $help.x - 10 }
+  # The introduction column has no Eingabehilfe/Steuertipps heading and can
+  # be wider than the historical fraction. Its exact public container takes
+  # precedence over label and width guesses, independent of toolbar layout.
+  $helpFrames=@($tree.nodes | Where-Object { ([string]$_.aid).EndsWith('.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE',[StringComparison]::Ordinal) })
+  if($helpFrames.Count -gt 1){throw 'The help column identity is ambiguous.'}
+  if($helpFrames.Count -eq 1){
+    $helpFrame=$helpFrames[0]
+    if($helpFrame.type -cne 'Group'){throw 'The help column state is unavailable.'}
+    # on is IsEnabled, not visibility. A disabled visible pane still bounds
+    # the form; zero geometry keeps the established closed-pane projection.
+    if($helpFrame.w -gt 0 -and $helpFrame.h -gt 0){
+      # UIA and GetWindowRect may use different DPI spaces. Bind the exact
+      # central widget from the same tree before comparing physical edges.
+      $clientAid=([string]$helpFrame.aid).Substring(0,([string]$helpFrame.aid).Length-'.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE'.Length)
+      $clients=@($tree.nodes | Where-Object { $_.aid -ceq $clientAid })
+      if($clients.Count -ne 1 -or $clients[0].type -cne 'Group' -or $clients[0].w -le 0 -or $clients[0].h -le 0){throw 'The help column client geometry is unavailable.'}
+      $client=$clients[0]
+      if(-not $navTree -and $helpFrame.x-10 -le $minX){$minX=$client.x}
+      if($helpFrame.x-10 -le $minX -or $helpFrame.x+$helpFrame.w -gt $client.x+$client.w+1){throw 'The help column geometry contradicts the bound window.'}
+      $maxX=$helpFrame.x-10
+    }
+  }
   # navErkannt sagt, ob die linke Grenze gemessen oder nur geraten ist. Eine
   # eingeklappte Navigationsspalte liefert einen Tree mit Breite 0; dann greift
   # der Anteilsrueckfall, und links davon steht Inhalt statt Navigation.
@@ -6211,6 +6244,182 @@ function Get-DirtyState {
 
 # Lebendes AutomationElement zu einem Baumknoten holen (ueber RuntimeId-Pfad
 # geht nicht direkt; wir laufen den Baum erneut und vergleichen die RuntimeId).
+# Bind only the main content QScrollArea. A missing ScrollPattern is not proof
+# that the page fits: Qt exposes its vertical scrollbar through RangeValue.
+function Get-SSEPageRangeBinding([IntPtr]$Hwnd, $Tree) {
+  if (-not $Tree.stats -or $Tree.stats.truncated -isnot [bool] -or $Tree.stats.depthLimited -isnot [bool] -or
+      $Tree.stats.truncated -or $Tree.stats.depthLimited -or
+      $Tree.stats.err -ne 0 -or $Tree.stats.cyc -ne 0) { throw 'Incomplete page-scroll snapshot.' }
+  $suffix='.centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea'
+  $areas=@($Tree.nodes | Where-Object { ([string]$_.aid).EndsWith($suffix,[StringComparison]::Ordinal) })
+  if ($areas.Count -eq 0) { return $null }
+  if ($areas.Count -ne 1) { throw 'Ambiguous page scroll area.' }
+  $root=$script:AE::FromHandle($Hwnd);$info=$root.Current
+  if ($info.ControlType -ne [Windows.Automation.ControlType]::Window -or
+      [long]$info.NativeWindowHandle -ne [long]$Hwnd -or $info.ProcessId -le 0 -or
+      -not $info.AutomationId -or $areas[0].aid -cne ($info.AutomationId+$suffix)) { throw 'Unbound page scroll root.' }
+  $binding=[pscustomobject]@{window=$Hwnd;root=$root;processId=$info.ProcessId;
+    rootBinding=[pscustomobject]@{processId=$info.ProcessId;rid=($root.GetRuntimeId() -join '.');aid=$info.AutomationId};nodes=@{};elements=@{}}
+  $definitions=@(
+    @('area','','Group',$null),
+    @('viewport','.qt_scrollarea_viewport','Group','area'),
+    @('body','.qt_scrollarea_viewport.DialogUI','Group','viewport'),
+    @('container','.qt_scrollarea_vcontainer','Group','area'),
+    @('bar','.qt_scrollarea_vcontainer.QScrollBar','ScrollBar','container')
+  )
+  $indexes=New-Object 'Collections.Generic.HashSet[long]'
+  foreach ($definition in $definitions) {
+    $key=$definition[0];$aid=[string]$areas[0].aid+$definition[1]
+    $nodes=@($Tree.nodes | Where-Object { $_.aid -ceq $aid })
+    if ($nodes.Count -eq 0 -and $key -in @('container','bar')) { continue }
+    if ($nodes.Count -ne 1 -or $nodes[0].type -cne $definition[2] -or -not $nodes[0].rid) { throw 'Missing or ambiguous page scroll identity.' }
+    if (($nodes[0].i -isnot [int] -and $nodes[0].i -isnot [long]) -or $nodes[0].i -lt 0 -or
+        -not $indexes.Add([long]$nodes[0].i)) { throw 'Invalid page scroll snapshot index.' }
+    if ($definition[3] -and (-not $binding.nodes.ContainsKey($definition[3]) -or
+        ($nodes[0].p -isnot [int] -and $nodes[0].p -isnot [long]) -or
+        $nodes[0].p -ne $binding.nodes[$definition[3]].i)) { throw 'Page scroll ancestry disagrees.' }
+    # A fresh bounded snapshot already owns the exact element. A cache miss
+    # must not trigger an unrelated whole-window search or replacement.
+    if (-not $script:UIAElementCache -or -not $script:UIAElementCache.ContainsKey([string]$nodes[0].rid)) { throw 'Page scroll element left its snapshot.' }
+    $element=$script:UIAElementCache[[string]$nodes[0].rid]
+    if (-not $element) { throw 'Page scroll element is stale.' }
+    $binding.nodes[$key]=$nodes[0];$binding.elements[$key]=$element
+  }
+  if (-not (Test-SSEMainContentAncestry $Hwnd $binding.elements.area $binding.rootBinding)) { throw 'Page scroll area is outside the bound root.' }
+  $binding
+}
+
+function Read-SSEPageRangeState($Binding) {
+  $root=$script:AE::FromHandle($Binding.window);$rootInfo=$root.Current
+  if (($root.GetRuntimeId() -join '.') -cne $Binding.rootBinding.rid -or
+      $rootInfo.ProcessId -ne $Binding.processId -or [long]$rootInfo.NativeWindowHandle -ne [long]$Binding.window -or
+      $rootInfo.ControlType -ne [Windows.Automation.ControlType]::Window -or
+      $rootInfo.AutomationId -cne $Binding.rootBinding.aid) { throw 'Page scroll root changed.' }
+  $rects=@{}
+  foreach ($key in $Binding.nodes.Keys) {
+    $element=$Binding.elements[$key];$node=$Binding.nodes[$key];$info=$element.Current
+    if (-not (Test-SSEElementIdentity $element $node.rid $node.aid) -or
+        $info.ProcessId -ne $Binding.processId -or $info.ControlType.ProgrammaticName -cne ('ControlType.'+$node.type)) { throw 'Page scroll identity changed.' }
+    $rect=$info.BoundingRectangle
+    if ($null -eq $rect -or $rect.IsEmpty -isnot [bool] -or $rect.IsEmpty) { throw 'Page scroll bounds unavailable.' }
+    foreach ($value in @($rect.X,$rect.Y,$rect.Width,$rect.Height)) {
+      if ($value -isnot [double] -or [double]::IsNaN($value) -or [double]::IsInfinity($value)) { throw 'Invalid page scroll geometry.' }
+    }
+    if ($key -notin @('container','bar') -and ($rect.Width -le 0 -or $rect.Height -le 0)) { throw 'Empty page scroll geometry.' }
+    $rects[$key]=[pscustomobject]@{x=[double]$rect.X;y=[double]$rect.Y;w=[double]$rect.Width;h=[double]$rect.Height}
+  }
+  foreach ($edge in @(@('viewport','area'),@('body','viewport'),@('container','area'),@('bar','container'))) {
+    if (-not $Binding.elements.ContainsKey($edge[0])) { continue }
+    $parent=$script:WLK.GetParent($Binding.elements[$edge[0]])
+    if (-not $parent -or ($parent.GetRuntimeId() -join '.') -cne [string]$Binding.nodes[$edge[1]].rid) { throw 'Live page scroll ancestry changed.' }
+  }
+  if (-not (Test-SSEMainContentAncestry $Binding.window $Binding.elements.area $Binding.rootBinding)) { throw 'Live page scroll root is unproven.' }
+  $view=$rects.viewport;$body=$rects.body;$area=$rects.area
+  if ($view.x -lt $area.x -or $view.y -lt $area.y -or $view.x+$view.w -gt $area.x+$area.w -or
+      $view.y+$view.h -gt $area.y+$area.h) { throw 'Page viewport leaves its bound area.' }
+  $range=$null;$minimum=0.0;$maximum=0.0;$value=0.0;$writable=$false
+  if ($Binding.elements.ContainsKey('bar')) {
+    if (-not $Binding.elements.bar.TryGetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern,[ref]$range)) { throw 'Exact page scrollbar has no RangeValuePattern.' }
+    $current=$range.Current
+    $observed=[pscustomobject]@{minimum=$current.Minimum;maximum=$current.Maximum;value=$current.Value;readOnly=$current.IsReadOnly}
+    foreach ($number in @($observed.minimum,$observed.maximum,$observed.value)) {
+      if ($number -isnot [double] -or [double]::IsNaN($number) -or [double]::IsInfinity($number) -or
+          [double]$number -ne [Math]::Truncate([double]$number) -or [double]$number -lt 0 -or [double]$number -gt [int]::MaxValue) { throw 'Invalid page scrollbar range.' }
+    }
+    $minimum=[double]$observed.minimum;$maximum=[double]$observed.maximum;$value=[double]$observed.value
+    if ($minimum -ne 0 -or $maximum -lt $minimum -or $value -lt $minimum -or $value -gt $maximum -or
+        $observed.readOnly -isnot [bool]) { throw 'Inconsistent page scrollbar state.' }
+    $barInfo=$Binding.elements.bar.Current;$enabled=$barInfo.IsEnabled;$offscreen=$barInfo.IsOffscreen
+    $writable=[bool](-not $observed.readOnly -and $enabled -is [bool] -and $enabled -and $offscreen -is [bool] -and -not $offscreen)
+  }
+  if ($maximum -eq 0) {
+    if ($body.h -gt $view.h+2 -or $body.y -lt $view.y-2 -or $body.y+$body.h -gt $view.y+$view.h+2) { throw 'Overflow without a proven page scrollbar.' }
+    return [pscustomobject]@{scrollable=$false;rects=$rects;minimum=0.0;maximum=0.0;value=0.0;scale=0.0;position=0.0;pattern=$range;writable=$false}
+  }
+  $bar=$rects.bar
+  if (-not $bar -or $bar.w -le 0 -or $bar.h -le 0 -or $bar.x -lt $area.x -or $bar.y -lt $area.y -or
+      $bar.x+$bar.w -gt $area.x+$area.w -or $bar.y+$bar.h -gt $area.y+$area.h -or $body.h -le $view.h) { throw 'Unproven visible page scrollbar.' }
+  # Derive pixels per range unit from the same live content/viewport geometry.
+  # Windows DPI is not necessarily Qt's effective scale. Never substitute it.
+  $scale=($body.h-$view.h)/$maximum
+  if ([double]::IsNaN($scale) -or [double]::IsInfinity($scale) -or $scale -le 0 -or
+      [Math]::Abs(($body.y-$view.y)+$value*$scale) -gt 2) { throw 'Unproven page scroll mapping.' }
+  [pscustomobject]@{scrollable=$true;rects=$rects;minimum=$minimum;maximum=$maximum;value=$value;scale=$scale;
+    position=100.0*$value/$maximum;pattern=$range;writable=$writable}
+}
+
+function Invoke-SSEPageRangeScroll($Binding, $Arguments) {
+  $attempted=$false
+  try {
+    $mode=[string](Arg $Arguments 'mode' 'info')
+    if ($mode -cnotin @('info','percent','amount')) { return [pscustomobject]@{ok=$false;kind='bad-args';error='Unbekannter Seiten-Rollmodus.'} }
+    $percent=0.0
+    if ($mode -ceq 'percent') {
+      $raw=Arg $Arguments 'vPercent' 100
+      if ($null -eq $raw -or -not [double]::TryParse([string]$raw,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$percent) -or
+          [double]::IsNaN($percent) -or [double]::IsInfinity($percent) -or $percent -lt 0 -or $percent -gt 100) { return [pscustomobject]@{ok=$false;kind='bad-args';error='Rollposition muss zwischen 0 und 100 liegen.'} }
+    }
+    $direction=[string](Arg $Arguments 'direction' 'down')
+    if ($mode -ceq 'amount' -and $direction -cnotin @('up','down')) { return [pscustomobject]@{ok=$false;kind='bad-args';error='Unbekannte Rollrichtung.'} }
+    $before=Read-SSEPageRangeState $Binding
+    if (-not $before.scrollable) { return [pscustomobject]@{ok=$true;scrollbar=$false;hinweis='Der exakt gebundene Seiteninhalt passt in seinen Viewport.'} }
+    if ($mode -ceq 'info') {
+      return [pscustomobject]@{ok=$true;scrollbar=$true;position=$before.position;sichtbarerAnteil=100.0*$before.rects.viewport.h/$before.rects.body.h;bereich='Inhaltsbereich'}
+    }
+    $target=if ($mode -ceq 'percent') { [Math]::Round($before.maximum*$percent/100.0,[MidpointRounding]::AwayFromZero) }
+      else { $step=[Math]::Max(1,[Math]::Round($before.rects.viewport.h/$before.scale,[MidpointRounding]::AwayFromZero));$before.value+$(if($direction -ceq 'up') {-$step}else{$step}) }
+    $target=[Math]::Max(0,[Math]::Min($before.maximum,$target))
+    $fresh=Read-SSEPageRangeState $Binding
+    foreach ($property in @('minimum','maximum','value','scale')) { if ($fresh.$property -cne $before.$property) { throw 'Page scrollbar changed before the request.' } }
+    foreach ($key in $before.rects.Keys) { foreach($property in @('x','y','w','h')) { if($fresh.rects[$key].$property -cne $before.rects[$key].$property) { throw 'Page geometry changed before the request.' } } }
+    if ($target -ne $before.value) {
+      if (-not $before.writable -or -not $fresh.writable) { throw 'Page scrollbar is not writable and visible.' }
+      $attempted=$true
+      $fresh.pattern.SetValue([double]$target)
+      Start-Sleep -Milliseconds 450
+    }
+    $after=Read-SSEPageRangeState $Binding
+    if (-not $after.scrollable -or $after.value -cne $target -or $after.minimum -cne $before.minimum -or
+        $after.maximum -cne $before.maximum -or $after.scale -cne $before.scale) { throw 'Page scrollbar readback disagrees.' }
+    foreach($key in $before.rects.Keys){foreach($property in @('x','y','w','h')){
+      if($key -ceq 'body' -and $property -ceq 'y'){continue}
+      if($after.rects[$key].$property -cne $before.rects[$key].$property){throw 'Page geometry changed during the request.'}
+    }}
+    $movement=$after.rects.body.y-$before.rects.body.y
+    if (($target -gt $before.value -and $movement -ge 0) -or
+        ($target -lt $before.value -and $movement -le 0) -or
+        ($target -eq $before.value -and $movement -ne 0) -or
+        [Math]::Abs($movement+($target-$before.value)*$before.scale) -gt 2) { throw 'Page content movement was not proved.' }
+    [pscustomobject]@{ok=$true;scrollbar=$true;vorher=$before.position;nachher=$after.position;bewegt=($after.value -ne $before.value);bereich='Inhaltsbereich';hinweis='Seitenposition und Inhaltsbewegung frisch geprueft; Zielfelder vor Eingaben neu lesen.'}
+  } catch {
+    if ($attempted) { return [pscustomobject]@{ok=$false;kind='postcondition-failed';error='Seitenbewegung nach einem einzelnen Aufruf nicht sicher bestaetigt; nicht wiederholen.';retryable=$false;mutationStarted=$true;outcomeUnknown=$true;resultingState='unknown'} }
+    [pscustomobject]@{ok=$false;kind='scroll-state-unknown';error='Seiten-Rollbereich ist nicht vollstaendig und frisch gebunden; nichts gerollt.';retryable=$false;mutationStarted=$false;outcomeUnknown=$false;resultingState='unchanged'}
+  }
+}
+
+
+function Assert-SSEFullReadRange($Baseline, $Current, [double]$ExpectedValue) {
+  if ($Current.scrollable -cne $Baseline.scrollable -or $Current.value -cne $ExpectedValue) { throw 'Full-read scroll position changed.' }
+  foreach ($property in @('minimum','maximum','scale')) {
+    if ($Current.$property -cne $Baseline.$property) { throw 'Full-read range changed.' }
+  }
+  foreach ($key in $Baseline.rects.Keys) { foreach ($property in @('x','y','w','h')) {
+    if ($key -ceq 'body' -and $property -ceq 'y') { continue }
+    if ($Current.rects[$key].$property -cne $Baseline.rects[$key].$property) { throw 'Full-read layout changed.' }
+  } }
+}
+
+function Assert-SSEFullReadStageCoverage($State) {
+  if (-not $State.scrollable) { return }
+  $previous=0.0
+  foreach ($percent in 20,40,60,80,100) {
+    $target=[Math]::Round($State.maximum*$percent/100.0,[MidpointRounding]::AwayFromZero)
+    # Reserve both two-pixel mapping tolerances at an adjacent interval edge.
+    if (($target-$previous)*$State.scale -gt $State.rects.viewport.h-4) { throw 'Bounded full-read stages leave an uncovered interval.' }
+    $previous=$target
+  }
+}
+
 function Get-LiveElement {
   param([IntPtr]$hwnd, [string]$Rid, [string]$Aid = '')
   $root = $AE::FromHandle($hwnd)
@@ -11942,6 +12151,33 @@ function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArgum
   }
 }
 
+function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid) {
+  # Failure-only, value-free observations never authorize another action.
+  $result=[ordered]@{popupCount=-1;otherPopupCount=-1;state=-1;stateKnown=$false;
+    mainListed=$false;foregroundKnown=$false;foregroundIsMain=$false;observationIncomplete=$false}
+  try {
+    $result.popupCount=@(Get-SSEMenuPopupWindows $TargetPid).Count
+    $windows=@(Get-Windows 'SSE')
+    $result.mainListed=($TargetPid -gt 0 -and @($windows | Where-Object {
+      [int]$_.pid -eq $TargetPid -and [int64]$_.hwnd -eq [int64]$MainHwnd
+    }).Count -eq 1)
+    $result.otherPopupCount=@($windows | Where-Object {
+      [int]$_.pid -eq $TargetPid -and $_.cls -match 'Popup' -and $_.cls -notmatch 'PopupDropShadow|SysShadow'
+    }).Count
+  } catch {$result.observationIncomplete=$true}
+  try {
+    $state=$Pattern.Current.ExpandCollapseState
+    if($state -isnot [System.Windows.Automation.ExpandCollapseState]){throw 'Menu state is unavailable.'}
+    $result.state=[int]$state;$result.stateKnown=$true
+  } catch {$result.observationIncomplete=$true}
+  try {
+    $foreground=[SW]::GetForegroundWindow()
+    $result.foregroundKnown=($foreground -ne [IntPtr]::Zero)
+    $result.foregroundIsMain=($result.foregroundKnown -and $foreground -eq $MainHwnd)
+  } catch {$result.observationIncomplete=$true}
+  [pscustomobject]$result
+}
+
 function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   $tree = Walk-Tree $MainHwnd 1200
   $menus = @($tree.nodes | Where-Object {
@@ -11966,8 +12202,27 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$targetPid) | Out-Null
   # Bis das Menue aufgeklappt UND sein Popup sichtbar ist, hoechstens 700 ms.
   if (-not (Wait-SSEMenuPopup $pattern $targetPid $true 700)) {
-    try { if ($pattern) { $pattern.Collapse() } } catch { }
-    Fail "Menue '$MenuName' wurde nicht als offen bestaetigt." 'postcondition-failed'
+    $beforeCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid
+    $collapseReturned=$false;$closed=$false
+    try {$pattern.Collapse();$collapseReturned=$true} catch { }
+    try {$closed=Wait-SSEMenuPopup $null $targetPid $false 500} catch { }
+    $afterCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid
+    # Verified means closed in the observed, still-listed process; no action replay follows.
+    $cleanupVerified=[bool]($targetPid -gt 0 -and $afterCleanup.mainListed -and
+      $collapseReturned -and $closed -and $afterCleanup.popupCount -eq 0 -and
+      $afterCleanup.otherPopupCount -eq 0 -and $afterCleanup.stateKnown -and
+      $afterCleanup.state -eq [int][System.Windows.Automation.ExpandCollapseState]::Collapsed)
+    $evidence=[pscustomobject]@{beforeCleanup=$beforeCleanup;afterCleanup=$afterCleanup;
+      collapseReturned=$collapseReturned;closeObserved=[bool]$closed;cleanupVerified=$cleanupVerified}
+    $details=[pscustomobject]@{mutationState=[pscustomobject]@{menuOpenEvidence=$evidence};retryable=$false}
+    # Do not assert a compound caller's mutation state or clear its uncertainty.
+    # An unverified popup cleanup can only make reconciliation necessary.
+    if(-not $cleanupVerified){
+      $details|Add-Member NoteProperty cleanupRequired $true
+      $details|Add-Member NoteProperty outcomeUnknown $true
+      $details|Add-Member NoteProperty reconciliationRequired $true
+    }
+    Fail "Menue '$MenuName' wurde nicht als offen bestaetigt." 'postcondition-failed' $details
   }
   $menu
 }
@@ -19722,17 +19977,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Lange Seiten wie 'Umsatzsteuererklaerung 2025' passen nicht auf den
     # Schirm; ohne Rollen fehlen Felder im Auslesen.
     $hwnd = Resolve-Window $a
-    $t = Walk-Tree $hwnd -WithScroll
+    $mode = [string](Arg $a 'mode' 'info')
+    if ($mode -cnotin @('info','percent','amount')) { Fail 'Unbekannter Seiten-Rollmodus.' 'bad-args' }
+    $t = Walk-Tree $hwnd 5000 45 40 -WithScroll
+    try { $rangeBinding = Get-SSEPageRangeBinding $hwnd $t }
+    catch { Fail 'Seiten-Rollbereich ist nicht vollstaendig und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
+    if ($rangeBinding) { Emit (Invoke-SSEPageRangeScroll $rangeBinding $a) }
     $b = Get-ContentBounds $t $hwnd
     $kandidaten = @($t.nodes | Where-Object {
       $null -ne $_.scroll -and $_.scroll.vScrollable -and $_.x -ge ($b.minX - 60) -and $_.x -le $b.maxX
     } | Sort-Object { -($_.w * $_.h) })
     if (-not $kandidaten.Count) {
+      if ($mode -cne 'info') { Fail 'Kein nachgewiesener UIA-Rollbereich fuer diese Seite; nichts gerollt.' 'no-scroll-pattern' }
       Emit ([pscustomobject]@{ ok = $true; scrollbar = $false
-        hinweis = 'Kein rollbarer Inhaltsbereich - die Seite passt vollstaendig auf den Schirm.' })
+        hinweis = 'Kein unterstuetzter UIA-Rollbereich erkannt; daraus folgt keine Vollstaendigkeitsaussage.' })
     }
     $ziel = $kandidaten[0]
-    $modus = [string](Arg $a 'mode' 'percent')
+    $modus = $mode
     $el = Get-LiveElement $hwnd $ziel.rid
     if (-not $el) { Fail 'Rollbereich nicht mehr greifbar.' 'stale' }
     $sp = $el.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
@@ -19763,15 +20024,39 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Qt haelt nur den sichtbaren Ausschnitt im Elementbaum; eine lange Seite
     # einmal zu lesen liefert also stillschweigend zu wenig.
     $hwnd = Resolve-Window $a
+    $pageScrollTree = Walk-Tree $hwnd 5000 45 40 -WithScroll
+    try { $pageRangeBinding = Get-SSEPageRangeBinding $hwnd $pageScrollTree }
+    catch { Fail 'Vollstaendiger Seitenread braucht einen frischen eindeutigen Rollbereich.' 'scroll-state-unknown' }
+    $rangeInitial = $null
+    if ($pageRangeBinding) {
+      try {
+        $fullRangeBaseline = Read-SSEPageRangeState $pageRangeBinding
+        Assert-SSEFullReadStageCoverage $fullRangeBaseline
+      } catch { Fail 'Die begrenzten Lesestufen koennen diese Seitengeometrie nicht lueckenlos abdecken; nichts gerollt.' 'incomplete' }
+      $rangeInitial = Invoke-SSEPageRangeScroll $pageRangeBinding ([pscustomobject]@{mode='percent';vPercent=0})
+      if (-not $rangeInitial.ok) { Emit $rangeInitial }
+      try {
+        $fullRangePrevious = Read-SSEPageRangeState $pageRangeBinding
+        Assert-SSEFullReadRange $fullRangeBaseline $fullRangePrevious 0
+        if ($fullRangePrevious.rects.body.y -lt $fullRangePrevious.rects.viewport.y) { throw 'Full-read top is clipped.' }
+      } catch { Fail 'Seitenanfang und unveraenderter Lesebereich sind nicht bestaetigt.' 'incomplete' }
+    }
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
     $ueberschrift = $null
 
     $lies = {
-      $t = Walk-Tree $hwnd -WithValues
+      $t = Walk-Tree $hwnd 5000 45 40 -WithValues
+      if (-not $t.stats -or $t.stats.truncated -isnot [bool] -or $t.stats.depthLimited -isnot [bool] -or
+          $t.stats.truncated -or $t.stats.depthLimited -or
+          $t.stats.err -ne 0 -or $t.stats.cyc -ne 0 -or $t.stats.valErr -ne 0) {
+        Fail 'Seiteninhalt ist nicht vollstaendig lesbar; keinen Vollstaendigkeitsnachweis ausgeben.' 'incomplete'
+      }
       $b = Get-ContentBounds $t $hwnd
-      if (-not $script:kopf) {
-        $script:kopf = (Get-SSEHeading $t).text
+      $readHeading = [string](Get-SSEHeading $t).text
+      if ($null -eq $script:kopf) { $script:kopf = $readHeading }
+      elseif (-not [string]::Equals($script:kopf,$readHeading,[StringComparison]::Ordinal)) {
+        Fail 'Die Seite wechselte waehrend des vollstaendigen Lesens; keinen gemischten Read ausgeben.' 'incomplete'
       }
       $keep = @('Text','DataItem','Edit','CheckBox','Header','RadioButton','Button','Hyperlink','ComboBox')
       $reihen = @($t.nodes | Where-Object {
@@ -19822,38 +20107,80 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $script:kopf = $null
     $null = & $lies
-    # Rollbereich suchen und in Stufen durchgehen
-    $t0 = Walk-Tree $hwnd -WithScroll
-    $b0 = Get-ContentBounds $t0 $hwnd
-    $roll = @($t0.nodes | Where-Object { $null -ne $_.scroll -and $_.scroll.vScrollable -and
-                                         $_.x -ge ($b0.minX - 60) -and $_.x -le $b0.maxX } |
-              Sort-Object { -($_.w * $_.h) })[0]
-    $stufen = 0
-    if ($roll) {
-      foreach ($p in 20, 40, 60, 80, 100) {
-        $el = Get-LiveElement $hwnd $roll.rid
-        if (-not $el) { break }
+    $roll = $null; $stufen = 0
+    if ($pageRangeBinding) {
+      if ($rangeInitial.scrollbar) {
+        $roll = $pageRangeBinding
+        foreach ($percent in 20,40,60,80,100) {
+          try {
+            $fullRangeFresh = Read-SSEPageRangeState $pageRangeBinding
+            Assert-SSEFullReadRange $fullRangeBaseline $fullRangeFresh $fullRangePrevious.value
+            if ($fullRangeFresh.rects.body.y -cne $fullRangePrevious.rects.body.y) { throw 'Full-read content moved between stages.' }
+          } catch { Fail 'Seitenbereich oder Position aenderten sich zwischen den Lesestufen; nicht weitergerollt.' 'incomplete' }
+          $moved = Invoke-SSEPageRangeScroll $pageRangeBinding ([pscustomobject]@{mode='percent';vPercent=$percent})
+          if (-not $moved.ok) { Emit $moved }
+          try {
+            $fullRangeConfirmed = Read-SSEPageRangeState $pageRangeBinding
+            $expectedStage = [Math]::Round($fullRangeBaseline.maximum*$percent/100.0,[MidpointRounding]::AwayFromZero)
+            Assert-SSEFullReadRange $fullRangeBaseline $fullRangeConfirmed $expectedStage
+            $currentTop = $fullRangeConfirmed.rects.viewport.y-$fullRangeConfirmed.rects.body.y
+            $previousBottom = $fullRangePrevious.rects.viewport.y+$fullRangePrevious.rects.viewport.h-$fullRangePrevious.rects.body.y
+            if ($currentTop -gt $previousBottom) { throw 'Full-read intervals do not overlap.' }
+            $fullRangePrevious = $fullRangeConfirmed
+          } catch { Fail 'Lesestufen sind nicht lueckenlos und unveraendert bestaetigt.' 'incomplete' }
+          $stufen++
+          $null = & $lies
+        }
         try {
-          $sp = $el.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
-          $sp.SetScrollPercent([System.Windows.Automation.ScrollPatternIdentifiers]::NoScroll, [double]$p)
-        } catch { break }
-        Start-Sleep -Milliseconds 420
-        $stufen++
-        $null = & $lies
+          $fullRangeFresh = Read-SSEPageRangeState $pageRangeBinding
+          Assert-SSEFullReadRange $fullRangeBaseline $fullRangeFresh $fullRangePrevious.value
+          if ($fullRangeFresh.rects.body.y -cne $fullRangePrevious.rects.body.y -or
+              $fullRangeFresh.rects.body.y+$fullRangeFresh.rects.body.h -gt
+              $fullRangeFresh.rects.viewport.y+$fullRangeFresh.rects.viewport.h) { throw 'Full-read tail is incomplete or moved.' }
+        } catch { Fail 'Seitenende oder unveraenderter Lesebereich sind nicht bestaetigt; nicht weitergerollt.' 'incomplete' }
+        $restored = Invoke-SSEPageRangeScroll $pageRangeBinding ([pscustomobject]@{mode='percent';vPercent=0})
+        if (-not $restored.ok) { Emit $restored }
       }
-      # wieder nach oben, damit die Seite fuer den naechsten Zugriff normal steht
       try {
-        $el = Get-LiveElement $hwnd $roll.rid
-        if ($el) { $el.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(
-          [System.Windows.Automation.ScrollPatternIdentifiers]::NoScroll, 0.0) }
-      } catch { }
+        $fullRangeFinal = Read-SSEPageRangeState $pageRangeBinding
+        Assert-SSEFullReadRange $fullRangeBaseline $fullRangeFinal 0
+        if ($fullRangeFinal.rects.body.y -lt $fullRangeFinal.rects.viewport.y) { throw 'Final full-read top is clipped.' }
+      } catch { Fail 'Unveraenderter vollstaendiger Seitenstand und Seitenanfang sind nicht frisch bestaetigt.' 'incomplete' }
+    } else {
+      # Rollbereich suchen und in Stufen durchgehen
+      $t0 = $pageScrollTree
+      $b0 = Get-ContentBounds $t0 $hwnd
+      $roll = @($t0.nodes | Where-Object { $null -ne $_.scroll -and $_.scroll.vScrollable -and
+                                           $_.x -ge ($b0.minX - 60) -and $_.x -le $b0.maxX } |
+                Sort-Object { -($_.w * $_.h) })[0]
+      $stufen = 0
+      if ($roll) {
+        foreach ($p in 20, 40, 60, 80, 100) {
+          $el = Get-LiveElement $hwnd $roll.rid
+          if (-not $el) { Fail 'Rollbereich wurde beim vollstaendigen Lesen ungreifbar.' 'stale' }
+          try {
+            $sp = $el.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+            $sp.SetScrollPercent([System.Windows.Automation.ScrollPatternIdentifiers]::NoScroll, [double]$p)
+          } catch { Fail 'Seitenbewegung beim vollstaendigen Lesen nicht bestaetigt; nicht wiederholen.' 'scroll-state-unknown' }
+          Start-Sleep -Milliseconds 420
+          $stufen++
+          $null = & $lies
+        }
+        # wieder nach oben, damit die Seite fuer den naechsten Zugriff normal steht
+        try {
+          $el = Get-LiveElement $hwnd $roll.rid
+          if (-not $el) { throw 'Legacy page scroll area disappeared before restore.' }
+          $el.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(
+            [System.Windows.Automation.ScrollPatternIdentifiers]::NoScroll, 0.0)
+        } catch { Fail 'Seitenposition nach dem vollstaendigen Lesen nicht wiederhergestellt.' 'scroll-state-unknown' }
+      }
     }
     Emit ([pscustomobject]@{
       ok = $true; ueberschrift = $script:kopf; gerollt = [bool]$roll; stufen = $stufen
       anzahl = $alle.Count
       zeilen = @($alle | Sort-Object y | ForEach-Object { $_.text })
       hinweis = $(if ($roll) { "Seite wurde in $stufen Stufen gerollt und zusammengefuegt." }
-                  else { 'Seite passt auf den Schirm, kein Rollen noetig.' })
+                  else { 'Seite ohne zusaetzlichen Rollschritt gelesen.' })
     })
   }
 
@@ -20703,7 +21030,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $baumName = $(if ($knownTarget -and [string]$knownTarget.page.navigationTreeItemName) {
           [string]$knownTarget.page.navigationTreeItemName
         } else { $ziel })
-        Get-SSEVisibleNavigationItem $ts.nodes $baumName
+        # Dynamische Seitentitel verwenden dieselbe Katalogregel wie die
+        # Zielpruefung. Mehrere passende Eintraege bleiben mehrdeutig; ein
+        # expliziter abweichender Baumname bleibt dagegen zeichengenau.
+        $baumRegel = $(if ($knownTarget -and -not [string]$knownTarget.page.navigationTreeItemName -and
+            [string]$knownTarget.page.headingPrefix -notmatch '^[1-9][0-9]*\.\s*$') {
+          { param($titel) Test-KnownPageHeading $titel $knownTarget.page }
+        } else { $null })
+        Get-SSEVisibleNavigationItem $ts.nodes $baumName -Accept $baumRegel
       })
       # Unmittelbar vor dem Klick frisch binden: Typ, Name, RuntimeId und
       # Aktivierbarkeit muessen noch stimmen, und der Punkt kommt aus dem

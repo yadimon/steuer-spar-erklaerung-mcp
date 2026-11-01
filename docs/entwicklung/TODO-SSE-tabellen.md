@@ -9,6 +9,10 @@ richtet keine automatische Ausführung ein.
 Abgehakte Implementierungspunkte sind gezielt regressionsgeprüft. Die noch
 offenen vollständigen Produkt-, Producer- und Endpunktabnahmen bleiben eigene
 Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
+Ein offener Abnahmepunkt bedeutet deshalb nicht automatisch, dass der
+zugehörige Schutz im Code fehlt. Der aktuelle Implementierungsstand steht in
+[PROGRESS.md](../../PROGRESS.md); Nachweisstufen erklärt
+[VERIFIKATION.md](../VERIFIKATION.md).
 
 - [x] Bei einem nativen Positionierungsabbruch den tatsächlichen festen
   Produzenten-Code und begrenzte Nachweisflags bis zur MCP-Antwort erhalten.
@@ -16,6 +20,14 @@ Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
   Eingabe-Epochen- und Receipt-Abweichungen nicht ununterscheidbar machen.
   Diagnose transportiert keine Werte, Tokens, Bindings oder neue Autorität;
   `outcomeUnknown` bleibt unbekannt und erlaubt keinen Wiederholungsversuch.
+- [x] Bei widersprüchlichen Editoransichten vor einer UIA-Zeilenlöschung
+  begrenzte Diagnose unter `mutationState.editorMismatch` erhalten: Zähler,
+  Herkunft aus RawView oder Fokus-Ahnenkette sowie Sichtbarkeits-, Fokus- und
+  Geometrieflags. Keine Zellwerte, Namen, Runtime-IDs oder Koordinaten ausgeben.
+  Ein nicht mehr lesbarer Provider wird als unvollständige Beobachtung markiert;
+  die ursprüngliche Ablehnung und ihre Schreibausgangsbewertung bleiben bestehen.
+  Diese Diagnose erlaubt weder das Schließen eines fremden Editors noch einen
+  automatischen Wiederholungsversuch und beweist noch keine konkrete Ursache.
 - [x] Einen tatsächlich registrierten Qt-Delegate im `indexWidget()`-Inventar
   korrekt behandeln: Nur derselbe zuvor vollständig bewiesene Nr.-Editor am
   weiterhin aktuellen Modellindex in Spalte 0 darf bestehen bleiben. Andere
@@ -134,7 +146,9 @@ Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
   Diese Folge beweist weder einen alten Tabellenpointer noch eine bestimmte
   Ursache im Modell, in der Navigation oder im Provider. Eine neue normale
   Sitzung ohne native Qt-Reads reagierte wieder; das ist keine Reparaturabnahme.
-  Frühere Reads aktivieren derzeit die Qt-Accessibility-Schicht dauerhaft.
+  Der heutige gewöhnliche passive Modellread aktiviert die
+  Qt-Accessibility-Schicht nicht selbst. Aktive Cursorbindungen und andere
+  ausdrücklich auf Accessibility angewiesene Pfade sind getrennt zu prüfen.
   Eine Beteiligung ihrer Ereignisverarbeitung beim späteren Seitenwechsel ist
   eine unbewiesene Hypothese. Für die Ursachenklärung wird ein privat gehaltener
   GUI-Thread-Stack mit Modul- und Funktionsnachweis benötigt; keine Feldinhalte
@@ -193,9 +207,13 @@ Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
   während der Screenshot bereits die neue Seite zeigt. Baum, aktuelle
   Seitenüberschrift und frischer Screenshot müssen zum selben Ziel passen;
   widersprüchliche oder veraltete Beobachtungen erlauben keine Zielaktion.
-- [ ] Ein gemeinsames Antwortbudget für mehrstufige MCP-Werkzeuge erhalten.
-  API-Arbeit und Cleanup müssen innerhalb dieses Budgets bleiben; die äußere
-  Clientfrist darf nicht vorher das strukturierte Teilergebnis verlieren.
+- [x] Ein gemeinsames Antwortbudget für mehrstufige MCP-Werkzeuge erhalten.
+  API-Arbeit, Identitätsprüfung und Cleanup teilen sich dieselbe Frist;
+  Kompositionen setzen sie nicht zurück. Der tatsächliche Registry-Dispatch
+  und die Budgetgrenzen sind regressionsgeprüft. Die äußere Clientfrist muss
+  gesondert zum Serverbudget passen und ihre Konfiguration im verwendeten
+  Client tatsächlich wirksam sein. Ein grüner interner Budgettest belegt
+  keine passende Hostkonfiguration.
   Ein Budgetabbruch beweist keine Quieszenz und erlaubt keinen neuen Schreibversuch.
 - [x] Szenario-Fähigkeiten wahrheitsgemäß beschreiben: `scenario_run` führt
   seine begrenzte Schrittfolge seriell über den Executor aus; es hält keinen
@@ -234,11 +252,13 @@ Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
   Vor physischer Auswahl und nach dem nativen Nachlesen Fenster-, Fall- und
   Eingabebindung erneut prüfen; fremde Eingabe niemals durch eine neue Baseline
   verdecken. Zielzeile und sämtliche unberührten Zeilen unabhängig vergleichen.
-- [ ] Native Display- und Edit-Rollen vor jeder Änderung eindeutig binden.
+- [x] Native Display- und Edit-Rollen vor jeder Änderung eindeutig binden.
   Kategorien benötigen die genaue serverseitige Profilspalte und ein eindeutiges
   Display/Edit-Paar aus dem frischen vollständigen Modell. Datumsänderungen
   unterstützen derzeit nur dort bereits belegte Paare; neue unbewiesene Formate
-  vor Cursorlauf und Mutation ablehnen. Diese Grenze im Smoke-Test prüfen.
+  vor Cursorlauf und Mutation ablehnen. Synthetische Gegenfälle prüfen die
+  exakten Ablehnungsgründe vor Fokus, Cursorpositionierung und Mutation.
+  Die folgende reale Datumsabnahme bleibt ein eigener offener Nachweis.
 - [ ] Die automatische Änderung einer sichtbaren Datum-Zelle gesondert
   abnehmen. Ein tatsächlicher `table_update` wurde vor der Mutation mit
   `cursor-proof-failed` und
@@ -299,12 +319,14 @@ Aufgaben; eine Hybrid-Produktreise ersetzt diese Nachweise nicht.
 
 ## Reihenfolge bis zur Paketfreigabe
 
-Fix47 ist bislang ausschließlich ein geprüfter Quellstand: tote native
-Sitzungsbindungen werden nur nach tatsächlichem Exit des eigenen Brokers und
-eindeutigem Nichtvorhandensein des Zielprozesses entfernt. Die Vierergrenze und
-unklare Bindungen bleiben erhalten. Isolierte Verträge und Review ersetzen
-weder vollständige Suite noch Paketbau, Installation oder tatsächlichen
-Smoke-Test; diese Freigabeschritte sind für Fix47 noch offen.
+Diese Reihenfolge beschreibt die erneut nötigen Gates nach einer Änderung;
+sie ist keine Liste noch offener Veröffentlichungsschritte eines alten
+Fixstands. Bereits veröffentlichte Versionen und ihre Grenzen stehen in den
+[Release Notes](../releases/v0.1.0-beta.52.md). Tote native Sitzungsbindungen
+werden weiterhin nur nach tatsächlichem Exit des eigenen Brokers und
+eindeutigem Nichtvorhandensein des Zielprozesses entfernt. Die Vierergrenze
+und unklare Bindungen bleiben erhalten. Isolierte Verträge und Review ersetzen
+weder vollständige Suite noch Paketbau, Installation oder Produktabnahme.
 
 1. Quellcode vervollständigen und unabhängigen Review abschließen. Bestehende
    lokale Änderungen nicht überschreiben; erforderliche Regressionen ergänzen.
@@ -326,6 +348,9 @@ Smoke-Test; diese Freigabeschritte sind für Fix47 noch offen.
    Tabellenlesen, Cursorlauf, §-13b-Add/Update/Delete, beide Kfz-Summen,
    Navigation, Fokusübernahme und Rückgabe. Fehler- und Löschtests ausschließlich
    an freigegebenen Testfällen; keine erfundenen Buchungen in echten Fällen.
+   Positionsinventare gehören auf eine ausdrücklich unterstützte vollständige
+   Übersicht. Die getrennte Einnahmen-Positionsreise erzeugt dafür einen
+   eigenen Fall; eine beliebige Musterfall-Startseite ist kein Ersatz.
 7. Bei Fehlern Quellcode korrigieren und die betroffenen Gates sowie Paket- und
    Live-Abnahme wiederholen. Veröffentlichungsfreigabe erst nach `npm run check`
    und dem [Release-Prozess](../RELEASE.md). ELSTER-Sperren unverändert lassen.

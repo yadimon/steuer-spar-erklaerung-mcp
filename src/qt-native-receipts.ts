@@ -326,6 +326,23 @@ export function sameSemanticRow(left: ReceiptRow, right: ReceiptRow) {
     && JSON.stringify(stableCellNames(left)) === JSON.stringify(stableCellNames(right));
 }
 
+/** A closed detail may expose its table before the visible columns are restored. */
+export function sameReceiptListLayout(before: ReceiptListProjection, after: ReceiptListProjection): boolean {
+  return before.headers.length > 0 && JSON.stringify(before.headers) === JSON.stringify(after.headers)
+    && before.rows.every(row => row.cells.length === before.headers.length)
+    && after.rows.every(row => row.cells.length === after.headers.length);
+}
+
+export function sameReceiptRows(before: ReceiptRow[], after: ReceiptRow[]): boolean {
+  const remaining = [...after];
+  for (const row of before) {
+    const index = remaining.findIndex(candidate => sameSemanticRow(row, candidate));
+    if (index < 0) return false;
+    remaining.splice(index, 1);
+  }
+  return remaining.length === 0;
+}
+
 export function exactDetailClose(nodes: QtSnapshotNode[], policy: z.infer<typeof receiptPolicySchema>) {
   return nodes.filter(node => node.type === "Button" && node.aid.endsWith(policy.controls.detailClose.automationIdSuffix)
     && node.name === policy.controls.detailClose.expectedName && node.w > 0 && node.h > 0 && node.on);

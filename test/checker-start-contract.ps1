@@ -3,7 +3,7 @@ $workerPath=Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($workerPath,[ref]$null,[ref]$errors)
 if ($errors.Count) {throw 'Worker syntax is invalid.'}
-foreach ($name in @('Get-SSECaseFileMatch','Get-SSECheckerStartPolicy','Resolve-SSECheckerStartNode','Invoke-SSECheckerStart')) {
+foreach ($name in @('Get-SSECaseFileMatch','Get-SSECheckerStartPolicy','Test-SSECheckerStartCaption','Resolve-SSECheckerStartNode','Invoke-SSECheckerStart')) {
   $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if ($definition.Count -ne 1) {throw 'Productive checker helper is absent or ambiguous.'}
   . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -71,6 +71,12 @@ Assert-Equal $script:toggles 0 'Changing only the toolbar check state does not a
 Assert-Equal $script:invocations 1 'Business toolbar must invoke its command exactly once.'
 Assert-Equal $script:observedPattern ([System.Windows.Automation.InvokePattern]::Pattern) 'Wrong business command pattern was requested.'
 Assert-Equal $script:patternReads 2 'Business command must first prove Off, then bind Invoke.'
+New-SyntheticStart $business.policy
+$script:node.name='';$script:element.Current.Name=''
+Assert-Equal (Invoke-SSECheckerStart 111 $window $script:tree $business.policy).ok $true 'The exact icon-only checker toolbar was not bound.'
+Assert-Equal $script:invocations 1 'Icon-only checker must invoke its exact command once.'
+Assert-Equal $script:toggles 0 'Icon-only presentation must not switch to Toggle.'
+Assert-Equal $script:patternReads 2 'Icon-only command lost the fresh Off/Invoke proof.'
 New-SyntheticStart $income.policy
 Assert-Equal (Invoke-SSECheckerStart 111 $window $script:tree $income.policy).ok $true 'Exact income-tax page start failed.'
 Assert-Equal $script:invocations 1 'Income-tax page must invoke exactly once.'
@@ -88,6 +94,7 @@ $negativeCases=@(
   { $script:freshWindow=[pscustomobject]@{hwnd=111;pid=7;titleFingerprint='changed'} },
   { $script:element.Current.ProcessId=8 },
   { $script:element.Current.Name='Changed' },
+  { $script:element.Current.Name='' },
   { $script:element.Current.AutomationId='Changed' },
   { $script:element.Current.IsOffscreen=$true },
   { $script:element.Current.ControlType.ProgrammaticName='ControlType.Button' },
@@ -102,6 +109,27 @@ foreach ($prepare in $negativeCases) {
   Assert-Equal $script:toggles 0 'A failed binding toggled the checker.'
   Assert-Equal $script:invocations 0 'A failed binding invoked the checker.'
 }
+foreach ($prepare in @(
+  { $script:tree.nodes+=@($script:node) },
+  { $script:node.aid='Synthetic.Library.Pruefer' },
+  { $script:node.on=$false },
+  { $script:node.w=0 },
+  { $script:pattern.Current.ToggleState=[System.Windows.Automation.ToggleState]::On },
+  { $script:pattern.Current.ToggleState=[System.Windows.Automation.ToggleState]::Indeterminate },
+  { $script:node.name=$null },
+  { $script:element.Current.Name=$null }
+)) {
+  New-SyntheticStart $business.policy
+  $script:node.name='';$script:element.Current.Name=''
+  & $prepare
+  Assert-Equal (Invoke-SSECheckerStart 111 $window $script:tree $business.policy).ok $false 'Icon-only mode bypassed an independent checker guard.'
+  Assert-Equal $script:invocations 0 'An invalid icon-only binding invoked the checker.'
+  Assert-Equal $script:toggles 0 'An invalid icon-only binding toggled the checker.'
+}
+New-SyntheticStart $income.policy
+$script:node.name='';$script:element.Current.Name=''
+Assert-Equal (Invoke-SSECheckerStart 111 $window $script:tree $income.policy).ok $false 'An empty caption was accepted for the income-tax page button.'
+Assert-Equal $script:invocations 0 'An unnamed page button dispatched a checker start.'
 New-SyntheticStart $income.policy
 $script:heading='Different page'
 Assert-Equal (Invoke-SSECheckerStart 111 $window $script:tree $income.policy).ok $false 'Income tax started from an unrelated page.'

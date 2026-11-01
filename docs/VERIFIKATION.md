@@ -70,6 +70,16 @@ Fensterresolvergrenze aus. `qt-native-client.mjs` prüft zusätzlich die
 framed Fake-Peer-Grenze. Diese Tests belegen weder reale Feldbedienung noch
 eine allgemeine Gleichheit der QObject-Labelauflösung mit UIA-Schreibzielen.
 
+`receipt-manager-action-contract.ps1` prüft auch ein unbestätigtes
+Menüöffnen am tatsächlichen Helfer. Auf einen Öffnungsversuch folgt höchstens
+ein Zuklappen. Eine bestätigte Bereinigung verlangt eine positive Prozesskennung,
+das eindeutig zugehörige Hauptfenster, keine eigenen Popups und einen lesbaren
+geschlossenen Zustand. Fehlende Nachweise melden weiteren Klärungsbedarf; die
+ursprüngliche Fehlerursache bleibt erhalten und die Aktion wird nicht wiederholt.
+Die Diagnose enthält nur Zahlen und Wahrheitswerte. Der erfolgreiche Öffnungsweg
+führt keine zusätzlichen Diagnoseabfragen aus. Diese synthetischen Gegenproben
+belegen keine allgemeine Zuverlässigkeit des realen Menüöffnens.
+
 `table-native-mutation-contract.mjs` prüft die zusätzliche passive
 Runtime-ID-Zuordnung bei gleichen Zeilentexten vor jeder Fokus- oder
 Positionsaktion: ein Zuordnungsaufruf, weiterhin beide vollständigen
@@ -362,6 +372,18 @@ verwendbar. Unbestätigte Details bleiben abgleichpflichtig und erlauben keinen
 automatischen Schließschritt.
 Bereits geöffnete unlesbare Details erlauben auch keine Zeilenaktivierung;
 die Komposition prüft das mit und ohne sichtbaren Schließknopf.
+Der native Updatepfad verlangt vor dem Schreiben eine geschlossene
+Detailansicht und eine frisch gelesene Liste. Ein bereits offenes Detail wird
+vor jeder Aktion abgewiesen. Nach dem eigenen Detailabschluss prüfen native
+Lesung und Update innerhalb der bestehenden Frist auch die wiederhergestellten
+sichtbaren Spalten und unveränderte Zeilen. Ein schmalerer Zwischenstand oder
+ein noch offenes Detail bestätigt keinen Abschluss. Die Regressionen prüfen
+verzögert wiederkehrende Spalten, ausbleibende Wiederherstellung und fremde Werte;
+der Schließknopf wird nicht wiederholt ausgelöst. Die Mega-Reise verlässt nach
+dem Import die eigene Detailansicht über `goHome` und `showAllReceipts` und
+bindet deren Zustände beziehungsweise die ursprünglichen sichtbaren Spalten
+unabhängig zurück. Verborgene Spalten werden nicht mit geratenen Werten ergänzt;
+nach einem Ansichtswechsel sind vorherige Fingerprints gegebenenfalls veraltet.
 Die tatsächlichen USt-Clear-Helfer und ihre
 Ergebnisübergabe werden zusätzlich mit ausgeführter Eingabe, verweigerter
 Eingabe und unlesbarem Nachwert geprüft; ein Nullwert bestätigt keinen Nullsatz
@@ -462,9 +484,11 @@ Ledger-Regeneration. Manuelle Stichproben ersetzen keinen automatisierten
 Nachweis. Die weiteren Freigabekriterien stehen in der
 [Stable-Abnahme](entwicklung/stable-freigabe.md).
 
-`position_create` wird durch
-`node test/with-api.mjs node test/live-income-positions.mjs` geprüft: eine separate,
-optionale Live-Prüfung mit einem vollständig neuen synthetischen Folgejahresfall.
+`positions` und `position_create` werden durch
+`npm run test:live-income-positions` geprüft: eine getrennte opt-in Live-Prüfung
+mit einem vollständig neuen synthetischen Folgejahresfall. Sie ist auch im
+vollständigen `npm run test:live` registriert. Eine beliebige Musterfallseite
+ersetzt die ausdrücklich unterstützte Positionsübersicht nicht.
 Sie prüft die erste und eine weitere Einnahmenposition, das genaue Inventar,
 Speichern und Wiederöffnen. Falscher Dateihash, fehlendes Backup, ein anderer
 Fall, doppelte Namen und abweichende erwartete Nettobeträge müssen vor einer
@@ -506,6 +530,15 @@ Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
 `receipt_manager_update`, `receipt_manager_link`,
 `receipt_manager_classification_options` und `receipt_manager_classify`.
 Sie werden nur mit expliziter Konfiguration aktiviert.
+Die Navigation per `pageId` erkennt dynamische Titel auch im sichtbaren
+Navigationsbaum über dieselbe Katalogregel wie auf der Zielseite. Der Eintrag
+muss eindeutig, aktiv und vollständig im Baumausschnitt liegen; ein expliziter
+abweichender Baumname bleibt exakt gebunden. Erfolg verlangt weiterhin die
+passende Überschrift und sämtliche Pflichtfelder. Ein reines Nummernpräfix
+wie `1. ` gilt nicht als dynamischer Baumanker. Die Mega-Reise öffnet nach
+der separaten ESt-Vorbereitungsseite zunächst den profilierten Formular- und
+Arbeitnehmerbereich, jeweils mit eigenem Seiten-Readback. Ein geschlossener
+Formularbereich wird nicht durch ungezielte Suchtreffer oder Klicks ersetzt.
 Die native Qt-Prüfung vergleicht Suchtreffer, Seitenzeilen und Unterseiten mit
 den tatsächlichen Worker-Projektionsfunktionen über unabhängig gelesene UIA-Knoten
 und Win32-Fenstergrenzen. Die Offline-Suite prüft zusätzlich Wildcards,
@@ -514,6 +547,40 @@ die Seiten-, Hilfe-, Tabellen-, Prüfer- und Zustandsprojektionen der fünf
 zuletzt angeschlossenen Lesepfade gegen synthetische Qt-Bäume; unter Windows
 führt der Differenzorakel-Test dieselben Worker-Zweige über denselben
 Knotenbestand aus.
+Die rechte Inhaltsgrenze bindet in UIA und Qt bevorzugt den eindeutigen
+`LibraryFrameSSE`-Container. Damit wird auch eine breite Einführungsansicht
+ohne die Überschrift „Eingabehilfe“ gelesen. Positive Geometrie begrenzt den
+Inhalt auch bei einem deaktivierten Container. Bei eingeklappter Hilfespalte
+bleibt die bisherige Projektion einschließlich der Nebenfenster bestehen;
+mehrdeutige Container und widersprüchliche Geometrie werden abgewiesen.
+Die rechte Kante wird gegen den exakt gebundenen Client desselben Baums
+geprüft, damit unterschiedliche DPI-Koordinatenräume nicht vermischt werden.
+Die neutrale Toggle-Reise liest auch unbeschriftete Toolbar-Checkboxen und
+bindet ihr Ziel über AutomationId, Typ, Aktivierung, Geometrie und booleschen Zustand.
+Auch der profilierte Prüferstart erkennt die reine Symbolanzeige seiner exakt
+gebundenen Toolbar-Checkbox. Der frische Aus-Zustand und der Invoke-Nachweis
+bleiben Pflicht; fremde Beschriftungen und unbeschriftete Seitenschalter werden
+abgewiesen. Die Steuerwissen-Reise öffnet ihren Toolbar-Schalter über dessen feste ID.
+
+`page-scroll-contract.ps1` prüft die tatsächlichen Dispatcher für `scroll_page`
+und `read_full`. Ohne Modus liest `scroll_page` nur die Position. Der zentrale
+Qt-Inhalt wird über seinen eindeutigen Viewport, Inhaltskörper und vertikalen
+Scrollbalken gebunden. Ein einzelner `RangeValue`-Aufruf muss sowohl die
+gelesene Stellung als auch die tatsächliche Inhaltsbewegung bestätigen.
+Windows-DPI ersetzt dabei keinen Qt-Geometrienachweis. Fehlende, mehrdeutige
+oder veraltete Bindungen werden abgewiesen; ein unbestätigter Aufruf wird nicht
+wiederholt. `read_full` beginnt in diesem Bereich oben, liest fünf begrenzte
+Scrollstufen und bestätigt die Rückkehr nach oben. Unlesbare Werte oder ein
+fehlgeschlagener Schritt ergeben einen Fehler statt eines scheinbar vollständigen Reads.
+Bereich und Layout müssen über alle Stufen unverändert bleiben. Würden die
+begrenzten Sprünge bei einer sehr langen Seite Leselücken lassen, wird der
+Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
+müssen zusätzlich überlappen.
+Die UStVA-Mega-Reise stellt vor dem Betragscommit die Sichtbarkeit des konkreten
+Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
+Rollposition zurück. Die Fall-, Vorwert-, Fokus- und Eingabeprüfungen des
+Feldcommits bleiben eigenständige Voraussetzungen.
+
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
 [Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt

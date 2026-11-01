@@ -23,11 +23,14 @@ function paths({ evidenceRoot, localAppData, engineMajor }) {
 }
 
 function sectionRange(text, sectionName) {
-  const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "imu");
-  const start = text.search(sectionPattern);
-  if (start < 0) return null;
-  const nextSectionOffset = text.slice(start).slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
-  return { start, end: nextSectionOffset < 0 ? text.length : start + 1 + nextSectionOffset };
+  const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "gimu");
+  const headers = [...text.matchAll(sectionPattern)];
+  assert(headers.length <= 1, `Abschnitt [${sectionName}] ist mehrfach vorhanden; keine eindeutige Konfiguration.`);
+  if (!headers.length) return null;
+  const header = headers[0];
+  const afterHeader = header.index + header[0].length;
+  const nextSectionOffset = text.slice(afterHeader).search(/^[ \t]*\[[^\]\r\n]+\][ \t]*$/mu);
+  return { start: header.index, end: nextSectionOffset < 0 ? text.length : afterHeader + nextSectionOffset };
 }
 
 function replaceSectionKeyLine(text, sectionName, keyName, replacementLine) {
@@ -80,16 +83,15 @@ function dropSectionKeyLine(text, sectionName, keyName) {
   const remaining = sectionRange(withoutKey, sectionName);
   if (!remaining) return withoutKey;
   const body = withoutKey.slice(remaining.start, remaining.end).split(/\r?\n/).slice(1);
-  if (!body.every((line) => line.trim() === "")) return withoutKey;
+  if (!body.every((line) => /^[ \t]*$/u.test(line))) return withoutKey;
   return withoutKey.slice(0, remaining.start) + withoutKey.slice(remaining.end);
 }
 
 function assertOnlyKnownRuntimeDrift(current, swapped) {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const currentText = decoder.decode(current);
-  const swappedText = decoder.decode(swapped);
-  assert.deepEqual(Buffer.from(currentText, "utf8"), current);
-  assert.deepEqual(Buffer.from(swappedText, "utf8"), swapped);
+  // latin1 is a reversible byte view, not a guess at the INI's text encoding.
+  // Section names and permitted runtime keys are ASCII; every other byte stays opaque.
+  const currentText = current.toString("latin1");
+  const swappedText = swapped.toString("latin1");
   // SSE darf diese Laufzeitwerte waehrend eines Laufs anlegen ODER aendern.
   // Fehlte der Eintrag in der Vergleichskonfiguration (frische Installation
   // schreibt [Files] erst beim ersten Fallkontakt), wird der neue Eintrag
@@ -101,6 +103,9 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     ["BelegManager", "ColumnNameWidth"],
     ["Files", "LastWorkDir"],
     ["License", "LastCheck"],
+    // Reading the short help can persist its size when the own product exits.
+    ["ShortHelpWindow", "H"],
+    ["ShortHelpWindow", "W"],
     // Qt persistiert die normale Hauptfenster-Geometrie beim Schliessen. Ein
     // Wechsel von Aufloesung/DPI darf die private DataDir-Restauration nicht
     // blockieren; Darstellungsoptionen und andere Schluessel bleiben gesperrt.
@@ -125,7 +130,7 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     if (swappedLine === null) return dropSectionKeyLine(text, sectionName, keyName);
     return replaceSectionKeyLine(text, sectionName, keyName, swappedLine);
   }, currentText);
-  assert.deepEqual(Buffer.from(normalized, "utf8"), swapped,
+  assert.equal(Buffer.from(normalized, "latin1").equals(swapped), true,
     "SSE-Benutzerkonfiguration driftete ausserhalb der bekannten Laufzeitwerte; nichts ueberschrieben.");
 }
 
@@ -158,23 +163,19 @@ function restoreExistingIsolation(options) {
 }
 
 function replaceDataDir(original, isolatedDataDir) {
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(original);
-  assert.deepEqual(Buffer.from(text, "utf8"), original,
-    "SSE-Benutzerkonfiguration ist nicht round-trip-faehiges UTF-8.");
-  const sectionStart = text.search(/^[ \t]*\[BelegManager\][ \t]*$/imu);
-  assert(sectionStart >= 0, "SSE-Benutzerkonfiguration enthaelt keinen [BelegManager]-Abschnitt.");
-  const afterSection = text.slice(sectionStart);
-  const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
-  const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;
-  const sectionText = text.slice(sectionStart, sectionEnd);
+  const text = original.toString("latin1");
+  const range = sectionRange(text, "BelegManager");
+  assert(range, "SSE-Benutzerkonfiguration enthaelt keinen [BelegManager]-Abschnitt.");
+  const sectionText = text.slice(range.start, range.end);
   const matches = [...sectionText.matchAll(/^([ \t]*DataDir[ \t]*=[ \t]*)([^\r\n]*)$/gimu)];
   assert.equal(matches.length, 1, "[BelegManager] braucht genau einen DataDir-Eintrag.");
   const match = matches[0];
-  const absoluteMatchStart = sectionStart + match.index;
-  const replacement = `${match[1]}${isolatedDataDir}`;
+  const absoluteMatchStart = range.start + match.index;
+  // Keep the existing UTF-8 directory-value contract without decoding unrelated values.
+  const replacement = `${match[1]}${Buffer.from(isolatedDataDir, "utf8").toString("latin1")}`;
   return Buffer.from(
     text.slice(0, absoluteMatchStart) + replacement + text.slice(absoluteMatchStart + match[0].length),
-    "utf8",
+    "latin1",
   );
 }
 
@@ -187,6 +188,8 @@ export function beginBelegManagerConfigIsolation(options) {
   assert.deepEqual(readdirSync(isolatedDataDir), [], "Der isolierte BelegManager-DataDir ist nicht leer.");
   const { iniPath, originalPath, swappedPath, markerPath } = paths(options);
   const original = readFileSync(iniPath);
+  // Reject ambiguous known runtime sections before changing the real DataDir.
+  assertOnlyKnownRuntimeDrift(original, original);
   const swapped = replaceDataDir(original, resolve(isolatedDataDir));
   const marker = {
     schemaVersion: 1,

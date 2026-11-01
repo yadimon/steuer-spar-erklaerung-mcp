@@ -80,6 +80,20 @@ function runCaseCreateCoverage() {
   assertNoRecoveryFile("Die Fallanlage");
 }
 
+function runIncomePositionCoverage() {
+  process.stdout.write("\n> Erzeugter Einnahmen-Positionsfall (2025/2026)\n");
+  const env = { ...process.env, SSE_PROFILE_ID: "2025", SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1" };
+  for (const key of ["SSE_OPERATE_EXPERIMENTAL", "SSE_LIVE_MUSTER_CASES", "SSE_MUSTER_DIR", "SSE_TEST_CASE_DIR", "SSE_CASE_DIR"]) delete env[key];
+  const run = spawnSync(process.execPath, ["test/with-api.mjs", process.execPath, "test/live-income-positions.mjs"], {
+    cwd: root, env, stdio: "inherit", windowsHide: true,
+  });
+  if (run.error) throw new Error(`Einnahmen-Positionsreise konnte nicht laufen: ${run.error.message}`, { cause: run.error });
+  assert.equal(run.signal, null, `Einnahmen-Positionsreise endete mit Signal ${run.signal}.`);
+  assert.equal(run.status, 0, `Einnahmen-Positionsreise scheiterte mit Exit ${run.status}.`);
+  assertNoSse("Nach der Einnahmen-Positionsreise");
+  assertNoRecoveryFile("Die Einnahmen-Positionsreise");
+}
+
 function assertCaseFileParity(profileId) {
   process.stdout.write(`\n> ${profileId}-Fallhash-Paritaet\n`);
   const env = { ...process.env, SSE_PROFILE_ID: profileId };
@@ -498,6 +512,7 @@ try {
     assertNoRecoveryFile(`Die Fixture-Skripte des Profils ${profileId}`);
   }
   runCaseCreateCoverage();
+  runIncomePositionCoverage();
   runCenterCoverage();
   for (const profileId of ["2025", "2024"]) assertProfileReadCoverage(profileId);
   assertLiveLedgers();

@@ -11,6 +11,10 @@
       "terminalCollect": {
         "headingAtLaunch": "Vorbereitung Steuererklärung 2025"
       },
+      "knownFieldNavigation": {
+        "formHeading": "Steuererklärung",
+        "employmentHeading": "Arbeitnehmer Heinz"
+      },
       "coldFieldCycle": {
         "headingAtLaunch": "Vorbereitung Steuererklärung 2025",
         "field": "Seit wann?",

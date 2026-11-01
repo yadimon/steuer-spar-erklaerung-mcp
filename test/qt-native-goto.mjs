@@ -77,6 +77,23 @@ const searches = [
 ];
 const navigation = [{ nodes: navigationPage(), target: "Target page" },
   { nodes: navigationPage({ on: false }), target: "Target page" }, { nodes: navigationPage({ y: 395 }), target: "Target page" }];
+const dynamicPage = { ...page, headingPrefix: "Target page: " };
+const dynamicNavigation = navigationPage();
+dynamicNavigation[1].name = "Target page: Example";
+const ambiguousNavigation = structuredClone(dynamicNavigation);
+ambiguousNavigation.push({ ...ambiguousNavigation[1], i: 2, rid: "42.42.4.3", name: "Target page: Other", y: 175 });
+navigation.push({ nodes: dynamicNavigation, target: "Target page: ", page: dynamicPage },
+  { nodes: ambiguousNavigation, target: "Target page: ", page: dynamicPage },
+  { nodes: ambiguousNavigation.map(node => node.i === 2 ? { ...node, on: false } : node), target: "Target page: ", page: dynamicPage },
+  { nodes: ambiguousNavigation.map(node => node.i === 2 ? { ...node, y: 395 } : node), target: "Target page: ", page: dynamicPage },
+  { nodes: dynamicNavigation, target: "Target page: " },
+  { nodes: dynamicNavigation.map(node => node.i === 1 ? { ...node, on: false } : node), target: "Target page: ", page: dynamicPage },
+  { nodes: dynamicNavigation.map(node => node.i === 1 ? { ...node, y: 395 } : node), target: "Target page: ", page: dynamicPage });
+assert.equal(visibleNavigationItem(dynamicNavigation, "Target page: ", dynamicPage)?.rid, "42.42.4.2");
+assert.equal(visibleNavigationItem(ambiguousNavigation, "Target page: ", dynamicPage), null);
+assert.equal(visibleNavigationItem(navigation[5].nodes, "Target page: ", dynamicPage), null);
+assert.equal(visibleNavigationItem(navigation[6].nodes, "Target page: ", dynamicPage), null);
+assert.equal(visibleNavigationItem(dynamicNavigation, "Target page: "), null);
 const sums = [1, 2, 3].map(occurrence => ({ nodes: sumPage(), bounds: { minX: 205, maxX: 1422 }, label: "Summe", occurrence }));
 const temporary = mkdtempSync(join(tmpdir(), "sse-goto-oracle-"));
 try {
@@ -93,7 +110,7 @@ try {
   assert.deepEqual(routes.flatMap(test => test.landings.map(landing => gotoLanding(gotoRoute(order, test.start, test.target, test.direction, test.maxSteps),
     order, landing.position, landing.heading))), expected.landings);
   assert.deepEqual(searches.map(test => selectSearchHit(test.nodes, test.target, test.page)?.rid ?? null), expected.hits);
-  assert.deepEqual(navigation.map(test => visibleNavigationItem(test.nodes, test.target)?.rid ?? null), expected.navigation);
+  assert.deepEqual(navigation.map(test => visibleNavigationItem(test.nodes, test.target, test.page)?.rid ?? null), expected.navigation);
   assert.deepEqual(sums.map(test => {
     const result = summaryFromNodes(snapshot(test.nodes), test.label, test.occurrence);
     return result ? { label: result.label, value: result.value, y: result.y } : null;
@@ -183,6 +200,15 @@ assert.equal((await delayed.run()).erreicht, true); assert.equal(delayed.actions
 const tree = fixture({ visibleTarget: true });
 assert.equal((await tree.run()).richtung, "Navigationsbaum"); assert.equal(tree.actions.length, 1);
 assert.equal(tree.actions[0].action, "activate-navigation-item");
+const dynamicProfile = { ...knownProfile, pageObjectsCatalog: { ...knownProfile.pageObjectsCatalog,
+  pages: { ...knownProfile.pageObjectsCatalog.pages, "synthetic.target": dynamicPage } } };
+const dynamicTree = fixture({ visibleTarget: true, navigationName: "Target page: Example", profile: dynamicProfile });
+assert.equal((await dynamicTree.run()).richtung, "Navigationsbaum");
+assert.deepEqual(dynamicTree.actions.map(action => action.expectedName), ["Target page: Example"]);
+const unreadyDynamicTree = fixture({ visibleTarget: true, navigationName: "Target page: Example",
+  profile: dynamicProfile, activationHeading: "Target page: Other" });
+assert.equal((await unreadyDynamicTree.run()).ok, false);
+assert.equal(unreadyDynamicTree.actions.length, 1, "A dynamic caption cannot replace the exact field readiness proof");
 const wrongTree = fixture({ visibleTarget: true, activationHeading: "Other page" });
 const wrongTreeFailure = await wrongTree.run();
 assert.equal(wrongTreeFailure.ok, false);
@@ -201,6 +227,17 @@ assert.equal(groupedTreeResult.erreicht, true);
 assert.equal(groupedTreeResult.ueberschrift, "Target page");
 assert.deepEqual(groupedTree.actions.map(action => action.expectedName), ["Target group"],
   "A catalogued group label remains valid when the exact target page is verified");
+const absentGroup = fixture({ visibleTarget: true, navigationName: "Target page: Example", profile: groupedProfile });
+await absentGroup.run();
+assert.equal(absentGroup.actions.filter(action => action.action === "activate-navigation-item").length, 0,
+  "An explicit catalogue tree name cannot be replaced by a dynamic page caption");
+const ordinalProfile = { ...knownProfile, pageObjectsCatalog: { ...knownProfile.pageObjectsCatalog,
+  pages: { ...knownProfile.pageObjectsCatalog.pages, "synthetic.target": {
+    ...page, heading: "1. Wirtschaftsgut", headingPrefix: "1. " } } } };
+const ordinalTree = fixture({ visibleTarget: true, navigationName: "1. Reise", profile: ordinalProfile, noHit: true });
+await ordinalTree.run({ maxSteps: 1 });
+assert.equal(ordinalTree.actions.filter(action => action.action === "activate-navigation-item").length, 0,
+  "A bare ordinal prefix must not select a tree item of another page kind");
 const unchangedTree = fixture({ visibleTarget: true, noActivation: true });
 const treeFailure = await unchangedTree.run();
 assert.equal(treeFailure.ok, false); assert.equal(treeFailure.outcomeUnknown, true);

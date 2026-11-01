@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { executeQtNativeOperation, isQtNativeOperation } from "../dist/qt-native-executor.js";
-import { detailBindingFingerprint, receiptEditableValues, receiptList, receiptPolicySchema } from "../dist/qt-native-receipts.js";
+import { detailBindingFingerprint, receiptEditableValues, receiptList, receiptPolicySchema, sameReceiptListLayout,
+  sameReceiptRows } from "../dist/qt-native-receipts.js";
 import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
@@ -65,8 +66,8 @@ for (const field of ["note", "net"]) {
 function fixture(options = {}) {
   const beforeValues = { ...initial, ...options.initialValues };
   const values = { ...beforeValues }, actions = [];
-  let open = Boolean(options.alreadyOpen), closed = false, rejected = false;
-  const makeNodes = () => {
+  let open = Boolean(options.alreadyOpen), closed = false, rejected = false, restoreReads = 0;
+  const makeNodes = (narrow = false) => {
     const nodes = [];
     const add = (type, name, aid, extra = {}) => {
       const i = nodes.length;
@@ -81,11 +82,15 @@ function fixture(options = {}) {
     add("Table", "", "receipt.tableWidget_mainTabel", { x: 0, y: 100, w: 900, h: 300 });
     add("Text", `MEINE BELEGE (${options.incomplete ? 3 : 2})`, "receipt.label_infoText1");
     add("Edit", "", "receipt.widget_mainWindowInfoBar.frame_container.lineEdit_suche", { val: "" });
+    ["", "", "Bezeichnung", "Typ", "Datum", "Erstellt", "Geändert", "Ungelesen", "Nummer"].forEach((name, column) =>
+      add("Header", name, "receipt.tableWidget_mainTabel", { x: column * 80, y: 100,
+        w: narrow && column >= 3 ? 0 : 80, h: narrow && column >= 3 ? 0 : 20 }));
     for (const [rowIndex, title, documentNumber] of [[0, values.title, values.documentNumber],
       [1, options.otherRowDrift && closed ? "Foreign change" : "Other receipt", "OTHER-1"]]) {
       for (let column = 0; column < 9; column++) {
         add("DataItem", column === 2 ? title + "*" : column === 8 && !options.omitDocumentNumber ? documentNumber : "",
-          "receipt.tableWidget_mainTabel", { x: column * 80, y: 140 + rowIndex * 30, selected: column === 2 });
+          "receipt.tableWidget_mainTabel", { x: column * 80, y: 140 + rowIndex * 30, selected: column === 2,
+            w: narrow && column >= 3 ? 0 : 80, h: narrow && column >= 3 ? 0 : 20 });
       }
     }
     if (open) {
@@ -122,7 +127,8 @@ function fixture(options = {}) {
       }
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === policy.title;
-      const nodes = tool ? makeNodes() : [{ i: 0, p: -1, d: 0, type: "Button", name: "Speichern",
+      const narrow = tool && closed && (options.neverRestored || restoreReads++ < (options.transientNarrowPolls ?? 0));
+      const nodes = tool ? makeNodes(narrow) : [{ i: 0, p: -1, d: 0, type: "Button", name: "Speichern",
         aid: "main.MainToolBar.tb_sichern", rid: "42.42.4.1", x: 0, y: 0, w: 50, h: 20,
         on: Boolean(options.dirtyDrift && closed), val: null, ro: null, checked: null, selected: null, scroll: null }];
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
@@ -201,6 +207,30 @@ assert.equal(result.rollback.ok, true);
 assert.deepEqual(success.actions.map(action => action.action), ["activate-table-cell", "replace-edit-text", "replace-edit-text",
   "replace-edit-text", "replace-edit-text", "toggle-check-box", "select-combo-value", "replace-edit-text", "press"]);
 
+const delayedColumns = fixture({ transientNarrowPolls: 2 });
+const delayedColumnResult = await delayedColumns.update({ waitMs: 1000 });
+assert.equal(delayedColumnResult.ok, true);
+assert.equal(delayedColumnResult.rowAfter.cells.length, 9);
+assert.equal(delayedColumns.actions.filter(action => action.action === "press").length, 1);
+const missingColumns = fixture({ neverRestored: true });
+const missingColumnResult = await missingColumns.update();
+assert.equal(missingColumnResult.ok, false);
+assert(missingColumnResult.offeneBedingungen.includes("list-layout-drift"));
+assert.equal(missingColumnResult.cleanupRequired, true);
+assert.equal(missingColumnResult.rollback.attempted, false);
+assert.equal(missingColumns.actions.filter(action => action.action === "press").length, 1);
+
+const fullList = receiptList(valueProjection(), policy);
+assert("error" in fullList, "The field-only projection must not act as a receipt list");
+const layout = { headers: ["Title", "Amount"], rows: [{ cells: [{ name: "A" }, { name: "1" }] }] };
+assert.equal(sameReceiptListLayout(layout, structuredClone(layout)), true);
+assert.equal(sameReceiptListLayout(layout, { ...layout, headers: ["Title"] }), false);
+assert.equal(sameReceiptListLayout(layout, { ...layout, rows: [{ cells: [{ name: "A" }] }] }), false);
+const semantic = { primaryText: "A", documentNumber: "", contentFingerprint: "same", cells: [{ name: "A" }, { name: "1" }] };
+assert.equal(sameReceiptRows([semantic, semantic], [semantic, structuredClone(semantic)]), true);
+assert.equal(sameReceiptRows([semantic, semantic], [semantic]), false);
+assert.equal(sameReceiptRows([semantic], [{ ...semantic, cells: [{ name: "A" }, { name: "2" }] }]), false);
+
 for (const [values, options] of [[{ title: initial.title }, {}], [{ vatRate: "0", note: "", documentNumber: "" }, {}],
   [{ title: "Updated", documentNumber: "DOC-2" }, { omitDocumentNumber: true }], [{ amount: "0.01" }, {}],
   [{ title: "Updated" }, { initialValues: { amount: "" } }],
@@ -265,8 +295,12 @@ for (const [field, initialValues] of [["note", { note: "" }], ["vatRate", { vatR
   }
 }
 const alreadyOpen = fixture({ alreadyOpen: true });
-assert.equal((await alreadyOpen.update({ values: { title: "Updated" } })).ok, true);
-assert.deepEqual(alreadyOpen.actions.map(action => action.action), ["replace-edit-text", "press"]);
+const openDetailRefused = await alreadyOpen.update({ values: { title: "Updated" } });
+assert.equal(openDetailRefused.ok, false);
+assert.equal(openDetailRefused.kind, "precondition-failed");
+assert.equal(openDetailRefused.persistentMutationStarted, false);
+assert.equal(openDetailRefused.outcomeUnknown, false);
+assert.deepEqual(alreadyOpen.actions, []);
 const staleDetail = fixture();
 const stale = await staleDetail.update({ expectedDetailFingerprint: "0".repeat(64) });
 assert.equal(stale.ok, false);

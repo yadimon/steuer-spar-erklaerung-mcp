@@ -7,6 +7,7 @@ import { loadProductProfile } from "../dist/product-profiles.js";
 import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "../dist/table-cursor-position.js";
 import { USTVA_PERIOD_SELECTORS } from "../dist/ustva.js";
 import { formatCents, parseCents } from "./currency-cents.mjs";
+import { readUstvaViewport, assertUstvaFieldVisible } from "./ustva-viewport.mjs";
 import {
   classifyPassiveExportDialog,
   classifyPassiveExportSuccessDialog,
@@ -24,6 +25,7 @@ import {
   megaSourceFingerprint,
 } from "./performance/api-mega-fingerprint.mjs";
 import { writeDeterministicDocument } from "./performance/receipt-workload.mjs";
+import { receiptPolicySchema, receiptState } from "../dist/qt-native-receipts.js";
 
 const baseUrl = process.env.SSE_API_URL;
 const rawReportPath = process.env.SSE_MEGA_RAW_REPORT;
@@ -634,7 +636,8 @@ try {
       assert.equal(result.instances[0].hwnd, currentHwnd);
     });
     await read("windows", {}, (result) => assert((result.windows ?? []).some((entry) => entry.hwnd === currentHwnd)));
-    await read("positions", { aktion: "list", hwnd: currentHwnd }, (result) => assert(Array.isArray(result.positionen ?? result.positions ?? [])));
+    // The generated income-position journey owns the supported overview fixture.
+    // A generic sample start page cannot establish a complete position inventory.
     await read("subpages", { hwnd: currentHwnd }, (result) => assert(Array.isArray(result.seiten ?? result.subpages ?? [])));
     await read("warning_popup_read", { hwnd: currentHwnd, ocr: false }, (result) => assert.equal(result.active, false));
     const snap = await read("snapshot", { hwnd: currentHwnd, namedOnly: true, maxNodes: 800 }, (result) => {
@@ -872,6 +875,26 @@ try {
       { hwnd: currentHwnd },
       (result) => assert.equal(result.flags.documents, originalFlag),
     );
+    const scrollBefore = await read("scroll_page", { mode: "info", hwnd: currentHwnd }, (result) => {
+      assert.equal(typeof result.scrollbar, "boolean");
+    }, "ustva-viewport-before");
+    const viewportBefore = readUstvaViewport(await read("snapshot", {
+      hwnd: currentHwnd, namedOnly: false, maxNodes: 5000,
+    }, null, "ustva-viewport-geometry-before"));
+    assert.equal(scrollBefore.scrollbar, viewportBefore.overflow,
+      "Scroll support must agree with the actual body and viewport geometry.");
+    const originalScrollPercent = scrollBefore.position ?? 0;
+    assert(Number.isFinite(originalScrollPercent) && originalScrollPercent >= 0 && originalScrollPercent <= 100);
+    await mutateAndRead(
+      "ustva-viewport-prepare",
+      { mode: "percent", vPercent: 100, hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.scrollbar, viewportBefore.overflow);
+        assert.equal(result.nachher ?? 0, viewportBefore.overflow ? 100 : 0);
+      },
+      { hwnd: currentHwnd, namedOnly: false, maxNodes: 5000 },
+      assertUstvaFieldVisible,
+    );
     const special = original.amounts.specialAdvancePayment;
     const changedDisplay = special.cents === 0 ? "100,00" : "0,00";
     const changedCents = special.cents === 0 ? 10_000 : 0;
@@ -890,6 +913,8 @@ try {
           original.amounts.settlement.cents + special.cents - changedCents);
       },
     );
+    await read("snapshot", { hwnd: currentHwnd, namedOnly: false, maxNodes: 5000 },
+      assertUstvaFieldVisible, "ustva-viewport-before-value-restore");
     await mutateAndRead(
       "ustva-value-restore",
       {
@@ -902,6 +927,19 @@ try {
       (result) => {
         assert.equal(result.amounts.specialAdvancePayment.cents, special.cents);
         assert.equal(result.amounts.settlement.cents, original.amounts.settlement.cents);
+      },
+    );
+    await mutateAndRead(
+      "ustva-viewport-restore",
+      { mode: "percent", vPercent: originalScrollPercent, hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.scrollbar, viewportBefore.overflow);
+        assert.equal(result.nachher ?? 0, originalScrollPercent);
+      },
+      { mode: "info", hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.scrollbar, viewportBefore.overflow);
+        assert.equal(result.position ?? 0, originalScrollPercent);
       },
     );
     await mutateAndRead(
@@ -1120,6 +1158,19 @@ try {
         seite: unique.page.ueberschrift, label: unique.field.label, wert: unique.field.wert,
       }],
     }, (result) => assert.equal(result.vergleichOk, true));
+    // Die separate Vorbereitungsseite besitzt keinen Formular-Blaetterpfad.
+    // Vor dem Feldzyklus deshalb den profilierten Formularbereich und dessen
+    // Arbeitnehmerseite oeffnen; jede Navigation hat einen eigenen Readback.
+    const formHeading = fixtures.est.knownFieldNavigation?.formHeading;
+    const employmentHeading = fixtures.est.knownFieldNavigation?.employmentHeading;
+    assert.equal(typeof formHeading, "string");
+    assert.equal(typeof employmentHeading, "string");
+    await mutateAndRead("est-form-entry", { name: formHeading, hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, formHeading), { hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, formHeading));
+    await mutateAndRead("est-employment-entry", { name: employmentHeading, hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, employmentHeading), { hwnd: currentHwnd },
+      (result) => assert.equal(result.ueberschrift, employmentHeading));
     const pageId = "est.sonstige_werbungskosten_fahrten";
     const fieldId = "kontofuehrungsgebuehren_pauschal";
     const fieldLabel = "Kontoführungsgebühren (pauschal)";
@@ -1258,6 +1309,30 @@ try {
       },
       { mutationTimeoutMs: 180_000, readbackTimeoutMs: 120_000 },
     );
+    // Vor dem Feldzyklus die nach dem Import offene Detailansicht verlassen
+    // und einen unabhaengig rueckgelesenen Listenbestand als Basis verwenden.
+    await mutateAndRead("receipt-post-import-home", { actionId: "goHome", hwnd: currentHwnd },
+      (result) => assert.equal(result.stateAfter, "start"),
+      { hwnd: currentHwnd, toolWindow: "receiptManager", namedOnly: false, maxNodes: 5000 },
+      (result) => {
+        assert.equal(result.stats.truncated, false);
+        assert.equal(result.stats.depthLimited, false);
+        assert.equal(result.stats.err, 0);
+        assert.equal(result.stats.cyc, 0);
+        const state = receiptState(result.nodes, result.hwnd,
+          receiptPolicySchema.parse(profile.pageObjectsCatalog.windows.receiptManager));
+        assert.equal(state.error, undefined);
+        assert.equal(state.state, "start");
+      });
+    await mutateAndRead("receipt-post-import-list", { actionId: "showAllReceipts", hwnd: currentHwnd },
+      (result) => assert.equal(result.stateAfter, "list"), { hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.count, 1);
+        assert.equal(result.rowsComplete, true);
+        assert.deepEqual(result.headers, emptyList.headers);
+        assert.equal(receiptBinding(result).cells.length, result.headers.length);
+        importedList = result;
+      });
     let detail = await read("receipt_manager_read",
       readReceiptArgs(receiptBinding(importedList), importedList.listFingerprint, currentHwnd),
       (result) => {

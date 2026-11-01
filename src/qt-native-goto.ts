@@ -121,7 +121,11 @@ export async function executeQtNativeGoto(
     path.push(start ?? "");
     if (args.viaSuche !== false) {
       const navName = page ? String(page.navigationTreeItemName || target) : target;
-      const item = visibleNavigationItem(snapshot.nodes, navName);
+      // A bare ordinal identifies no page kind; keep that catalogue entry on
+      // its existing exact-name path instead of selecting e.g. any "1. ...".
+      const treePage = page && !page.navigationTreeItemName
+        && !/^[1-9][0-9]*\.\s*$/u.test(String(page.headingPrefix ?? "")) ? page : undefined;
+      const item = visibleNavigationItem(snapshot.nodes, navName, treePage);
       if (item && !transmissionName(item.name)) {
         phase = "navigation-tree";
         await dispatch(snapshot, item, "activate-navigation-item"); steps++;

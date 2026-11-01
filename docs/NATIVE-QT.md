@@ -353,7 +353,14 @@ und entfernt doppelt exponierte Verweise. Ein abgeschnittener Unterseitenbaum
 scheitert mit `native-incomplete`; `find` meldet wie bisher `incomplete` und
 `stats.truncated`. `positions` liest die sichtbaren, eindeutig formatierten
 `»…« bearbeiten`-Verweise als read-only-Projektion; Anlegen und Löschen bleiben
-gesperrt. `ustva_read` projiziert einen einzelnen gebundenen GUI-Thread-Snapshot
+gesperrt. Ist nach einem Seitenwechsel bereits die erwartete Überschrift,
+aber noch nicht der vollständige Inhalt sichtbar, liest `positions` dieselbe
+Übersicht höchstens dreimal innerhalb der ursprünglichen Frist. Es führt dabei
+keine weitere Navigation aus. Für eine weitere Lesung muss ausreichend Zeit
+für die Brückenwarteschlange bleiben; ein Abbruch bleibt als solcher erkennbar.
+Ein Seitenwechsel, ein abgeschnittener Baum oder
+ein weiterhin unvollständiges Inventar bleibt ein Fehler.
+`ustva_read` projiziert einen einzelnen gebundenen GUI-Thread-Snapshot
 in dasselbe fachliche UStVA-Modell wie der bisherige Worker-Pfad. Ein modaler
 Dialog oder ein abgeschnittener Baum bricht die Lesung fail-closed ab; die
 Übermittlung bleibt gesperrt. Die übrigen Seiten- und UStVA-Operationen, etwa

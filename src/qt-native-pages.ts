@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
 import { resolvePageObjectDefinition, type ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
-import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
-import { readPositionInventory } from "./position-inventory.js";
+import { MIN_READ_RETRY_BUDGET_MS, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { POSITION_OVERVIEW_HEADINGS, readPositionInventory } from "./position-inventory.js";
 
 const byPosition = (a: QtSnapshotNode, b: QtSnapshotNode) => a.y - b.y || a.x - b.x;
 // PowerShell's [int] conversion uses midpoint-to-even rounding, including negative coordinates.
@@ -14,10 +15,38 @@ function roundEven(value: number): number {
 }
 function contentBounds(nodes: QtSnapshotNode[], rect: { x: number; w: number }) {
   const nav = nodes.filter(node => node.type === "Tree" && node.w > 100).sort((a, b) => a.x - b.x)[0];
-  const minX = nav ? nav.x + nav.w + 5 : roundEven(rect.x + rect.w * 0.28);
+  let minX = nav ? nav.x + nav.w + 5 : roundEven(rect.x + rect.w * 0.28);
   const help = nodes.filter(node => ["eingabehilfe", "steuertipps"].includes(node.name.toLowerCase()) && node.x > minX)
     .sort((a, b) => a.x - b.x)[0];
-  return { minX, maxX: help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79), winX: rect.x, winW: rect.w, navErkannt: !!nav };
+  let maxX = help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79);
+  // Match the worker's exact container binding. Introduction text has no
+  // Eingabehilfe/Steuertipps heading and may start left of the old fraction.
+  const helpFrames = nodes.filter(node => node.aid.endsWith(".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE"));
+  if (helpFrames.length > 1) throw new QtNativeTransportError("The help column identity is ambiguous.", "native-incomplete");
+  const helpFrame = helpFrames[0];
+  if (helpFrame) {
+    if (helpFrame.type !== "Group") {
+      throw new QtNativeTransportError("The help column state is unavailable.", "native-incomplete");
+    }
+    // on is enabled state. Positive geometry bounds even a disabled pane;
+    // zero geometry retains the existing closed-pane/owned-window behavior.
+    if (helpFrame.w > 0 && helpFrame.h > 0) {
+      // Use the same-tree client geometry as UIA, independent of the caller's
+      // GetWindowRect DPI context or a guessed window-width fraction.
+      const clientAid = helpFrame.aid.slice(0, -".SearchSplitter.TopLevelHSplitter.LibraryFrameSSE".length);
+      const clients = nodes.filter(node => node.aid === clientAid);
+      const client = clients[0];
+      if (clients.length !== 1 || client?.type !== "Group" || client.w <= 0 || client.h <= 0) {
+        throw new QtNativeTransportError("The help column client geometry is unavailable.", "native-incomplete");
+      }
+      if (!nav && helpFrame.x - 10 <= minX) minX = client.x;
+      if (helpFrame.x - 10 <= minX || helpFrame.x + helpFrame.w > client.x + client.w + 1) {
+        throw new QtNativeTransportError("The help column geometry contradicts the bound window.", "native-incomplete");
+      }
+      maxX = helpFrame.x - 10;
+    }
+  }
+  return { minX, maxX, winX: rect.x, winW: rect.w, navErkannt: !!nav };
 }
 function heading(nodes: QtSnapshotNode[], profile?: ProductProfile, visibleOnly = false): string | null {
   const parsed = z.object({ headingContainerAutomationIdSuffix: z.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
@@ -233,18 +262,37 @@ export async function executeQtNativePositions(
     }
     return fail("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
   }
-  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, timeoutMs, signal);
-  if (!result.windowEnabled || result.modalBlocked) return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-  const inventory = readPositionInventory(result.nodes, result.stats, heading(result.nodes, profile, true));
-  if (!inventory.ok) return fail("position-inventory-incomplete", inventory.error);
-  const positionen = inventory.rows.map(row => row.name);
-  return {
-    ok: true,
-    backend: "qt",
-    positionen,
-    anzahl: positionen.length,
-    hinweis: positionen.length ? null
-      : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
-    nativeDurationMs: result.nativeDurationMs,
-  };
+  const started = performance.now();
+  let boundHeading: string | null = null, nativeDurationMs = 0;
+  let incomplete: WorkerResult | undefined;
+  for (let attempt = 1; ; attempt++) {
+    const remaining = Math.max(1, Math.floor(timeoutMs - (performance.now() - started)));
+    if (incomplete && remaining < MIN_READ_RETRY_BUDGET_MS) return incomplete;
+    const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, remaining, signal);
+    nativeDurationMs += result.nativeDurationMs;
+    if (!result.windowEnabled || result.modalBlocked)
+      return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+    const currentHeading = heading(result.nodes, profile, true);
+    if (attempt === 1) boundHeading = currentHeading;
+    if (currentHeading !== boundHeading)
+      return fail("position-inventory-incomplete", "Die Positionsuebersicht wechselte waehrend der Lesung.");
+    const inventory = readPositionInventory(result.nodes, result.stats, currentHeading);
+    if (inventory.ok) {
+      const positionen = inventory.rows.map(row => row.name);
+      return { ok: true, backend: "qt", positionen, anzahl: positionen.length,
+        hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.", nativeDurationMs };
+    }
+    // Qt can expose the new heading before its queued overview body. Only
+    // reread that same page; incomplete trees and navigation remain failures.
+    incomplete = fail("position-inventory-incomplete", inventory.error);
+    if (attempt === 3 || result.stats.truncated || !POSITION_OVERVIEW_HEADINGS.some(value => value === currentHeading)
+      || timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 75) return incomplete;
+    if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+    try { await delay(25, undefined, { signal }); }
+    catch (error) {
+      if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+      throw error;
+    }
+    if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) return incomplete;
+  }
 }

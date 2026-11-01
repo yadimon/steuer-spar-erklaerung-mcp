@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readUstvaViewport, assertUstvaFieldVisible } from "../ustva-viewport.mjs";
 import { runInNewContext } from "node:vm";
 import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "../../dist/table-cursor-position.js";
 import { readFileSync } from "node:fs";
@@ -40,6 +41,15 @@ assert.deepEqual([...byOperation.keys()].sort(), [...SSE_API_OPERATIONS].sort(),
   "Jede aktuelle API-Operation braucht genau eine Mega-Klassifikation.");
 assert(MEGA_OPERATION_CATALOG.some((entry) => entry.classification !== "covered"),
   "Der Benchmark darf nicht behaupten, alle Operationen seien happy-path-faehig.");
+assert.equal(byOperation.get("positions").classification, "safely-skipped-read-only");
+assert.equal(byOperation.get("positions").subclassification, "dedicated-position-overview-fixture");
+const incomePositionSource = readFileSync("test/live-income-positions.mjs", "utf8");
+assert.match(incomePositionSource, /call\("positions"/u);
+assert.match(incomePositionSource, /call\("position_create"/u);
+assert.match(readFileSync("test/run-live-suite.mjs", "utf8"), /runIncomePositionCoverage\(\);/u,
+  "Die getrennte positive Positionsreise muss im vollstaendigen Live-Gate registriert bleiben.");
+assert.equal(JSON.parse(readFileSync("package.json", "utf8")).scripts["test:live-income-positions"],
+  "npm run build && node test/with-api.mjs node test/live-income-positions.mjs");
 
 const declaredIds = new Set();
 for (const declaration of MEGA_MUTATION_READBACKS) {
@@ -56,6 +66,47 @@ for (const declaration of MEGA_MUTATION_READBACKS) {
 }
 
 const journey = readFileSync("test/live-api-mega-journey.mjs", "utf8");
+const viewportFixture = () => {
+  const viewportAid = "Synthetic.DialogWidget.DialogScrollArea.qt_scrollarea_viewport";
+  return {
+    stats: { truncated: false, depthLimited: false, err: 0, cyc: 0 },
+    nodes: [
+      { type: "Group", aid: viewportAid, x: 100, y: 100, w: 500, h: 400 },
+      { type: "Group", aid: viewportAid + ".DialogUI", x: 100, y: 100, w: 500, h: 900 },
+      { type: "Edit", aid: viewportAid + ".DialogUI.RahmenWerteUebersicht.SonderVZ.Wert", x: 200, y: 200, w: 100, h: 25, on: true },
+    ],
+  };
+};
+assert.equal(assertUstvaFieldVisible(viewportFixture()).overflow, true);
+const fittingViewport = viewportFixture();
+fittingViewport.nodes[1].h = 300;
+assert.equal(assertUstvaFieldVisible(fittingViewport).overflow, false);
+const offscreenViewport = viewportFixture();
+offscreenViewport.nodes[2].y = 700;
+assert.equal(readUstvaViewport(offscreenViewport).overflow, true);
+assert.throws(() => assertUstvaFieldVisible(offscreenViewport));
+for (const alter of [
+  snapshot => { snapshot.stats.truncated = true; },
+  snapshot => { snapshot.stats.depthLimited = true; },
+  snapshot => { snapshot.stats.err = 1; },
+  snapshot => { snapshot.stats.cyc = 1; },
+  snapshot => { snapshot.nodes.push({ ...snapshot.nodes[0], type: "Text" }); },
+  snapshot => { snapshot.nodes.pop(); },
+  snapshot => { snapshot.nodes[2].on = false; },
+  snapshot => { snapshot.nodes[2].w = 0; },
+  snapshot => { snapshot.nodes[2].x = Number.NaN; },
+  snapshot => { snapshot.nodes[2].aid = "Other.RahmenWerteUebersicht.SonderVZ.Wert"; },
+]) {
+  const snapshot = viewportFixture();
+  alter(snapshot);
+  assert.throws(() => assertUstvaFieldVisible(snapshot));
+}
+assert.equal(byOperation.get("scroll_page").classification, "covered");
+const viewportOrder = ["ustva-viewport-prepare", "ustva-value-change", "ustva-value-restore", "ustva-viewport-restore", "ustva-section-open"]
+  .map(id => journey.indexOf('"' + id + '"'));
+assert(viewportOrder.every((at, index) => at >= 0 && (index === 0 || at > viewportOrder[index - 1])),
+  "Viewport preparation and restoration must enclose the value mutations.");
+assert.match(journey, /read\("scroll_page", \{ mode: "info"/u);
 const runner = readFileSync("test/run-live-api-mega.mjs", "utf8");
 const harness = readFileSync("test/with-api.mjs", "utf8");
 const fingerprint = readFileSync("test/performance/api-mega-fingerprint.mjs", "utf8");
@@ -360,6 +411,8 @@ const checkpoint = { reason: "target-proof", proofReason: "current-number-cell-n
 const release = { attempted: true, workerOk: false, leaseReleased: null, releasedByEmit: null, threw: false };
 const nativeFailure = { ok: false, phase: "native-position-dispatch", proofCheck: "native-position-acknowledgment",
   error: "PRIVATE ERROR C:\\private\\case", cursorActivation: { source: "qt-native", nativePosition, positionCheckpoint: checkpoint, nativeRelease: release } };
+nativeFailure.mutationState = { editorMismatch: { rawEditorCount: 1, descendantCount: 0,
+  focusAdded: true, focusDepth: 2, firstEditor: { offscreen: false, hasKeyboardFocus: true, positiveBounds: true } } };
 const failureBefore = structuredClone(nativeFailure);
 const projected = megaFailureDiagnostics(nativeFailure);
 assert.deepEqual(projected, { direct: {
@@ -436,6 +489,8 @@ await assert.rejects(actualCallBoundary.call("table_update"), error =>
 assert.equal(apiCalls, 1);
 assert.equal(callRecords.length, 1);
 assert.deepEqual(structuredClone(callRecords[0].failureDiagnostics), projected);
+assert.deepEqual(structuredClone(callRecords[0].failureEvidence.mutationState), nativeFailure.mutationState,
+  "The real Mega failure boundary must preserve value-free editor mismatch evidence.");
 transportFailure = new Error("Synthetic transport failure");
 await assert.rejects(actualCallBoundary.call("table_update"), error => error === transportFailure);
 assert.equal(apiCalls, 2);

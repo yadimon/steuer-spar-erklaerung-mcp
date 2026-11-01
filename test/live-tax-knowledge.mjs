@@ -62,7 +62,7 @@ try{
  jobReader.on('line',line=>{let value;try{value=JSON.parse(line)}catch(error){for(const w of waiters.splice(0))w.reject(error);return}const waiter=waiters.shift();waiter?waiter.resolve(value):replies.push(value);});
  let jobStderr='';job.stderr.on('data',chunk=>{jobStderr+=chunk;if(jobStderr.length>65536)jobStderr=jobStderr.slice(-65536)});
  report.jobReady=await nextReply();assert.equal(report.jobReady.ok,true,JSON.stringify(report.jobReady));save();
- await call('click',{hwnd:owner.hwnd,name:'Steuerwissen'});
+ await call('click',{hwnd:owner.hwnd,aid:'.MainToolBar.tb_berater'});
  const deadline=Date.now()+30000;
  while(Date.now()<deadline){const current=inspect('census');const candidates=current.filter(p=>p.title==='Steuerwissen');if(candidates.length===1){helper=candidates[0];break}await new Promise(r=>setTimeout(r,250));}
  assert(helper,'One exact helper must open.');

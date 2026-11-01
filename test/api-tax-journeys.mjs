@@ -20,8 +20,21 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { NEUTRAL_TOOLBAR_AID_SUFFIX, NEUTRAL_TOOLBAR_SNAPSHOT_ARGUMENTS, neutralToolbarCheckbox } from "./neutral-toolbar-checkbox.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+test("the real toggle fixture binds one visible checkbox with or without a caption", () => {
+  assert.equal(NEUTRAL_TOOLBAR_SNAPSHOT_ARGUMENTS.namedOnly, false);
+  const checkbox = { type: "CheckBox", aid: "Fixture" + NEUTRAL_TOOLBAR_AID_SUFFIX, name: "", on: true, w: 22, h: 22, checked: false };
+  assert.equal(neutralToolbarCheckbox({ nodes: [checkbox] }), checkbox);
+  assert.equal(neutralToolbarCheckbox({ nodes: [{ ...checkbox, name: "Roter Faden" }] }).checked, false);
+  assert.throws(() => neutralToolbarCheckbox({ nodes: [] }));
+  assert.throws(() => neutralToolbarCheckbox({ nodes: [checkbox, { ...checkbox }] }));
+  assert.throws(() => neutralToolbarCheckbox({ nodes: [{ ...checkbox, type: "Button" }] }));
+  assert.throws(() => neutralToolbarCheckbox({ nodes: [{ ...checkbox, on: false }] }));
+  assert.throws(() => neutralToolbarCheckbox({ nodes: [{ ...checkbox, checked: null }] }));
+});
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";

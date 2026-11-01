@@ -18,8 +18,8 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "6e05ba63786980d134f5dff9195a26d1437effc6e5881a4cf2bb974965188117",
-      "size": 1760694
+      "sha256": "17fee969758fb029fe8573965f14b003665bbdd65c59c98aeb7ffe9decc8909d",
+      "size": 1765206
     },
     {
       "path": "dist/mcp.js",
@@ -88,13 +88,13 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "598c89b979a6a2a849025be98f463879b360aa1991f4b77a7bd99c30fbbe6bae",
-      "size": 1587573
+      "sha256": "6cf688380c2e349739bd3f88988266c1f7da6f174fb12077d14a641f309774d8",
+      "size": 1612033
     },
     {
       "path": "powershell/structure-binding.ps1",
-      "sha256": "1fc5bd78a01d9fa349faef83676eeac15b3c9e2653f75ce941d8f9ccccb960d1",
-      "size": 8156
+      "sha256": "cf4ecfc4c5d21018d8c8ae4ae5c1bf135df7ed79a6ed6c9e695e1b076f5a9fce",
+      "size": 8260
     },
     {
       "path": "powershell/table-boolean.ps1",
@@ -133,8 +133,8 @@
     },
     {
       "path": "powershell/table-uia-delete.ps1",
-      "sha256": "99fdaa0ca006d1c34d8a9a44f4761bdfb67ce2f9255570212aea4d91d5fec66c",
-      "size": 38972
+      "sha256": "089f69dc7485a9d1fa78b44e87589c4d24e26556507a2e8889d8534c0fccc19b",
+      "size": 41572
     },
     {
       "path": "powershell/table-values.ps1",
