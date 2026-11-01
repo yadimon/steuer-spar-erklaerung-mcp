@@ -526,6 +526,10 @@ Die rechte Kante wird gegen den exakt gebundenen Client desselben Baums
 geprüft, damit unterschiedliche DPI-Koordinatenräume nicht vermischt werden.
 Die neutrale Toggle-Reise liest auch unbeschriftete Toolbar-Checkboxen und
 bindet ihr Ziel über AutomationId, Typ, Aktivierung, Geometrie und booleschen Zustand.
+Auch der profilierte Prüferstart erkennt die reine Symbolanzeige seiner exakt
+gebundenen Toolbar-Checkbox. Der frische Aus-Zustand und der Invoke-Nachweis
+bleiben Pflicht; fremde Beschriftungen und unbeschriftete Seitenschalter werden
+abgewiesen. Die Steuerwissen-Reise öffnet ihren Toolbar-Schalter über dessen feste ID.
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
 [Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt

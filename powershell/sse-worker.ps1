@@ -5657,6 +5657,16 @@ function Get-SSECheckerStartPolicy($Window, $Catalog) {
   [pscustomobject]@{ok=$true;policy=$policies[0];caseType=$caseType}
 }
 
+function Test-SSECheckerStartCaption($Name, $Policy) {
+  if ($Name -isnot [string]) { return $false }
+  if ([string]::Equals($Name, [string]$Policy.name, [StringComparison]::Ordinal)) { return $true }
+  # The exact checker toolbar also has an icon-only presentation. An absent
+  # caption cannot identify other controls or replace the Off/Invoke proof.
+  [bool]($Name.Length -eq 0 -and $Policy.controlType -ceq 'CheckBox' -and
+    $Policy.automationIdSuffix -ceq '.MainToolBar.tb_pruefer' -and
+    $Policy.pattern -ceq 'Invoke' -and $Policy.expectedToggleState -ceq 'Off' -and -not $Policy.heading)
+}
+
 function Resolve-SSECheckerStartNode($Tree, $Policy, [IntPtr]$Hwnd) {
   if (-not $Tree.stats -or $Tree.stats.truncated -or $Tree.stats.depthLimited -or
       [int]$Tree.stats.err -ne 0 -or [int]$Tree.stats.cyc -ne 0 -or [int]$Tree.stats.valErr -ne 0) {
@@ -5672,7 +5682,7 @@ function Resolve-SSECheckerStartNode($Tree, $Policy, [IntPtr]$Hwnd) {
     return [pscustomobject]@{ok=$false;kind='precondition-failed';error="Prueferstart dieser Fallart braucht die Seite '$($Policy.heading)'."}
   }
   $nodes = @($Tree.nodes | Where-Object {
-    $_.type -ceq [string]$Policy.controlType -and $_.name -ceq [string]$Policy.name -and
+    $_.type -ceq [string]$Policy.controlType -and (Test-SSECheckerStartCaption $_.name $Policy) -and
     ([string]$_.aid).EndsWith([string]$Policy.automationIdSuffix,[StringComparison]::Ordinal) -and
     $_.on -and $_.w -gt 0 -and $_.h -gt 0
   })
@@ -5692,7 +5702,8 @@ function Invoke-SSECheckerStart([IntPtr]$Hwnd, $Window, $Tree, $Policy) {
   }
   $element = Get-LiveElement $Hwnd $resolved.node.rid
   if (-not $element -or $element.Current.ProcessId -ne [int]$Window.pid -or
-      $element.Current.Name -cne [string]$Policy.name -or $element.Current.AutomationId -cne [string]$resolved.node.aid -or
+      -not (Test-SSECheckerStartCaption $element.Current.Name $Policy) -or
+      $element.Current.Name -cne $resolved.node.name -or $element.Current.AutomationId -cne [string]$resolved.node.aid -or
       -not $element.Current.IsEnabled -or $element.Current.IsOffscreen -or
       $element.Current.ControlType.ProgrammaticName -cne ('ControlType.'+[string]$Policy.controlType)) {
     return [pscustomobject]@{ok=$false;kind='stale';error='Der profilierte Prueferstart ist nicht mehr exakt greifbar.'}
