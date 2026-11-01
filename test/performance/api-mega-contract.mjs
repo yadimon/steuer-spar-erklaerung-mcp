@@ -369,6 +369,8 @@ const checkpoint = { reason: "target-proof", proofReason: "current-number-cell-n
 const release = { attempted: true, workerOk: false, leaseReleased: null, releasedByEmit: null, threw: false };
 const nativeFailure = { ok: false, phase: "native-position-dispatch", proofCheck: "native-position-acknowledgment",
   error: "PRIVATE ERROR C:\\private\\case", cursorActivation: { source: "qt-native", nativePosition, positionCheckpoint: checkpoint, nativeRelease: release } };
+nativeFailure.mutationState = { editorMismatch: { rawEditorCount: 1, descendantCount: 0,
+  focusAdded: true, focusDepth: 2, firstEditor: { offscreen: false, hasKeyboardFocus: true, positiveBounds: true } } };
 const failureBefore = structuredClone(nativeFailure);
 const projected = megaFailureDiagnostics(nativeFailure);
 assert.deepEqual(projected, { direct: {
@@ -445,6 +447,8 @@ await assert.rejects(actualCallBoundary.call("table_update"), error =>
 assert.equal(apiCalls, 1);
 assert.equal(callRecords.length, 1);
 assert.deepEqual(structuredClone(callRecords[0].failureDiagnostics), projected);
+assert.deepEqual(structuredClone(callRecords[0].failureEvidence.mutationState), nativeFailure.mutationState,
+  "The real Mega failure boundary must preserve value-free editor mismatch evidence.");
 transportFailure = new Error("Synthetic transport failure");
 await assert.rejects(actualCallBoundary.call("table_update"), error => error === transportFailure);
 assert.equal(apiCalls, 2);

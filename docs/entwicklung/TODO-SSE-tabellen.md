@@ -20,6 +20,14 @@ zugehörige Schutz im Code fehlt. Der aktuelle Implementierungsstand steht in
   Eingabe-Epochen- und Receipt-Abweichungen nicht ununterscheidbar machen.
   Diagnose transportiert keine Werte, Tokens, Bindings oder neue Autorität;
   `outcomeUnknown` bleibt unbekannt und erlaubt keinen Wiederholungsversuch.
+- [x] Bei widersprüchlichen Editoransichten vor einer UIA-Zeilenlöschung
+  begrenzte Diagnose unter `mutationState.editorMismatch` erhalten: Zähler,
+  Herkunft aus RawView oder Fokus-Ahnenkette sowie Sichtbarkeits-, Fokus- und
+  Geometrieflags. Keine Zellwerte, Namen, Runtime-IDs oder Koordinaten ausgeben.
+  Ein nicht mehr lesbarer Provider wird als unvollständige Beobachtung markiert;
+  die ursprüngliche Ablehnung und ihre Schreibausgangsbewertung bleiben bestehen.
+  Diese Diagnose erlaubt weder das Schließen eines fremden Editors noch einen
+  automatischen Wiederholungsversuch und beweist noch keine konkrete Ursache.
 - [x] Einen tatsächlich registrierten Qt-Delegate im `indexWidget()`-Inventar
   korrekt behandeln: Nur derselbe zuvor vollständig bewiesene Nr.-Editor am
   weiterhin aktuellen Modellindex in Spalte 0 darf bestehen bleiben. Andere

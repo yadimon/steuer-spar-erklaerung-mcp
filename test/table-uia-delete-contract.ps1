@@ -20,7 +20,7 @@ namespace Windows.Automation {
  }
  public class SelectionInfo {public bool IsSelected;}
  public class EditorRect {public bool IsEmpty;public double X=100,Y=100,Width=100,Height=20;}
- public class EditorInfo {public int ProcessId;public string ControlType,AutomationId;public bool IsOffscreen;public EditorRect BoundingRectangle=new EditorRect();}
+ public class EditorInfo {public int ProcessId;public string ControlType,AutomationId;public bool IsOffscreen,HasKeyboardFocus;public EditorRect BoundingRectangle=new EditorRect();}
  public class EditorNode {
   public EditorInfo Current=new EditorInfo();public string Id;public EditorNode Parent;
   public List<EditorNode> Children=new List<EditorNode>();
@@ -85,6 +85,10 @@ function Read-SSEUiaDeleteState {
  param($Binding,[switch]$AllowOwnEditor)
  if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'synthetic-provider-epoch-lost'}
  $script:reads++
+ if($script:editorMismatch -and $script:reads -eq 1){
+  $Binding.transaction.editorEvidence=[pscustomobject]@{rawEditorCount=1;focusAdded=$true}
+  throw 'The exact table contains an unaccounted editor.'
+ }
  $duration=$(if($script:reads -eq $script:slowRead){20000.0}else{1.0})
  $Binding.maxReadMs=[Math]::Max($Binding.maxReadMs,$duration)
  $Binding.maxRawMs=$(if($script:reads -eq $script:slowRawRead){2600.0}else{[Math]::Max($Binding.maxRawMs,1.0)})
@@ -153,6 +157,17 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
  try{$result=Invoke-SSEUiaTableDelete ([IntPtr]1) $process.Id $a $process}finally{$process.Dispose()}
  [pscustomobject]@{result=$result;keys=@([Windows.Forms.SendKeys]::Calls);reads=$script:reads;clicks=[SW]::Clicks;focusPreserved=$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS}
 }
+$script:editorMismatch=$true
+$diagnosed=Run (State $removed '100,00' $true)
+$script:editorMismatch=$false
+Same $diagnosed.result.error 'The exact table contains an unaccounted editor.' 'Diagnostics replaced the original editor refusal.'
+Same $diagnosed.result.phase 'initial' 'The editor refusal lost its transaction phase.'
+Same $diagnosed.result.mutationState.editorMismatch ([pscustomobject]@{rawEditorCount=1;focusAdded=$true}) 'The refusal dropped its value-free editor observations.'
+Same $diagnosed.result.mutationStarted $false 'An editor observation began deletion.'
+Same $diagnosed.result.outcomeUnknown $false 'A pre-input editor refusal became an unknown mutation.'
+Same $diagnosed.result.resultingState 'unchanged' 'The diagnosed no-input refusal claimed changed state.'
+Same $diagnosed.keys @() 'Editor diagnostics dispatched keyboard input.'
+Same $diagnosed.clicks 0 'Editor diagnostics clicked a row.'
 $success=Run (State $removed '100,00' $true)
 Assert $success.result.ok 'Exact one-row deletion was not accepted.'
 Same $success.keys @('^+{DEL}') 'A successful deletion was replayed or undone.'
@@ -257,6 +272,48 @@ $editorNode=New-Object Windows.Automation.EditorNode('Editor.1','Edit','Syntheti
 $raw=Get-SSEUiaDeleteRawEditors $table ([SW]::ProcessId) {$true} 128
 Same $raw.Count 1 'The active editor omitted by downward enumeration was not detected.'
 Same ($raw[0].GetRuntimeId() -join '.') 'Editor.1' 'The upward reader bound another editor.'
+$observation=@{}
+$observedRaw=Get-SSEUiaDeleteRawEditors $table ([SW]::ProcessId) {$true} 128 $observation
+Same $observedRaw.Count 1 'Editor diagnostics changed the raw editor inventory.'
+Same $observation.descendantCount 0 'An upward-only editor was labelled as a descendant.'
+Same $observation.focusAdded $true 'The omitted focused editor lost its observation source.'
+Same $observation.focusDepth 2 'The focused editor lost its exact upward table depth.'
+$editorNode.Current.HasKeyboardFocus=$true
+$snapshotEvidence=[pscustomobject]@{ok=$true;editorFree=$true;editorNodes=@()}
+$visibleEvidence=Get-SSEUiaDeleteEditorEvidence $snapshotEvidence $observedRaw $observation
+Same $visibleEvidence.rawEditorCount 1 'A visible omitted editor lost its evidence count.'
+Same $visibleEvidence.firstEditor.offscreen $false 'A visible editor was labelled offscreen.'
+Same $visibleEvidence.firstEditor.hasKeyboardFocus $true 'The editor focus observation was lost.'
+Same $visibleEvidence.firstEditor.positiveBounds $true 'A visible editor lost its positive bounds observation.'
+$editorNode.Current.IsOffscreen=$true;$editorNode.Current.HasKeyboardFocus=$false;$editorNode.Current.BoundingRectangle.IsEmpty=$true
+$hiddenObservation=@{}
+$hiddenRaw=Get-SSEUiaDeleteRawEditors $table ([SW]::ProcessId) {$true} 128 $hiddenObservation
+Same $hiddenRaw.Count 1 'A hidden editor with the exact focused ancestry disappeared from the inventory.'
+Same $hiddenObservation.descendantCount 0 'A hidden focused editor was labelled as a visible descendant.'
+Same $hiddenObservation.focusAdded $true 'The hidden focused editor lost its observation source.'
+Same $hiddenObservation.focusDepth 2 'The hidden focused editor lost its exact table depth.'
+$hiddenEvidence=Get-SSEUiaDeleteEditorEvidence $snapshotEvidence $hiddenRaw $hiddenObservation
+Same $hiddenEvidence.firstEditor.offscreen $true 'An offscreen editor was labelled visible.'
+Same $hiddenEvidence.firstEditor.hasKeyboardFocus $false 'An unfocused editor was labelled focused.'
+Same $hiddenEvidence.firstEditor.boundsEmpty $true 'Empty editor geometry was lost.'
+Assert (-not (Test-SSEUiaDeleteEditorAgreement $snapshotEvidence $hiddenRaw)) 'Diagnostics authorized a hidden pre-existing editor.'
+foreach($evidence in @($visibleEvidence,$hiddenEvidence)){
+ $text=$evidence|ConvertTo-Json -Depth 6 -Compress
+ Assert (-not $text.Contains('Synthetic.') -and -not $text.Contains('Editor.1') -and -not $text.Contains('Table.1')) 'Editor evidence leaked an automation identity.'
+ foreach($property in $evidence.firstEditor.PSObject.Properties){Assert ($property.Value -is [bool]) 'Editor evidence contains a non-boolean provider value.'}
+}
+$editorNode.Current.IsOffscreen=$false;$editorNode.Current.BoundingRectangle.IsEmpty=$false
+$staleEditor=[pscustomobject]@{}
+$staleEditor|Add-Member ScriptProperty Current {throw 'synthetic-sensitive-provider-error'}
+$staleEvidence=Get-SSEUiaDeleteEditorEvidence $snapshotEvidence @($staleEditor) $observation
+Same $staleEvidence.observationIncomplete $true 'A stale diagnostic provider replaced the refusal.'
+Assert (-not ($staleEvidence|ConvertTo-Json -Depth 6 -Compress).Contains('synthetic-sensitive-provider-error')) 'A raw provider error escaped into editor evidence.'
+$partialInformation=[pscustomobject]@{ControlType='Edit';HasKeyboardFocus=$true;BoundingRectangle=$editorNode.Current.BoundingRectangle}
+$partialInformation|Add-Member ScriptProperty IsOffscreen {throw 'synthetic-partial-provider-error'}
+$partialEvidence=Get-SSEUiaDeleteEditorEvidence $snapshotEvidence @([pscustomobject]@{Current=$partialInformation}) $observation
+Same $partialEvidence.observationIncomplete $true 'A failed provider property was silently projected as false.'
+Same $partialEvidence.firstEditor $null 'A partially stale provider produced misleading editor flags.'
+Assert (-not ($partialEvidence|ConvertTo-Json -Depth 6 -Compress).Contains('synthetic-partial-provider-error')) 'A partial getter failure leaked provider text.'
 [Windows.Automation.AutomationElement]::FocusedElement=$null
 for($index=0;$index -lt 2500;$index++){$cell=New-Object Windows.Automation.EditorNode(('Cell.'+$index),'DataItem','Synthetic.Table',[SW]::ProcessId);$cell.Parent=$table;$table.Children.Add($cell)}
 Same (Get-SSEUiaDeleteRawBound 1000 100) 101228 'The largest raw bound differs from the actual Grid dimensions.'
