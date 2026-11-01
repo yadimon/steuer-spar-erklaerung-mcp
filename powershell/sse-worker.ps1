@@ -12151,6 +12151,33 @@ function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArgum
   }
 }
 
+function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid) {
+  # Failure-only, value-free observations never authorize another action.
+  $result=[ordered]@{popupCount=-1;otherPopupCount=-1;state=-1;stateKnown=$false;
+    mainListed=$false;foregroundKnown=$false;foregroundIsMain=$false;observationIncomplete=$false}
+  try {
+    $result.popupCount=@(Get-SSEMenuPopupWindows $TargetPid).Count
+    $windows=@(Get-Windows 'SSE')
+    $result.mainListed=($TargetPid -gt 0 -and @($windows | Where-Object {
+      [int]$_.pid -eq $TargetPid -and [int64]$_.hwnd -eq [int64]$MainHwnd
+    }).Count -eq 1)
+    $result.otherPopupCount=@($windows | Where-Object {
+      [int]$_.pid -eq $TargetPid -and $_.cls -match 'Popup' -and $_.cls -notmatch 'PopupDropShadow|SysShadow'
+    }).Count
+  } catch {$result.observationIncomplete=$true}
+  try {
+    $state=$Pattern.Current.ExpandCollapseState
+    if($state -isnot [System.Windows.Automation.ExpandCollapseState]){throw 'Menu state is unavailable.'}
+    $result.state=[int]$state;$result.stateKnown=$true
+  } catch {$result.observationIncomplete=$true}
+  try {
+    $foreground=[SW]::GetForegroundWindow()
+    $result.foregroundKnown=($foreground -ne [IntPtr]::Zero)
+    $result.foregroundIsMain=($result.foregroundKnown -and $foreground -eq $MainHwnd)
+  } catch {$result.observationIncomplete=$true}
+  [pscustomobject]$result
+}
+
 function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   $tree = Walk-Tree $MainHwnd 1200
   $menus = @($tree.nodes | Where-Object {
@@ -12175,8 +12202,27 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$targetPid) | Out-Null
   # Bis das Menue aufgeklappt UND sein Popup sichtbar ist, hoechstens 700 ms.
   if (-not (Wait-SSEMenuPopup $pattern $targetPid $true 700)) {
-    try { if ($pattern) { $pattern.Collapse() } } catch { }
-    Fail "Menue '$MenuName' wurde nicht als offen bestaetigt." 'postcondition-failed'
+    $beforeCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid
+    $collapseReturned=$false;$closed=$false
+    try {$pattern.Collapse();$collapseReturned=$true} catch { }
+    try {$closed=Wait-SSEMenuPopup $null $targetPid $false 500} catch { }
+    $afterCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid
+    # Verified means closed in the observed, still-listed process; no action replay follows.
+    $cleanupVerified=[bool]($targetPid -gt 0 -and $afterCleanup.mainListed -and
+      $collapseReturned -and $closed -and $afterCleanup.popupCount -eq 0 -and
+      $afterCleanup.otherPopupCount -eq 0 -and $afterCleanup.stateKnown -and
+      $afterCleanup.state -eq [int][System.Windows.Automation.ExpandCollapseState]::Collapsed)
+    $evidence=[pscustomobject]@{beforeCleanup=$beforeCleanup;afterCleanup=$afterCleanup;
+      collapseReturned=$collapseReturned;closeObserved=[bool]$closed;cleanupVerified=$cleanupVerified}
+    $details=[pscustomobject]@{mutationState=[pscustomobject]@{menuOpenEvidence=$evidence};retryable=$false}
+    # Do not assert a compound caller's mutation state or clear its uncertainty.
+    # An unverified popup cleanup can only make reconciliation necessary.
+    if(-not $cleanupVerified){
+      $details|Add-Member NoteProperty cleanupRequired $true
+      $details|Add-Member NoteProperty outcomeUnknown $true
+      $details|Add-Member NoteProperty reconciliationRequired $true
+    }
+    Fail "Menue '$MenuName' wurde nicht als offen bestaetigt." 'postcondition-failed' $details
   }
   $menu
 }

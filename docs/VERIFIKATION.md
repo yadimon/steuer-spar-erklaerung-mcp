@@ -70,6 +70,16 @@ Fensterresolvergrenze aus. `qt-native-client.mjs` prüft zusätzlich die
 framed Fake-Peer-Grenze. Diese Tests belegen weder reale Feldbedienung noch
 eine allgemeine Gleichheit der QObject-Labelauflösung mit UIA-Schreibzielen.
 
+`receipt-manager-action-contract.ps1` prüft auch ein unbestätigtes
+Menüöffnen am tatsächlichen Helfer. Auf einen Öffnungsversuch folgt höchstens
+ein Zuklappen. Eine bestätigte Bereinigung verlangt eine positive Prozesskennung,
+das eindeutig zugehörige Hauptfenster, keine eigenen Popups und einen lesbaren
+geschlossenen Zustand. Fehlende Nachweise melden weiteren Klärungsbedarf; die
+ursprüngliche Fehlerursache bleibt erhalten und die Aktion wird nicht wiederholt.
+Die Diagnose enthält nur Zahlen und Wahrheitswerte. Der erfolgreiche Öffnungsweg
+führt keine zusätzlichen Diagnoseabfragen aus. Diese synthetischen Gegenproben
+belegen keine allgemeine Zuverlässigkeit des realen Menüöffnens.
+
 `table-native-mutation-contract.mjs` prüft die zusätzliche passive
 Runtime-ID-Zuordnung bei gleichen Zeilentexten vor jeder Fokus- oder
 Positionsaktion: ein Zuordnungsaufruf, weiterhin beide vollständigen

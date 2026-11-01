@@ -1676,3 +1676,119 @@ foreach ($producer in $postClearResults) {
   Assert-True ($details -ceq '$settleDetails' -or $details -match 'mutationStarted=\$mutationStarted') 'A real post-clear result omitted its mutation evidence.'
 }
 Write-Output 'VAT result dependency: actual clears, nonzero result construction and caller preserve unknown/mutation/interference evidence.'
+
+
+# Invoke the actual helpers with inert Windows boundaries. Every case checks
+# the same projection; successful opening must perform no cleanup/diagnostics.
+Add-Type -TypeDefinition @'
+namespace MenuOpenDiagnosticContract {
+ public static class Windows {
+  public static int ForegroundReads;
+  public static int TargetPid=42;
+  public static System.IntPtr GetForegroundWindow(){ForegroundReads++;return new System.IntPtr(11);}
+  public static uint GetWindowThreadProcessId(System.IntPtr window,out int pid){
+   if(window.ToInt64()!=11)throw new System.InvalidOperationException("Foreign test window");pid=TargetPid;return 1;
+  }
+ }
+}
+'@
+foreach($name in @('Get-SSEMenuPopupWindows','Get-SSEMenuOpenObservation','Open-SSEMenuByName')){
+  $text=Get-WorkerFunctionText $name
+  Invoke-Expression ($text.Replace('[SW]::','[MenuOpenDiagnosticContract.Windows]::'))
+}
+function Get-Windows {
+  $script:menuDiagWindowReads++
+  $script:menuDiagCase.mainWindows
+  [pscustomobject]@{pid=99;hwnd=99;cls='QtTestPopupDropShadow'}
+  $script:menuDiagPopups
+}
+function Walk-Tree {
+  [pscustomobject]@{nodes=@(
+    [pscustomobject]@{i=0;p=-1;type='MenuBar';name='Menu'},
+    [pscustomobject]@{i=1;p=0;type='MenuItem';name='Extras';rid='menu';x=0;on=$true})}
+}
+function Get-LiveElement {$script:menuDiagElement}
+function Fail {param($message,$kind,$details)
+  $script:menuDiagFailure=[pscustomobject]@{message=$message;kind=$kind;details=$details};throw 'MenuDiagnosticFailure'
+}
+function Wait-SSEMenuPopup {param($pattern,$targetPid,$opened,$timeoutMs)
+  $null=$script:menuDiagWaits.Add($timeoutMs)
+  Assert-True ($targetPid -eq $script:menuDiagCase.pid) 'Popup wait lost its exact process binding.'
+  $read=@{
+    'True'={Assert-True ($timeoutMs -eq 700) 'Open budget changed.';$script:menuDiagCase.opened}
+    'False'={Assert-True ($timeoutMs -eq 500 -and $null -eq $pattern) 'Cleanup lost its bounded popup-only readback.';& $script:menuDiagCase.closeRead}
+  }
+  & $read[[string]$opened]
+}
+function Assert-MenuNumericEvidence($value){
+  Assert-True ($null -ne $value -and $value -is [pscustomobject]) 'Missing menu evidence.'
+  foreach($p in $value.PSObject.Properties){
+    $leaf=@($p.Value.PSObject.Properties | Where-Object {$_.MemberType -eq 'NoteProperty'})
+    Assert-True ($p.Value -is [bool] -or $p.Value -is [int] -or $p.Value -is [long] -or
+      ($p.Value -is [pscustomobject] -and $leaf.Count -gt 0)) 'Menu evidence contains text, null or an unexpected value.'
+    @($p.Value | Where-Object {$_ -is [pscustomobject]}) | ForEach-Object {Assert-MenuNumericEvidence $_}
+  }
+}
+$main=[pscustomobject]@{pid=42;hwnd=11;cls='QtTestWindowIcon'}
+$popup=[pscustomobject]@{pid=42;hwnd=12;cls='QtTestPopupDropShadow'}
+$collapsed={[pscustomobject]@{ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Collapsed}}
+$noPopups={$script:menuDiagPopups=@()}
+$closedRead={$true}
+$flagNames=@('cleanupRequired','outcomeUnknown','reconciliationRequired')
+$failureFlags=@('cleanupRequired=True','outcomeUnknown=True','reconciliationRequired=True')
+$evidenceByCase=@{}
+$cases=@(
+  @{name='success';pid=42;mainWindows=@($main);opened=$true;expand={$script:menuDiagPopups=@($popup)};collapse=$noPopups;state=$collapsed;closeRead=$closedRead;
+    expected=@($false,1,0,'700',0,0,$null,$null,$null,$null,$null,$null,@())},
+  @{name='closed';pid=42;mainWindows=@($main);opened=$false;expand=$noPopups;collapse=$noPopups;state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$true,$true,$true,@())},
+  @{name='survives';pid=42;mainWindows=@($main);opened=$false;expand={$script:menuDiagPopups=@($popup)};collapse={$script:menuDiagPopups=@($popup)};state=$collapsed;closeRead={$false};
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='collapse-throws';pid=42;mainWindows=@($main);opened=$false;expand=$noPopups;collapse={throw 'Synthetic collapse failure'};state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='cleanup-read-throws';pid=42;mainWindows=@($main);opened=$false;expand=$noPopups;collapse=$noPopups;state=$collapsed;closeRead={throw 'Synthetic cleanup enumeration failure'};
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='state-unreadable';pid=42;mainWindows=@($main);opened=$false;expand=$noPopups;collapse=$noPopups;state={throw 'Synthetic unreadable state'};closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='reopened-after-close';pid=42;mainWindows=@($main);opened=$false;expand=$noPopups;collapse={$script:menuDiagPopups=@($popup)};state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='other-own-popup';pid=42;mainWindows=@($main,[pscustomobject]@{pid=42;hwnd=13;cls='QtTestPopup'});opened=$false;expand=$noPopups;collapse=$noPopups;state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='still-expanded';pid=42;mainWindows=@($main);opened=$false;expand=$noPopups;collapse=$noPopups;state={[pscustomobject]@{ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Expanded}};closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$true,$true,$failureFlags)},
+  @{name='pid-zero';pid=0;mainWindows=@($main);opened=$false;expand=$noPopups;collapse=$noPopups;state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$false,$false,$failureFlags)},
+  @{name='main-unlisted';pid=42;mainWindows=@();opened=$false;expand=$noPopups;collapse=$noPopups;state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$false,$false,$failureFlags)},
+  @{name='main-ambiguous';pid=42;mainWindows=@($main,$main);opened=$false;expand=$noPopups;collapse=$noPopups;state=$collapsed;closeRead=$closedRead;
+    expected=@($true,1,1,'700,500',2,4,'postcondition-failed',"Menue 'Extras' wurde nicht als offen bestaetigt.",$false,$false,$false,$false,$failureFlags)}
+)
+foreach($case in $cases){
+  $script:menuDiagCase=$case;$script:menuDiagPopups=@();$script:menuDiagFailure=$null
+  $script:menuDiagWaits=New-Object Collections.ArrayList
+  $script:menuDiagWindowReads=0
+  [MenuOpenDiagnosticContract.Windows]::ForegroundReads=0
+  [MenuOpenDiagnosticContract.Windows]::TargetPid=$case.pid
+  $script:menuDiagPattern=[pscustomobject]@{expands=0;collapses=0}
+  $script:menuDiagPattern|Add-Member ScriptProperty Current {& $script:menuDiagCase.state}
+  $script:menuDiagPattern|Add-Member ScriptMethod Expand {$this.expands++;& $script:menuDiagCase.expand}
+  $script:menuDiagPattern|Add-Member ScriptMethod Collapse {$this.collapses++;& $script:menuDiagCase.collapse}
+  $script:menuDiagElement=[pscustomobject]@{}
+  $script:menuDiagElement|Add-Member ScriptMethod GetCurrentPattern {param($p) $script:menuDiagPattern}
+  $raised=$false
+  try{$null=Open-SSEMenuByName ([IntPtr]11) 'Extras'}catch{$raised=$_.Exception.Message -ceq 'MenuDiagnosticFailure'}
+  $details=$script:menuDiagFailure.details;$evidence=$details.mutationState.menuOpenEvidence
+  $actual=@($raised,$script:menuDiagPattern.expands,$script:menuDiagPattern.collapses,
+    ($script:menuDiagWaits -join ','),[MenuOpenDiagnosticContract.Windows]::ForegroundReads,
+    $script:menuDiagWindowReads,$script:menuDiagFailure.kind,$script:menuDiagFailure.message,
+    $details.retryable,$evidence.cleanupVerified,$evidence.beforeCleanup.mainListed,$evidence.afterCleanup.mainListed,
+    @($details.PSObject.Properties | Where-Object {$_.Name -in $flagNames} | ForEach-Object {"$($_.Name)=$($_.Value)"}))
+  Assert-True (($actual|ConvertTo-Json -Depth 6 -Compress) -ceq ($case.expected|ConvertTo-Json -Depth 6 -Compress)) "Menu diagnostic case '$($case.name)' changed its action counts, error or cleanup evidence."
+  Assert-True (@($details.PSObject.Properties | Where-Object {$_.Name -eq 'mutationStarted'}).Count -eq 0) 'A menu helper asserted its compound caller mutation state.'
+  $evidenceByCase[$case.name]=$evidence
+}
+foreach($failureCase in @('closed','survives','collapse-throws','cleanup-read-throws','state-unreadable',
+  'reopened-after-close','other-own-popup','still-expanded','pid-zero','main-unlisted','main-ambiguous')){
+  Assert-MenuNumericEvidence $evidenceByCase[$failureCase]
+}
+Write-Output 'Menu failed opening: exact action counts, listed identity, checked cleanup and value-free diagnostics passed.'
