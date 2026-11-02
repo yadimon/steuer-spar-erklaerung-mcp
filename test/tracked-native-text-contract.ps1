@@ -200,7 +200,11 @@ function Test-SSELastInputUnchanged {
   $script:guardChecks++
   ($script:failGuard -ne $script:guardChecks) -and $Expected -eq [SW]::Tick
 }
-function Set-SSEForegroundLeaseInputCheckpoint { param($Tick, $Point) $script:checkpoints.Add($Tick) }
+function Set-SSEForegroundLeaseInputCheckpoint {
+  param($Tick, $Point)
+  $script:checkpoints.Add($Tick)
+  $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick=$Tick
+}
 function Complete-SSEPhysicalSection { param($Hwnd) $script:completed++ }
 function Start-Sleep {
   param($Milliseconds)
@@ -238,6 +242,10 @@ function Reset-TestState {
   $script:node = [pscustomobject]@{ rid='7.1'; aid='bound-field'; x=20; y=30; w=80; h=20 }
   [SW]::Value.Current.Value = 'before'; [SW]::Value.Current.IsReadOnly = $false
   [SW]::Events.Clear(); [SW]::LastText=$null; [SW]::Tick=1
+  # Receipt dispatcher fragments inherit the exact original compound lease.
+  # Standalone commits still use their own explicit input baseline.
+  $script:updateWatch=New-Object object
+  $script:SSE_FOREGROUND_LEASE=[pscustomobject]@{watch=$script:updateWatch;lastOwnedInputTick=[uint64]1}
   [SW]::Foreground=[IntPtr]7; [SW]::Valid=$true; [SW]::ForeignHit=$false; [SW]::Outcome='success'
   [SW]::Selected=$false; [SW]::QueuedModel=$false; [SW]::Pending=''
   [SW]::CursorAccepted=$true; [SW]::CursorReadable=$true; [SW]::CursorDrift=$false
@@ -588,8 +596,11 @@ foreach ($scenario in @(
   @{ value='before'; interference=$false; cleanup=$false; writes=0 },
   @{ value='requested'; interference=$false; cleanup=$false; writes=1 },
   @{ value='requested'; interference=$true; cleanup=$true; writes=0 }
+  @{ value='requested'; interference=$false; cleanup=$true; writes=0; leaseLost=$true }
+  @{ value='before'; interference=$false; cleanup=$true; writes=0; leaseLost=$true }
 )) {
   Reset-TestState; [SW]::Value.Current.Value=$scenario.value
+  if($scenario.leaseLost){$script:SSE_FOREGROUND_LEASE.watch=New-Object object}
   $transactions = @([pscustomobject]@{
     name='title'; kind='text'; before='before'; requested='requested'; changed=$false
     binding=[pscustomobject]@{ node=$script:node }
