@@ -169,7 +169,7 @@ Assert-True ($menuClickStart -ge 0 -and $menuClickEnd -gt $menuClickStart) `
 $menuClickBlock = $worker.Substring($menuClickStart, $menuClickEnd - $menuClickStart)
 foreach ($required in @(
   '$receiptPolicy = Get-SSEReceiptManagerPolicy',
-  '[string]$match.node.name -ceq [string]$receiptPolicy.title',
+  '(ConvertTo-MenuLabel $match.node.name) -ceq (ConvertTo-MenuLabel $receiptPolicy.title)',
   '[int]$_.pid -eq $targetPid',
   '[string]$_.cls -match [string]$receiptPolicy.classPattern',
   '$toolMatches.Count -eq 1',

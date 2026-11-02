@@ -65,7 +65,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   und Auswahl prüfen dieselben eigenen Popup-Fenster und lehnen unvollständige
   Bäume ab.
   Der BelegManager-Menüaufruf bestätigt sein Fenster innerhalb einer monotonen
-  Frist. Fehlender oder verlorener Nachweis nach dem exakt gebundenen Klick
+  Frist, auch bei Menütexten mit Tastenkürzeln. Fehlende Eingabemarken,
+  deaktivierte Einträge und bereits offene Zielfenster erlauben keinen Klick.
+  Fehlender oder verlorener Nachweis nach dem exakt gebundenen Klick
   bleibt unbekannt und erlaubt weder Wiederholung noch Menübereinigung.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem

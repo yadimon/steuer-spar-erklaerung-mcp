@@ -1224,11 +1224,18 @@ Bereinigung maßgeblich.
 `menu_click` bindet den physischen Klick an die frisch gelesene Runtime-ID des
 Menüeintrags und die ursprüngliche Eingabemarke. Beim katalogisierten
 BelegManager bestätigt erst genau ein Fenster mit passender Prozesskennung,
-Klasse und Titel den Erfolg innerhalb von `waitMs`. Fehlt dieser Nachweis,
+Klasse und Titel den Erfolg innerhalb von `waitMs`; es darf weder minimiert
+noch blockiert sein. Menütexte mit Zugriffstasten oder Tastenkürzeln verwenden
+denselben Nachweis. Ein bereits offener BelegManager oder unlesbarer
+Vorherzustand wird vor dem Klick mit `inputDispatched=false` abgewiesen.
+Fehlt dieser Nachweis,
 ist er mehrdeutig oder nicht lesbar, liefert die API nach dem bereits
 gesendeten Klick `postcondition-failed`, `outcomeUnknown=true` und
 `retryable=false`. Sie sendet weder einen zweiten Klick noch eine
 Menübereinigung. Die Wartefrist verwendet eine monotone Uhr.
+Eine vom Punkthelfer verweigerte Aktion übernimmt dessen Sendenachweis:
+`inputDispatched=false` ist bekannt ungesendet; `true` oder ein fehlender
+Nachweis (`null`) erhält einen unbekannten Ausgang. `retryable` bleibt `false`.
 Auch eine sichtbare `combo_select`-Auswahl aktiviert das gebundene Hauptfenster
 vor dem ersten `Expand`. Danach werden derselbe Knoten, AutomationId, Vorwert,
 Seite und die ursprüngliche Eingabemarke erneut geprüft. Liegt die Option in

@@ -24720,6 +24720,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (Test-Versand $eintrag) { Fail "GESPERRT: '$eintrag' fuehrt zu einer Uebermittlung." 'blocked' }
     Assert-SSEDestructiveAcknowledgement $a @($eintrag)
     $inputBaseline = Get-SSELastInputTick
+    if ($null -eq $inputBaseline) {
+      Fail 'Eingabemarke vor dem Menue-Klick nicht lesbar; nichts ausgeloest.' 'precondition-failed' ([pscustomobject]@{
+        inputDispatched=$false; outcomeUnknown=$false; retryable=$false
+      })
+    }
     $caseCreateSaveDialog = Arg $a '__caseCreateSaveDialog'
     $mainWindow = if ($null -ne $caseCreateSaveDialog) { Resolve-SSEMainWindowDescriptor $a }
       else { Resolve-SSEMainWindowDescriptor $a -RestoreMinimized }
@@ -24742,6 +24747,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (-not $gefunden.Count) { Fail "Menueeintrag '$eintrag' nicht gefunden. Vorher sse_menu aufrufen." 'not-found' }
     if ($gefunden.Count -ne 1) { Fail "$($gefunden.Count) Menueeintraege passen zu '$eintrag'; nichts ausgeloest." 'ambiguous' }
     $match = $gefunden[0]
+    if (-not [string]$match.node.rid -or $match.node.on -isnot [bool] -or -not $match.node.on) {
+      Fail 'Menueeintrag ist nicht eindeutig identifiziert und aktiv; nichts ausgeloest.' 'precondition-failed' ([pscustomobject]@{
+        inputDispatched=$false; outcomeUnknown=$false; retryable=$false
+      })
+    }
     if (Test-Versand $match.node.name) { Fail "GESPERRT: '$($match.node.name)' fuehrt zu einer Uebermittlung." 'blocked' }
     Assert-SSEDestructiveAcknowledgement $a @($match.node.name)
     $el = Get-LiveElement $match.hwnd $match.node.rid
@@ -24751,6 +24761,29 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # sofort zurueck und ist hier zugleich strenger an das sichtbare Popup
     # und die SSE-Prozess-ID gebunden.
     $receiptPolicy = Get-SSEReceiptManagerPolicy
+    $opensReceiptManager = (ConvertTo-MenuLabel $match.node.name) -ceq (ConvertTo-MenuLabel $receiptPolicy.title)
+    $receiptWindowMatches = {
+      param($Windows)
+      @($Windows | Where-Object {
+        [int]$_.pid -eq $targetPid -and
+        [string]$_.title -ceq [string]$receiptPolicy.title -and
+        [string]$_.cls -match [string]$receiptPolicy.classPattern -and
+        -not [bool]$_.minimiert -and -not [bool]$_.hung
+      })
+    }
+    if ($opensReceiptManager) {
+      try { $alreadyOpen = @(& $receiptWindowMatches @(Get-Windows 'SSE')) }
+      catch {
+        Fail 'Fensterzustand vor dem Menue-Klick nicht lesbar; nichts ausgeloest.' 'precondition-failed' ([pscustomobject]@{
+          inputDispatched=$false; outcomeUnknown=$false; retryable=$false
+        })
+      }
+      if ($alreadyOpen.Count) {
+        Fail 'BelegManager ist bereits offen; vorhandenes Fenster lesend abgleichen statt erneut ausloesen.' 'precondition-failed' ([pscustomobject]@{
+          inputDispatched=$false; outcomeUnknown=$false; retryable=$false
+        })
+      }
+    }
     $dirtyBefore = Get-DirtyStateFast $mainHwnd
     try {
       $null = Click-VerifiedPoint $match.hwnd $match.node $inputBaseline `
@@ -24766,17 +24799,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         reconciliationRequired=[bool]$unknown; cleanupRequired=[bool]$unknown
       })
     }
-    if ([string]$match.node.name -ceq [string]$receiptPolicy.title) {
+    if ($opensReceiptManager) {
       $toolWatch = [Diagnostics.Stopwatch]::StartNew()
       try {
         do {
           $toolWindows = @(Get-Windows 'SSE')
-          $toolMatches = @($toolWindows | Where-Object {
-            [int]$_.pid -eq $targetPid -and
-            [string]$_.title -ceq [string]$receiptPolicy.title -and
-            [string]$_.cls -match [string]$receiptPolicy.classPattern -and
-            -not [bool]$_.minimiert -and -not [bool]$_.hung
-          })
+          $toolMatches = @(& $receiptWindowMatches $toolWindows)
           if ($toolMatches.Count -eq 1 -or $toolWatch.ElapsedMilliseconds -ge $waitMs) { break }
           $remaining = $waitMs - [int]$toolWatch.ElapsedMilliseconds
           if ($remaining -gt 0) { Start-Sleep -Milliseconds ([Math]::Min(100, $remaining)) }
