@@ -115,6 +115,8 @@
         "searchAutomationIdSuffix": ".widget_mainWindowInfoBar.frame_container.lineEdit_suche",
         "primaryTextColumn": 2,
         "documentNumberColumn": 8,
+          "modifiedTimestampColumn": 6,
+          "modifiedTimestampHeader": "Geändert",
         "draftMarker": "*"
       },
       "controls": {

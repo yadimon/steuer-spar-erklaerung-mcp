@@ -23,6 +23,8 @@ export const receiptPolicySchema = z.object({
     searchAutomationIdSuffix: z.string().min(1),
     primaryTextColumn: z.number().int().nonnegative(),
     documentNumberColumn: z.number().int().nonnegative(),
+    modifiedTimestampColumn: z.number().int().nonnegative().optional(),
+    modifiedTimestampHeader: z.string().min(1).optional(),
     draftMarker: z.string().min(1),
   }).strict(),
   controls: z.object({
@@ -441,7 +443,7 @@ export async function executeQtNativeReceiptManagerList(
     physicalInputUsed: false,
     hinweis: list.rowsComplete
       ? "Alle vom BelegManager gezaehlten Zeilen sind im vollstaendigen Qt-Modell enthalten."
-      : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError}.`
+      : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError?.replace(/\.$/u, "")}.`
         + (list.rows.length === 0 ? " Ohne vollstaendigen Modellnachweis werden keine Zeilen zurueckgegeben." : ""),
     nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs!,
   };

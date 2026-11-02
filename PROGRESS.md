@@ -149,6 +149,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   UIA- und Qt-Listenreader binden auch verborgene Grid-Spalten und Belegnummern;
   die Detailansicht verändert die Datenbindung nicht allein durch ihr Layout.
   Unlesbare oder doppelt gebundene Zellen ergeben keine vollständige Liste.
+  Native Verknüpfungen bestätigen den profilierten Änderungszeitstempel jeder
+  geänderten Zeile zusammen mit Checkbox und Fußzeile vor dem nächsten Schritt.
+  Verlorene Ziele oder ungültige Antworten nach dem quittierten Klick erlauben
+  weder Anwenden noch Abbrechen.
   Interne Mehrfeldänderungen behalten ihre ursprüngliche Lease über Text,
   USt-Auswahl und Checkbox. Einzelne Textabschlüsse bleiben sofort freigegeben.
   Der USt-Auswahlhelfer liest vor seiner No-op-Bestätigung den gebundenen

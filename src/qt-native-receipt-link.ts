@@ -10,7 +10,7 @@ import { fail, receiptFingerprint, receiptState } from "./qt-native-receipts.js"
 import { cancelKnownReceiptLinkTransfer } from "./qt-native-receipt-link-dialog.js";
 import {
   checkedLinkRow, exactLinkControl, linkListIdentity, linkRowIdentity, linkStatesEqual, linkTimestampTransition, projectLinkMode,
-  receiptLinkPolicySchema, ReceiptLinkError, resolveLinkRow, type LinkItem, type LinkMode, type LinkSnapshot,
+  receiptLinkPolicySchema, receiptModifiedTimestamp, ReceiptLinkError, resolveLinkRow, type LinkItem, type LinkMode, type LinkSnapshot,
 } from "./qt-native-receipt-link-projection.js";
 
 /** One exact Qt staging/apply/reopen cycle; a receipt acknowledgment never substitutes for persistence. */
@@ -109,15 +109,22 @@ export async function executeQtNativeReceiptManagerLink(
     if (node.type !== "Button") throw new ReceiptLinkError("The exact link action is not a button.", "profile-contract");
     return dispatch(snapshot, node, "press", toolTitle, {}, persistent);
   };
-  const poll = async <T>(read: () => Promise<T | null>, message: string): Promise<T> => {
+  const poll = async <T>(read: () => Promise<T | null>, message: string, unknownOnFailure = false): Promise<T> => {
     const deadline = performance.now() + Math.min(waitMs, budget());
     do {
-      const value = await read();
+      let value: T | null;
+      try { value = await read(); }
+      catch (error) {
+        if (unknownOnFailure && !(error instanceof QtNativeTransportError))
+          throw new ReceiptLinkError(error instanceof Error ? error.message : String(error),
+            error instanceof ReceiptLinkError ? error.kind : "native-contract", true);
+        throw error;
+      }
       if (value !== null) return value;
       if (performance.now() >= deadline) break;
       await delay(Math.min(25, Math.max(1, deadline - performance.now())), undefined, { signal });
     } while (performance.now() < deadline);
-    throw new ReceiptLinkError(message);
+    throw new ReceiptLinkError(message, "postcondition-failed", unknownOnFailure);
   };
   const readMode = async () => {
     const mode = projectLinkMode(await toolRead(), policy, args.expectedLinkTarget);
@@ -209,11 +216,15 @@ export async function executeQtNativeReceiptManagerLink(
       if (!fresh || linkListIdentity(fresh.list, policy) !== identityBefore || !linkStatesEqual(fresh, expectedStates))
         throw new ReceiptLinkError("Receipt content or link states changed outside this transaction; no further edit dispatched.", "stale", true);
       const item = items[index]!, row = resolveLinkRow(fresh, item), cell = row.cells[link.rowToggleColumn]!;
+      const timestamp = receiptModifiedTimestamp(fresh, row, policy);
+      if (!timestamp || timestamp.time > Date.now() + 1000)
+        throw new ReceiptLinkError("The profiled receipt modification timestamp is not readable and current; no checkbox edit dispatched.", "profile-contract");
       const targets = fresh.snapshot.nodes.filter(node => node.rid === cell.rid && node.type === "DataItem"
         && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.on && node.w > 0 && node.h > 0);
       if (targets.length !== 1) throw new ReceiptLinkError("The exact receipt link cell is not unique and visible.", "stale");
       const previousStates = new Map([...expectedStates].map(([identity, states]) => [identity, [...states]]));
       const previousCount = expectedCount;
+      const commitStartedMs = Date.now();
       toggleClicks.push(await dispatch(fresh.snapshot, targets[0]!, "set-table-check-state", policy.title, {
         expectedChecked: checkedLinkRow(row, policy), checked: item.linked,
         titleColumn: policy.list.primaryTextColumn, expectedRowTitle: item.expectedReceiptTitle,
@@ -224,7 +235,7 @@ export async function executeQtNativeReceiptManagerLink(
         const candidate = await readMode();
         if (!candidate) return null;
         if (linkListIdentity(candidate.list, policy) !== identityBefore) {
-          const transition = linkTimestampTransition(fresh, candidate, item, policy);
+          const transition = linkTimestampTransition(fresh, candidate, item, policy, commitStartedMs);
           const nextStates = transition?.rekey(expectedStates), priorStates = transition?.rekey(previousStates);
           if (transition && nextStates && candidate.footerCount === expectedCount && linkStatesEqual(candidate, nextStates)) {
             identityBefore = transition.identity; expectedStates = nextStates;
@@ -233,10 +244,12 @@ export async function executeQtNativeReceiptManagerLink(
           if (priorStates && candidate.footerCount === previousCount && linkStatesEqual(candidate, priorStates)) return null;
           throw new ReceiptLinkError("Receipt content changed during the exact link checkbox commit.", "stale", true);
         }
-        if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return candidate;
+        // This profiled commit also advances the receipt timestamp. Wait for
+        // its own model callback before another write or Apply can begin.
+        if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return null;
         if (candidate.footerCount === previousCount && linkStatesEqual(candidate, previousStates)) return null;
         throw new ReceiptLinkError("Other receipt link states changed during the exact checkbox commit; no further action dispatched.", "stale", true);
-      }, "The exact receipt checkbox and footer did not reach the requested staged state; do not replay.");
+      }, "The exact receipt checkbox, modification timestamp and footer did not reach the requested staged state; do not replay.", true);
     }
     const mainBeforeApply = await mainRead();
     if (mainBeforeApply.dirty !== dirtyBefore)

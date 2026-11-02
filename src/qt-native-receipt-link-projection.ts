@@ -53,22 +53,28 @@ export function linkListIdentity(list: ReceiptListProjection, policy: ReceiptLin
   return receiptFingerprint({ count: list.count, rows: list.rows.map(row => linkRowIdentity(row, policy)).sort() });
 }
 
+export function receiptModifiedTimestamp(mode: LinkMode, row: ReceiptRow, policy: ReceiptLinkPolicy) {
+  const column = policy.list.modifiedTimestampColumn, header = policy.list.modifiedTimestampHeader;
+  if (column === undefined || !header || mode.snapshot.tableProof?.headers[column] !== header) return null;
+  const value = row.cells[column]?.name;
+  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+  if (!value || !iso.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) return null;
+  return { column, value, time: Date.parse(value) };
+}
+
 /** Only an acknowledged own checkbox commit may advance its row's modified
  * timestamp. Every other logical cell and every other row stays exactly bound. */
-export function linkTimestampTransition(before: LinkMode, after: LinkMode, item: LinkItem, policy: ReceiptLinkPolicy) {
-  const column = 6;
-  if (before.snapshot.hwnd !== after.snapshot.hwnd
-    || before.snapshot.tableProof?.headers[column] !== "Geändert"
-    || after.snapshot.tableProof?.headers[column] !== "Geändert") return null;
-  const previous = resolveLinkRow(before, item), next = resolveLinkRow(after, item);
+export function linkTimestampTransition(before: LinkMode, after: LinkMode, item: LinkItem, policy: ReceiptLinkPolicy,
+  commitStartedMs: number) {
+  if (before.snapshot.hwnd !== after.snapshot.hwnd) return null;
+  let previous: ReceiptRow, next: ReceiptRow;
+  try { previous = resolveLinkRow(before, item); next = resolveLinkRow(after, item); }
+  catch (error) { if (error instanceof ReceiptLinkError) return null; throw error; }
   if (previous.rowRid !== next.rowRid || previous.cells.length !== next.cells.length) return null;
-  const oldValue = previous.cells[column]?.name, newValue = next.cells[column]?.name;
-  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-  if (!oldValue || !newValue || oldValue === newValue || !iso.test(oldValue) || !iso.test(newValue)
-    || !Number.isFinite(Date.parse(oldValue)) || !Number.isFinite(Date.parse(newValue))
-    || new Date(oldValue).toISOString() !== oldValue || new Date(newValue).toISOString() !== newValue
-    || Date.parse(newValue) < Date.parse(oldValue)) return null;
-  const restored = { ...next, cells: next.cells.map((cell, index) => index === column ? { ...cell, name: oldValue } : cell) };
+  const oldStamp = receiptModifiedTimestamp(before, previous, policy), newStamp = receiptModifiedTimestamp(after, next, policy);
+  if (!oldStamp || !newStamp || oldStamp.value === newStamp.value || newStamp.time < oldStamp.time
+    || newStamp.time < commitStartedMs - 1000 || newStamp.time > Date.now() + 1000) return null;
+  const restored = { ...next, cells: next.cells.map((cell, index) => index === oldStamp.column ? { ...cell, name: oldStamp.value } : cell) };
   const normalized = { ...after.list, rows: after.list.rows.map(row => row === next ? restored : row) };
   if (linkListIdentity(normalized, policy) !== linkListIdentity(before.list, policy)) return null;
   const oldKey = linkRowIdentity(previous, policy), newKey = linkRowIdentity(next, policy);

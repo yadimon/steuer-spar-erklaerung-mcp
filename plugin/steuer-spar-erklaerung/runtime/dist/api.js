@@ -30951,7 +30951,7 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     matchesComplete: matchedCount <= limit,
     ungespeichert: dirtyState2.dirty,
     physicalInputUsed: false,
-    hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im vollstaendigen Qt-Modell enthalten." : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError}.` + (list.rows.length === 0 ? " Ohne vollstaendigen Modellnachweis werden keine Zeilen zurueckgegeben." : ""),
+    hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im vollstaendigen Qt-Modell enthalten." : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError?.replace(/\.$/u, "")}.` + (list.rows.length === 0 ? " Ohne vollstaendigen Modellnachweis werden keine Zeilen zurueckgegeben." : ""),
     nativeDurationMs: tool.nativeDurationMs + dirtyState2.durationMs
   };
 }
@@ -30980,6 +30980,8 @@ var init_qt_native_receipts = __esm({
         searchAutomationIdSuffix: external_exports.string().min(1),
         primaryTextColumn: external_exports.number().int().nonnegative(),
         documentNumberColumn: external_exports.number().int().nonnegative(),
+        modifiedTimestampColumn: external_exports.number().int().nonnegative().optional(),
+        modifiedTimestampHeader: external_exports.string().min(1).optional(),
         draftMarker: external_exports.string().min(1)
       }).strict(),
       controls: external_exports.object({
@@ -31743,15 +31745,28 @@ function linkRowIdentity(row, policy) {
 function linkListIdentity(list, policy) {
   return receiptFingerprint({ count: list.count, rows: list.rows.map((row) => linkRowIdentity(row, policy)).sort() });
 }
-function linkTimestampTransition(before, after, item, policy) {
-  const column = 6;
-  if (before.snapshot.hwnd !== after.snapshot.hwnd || before.snapshot.tableProof?.headers[column] !== "Geändert" || after.snapshot.tableProof?.headers[column] !== "Geändert") return null;
-  const previous = resolveLinkRow(before, item), next = resolveLinkRow(after, item);
-  if (previous.rowRid !== next.rowRid || previous.cells.length !== next.cells.length) return null;
-  const oldValue = previous.cells[column]?.name, newValue = next.cells[column]?.name;
+function receiptModifiedTimestamp(mode, row, policy) {
+  const column = policy.list.modifiedTimestampColumn, header = policy.list.modifiedTimestampHeader;
+  if (column === void 0 || !header || mode.snapshot.tableProof?.headers[column] !== header) return null;
+  const value = row.cells[column]?.name;
   const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-  if (!oldValue || !newValue || oldValue === newValue || !iso.test(oldValue) || !iso.test(newValue) || !Number.isFinite(Date.parse(oldValue)) || !Number.isFinite(Date.parse(newValue)) || new Date(oldValue).toISOString() !== oldValue || new Date(newValue).toISOString() !== newValue || Date.parse(newValue) < Date.parse(oldValue)) return null;
-  const restored = { ...next, cells: next.cells.map((cell, index) => index === column ? { ...cell, name: oldValue } : cell) };
+  if (!value || !iso.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) return null;
+  return { column, value, time: Date.parse(value) };
+}
+function linkTimestampTransition(before, after, item, policy, commitStartedMs) {
+  if (before.snapshot.hwnd !== after.snapshot.hwnd) return null;
+  let previous, next;
+  try {
+    previous = resolveLinkRow(before, item);
+    next = resolveLinkRow(after, item);
+  } catch (error62) {
+    if (error62 instanceof ReceiptLinkError) return null;
+    throw error62;
+  }
+  if (previous.rowRid !== next.rowRid || previous.cells.length !== next.cells.length) return null;
+  const oldStamp = receiptModifiedTimestamp(before, previous, policy), newStamp = receiptModifiedTimestamp(after, next, policy);
+  if (!oldStamp || !newStamp || oldStamp.value === newStamp.value || newStamp.time < oldStamp.time || newStamp.time < commitStartedMs - 1e3 || newStamp.time > Date.now() + 1e3) return null;
+  const restored = { ...next, cells: next.cells.map((cell, index) => index === oldStamp.column ? { ...cell, name: oldStamp.value } : cell) };
   const normalized2 = { ...after.list, rows: after.list.rows.map((row) => row === next ? restored : row) };
   if (linkListIdentity(normalized2, policy) !== linkListIdentity(before.list, policy)) return null;
   const oldKey = linkRowIdentity(previous, policy), newKey = linkRowIdentity(next, policy);
@@ -32035,15 +32050,26 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
     if (node2.type !== "Button") throw new ReceiptLinkError("The exact link action is not a button.", "profile-contract");
     return dispatch(snapshot, node2, "press", toolTitle, {}, persistent);
   };
-  const poll = async (read, message) => {
+  const poll = async (read, message, unknownOnFailure = false) => {
     const deadline = performance.now() + Math.min(waitMs, budget());
     do {
-      const value = await read();
+      let value;
+      try {
+        value = await read();
+      } catch (error62) {
+        if (unknownOnFailure && !(error62 instanceof QtNativeTransportError))
+          throw new ReceiptLinkError(
+            error62 instanceof Error ? error62.message : String(error62),
+            error62 instanceof ReceiptLinkError ? error62.kind : "native-contract",
+            true
+          );
+        throw error62;
+      }
       if (value !== null) return value;
       if (performance.now() >= deadline) break;
       await delay6(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
     } while (performance.now() < deadline);
-    throw new ReceiptLinkError(message);
+    throw new ReceiptLinkError(message, "postcondition-failed", unknownOnFailure);
   };
   const readMode = async () => {
     const mode = projectLinkMode(await toolRead(), policy, args.expectedLinkTarget);
@@ -32186,10 +32212,14 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
       if (!fresh || linkListIdentity(fresh.list, policy) !== identityBefore || !linkStatesEqual(fresh, expectedStates))
         throw new ReceiptLinkError("Receipt content or link states changed outside this transaction; no further edit dispatched.", "stale", true);
       const item = items[index], row = resolveLinkRow(fresh, item), cell = row.cells[link.rowToggleColumn];
+      const timestamp = receiptModifiedTimestamp(fresh, row, policy);
+      if (!timestamp || timestamp.time > Date.now() + 1e3)
+        throw new ReceiptLinkError("The profiled receipt modification timestamp is not readable and current; no checkbox edit dispatched.", "profile-contract");
       const targets = fresh.snapshot.nodes.filter((node2) => node2.rid === cell.rid && node2.type === "DataItem" && node2.aid.endsWith(policy.list.tableAutomationIdSuffix) && node2.on && node2.w > 0 && node2.h > 0);
       if (targets.length !== 1) throw new ReceiptLinkError("The exact receipt link cell is not unique and visible.", "stale");
       const previousStates = new Map([...expectedStates].map(([identity, states]) => [identity, [...states]]));
       const previousCount = expectedCount;
+      const commitStartedMs = Date.now();
       toggleClicks.push(await dispatch(fresh.snapshot, targets[0], "set-table-check-state", policy.title, {
         expectedChecked: checkedLinkRow(row, policy),
         checked: item.linked,
@@ -32202,7 +32232,7 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
         const candidate = await readMode();
         if (!candidate) return null;
         if (linkListIdentity(candidate.list, policy) !== identityBefore) {
-          const transition = linkTimestampTransition(fresh, candidate, item, policy);
+          const transition = linkTimestampTransition(fresh, candidate, item, policy, commitStartedMs);
           const nextStates = transition?.rekey(expectedStates), priorStates = transition?.rekey(previousStates);
           if (transition && nextStates && candidate.footerCount === expectedCount && linkStatesEqual(candidate, nextStates)) {
             identityBefore = transition.identity;
@@ -32212,10 +32242,10 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
           if (priorStates && candidate.footerCount === previousCount && linkStatesEqual(candidate, priorStates)) return null;
           throw new ReceiptLinkError("Receipt content changed during the exact link checkbox commit.", "stale", true);
         }
-        if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return candidate;
+        if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return null;
         if (candidate.footerCount === previousCount && linkStatesEqual(candidate, previousStates)) return null;
         throw new ReceiptLinkError("Other receipt link states changed during the exact checkbox commit; no further action dispatched.", "stale", true);
-      }, "The exact receipt checkbox and footer did not reach the requested staged state; do not replay.");
+      }, "The exact receipt checkbox, modification timestamp and footer did not reach the requested staged state; do not replay.", true);
     }
     const mainBeforeApply = await mainRead();
     if (mainBeforeApply.dirty !== dirtyBefore)

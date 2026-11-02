@@ -101,10 +101,16 @@ Titel, Zeilen-Runtime-ID und Entwurfskennzeichen stammen aus der profilierten
 Titelspalte. Ein Text in einer führenden verborgenen Spalte ersetzt diese
 Identität nicht. Beim nativen Verknüpfen darf nach einem quittierten eigenen
 Checkbox-Commit nur der bekannte Änderungszeitstempel des exakt gebundenen
-Zielbelegs fortschreiten. Die Brücke prüft dazu die Spaltenbindung und alle
-anderen Zellen und Zeilen. Erst der bestätigte Checkbox- und Fußzeilenzustand
-übernimmt den neuen Zeitstempel für die nächsten Prüfungen. Eine Änderung vor
+Zielbelegs fortschreiten. Die API prüft dazu die profilierte Spaltenbindung und
+alle anderen Zellen und Zeilen. Checkbox, Zeitstempel und Fußzeile müssen
+gemeinsam bestätigt sein, bevor eine weitere Änderung oder Anwenden beginnt.
+Getrennte Modell-Callbacks werden innerhalb derselben Frist nachgelesen.
+Eine Änderung vor
 dem eigenen Commit oder an einem anderen Beleg bleibt ein Fehler.
+Ausbleibende Bestätigung oder ein verlorenes Ziel nach dem quittierten Commit
+bleiben unbekannt; weder Anwenden noch Abbrechen wird dann nachgeschickt.
+Wiederöffnen muss den bestätigten Zeitstempel unverändert aus dem Speicher
+lesen. Eine weitere Änderung beim Anwenden bestätigt keine Persistenz.
 
 ## Tabellen und geschützte Cursorwege
 

@@ -18,8 +18,8 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "8033e1651f34335315ea8a4bd1201a6502628cc11026180759a2af729001d4ba",
-      "size": 1772221
+      "sha256": "028aef45b36e4ec60ec9376b1007d5b7036d12bdebbbacef77e36dd3a4379745",
+      "size": 1773634
     },
     {
       "path": "dist/mcp.js",
@@ -173,8 +173,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "ea60fb5606e53af73b7bf3b01734cf992bde20307fc350c4de6a8652ddca5842",
-      "size": 142517
+      "sha256": "5aa18a7f977045e1ebe6196f83fe8fd1d466fd8d90c8a584d5b91f6472ed6c70",
+      "size": 142607
     },
     {
       "path": "profiles/2025/profile.json",
