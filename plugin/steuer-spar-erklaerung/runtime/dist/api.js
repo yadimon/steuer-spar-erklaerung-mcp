@@ -31826,6 +31826,10 @@ var init_qt_native_receipt_link_projection = __esm({
     init_qt_native_receipts();
     receiptLinkPolicySchema = receiptPolicySchema.extend({
       classPattern: external_exports.string().min(1).max(256),
+      list: receiptPolicySchema.shape.list.extend({
+        modifiedTimestampColumn: external_exports.number().int().nonnegative(),
+        modifiedTimestampHeader: external_exports.string().min(1)
+      }),
       controls: receiptPolicySchema.shape.controls.extend({
         linkManagement: external_exports.object({
           mainToolbarAutomationIdSuffix: external_exports.string().min(1),

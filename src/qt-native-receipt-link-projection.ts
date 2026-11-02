@@ -5,6 +5,10 @@ import { receiptFingerprint, receiptList, receiptPolicySchema, receiptState, typ
 
 export const receiptLinkPolicySchema = receiptPolicySchema.extend({
   classPattern: z.string().min(1).max(256),
+  list: receiptPolicySchema.shape.list.extend({
+    modifiedTimestampColumn: z.number().int().nonnegative(),
+    modifiedTimestampHeader: z.string().min(1),
+  }),
   controls: receiptPolicySchema.shape.controls.extend({
     linkManagement: z.object({
       mainToolbarAutomationIdSuffix: z.string().min(1), startTargetAutomationIdSuffix: z.string().min(1),

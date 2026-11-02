@@ -99,9 +99,9 @@ werden; ein unvollständiger sichtbarer Baum ersetzt ihn nicht.
 
 Titel, Zeilen-Runtime-ID und Entwurfskennzeichen stammen aus der profilierten
 Titelspalte. Ein Text in einer führenden verborgenen Spalte ersetzt diese
-Identität nicht. Beim nativen Verknüpfen darf nach einem quittierten eigenen
-Checkbox-Commit nur der bekannte Änderungszeitstempel des exakt gebundenen
-Zielbelegs fortschreiten. Die API prüft dazu die profilierte Spaltenbindung und
+Identität nicht. Beim nativen Verknüpfen muss nach einem quittierten eigenen
+Checkbox-Commit der bekannte Änderungszeitstempel des exakt gebundenen
+Zielbelegs fortgeschritten sein. Die API prüft dazu die profilierte Spaltenbindung und
 alle anderen Zellen und Zeilen. Checkbox, Zeitstempel und Fußzeile müssen
 gemeinsam bestätigt sein, bevor eine weitere Änderung oder Anwenden beginnt.
 Getrennte Modell-Callbacks werden innerhalb derselben Frist nachgelesen.

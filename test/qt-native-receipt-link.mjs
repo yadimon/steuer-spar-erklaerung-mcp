@@ -56,7 +56,8 @@ function fixture(options = {}) {
   let staged = [...persisted], managerHwnd = options.alreadyOpen ? 84 : null;
   let opens = 0, state = "start", dirty = false, edited = false, applied = false, transfer = false;
   let footerLag = false, readCount = 0, listReads = 0;
-  const timestamps = rows.map(() => "2025-01-01T00:00:00.000Z"), pendingTimestamps = new Map();
+  const timestamps = rows.map(() => options.initialFutureTimestamp ? new Date(Date.now() + 60_000).toISOString()
+    : options.initialTimestamp ?? "2025-01-01T00:00:00.000Z"), pendingTimestamps = new Map();
   let timestampUpdates = 0;
   const nodeBuilder = hwnd => {
     const nodes = [];
@@ -121,10 +122,16 @@ function fixture(options = {}) {
     add("Button", "Abbrechen", "dialog.cancel");
     return nodes;
   };
-  const activeProfile = options.transfer === "known" ? { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog,
+  let activeProfile = options.transfer === "known" ? { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog,
     windows: { ...profile.pageObjectsCatalog.windows, receiptManager: { ...policy, linkValueTransferDialog: {
       ...policy.linkValueTransferDialog, fingerprints: [receiptLinkDialogFingerprint(policy.linkValueTransferDialog.title, dialogNodes())],
     } } } } } : profile;
+  if (options.noTimestampPolicy) {
+    const list = { ...policy.list }; delete list.modifiedTimestampColumn; delete list.modifiedTimestampHeader;
+    activeProfile = { ...activeProfile, pageObjectsCatalog: { ...activeProfile.pageObjectsCatalog,
+      windows: { ...activeProfile.pageObjectsCatalog.windows,
+        receiptManager: { ...activeProfile.pageObjectsCatalog.windows.receiptManager, list } } } };
+  }
   const inventory = () => {
     const descriptor = (hwnd, title) => ({ hwnd, title, pid: 99, class: "Qt692QWindow", order: hwnd,
       x: 0, y: 0, w: 1000, h: 600, minimized: false, hung: false });
@@ -184,6 +191,7 @@ function fixture(options = {}) {
         if (!options.noTimestampUpdate) pendingTimestamps.set(rowIndex, { remaining: options.modifiedLagReads ?? 0,
           value: options.invalidModified ? "unreadable" : options.backwardModified ? "2024-12-31T00:00:00.000Z"
             : options.invalidCalendarModified ? "2025-02-30T00:00:00.000Z"
+              : options.staleAdvancingModified ? "2025-01-02T00:00:00.000Z"
               : new Date(Date.now() + (options.futureModified ? 60_000 : 0)).toISOString() });
         if (options.foreignState) staged[1] = !staged[1];
         if (options.lostAcknowledgment) throw new QtNativeAcknowledgmentError("Acknowledgment lost", "native-ack",
@@ -234,16 +242,31 @@ for (const options of [{}, { footerLag: true }, { rows: [
   if (options.transfer) assert.equal(result.applyClick.valueTransferCancelled, true);
 }
 
-for (const options of [{ otherModifiedAfterEdit: true }, { modifiedBeforeEdit: true },
-  { modifiedAfterEdit: true, createdAfterEdit: true }, { modifiedAfterEdit: true, invalidModified: true },
-  { modifiedAfterEdit: true, backwardModified: true }, { modifiedAfterEdit: true, invalidCalendarModified: true },
-  { futureModified: true }, { noTimestampUpdate: true }, { wrongModifiedHeader: true }]) {
+for (const options of [{ modifiedBeforeEdit: true }, { wrongModifiedHeader: true },
+  { initialTimestamp: "" }, { initialFutureTimestamp: true }]) {
   const test = fixture(options), result = await test.run();
   assert.equal(result.ok, false, JSON.stringify(options));
   assert.equal(test.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 0);
   assert.deepEqual(test.persisted, [false, true]);
-  if (options.modifiedBeforeEdit) assert.equal(test.actions.filter(action => action.action === "set-table-check-state").length, 0);
+  assert.equal(test.actions.filter(action => action.action === "set-table-check-state").length, 0);
 }
+const absentTimestampPolicy = fixture({ noTimestampPolicy: true });
+assert.equal((await absentTimestampPolicy.run()).kind, "invalid-catalog");
+assert.equal(absentTimestampPolicy.readCount, 0); assert.deepEqual(absentTimestampPolicy.actions, []);
+
+// This supported profile exposes milliseconds, including edits in one second.
+// Equal timestamps remain unproven; do not hide them with a fixed one-second wait.
+const actualNow = Date.now, fixedNow = Date.parse("2025-08-01T12:00:00.500Z");
+try {
+  Date.now = () => fixedNow;
+  const subsecond = fixture({ initialTimestamp: "2025-08-01T12:00:00.490Z" });
+  assert.equal((await subsecond.run()).ok, true, "Different millisecond stamps in one second must commit without an artificial wait");
+  const equalStamp = fixture({ initialTimestamp: new Date(fixedNow).toISOString() });
+  const equalResult = await equalStamp.run();
+  assert.equal(equalResult.ok, false); assert.equal(equalResult.outcomeUnknown, true); assert.equal(equalResult.cleanupRequired, true);
+  assert.equal(equalStamp.actions.filter(action => action.action === "set-table-check-state").length, 1);
+  assert(!equalStamp.actions.some(action => action.aid.endsWith(link.applyAutomationIdSuffix) || action.aid.endsWith(link.cancelAutomationIdSuffix)));
+} finally { Date.now = actualNow; }
 
 const noOp = fixture();
 const noOpResult = await noOp.run({ items: [{ expectedReceiptTitle: "Synthetic receipt", linked: false }] });
@@ -316,6 +339,8 @@ assert.equal(rejectedResult.cleanupRequired, false); assert.equal(rejectedResult
 assert.equal(rejected.managerHwnd, null); assert.deepEqual(rejected.persisted, [false, true]);
 
 for (const options of [{ lostAcknowledgment: true }, { foreignState: true }, { contentDrift: true },
+  { otherModifiedAfterEdit: true }, { createdAfterEdit: true }, { invalidModified: true },
+  { backwardModified: true }, { invalidCalendarModified: true }, { futureModified: true }, { staleAdvancingModified: true },
   { targetContentDrift: true }, { duplicateTargetAfterEdit: true }, { noTimestampUpdate: true },
   { unreadableToggleAfterEdit: true }, { obstructedAfterEdit: true },
   { malformedSnapshotAfterEdit: true },
