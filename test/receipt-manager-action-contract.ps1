@@ -1685,7 +1685,8 @@ namespace MenuOpenDiagnosticContract {
  public static class Windows {
   public static int ForegroundReads;
   public static int TargetPid=42;
-  public static System.IntPtr GetForegroundWindow(){ForegroundReads++;return new System.IntPtr(11);}
+  public static System.IntPtr Foreground=new System.IntPtr(11);
+  public static System.IntPtr GetForegroundWindow(){ForegroundReads++;return Foreground;}
   public static uint GetWindowThreadProcessId(System.IntPtr window,out int pid){
    if(window.ToInt64()!=11)throw new System.InvalidOperationException("Foreign test window");pid=TargetPid;return 1;
   }
@@ -1799,3 +1800,30 @@ $brokenMenu=[pscustomobject]@{Current=[pscustomobject]@{IsEnabled=$true;HasKeybo
 $partial=Get-SSEMenuOpenObservation $script:menuDiagPattern ([IntPtr]11) 42 $brokenMenu
 Assert-True ($partial.observationIncomplete -and $null -eq $partial.menuEnabled) 'A stale menu getter produced misleading booleans.'
 Assert-MenuNumericEvidence $partial
+
+Invoke-Expression ((Get-WorkerFunctionText 'Enter-SSEMenuForeground').Replace('[SW]::','[MenuOpenDiagnosticContract.Windows]::'))
+function Get-SSELastInputTick {$script:menuForegroundTick}
+function Test-SSELastInputUnchanged($tick){$null -ne $tick -and $tick -eq $script:menuForegroundTick}
+function Show-SSEWindow($window){
+ $script:menuForegroundShows++
+ if(-not $script:menuForegroundLost){[MenuOpenDiagnosticContract.Windows]::Foreground=$window}
+ if($script:menuForegroundInput){$script:menuForegroundTick++}
+ $script:menuForegroundAllowed
+}
+function Set-SSEForegroundLeaseInputCheckpoint {param($tick,$Point,[string]$Context) $script:menuForegroundCheckpoints++}
+foreach($case in @(
+ @{name='background';tick=10;allowed=$true;lost=$false;input=$false;kind=$null;shows=1;checkpoints=1},
+ @{name='no-epoch';tick=$null;allowed=$true;lost=$false;input=$false;kind='interference';shows=0;checkpoints=0},
+ @{name='activation-refused';tick=10;allowed=$false;lost=$false;input=$false;kind='foreground-failed';shows=1;checkpoints=0},
+ @{name='foreground-lost';tick=10;allowed=$true;lost=$true;input=$false;kind='foreground-failed';shows=1;checkpoints=0},
+ @{name='foreign-input';tick=10;allowed=$true;lost=$false;input=$true;kind='interference';shows=1;checkpoints=0}
+)){
+ $script:menuForegroundTick=$case.tick;$script:menuForegroundAllowed=$case.allowed
+ $script:menuForegroundLost=$case.lost;$script:menuForegroundInput=$case.input
+ $script:menuForegroundShows=0;$script:menuForegroundCheckpoints=0;$script:menuDiagFailure=$null
+ [MenuOpenDiagnosticContract.Windows]::Foreground=[IntPtr]99
+ try{Enter-SSEMenuForeground ([IntPtr]11)}catch{Assert-True ($_.Exception.Message -ceq 'MenuDiagnosticFailure') 'Unexpected menu foreground failure.'}
+ Assert-True ($script:menuDiagFailure.kind -ceq $case.kind -and $script:menuForegroundShows -eq $case.shows -and
+  $script:menuForegroundCheckpoints -eq $case.checkpoints) ('Menu activation lost its no-retry or input epoch contract: '+$case.name)
+}
+Write-Output 'Menu foreground: exact activation, inherited input epoch, refused activation and no retry passed.'

@@ -5027,7 +5027,8 @@ function Set-SSEForegroundLeaseInputCheckpoint($InputTick, $CursorPoint = $null,
 }
 
 function Exit-SSEForegroundLease {
-  param([IntPtr]$Hwnd = [IntPtr]::Zero, [switch]$Force, [string]$Reason = 'explicit', [switch]$PreserveForeground)
+  param([IntPtr]$Hwnd = [IntPtr]::Zero, [switch]$Force, [string]$Reason = 'explicit', [switch]$PreserveForeground,
+    [string]$PreserveForegroundReason = 'cursor-source-not-proven-editor-free')
   $lease = $script:SSE_FOREGROUND_LEASE
   $HWND_NOTOPMOST = [IntPtr](-2)
   $SWP = 0x0001 -bor 0x0002 -bor 0x0010 # NOSIZE | NOMOVE | NOACTIVATE
@@ -5097,7 +5098,7 @@ function Exit-SSEForegroundLease {
   if ($PreserveForeground) {
     # A rejected delegate must not be committed indirectly by restoring the
     # caller. Revoke this lease and remove TOPMOST without changing focus.
-    $lease.restoreSkippedReason = 'cursor-source-not-proven-editor-free'
+    $lease.restoreSkippedReason = $PreserveForegroundReason
   } elseif (-not $inputUnchanged) {
     $lease.restoreSkippedReason = 'input-changed'
   } elseif ($previous -eq [IntPtr]::Zero -or -not [SW]::IsWindow($previous)) {
@@ -12155,6 +12156,20 @@ function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArgum
       'UI-/Steuerfallmutationen muessen fuer diesen Build erneut live verifiziert werden.'
     ) 'build-drift'
   }
+}
+
+function Enter-SSEMenuForeground([IntPtr]$MainHwnd) {
+  # Qt can briefly open and immediately dismiss a menu requested from a
+  # background application. Prove activation before Expand, without a retry.
+  $epoch=Get-SSELastInputTick
+  if($null -eq $epoch){Fail 'Eingabe-Epoche vor der Menueaktivierung ist unlesbar.' 'interference'}
+  if(-not (Show-SSEWindow $MainHwnd) -or [SW]::GetForegroundWindow() -ne $MainHwnd){
+    Fail 'Das gebundene Hauptfenster konnte fuer die Menueoeffnung nicht aktiviert werden.' 'foreground-failed'
+  }
+  if(-not (Test-SSELastInputUnchanged $epoch)){
+    Fail 'Fremde Eingabe waehrend der Menueaktivierung; kein Menue geoeffnet.' 'interference'
+  }
+  Set-SSEForegroundLeaseInputCheckpoint $epoch -Context 'menu-foreground'
 }
 
 function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid, $MenuElement=$null) {
@@ -24580,6 +24595,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $wunsch = [string](Arg $a 'name')
     if ((Arg $a 'alle' $false) -eq $true) {
       if ($wunsch) { Fail 'alle=true liest jedes Hauptmenue; name ist dann nicht erlaubt.' 'bad-args' }
+      Enter-SSEMenuForeground $hwnd
       $baum = @(Read-SSEMenuTree $hwnd $targetPid)
       Emit ([pscustomobject]@{
         ok = $true; anzahl = $baum.Count; menues = @($baum | ForEach-Object { $_.name }); baum = $baum
@@ -24596,6 +24612,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         hinweis = "Mit name='Datei' oeffnen und die Eintraege lesen." })
     }
     if (Test-Versand $wunsch) { Fail "GESPERRT: Menue '$wunsch'." 'blocked' }
+    Enter-SSEMenuForeground $hwnd
     $null = Open-SSEMenuByName $hwnd $wunsch
     # Inventar und Klick verwenden dieselben vollstaendig gelesenen Popups.
     # Ein virtueller Eintrag im Hauptbaum beweist kein klickbares Menue.
@@ -24606,6 +24623,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         name = $n.name; aktiv = $n.on; gesperrt = [bool](Test-Versand $n.name)
         destruktiv = [bool](Test-SSEDestructiveAction $n.name); hwnd = [int64]$match.hwnd; rid = $n.rid })
     }
+    # Restoring another application here would dismiss the requested popup
+    # before the next API call could inspect or choose its entries.
+    Exit-SSEForegroundLease -Force -Reason 'menu-open' -PreserveForeground -PreserveForegroundReason 'requested-open-menu'
     Emit ([pscustomobject]@{ ok = $true; menue = $wunsch; anzahl = $eintraege.Count; eintraege = @($eintraege)
       hinweis = 'Mit sse_menu_click name="<Eintrag>" ausloesen. Zum sicheren Schliessen sse_menu_close verwenden.' })
   }
