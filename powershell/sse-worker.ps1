@@ -3895,9 +3895,15 @@ function Initialize-SSEMenuHover([IntPtr]$Window, $Node, $ExpectedInputTick, [In
   try { $points = @(Get-SSEMenuHoverPoints $Node ([int][SW]::GetDpiForWindow($Window))) }
   catch { & $OnFailure $_.Exception.Message 'precondition-failed'; return }
   $watch = [Diagnostics.Stopwatch]::StartNew()
+  $checkDeadline = {
+    if ($watch.ElapsedMilliseconds -ge 2500) {
+      & $OnFailure 'Menue-Hover-Frist abgelaufen. NICHT geklickt.' 'precondition-failed'
+    }
+  }
   $checkPoint = {
     param($Point)
-    if ($watch.ElapsedMilliseconds -ge 2500 -or -not (Test-SSELastInputUnchanged $ExpectedInputTick) -or
+    & $checkDeadline
+    if (-not (Test-SSELastInputUnchanged $ExpectedInputTick) -or
         [SW]::GetForegroundWindow() -ne $ForegroundWindow) {
       & $OnFailure 'Menue-Hover hat Frist oder Eingabebindung verloren. NICHT geklickt.' 'interference'
     }
@@ -3917,7 +3923,8 @@ function Initialize-SSEMenuHover([IntPtr]$Window, $Node, $ExpectedInputTick, [In
       try { $element = $WLK.GetParent($element) } catch { $element = $null }
     }
     if (-not $hit) { & $OnFailure 'Hover-Punkt gehoert nicht mehr zum gebundenen Menueeintrag. NICHT geklickt.' 'stale' }
-    if ($watch.ElapsedMilliseconds -ge 2500 -or -not (Test-SSELastInputUnchanged $ExpectedInputTick) -or
+    & $checkDeadline
+    if (-not (Test-SSELastInputUnchanged $ExpectedInputTick) -or
         [SW]::GetForegroundWindow() -ne $ForegroundWindow) {
       & $OnFailure 'Frist oder Eingabebindung nach Hover-Punktpruefung verloren. NICHT geklickt.' 'interference'
     }
@@ -4173,7 +4180,7 @@ function Click-VerifiedPoint(
     & $pointFailure 'Eingabe-Epoche oder Vordergrund nach der letzten Cursorpruefung geaendert. NICHT geklickt.' 'interference'
   }
   if ($popupMode -and $menuHoverWatch.ElapsedMilliseconds -ge 2500) {
-    & $pointFailure 'Menue-Hover-Frist nach der letzten Zielpruefung abgelaufen. NICHT geklickt.' 'precondition-failed'
+    & $pointFailure 'Menue-Hover-Frist abgelaufen. NICHT geklickt.' 'precondition-failed'
   }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
     $clickDispatched = $true

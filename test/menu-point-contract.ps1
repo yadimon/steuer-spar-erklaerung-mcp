@@ -30,17 +30,20 @@ public static class SW {
  public static Action OnCursorRead,OnMouseUp,OnPointRead;
  public static Action OnHoverMessage,OnCursorMove;
  public static int HoverMessages,CursorMoves,DpiRestores,HeldKey,FinalPointReads;
- public static bool MessageTimeout,ClientConversionFailure,DpiRestoreFailure,DpiEnterFailure;
+ public static bool MessageTimeout,ClientConversionFailure,DpiRestoreFailure,DpiEnterFailure,DpiActive;
  public static uint GetDpiForWindow(IntPtr h){return 96;}
  public static short GetAsyncKeyState(int key){return (short)(key==HeldKey?-32768:0);}
  public static uint GetCurrentThreadId(){return 1;}
- public static IntPtr EnterPhysicalDpiContext(){return new IntPtr(DpiEnterFailure?0:12);}
- public static bool RestoreDpiContext(IntPtr previous){DpiRestores++;return previous.ToInt64()==12&&!DpiRestoreFailure;}
- public static bool ScreenToClient(IntPtr h,ref PT p){return !ClientConversionFailure;}
+ public static IntPtr EnterPhysicalDpiContext(){if(DpiActive)throw new Exception("Nested DPI context");DpiActive=!DpiEnterFailure;return new IntPtr(DpiEnterFailure?0:12);}
+ public static bool RestoreDpiContext(IntPtr previous){DpiRestores++;bool ok=DpiActive&&previous.ToInt64()==12&&!DpiRestoreFailure;if(ok)DpiActive=false;return ok;}
+ public static bool ScreenToClient(IntPtr h,ref PT p){
+  if(h.ToInt64()!=202||!DpiActive)throw new Exception("Client conversion outside bound physical context");
+  p.X-=15;p.Y-=25;return !ClientConversionFailure;
+ }
  public static IntPtr SendMessageTimeout(IntPtr h,uint message,IntPtr w,IntPtr l,uint flags,uint timeout,out IntPtr result){
-  if(h.ToInt64()!=202||message!=0x0200||w!=IntPtr.Zero||flags!=2||timeout!=100)throw new Exception("Unexpected hover message");
+  if(h.ToInt64()!=202||message!=0x0200||w!=IntPtr.Zero||flags!=2||timeout!=100||!DpiActive)throw new Exception("Unexpected hover message");
   int packed=unchecked((int)l.ToInt64());
-  if((short)(packed&65535)!=CursorX||(short)(packed>>16)!=CursorY)throw new Exception("Hover message disagrees with actual cursor");
+  if((short)(packed&65535)!=CursorX-15||(short)(packed>>16)!=CursorY-25)throw new Exception("Hover message disagrees with actual client cursor");
   HoverMessages++;result=IntPtr.Zero;if(OnHoverMessage!=null)OnHoverMessage();return new IntPtr(MessageTimeout?0:1);
  }
  public static IntPtr GetForegroundWindow(){return new IntPtr(Foreground);}
@@ -78,6 +81,7 @@ function Reset-MenuPoint {
  [SW]::OnCursorRead=$null;[SW]::OnMouseUp=$null;[SW]::OnPointRead=$null
  [SW]::OnHoverMessage=$null;[SW]::OnCursorMove=$null;[SW]::HoverMessages=0;[SW]::CursorMoves=0;[SW]::DpiRestores=0;[SW]::HeldKey=0
  [SW]::MessageTimeout=$false;[SW]::ClientConversionFailure=$false;[SW]::DpiRestoreFailure=$false;[SW]::DpiEnterFailure=$false
+ [SW]::DpiActive=$false
  [SW]::FinalPointReads=0
  $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadowSaveBits'
  $script:listedPopup=$true;$script:unobstructed=$true
@@ -103,6 +107,13 @@ Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.depth -eq 0 -and $null -ne $script
 Exit-SSEForegroundLease -Force -Reason 'emit'
 Check-MenuPoint ([SW]::CursorX -eq 7 -and [SW]::CursorY -eq 9 -and $script:SSE_FOREGROUND_LEASE.cursorRestored) 'The already-foreground popup path did not restore the original cursor after its own input.'
 Assert-NoMenuActivation
+Reset-MenuPoint
+$ordinaryNode=$node
+$node=[pscustomobject]@{x=-200;y=-100;w=100;h=20;rid='4.7';name='BelegManager';type='MenuItem';on=$true}
+Invoke-MenuPoint|Out-Null
+Check-MenuPoint ([SW]::HoverMessages -eq 10 -and [SW]::MouseCalls -eq 2 -and -not [SW]::DpiActive) 'Signed nonzero-origin client coordinates or physical DPI return were not preserved.'
+Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+$node=$ordinaryNode
 
 foreach($dpi in @(96,120,144,192,288,768)){
  $wide=[pscustomobject]@{x=-5000;y=-300;w=500;h=40}
@@ -146,6 +157,9 @@ foreach($case in @(
  Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and
   [SW]::MouseCalls -eq 0 -and [SW]::HoverMessages -le $(if($case.messages){$case.messages}else{1})) ('Hover failure dispatched or replayed a click: '+$case.name)
  Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+ if($case.name -in @('hover-deadline','late-final-proof','late-dispatch-proof')){
+  Check-MenuPoint ($caught.Exception.Data['kind'] -ceq 'precondition-failed' -and $script:SSE_FOREGROUND_LEASE.cursorRestored) 'A provider deadline was misreported as foreign input or lost its cursor return.'
+ }
  if($case.name -ceq 'input-after-hover'){
   Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 37 -and -not $script:SSE_FOREGROUND_LEASE.cursorRestored) 'Hover adopted foreign input or restored a cursor over it.'
  }
