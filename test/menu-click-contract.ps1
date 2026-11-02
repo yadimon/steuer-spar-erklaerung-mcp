@@ -29,7 +29,7 @@ namespace MenuClickContract {
 $menuCandidate=$menuBody.Substring(1,$menuBody.Length-2).Replace('[Diagnostics.Stopwatch]','[MenuClickContract.Clock]').Replace('Start-Sleep -Milliseconds','Step-MenuClock -Milliseconds')
 function Assert-MenuClick([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
 function Invoke-MenuClickCase([string]$Mode,[int]$AppearsAt=0,[string]$RawLabel='BelegManager'){
- $state=@{mode=$Mode;clicks=0;reads=0;tickReads=0;appearsAt=$AppearsAt;clickArgs=$null;readTimes=(New-Object Collections.ArrayList)}
+ $state=@{mode=$Mode;clicks=0;reads=0;tickReads=0;appearsAt=$AppearsAt;clickArgs=$null;relationCalls=0;relation=$null;readTimes=(New-Object Collections.ArrayList)}
  [MenuClickContract.Clock]::Now=0
  $a=[pscustomobject]@{name=$(if($Mode -ceq 'generic'){'Synthetic command'}else{$RawLabel});waitMs=250;hwnd=101}
  function Arg($ArgsObject,[string]$Name,$Default=$null){$p=$ArgsObject.PSObject.Properties[$Name];if($p){return $p.Value};return $Default}
@@ -50,10 +50,14 @@ function Invoke-MenuClickCase([string]$Mode,[int]$AppearsAt=0,[string]$RawLabel=
   if($state.mode -ceq 'policy-error'){throw 'Synthetic unreadable catalogue'}
   [pscustomobject]@{title='BelegManager';classPattern='^Qt\d+QWindowToolSaveBits$'}
  }
+ function Test-SSEMenuPointBinding($Window,$Binding){
+  $state.relationCalls++;$state.relation=@{window=[int64]$Window;binding=$Binding};return $true
+ }
  function Click-VerifiedPoint($Window,$Node,$ExpectedInputTick,[string]$ExpectedRuntimeId,[switch]$ThrowOnFailure,
   [switch]$RequireForeground,[IntPtr]$ForegroundWindow,[scriptblock]$BeforeClickCheck,$BeforeClickBinding){
   $state.clicks++;$state.clickArgs=@{window=[int64]$Window;rid=$Node.rid;tick=$ExpectedInputTick;expectedRid=$ExpectedRuntimeId;throws=[bool]$ThrowOnFailure;
    foreground=[int64]$ForegroundWindow;requires=[bool]$RequireForeground;binding=$BeforeClickBinding;check=$BeforeClickCheck}
+  $null=& $BeforeClickCheck $Window $BeforeClickBinding 20 40
   if($state.mode -in @('before-click','after-click','unknown-point-error')){
    $e=[InvalidOperationException]::new('Synthetic point refusal')
    if($state.mode -cne 'unknown-point-error'){$e.Data['kind']='interference';$e.Data['inputDispatched']=($state.mode -ceq 'after-click')}
@@ -115,7 +119,8 @@ foreach($at in @(0,200,250)){
   $case.state.clickArgs.expectedRid -ceq 'menu-item' -and $case.state.clickArgs.window -eq 202 -and
   $case.state.clickArgs.throws -and $case.state.clickArgs.requires -and $case.state.clickArgs.foreground -eq 101 -and
   $case.state.clickArgs.binding.processId -eq 55 -and $case.state.clickArgs.binding.popupHwnd -eq 202 -and
-  $null -ne $case.state.clickArgs.check) 'The exact item RID, original epoch and bound popup/main relation were not passed to the real point helper.'
+  $case.state.clickArgs.binding.mainHwnd -eq 101 -and $case.state.relationCalls -eq 1 -and
+  $case.state.relation.window -eq 202 -and [object]::ReferenceEquals($case.state.relation.binding,$case.state.clickArgs.binding)) 'The exact item RID, original epoch and actual popup/main check were not passed to the real point helper.'
 }
 $late=Invoke-MenuClickCase 'success' 251
 Assert-MenuClick ($late.result.ok -eq $false -and $late.result.outcomeUnknown -eq $true -and $late.state.clicks -eq 1) 'A window first appearing after the deadline was accepted or clicked again.'

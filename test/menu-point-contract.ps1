@@ -56,7 +56,7 @@ function Reset-MenuPoint {
  [SW]::Foreground=101;[SW]::CursorX=7;[SW]::CursorY=9;[SW]::MouseCalls=0;[SW]::WindowPosCalls=0
  [SW]::Tick=37;[SW]::PopupPid=55;[SW]::PopupAlive=$true;[SW]::MainAlive=$true;[SW]::CorrectPoint=$true;[SW]::RedirectRoot=$false
  [SW]::OnCursorRead=$null;[SW]::OnMouseUp=$null;[SW]::OnPointRead=$null
- $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadow'
+ $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadowSaveBits'
  $script:listedPopup=$true;$script:unobstructed=$true
  $script:foreignAfterInput=$false
 }
@@ -86,6 +86,8 @@ foreach($case in @(
  @{name='foreign-popup';setup={[SW]::PopupPid=56}},
  @{name='dead-main';setup={[SW]::MainAlive=$false}},
  @{name='wrong-class';setup={$script:popupClass='Qt692QWindowToolSaveBits'}},
+ @{name='unknown-class-suffix';setup={$script:popupClass='Qt692QWindowPopupDropShadowUnknown'}},
+ @{name='missing-class-flag';setup={$script:popupClass='Qt692QWindowPopupDropShadow'}},
  @{name='wrong-root';setup={[SW]::RedirectRoot=$true}},
  @{name='missing-popup';setup={$script:listedPopup=$false}},
  @{name='obstructed';setup={$script:unobstructed=$false}},

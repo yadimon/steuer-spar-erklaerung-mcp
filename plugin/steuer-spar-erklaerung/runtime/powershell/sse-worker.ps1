@@ -12477,7 +12477,7 @@ function Test-SSEMenuPointBinding([IntPtr]$Popup, $Binding) {
         -not [SW]::IsWindow($main) -or -not [SW]::IsWindow($Popup) -or
         [SW]::GetAncestor($main,2) -ne $main -or [SW]::GetAncestor($Popup,2) -ne $Popup -or
         [SW]::GetForegroundWindow() -ne $main -or
-        (Get-SSEWindowClassName $Popup) -notmatch '^Qt\d+QWindowPopupDropShadow$') { return $false }
+        (Get-SSEWindowClassName $Popup) -notmatch '^Qt\d+QWindowPopupDropShadowSaveBits$') { return $false }
     $mainPid = 0; $popupPid = 0
     $null = [SW]::GetWindowThreadProcessId($main,[ref]$mainPid)
     $null = [SW]::GetWindowThreadProcessId($Popup,[ref]$popupPid)
