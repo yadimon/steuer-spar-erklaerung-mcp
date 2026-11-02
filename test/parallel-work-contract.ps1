@@ -35,10 +35,25 @@ $clickFunction=@($clickAst.FindAll({param($node)
   $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Click-VerifiedPoint'
 },$true))[0]
 $clickStatements=@($clickFunction.Body.EndBlock.Statements)
+$popupBindings=@($clickFunction.Body.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$popupMode'
+},$true))
+$foregroundBindings=@($clickFunction.Body.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$foregroundTarget'
+},$true))
+Assert-True ($popupBindings.Count -eq 1 -and
+  $clickStatements -contains $popupBindings[0] -and
+  $popupBindings[0].Right.Extent.Text -ceq '($ForegroundWindow -ne [IntPtr]::Zero)' -and
+  $foregroundBindings.Count -eq 1 -and
+  $clickStatements -contains $foregroundBindings[0] -and
+  $foregroundBindings[0].Right.Extent.Text -ceq '$(if ($popupMode) { $ForegroundWindow } else { $Window })' -and
+  $popupBindings[0].Extent.EndOffset -lt $foregroundBindings[0].Extent.StartOffset) `
+  'Foreground must uniquely bind the explicit popup window or the default click window.'
 $callbackStatements=@($clickStatements | Where-Object {
   $_ -is [Management.Automation.Language.IfStatementAst] -and @($_.FindAll({param($node)
     $node -is [Management.Automation.Language.CommandAst] -and
-      $node.CommandElements[0].Extent.Text -ceq '$BeforeClickCheck'
+      (@($node.CommandElements | ForEach-Object { $_.Extent.Text }) -join ' ') -ceq
+        '$BeforeClickCheck $Window $BeforeClickBinding $px $py'
   },$true)).Count -gt 0
 })
 $mouseLoops=@($clickStatements | Where-Object {
@@ -48,17 +63,19 @@ $mouseLoops=@($clickStatements | Where-Object {
   },$true)).Count -gt 0
 })
 Assert-True ($callbackStatements.Count -eq 1 -and $mouseLoops.Count -eq 1) 'Callback or physical click loop is not uniquely bound.'
+Assert-True ($foregroundBindings[0].Extent.EndOffset -lt $callbackStatements[0].Extent.StartOffset) `
+  'The exact foreground target is not bound before the final callback.'
 $independentGuards=@($clickStatements | Where-Object {
   $_ -is [Management.Automation.Language.IfStatementAst] -and
     $_.Extent.StartOffset -gt $callbackStatements[0].Extent.EndOffset -and
     $_.Extent.EndOffset -lt $mouseLoops[0].Extent.StartOffset -and
     $_.Clauses[0].Item1.Extent.Text.Contains('Test-SSELastInputUnchanged $ExpectedInputTick') -and
-    $_.Clauses[0].Item1.Extent.Text.Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $Window')
+    $_.Clauses[0].Item1.Extent.Text.Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget')
 })
 # A top-level sibling executes with or without the optional callback. A guard
 # nested inside that callback (or moved before it) must still fail this contract.
 Assert-True ($independentGuards.Count -ge 1) 'Final physical click guard still depends on an optional callback.'
-Assert-True ($click.Substring($finalClickGuard,$click.IndexOf('[SW]::mouse_event')-$finalClickGuard).Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $Window')) 'Final physical click guard lost exact foreground.'
+Assert-True ($click.Substring($finalClickGuard,$click.IndexOf('[SW]::mouse_event')-$finalClickGuard).Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget')) 'Final physical click guard lost exact foreground.'
 Assert-True ($click.Contains('inputTickAfterClick=$inputTickAfterClick') -and
   $click.Contains('Test-SSELastInputUnchanged $inputTickAfterClick')) 'Settling after a click silently accepts a new input epoch.'
 foreach ($operation in @('table_add','table_update')) {

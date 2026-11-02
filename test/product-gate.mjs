@@ -716,12 +716,18 @@ try {
   assert(skillSource.includes("Fensterbindung") && skillSource.includes("`HWND`") &&
     skillSource.includes("genau eine eng gebundene Änderung"),
   "Public Skill beschreibt die fail-closed Fenster- und Schreibbindung nicht.");
+  const menuDirtyReadback = workerOpBlock("menu_click");
+  const menuClickPosition = menuDirtyReadback.indexOf("$null = Click-VerifiedPoint $match.hwnd $match.node $inputBaseline");
+  const menuDirtyBeforePosition = menuDirtyReadback.indexOf("$dirtyBefore = Get-DirtyStateFast $mainHwnd");
+  const menuDirtyAfterPosition = menuDirtyReadback.indexOf("$dirtyAfter = Get-DirtyStateFast $mainHwnd");
   assert(workerSource.includes("function Test-SSEDestructiveAction") &&
     workerOpBlock("click").includes("Assert-SSEDestructiveAcknowledgement") &&
     workerOpBlock("click_point").includes("Assert-SSEDestructiveAcknowledgement") &&
     workerOpBlock("menu_click").includes("Assert-SSEDestructiveAcknowledgement") &&
     workerOpBlock("click").includes("ungespeichertVorher=$dirtyBefore") &&
-    workerOpBlock("menu_click").includes("ungespeichertNachher=$(Get-DirtyStateFast $mainHwnd)"),
+    menuDirtyBeforePosition >= 0 && menuDirtyBeforePosition < menuClickPosition &&
+    menuClickPosition < menuDirtyAfterPosition &&
+    menuDirtyAfterPosition < menuDirtyReadback.indexOf("ungespeichertNachher=$dirtyAfter"),
   "Generische Invoke-/Menuewege haben keinen Destruktiv-Gate oder Dirty-State-Readback.");
   assert(workerOpBlock("goto_tree").includes("Click-VerifiedPoint $hwnd $labelNode") &&
     !workerOpBlock("goto_tree").includes("[SW]::mouse_event"),
