@@ -14,11 +14,23 @@ public sealed class ReceiptClosePoint {
  public static ReceiptClosePoint FromPoint(object point){return new ReceiptClosePoint();}
 }
 namespace System.Windows.Automation {
- public sealed class GridView {public int RowCount=2;public int ColumnCount=2;}
+ public sealed class TogglePattern {public static readonly object Pattern=new object();}
+ public sealed class GridView {public int RowCount;public int ColumnCount=2;}
+ public sealed class ReceiptGridRect {public double X,Y,Width=100,Height=20;}
+ public sealed class ReceiptGridCellView {public string Name;public ReceiptGridRect BoundingRectangle;}
+ public sealed class ReceiptGridCell {
+  private int row,column;
+  public ReceiptGridCell(int r,int c){row=r;column=c;}
+  public ReceiptGridCellView Current {get{return new ReceiptGridCellView {Name=GridPattern.Values[row,column],BoundingRectangle=new ReceiptGridRect {X=column*100,Y=50+row*30}};}}
+  public int[] GetRuntimeId(){return new int[]{42,7,21+row*2+column};}
+  public bool TryGetCurrentPattern(object pattern,out object value){value=null;return false;}
+ }
  public sealed class GridPattern {
   public static readonly object Pattern=new object();
-  public GridView Current=new GridView();
-  public object GetItem(int row,int column){throw new System.InvalidOperationException("Mismatching grid must not be read");}
+  public static int Rows;
+  public static string[,] Values=new string[0,2];
+  public GridView Current {get{return new GridView {RowCount=Rows};}}
+  public object GetItem(int row,int column){return new ReceiptGridCell(row,column);}
  }
 }
 public sealed class ReceiptTableElement {
@@ -95,6 +107,8 @@ function Get-LiveElement($Window,$Rid,$Aid){
 function Convert-ExactElementToNode($Element){$Element}
 function Reset-Close([string]$Mode){
  Reset-Fixture $Mode
+ [Windows.Automation.GridPattern]::Rows=0
+ [Windows.Automation.GridPattern]::Values=[string[,]]::new(0,2)
  [ReceiptClosePoint]::PointId=$(if($Mode -ceq 'close-foreign-point-rid'){99}else{13})
  $script:closeNode=New-CloseNode
  $script:detailAnchor=[pscustomobject]@{rid='42.7.14';aid='synthetic.detail.anchor';type='Pane';name='synthetic-detail';on=$true;x=0;y=0;w=100;h=20}

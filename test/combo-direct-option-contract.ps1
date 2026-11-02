@@ -64,7 +64,7 @@ function FreshOption([hashtable]$Changes = @{}) {
 function Invoke-OptionChoice {
   param([int]$Engine, [string]$DesktopName = '', $Fresh = (FreshOption),
     $Obstruction = ([pscustomobject]@{isBoundTarget=$true}), [switch]$MissingList, [switch]$LostInput,[switch]$LostForeground,
-    [switch]$LostForegroundAtRead,[switch]$UnreadableBefore,[string]$Current='1. Vierteljahr')
+    [switch]$LostForegroundAtRead,[switch]$UnreadableBefore,[string]$Current='1. Vierteljahr',[string]$CleanupFailure='')
   $script:clicks = New-Object System.Collections.ArrayList
   $script:liveReads = New-Object System.Collections.ArrayList
   $script:conversions = 0
@@ -72,6 +72,7 @@ function Invoke-OptionChoice {
   $script:collapses = 0
   $script:failed = $null
   $script:emitted = $null
+  $script:cleanupInputChanged=$false
   [ComboForegroundContract]::Foreground=$(if($LostForeground){[IntPtr]99}else{[IntPtr]4242})
   $script:SSE_ENGINE_MAJOR = $Engine
   $script:DESKTOP_NAME = $DesktopName
@@ -104,11 +105,17 @@ function Invoke-OptionChoice {
     param([IntPtr]$hwnd, [string]$Rid, [string]$Aid = '')
     $null = $script:liveReads.Add([pscustomobject]@{ window=[int64]$hwnd; rid=$Rid })
     if($Rid -ceq $combo.rid){
+      if($CleanupFailure -ceq 'missing-combo'){return $null}
+      if($CleanupFailure -ceq 'input-at-read'){$script:cleanupInputChanged=$true}
       if($LostForegroundAtRead){[ComboForegroundContract]::Foreground=[IntPtr]99}
       $liveCombo=[pscustomobject]@{Current=[pscustomobject]@{AutomationId=$combo.aid}}
+      if($CleanupFailure -ceq 'aid-drift'){$liveCombo.Current.AutomationId='Synthetic.Replaced'}
       $liveCombo|Add-Member ScriptMethod TryGetCurrentPattern {
         param($Pattern,$Out)
-        if($Pattern -eq [System.Windows.Automation.ValuePattern]::Pattern){$Out.Value=[pscustomobject]@{Current=[pscustomobject]@{Value=$(if($UnreadableBefore){$null}else{$expectedCurrent})}}}
+        if($Pattern -eq [System.Windows.Automation.ValuePattern]::Pattern){
+          if($CleanupFailure -ceq 'no-value-pattern'){return $false}
+          $Out.Value=[pscustomobject]@{Current=[pscustomobject]@{Value=$(if($UnreadableBefore){$null}elseif($CleanupFailure -ceq 'value-drift'){'Other'}else{$expectedCurrent})}}
+        }
         else{$Out.Value=$ec}
         $true
       }
@@ -128,8 +135,8 @@ function Invoke-OptionChoice {
     })
   }
   function Get-SSELastInputTick { 7 }
-  function Test-SSELastInputUnchanged { param($Baseline) -not $LostInput }
-  function Get-CurrentHeading {param($Window) $expectedPage}
+  function Test-SSELastInputUnchanged { param($Baseline) -not $LostInput -and -not $script:cleanupInputChanged }
+  function Get-CurrentHeading {param($Window) if($CleanupFailure -ceq 'page-drift'){'Other page'}else{$expectedPage}}
   function Emit { param($result) $script:emitted = $result; throw 'combo-option-emitted' }
   function Fail { param($msg, $kind = 'error', $details = $null) $script:failed = [pscustomobject]@{ kind=$kind; error=$msg }; throw 'combo-option-failed' }
   try { . $block } catch {
@@ -181,6 +188,11 @@ foreach($loss in @('input','foreground')){
 foreach($loss in @('foreground-at-read','unreadable-before')){
  $blocked=Invoke-OptionChoice 31 -Obstruction $popup -MissingList -Current '' -LostForegroundAtRead:($loss -ceq 'foreground-at-read') -UnreadableBefore:($loss -ceq 'unreadable-before')
  Assert-True ($blocked.failed.kind -ceq 'obstructed' -and $blocked.collapses -eq 0 -and $blocked.clicks.Count -eq 0) ('Lost final cleanup proof authorized Collapse: '+$loss)
+}
+foreach($loss in @('missing-combo','aid-drift','value-drift','no-value-pattern','input-at-read','page-drift')){
+ $blocked=Invoke-OptionChoice 31 -Obstruction $popup -MissingList -CleanupFailure $loss
+ Assert-True ($blocked.failed.kind -ceq 'obstructed' -and $blocked.collapses -eq 0 -and $blocked.clicks.Count -eq 0) ('Changed popup cleanup precondition authorized Collapse: '+$loss)
+ if($loss -ceq 'input-at-read'){Assert-True $script:cleanupInputChanged 'Final input drift fixture never read the combo.'}
 }
 
 # 2. Die Option ist seit dem Baumlauf verrutscht: geklickt wird ihr frisches

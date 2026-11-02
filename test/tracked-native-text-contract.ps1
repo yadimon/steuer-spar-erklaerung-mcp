@@ -920,7 +920,7 @@ Write-Output 'Tracked native text: literal transport, readback, guards, partial 
   Assert-True ($script:scopeFailure -ceq 'interference' -and [SW]::Events.Count -eq 0) ('Unsafe receipt scope acquisition: '+$problem)
   Exit-SSEForegroundLease -Force -Reason 'emit'
  }
- foreach($contextFault in @('watch','epoch','rollback-observation')){
+ foreach($contextFault in @('watch','epoch','rollback-observation','positive-rollback')){
  Reset-CompoundFixture
  $toolHwnd=[IntPtr]7;$targetPid=100;$waitMs=1
  . $scope
@@ -937,9 +937,9 @@ Write-Output 'Tracked native text: literal transport, readback, guards, partial 
  # The next actual loop must stop before observing or committing another field
  # after the original watch is replaced. Its actual rollback also sends no input.
  $priorInputs=[SW]::Events.Count
- if($contextFault -ceq 'rollback-observation'){
+ if($contextFault -in @('rollback-observation','positive-rollback')){
   $failedField='title';$failedReason='Synthetic rollback trigger';$failedInputGuard=$false
-  $script:rollbackObservationDrift=$true
+  $script:rollbackObservationDrift=($contextFault -ceq 'rollback-observation')
  }else{
   if($contextFault -ceq 'watch'){$script:SSE_FOREGROUND_LEASE.watch=New-Object object}else{[SW]::Tick++}
   Invoke-Expression $receiptLoop[0].Extent.Text
@@ -947,7 +947,14 @@ Write-Output 'Tracked native text: literal transport, readback, guards, partial 
  }
  $mainHwnd=[IntPtr]7;$valuesBefore=[ordered]@{title='before'};$requestedValues=[ordered]@{title='requested'}
  try{Invoke-Expression $rollback[0].Extent.Text}catch{Assert-True ($_.Exception.Message -ceq 'receipt-test-emitted') 'Unexpected compound rollback failure.'}
- Assert-True ($script:emitted.cleanupRequired -and [SW]::Events.Count -eq $priorInputs) 'Lost original watch authorized an inverse commit.'
+ Assert-True (-not $script:rollbackObservationDrift) 'Rollback drift fixture never observed the field.'
+ if($contextFault -ceq 'positive-rollback'){
+  Assert-True (-not $script:emitted.cleanupRequired -and $script:emitted.rollback.ok -and
+   [SW]::Value.Current.Value -ceq 'before' -and
+   @([SW]::Events|Where-Object {$_ -ceq 'unicode'}).Count -eq 2) 'Real-helper rollback did not restore exactly once.'
+ }else{
+  Assert-True ($script:emitted.cleanupRequired -and [SW]::Events.Count -eq $priorInputs) 'Lost original watch authorized an inverse commit.'
+ }
  # Restore only the test watch for inert final release; no production rebaseline.
  $script:SSE_FOREGROUND_LEASE.watch=$originalWatch
  Exit-SSEForegroundLease -Force -Reason 'emit'

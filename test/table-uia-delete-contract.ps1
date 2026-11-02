@@ -547,6 +547,10 @@ foreach($scenario in @('changed-value','other-column','hidden-column','hidden-ed
  Assert (-not $blocked.result.ok) ('An unproven existing editor was accepted: '+$scenario)
  Same $blocked.keys @() ('An unproven existing editor received input: '+$scenario)
  Same $blocked.clicks 0 ('An unproven existing editor allowed a deletion click: '+$scenario)
+ if($scenario -in @('background','runtime-id-drift')){
+  Same $blocked.result.phase 'initial-editor' ('Existing editor failed outside its ownership proof: '+$scenario)
+  Same $blocked.result.error 'The existing number editor has no exact unchanged foreground binding.' ('Existing editor failed for the wrong reason: '+$scenario)
+ }
 }
 $script:initialEditorScenario='not-closed'
 $stillOpen=Run (State $removed '100,00' $true)

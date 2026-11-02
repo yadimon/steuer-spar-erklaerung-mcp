@@ -137,6 +137,8 @@ function New-OptionNode([string]$Rid='42.7.3'){
  [pscustomobject]@{rid=$Rid;aid='synthetic.option';type='ListItem';name=([VatSelectionFixture]::Wanted+' %');on=$true;x=20;y=40;w=80;h=20}
 }
 function Reset-Fixture([string]$Mode){
+ [SW]::Foreground=[IntPtr]8
+ $script:UIAElementCache=@{}
  [VatSelectionFixture]::Mode=$Mode;[VatSelectionFixture]::Value='0 %';[VatSelectionFixture]::Rid='42.7.1'
  [VatSelectionFixture]::ComboRid='42.7.2';[VatSelectionFixture]::OptionRid='42.7.3';[VatSelectionFixture]::Tick=1
  [VatSelectionFixture]::Open=$false;[VatSelectionFixture]::WindowAlive=$true;[VatSelectionFixture]::Owner=100
