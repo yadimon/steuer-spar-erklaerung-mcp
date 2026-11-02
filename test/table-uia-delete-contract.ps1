@@ -542,4 +542,11 @@ $stillOpen=Run (State $removed '100,00' $true)
 Assert (-not $stillOpen.result.ok) 'An existing Nr. delegate with unconfirmed closure proceeded to deletion.'
 Same $stillOpen.keys @('{ESC}') 'An unconfirmed existing Nr. delegate closure was replayed.'
 $script:initialEditorScenario=$null
+$script:target.Current.BoundingRectangle.X=0.0
+$missingBounds=Cancel {param($prior,$next,$editor)
+ $editor.Current.BoundingRectangle=[pscustomobject]@{IsEmpty=$false;X=$null;Y=100.0;Width=100.0;Height=20.0}
+}
+Assert $missingBounds.failed 'An unreadable editor coordinate was treated as zero.'
+Same $missingBounds.keys @() 'An unreadable editor geometry authorized Escape.'
+$script:target.Current.BoundingRectangle.X=100.0
 Write-Output 'UIA delete transaction: exact and zero removal, ineffective command, full/failed undo, wrong rows, provider failure, focus interference and no replay passed.'

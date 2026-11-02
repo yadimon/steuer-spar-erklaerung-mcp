@@ -278,7 +278,7 @@ function Get-SSEUiaDeleteNumberEditorCoordinate {
     throw 'The activation editor is not a visible text editor.'
   }
   foreach($number in @($bounds.X,$bounds.Y,$bounds.Width,$bounds.Height)){
-    if([double]::IsNaN($number) -or [double]::IsInfinity($number)){throw 'The activation editor geometry is unavailable.'}
+    if($number -isnot [double] -or [double]::IsNaN($number) -or [double]::IsInfinity($number)){throw 'The number editor geometry is unavailable.'}
   }
   $cells=@($State.tree.nodes|Where-Object{$_.type -ceq 'DataItem' -and $_.p -eq $State.root.i -and
     [Math]::Abs($_.x-$bounds.X) -le 2 -and [Math]::Abs($_.y-$bounds.Y) -le 2 -and
@@ -315,6 +315,16 @@ function Close-SSEUiaDeleteOwnEditor {
   }
   $editor=$Clicked.editors[0];$current=$editor.Current;$focus=[Windows.Automation.AutomationElement]::FocusedElement
   $target=Get-SSEUiaDeleteCell $Clicked $Binding.processId $Row $Column;$bounds=$target.Current.BoundingRectangle
+  foreach($rectangle in @($current.BoundingRectangle,$bounds)){
+    if($rectangle.IsEmpty -isnot [bool] -or $rectangle.IsEmpty -or $rectangle.Width -le 0 -or $rectangle.Height -le 0){
+      throw 'The bound editor or cell geometry is unavailable.'
+    }
+    foreach($number in @($rectangle.X,$rectangle.Y,$rectangle.Width,$rectangle.Height)){
+      if($number -isnot [double] -or [double]::IsNaN($number) -or [double]::IsInfinity($number)){
+        throw 'The bound editor or cell geometry is unavailable.'
+      }
+    }
+  }
   $value=$null;$cell=$Clicked.scan.cells[$Row*$Clicked.scan.columns+$Column]
   if(-not $focus -or $current.ControlType -ne [Windows.Automation.ControlType]::Edit -or -not $current.HasKeyboardFocus -or
       [int]$current.ProcessId -ne $Binding.processId -or ($focus.GetRuntimeId() -join '.') -cne ($editor.GetRuntimeId() -join '.') -or
