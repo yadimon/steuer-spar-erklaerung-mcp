@@ -86,6 +86,11 @@ $loopIndex = @(0..($gotoStatements.Count - 1) | Where-Object {
 Assert-True ($routeIndex -ge 0 -and $loopIndex.Count -eq 1 -and $loopIndex[0] -gt $routeIndex) `
   'Wegplanung und Blaetterschleife stehen nicht als zusammenhaengender Abschnitt im goto-Zweig.'
 $walk = [scriptblock]::Create(($texts[$routeIndex..$loopIndex[0]]) -join "`n")
+$targetProof = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Get-SSEGotoTargetProof'
+}, $true))
+Assert-True ($targetProof.Count -eq 1) 'Zielbeweis ist nicht eindeutig vorhanden.'
 
 function Invoke-Walk {
   param([string]$Start, [string]$Target, [hashtable]$Transitions, [string]$Direction = '', $MaxSteps = $null,
@@ -105,12 +110,14 @@ function Invoke-Walk {
   $script:failed = $null
   $FOLGE = $order
   $start = [string]$script:stateHeadings[$Start]; $ziel = $Target; $richtungVorgegeben = $Direction; $requestedMaxSteps = $MaxSteps
-  $hwnd = [IntPtr]4242; $gotoPid = 3131; $pageId = ''; $verbraucht = 0
+  $hwnd = [IntPtr]4242; $gotoPid = 3131; $pageId = ''; $verbraucht = 0; $knownTarget = $null
+  . ([scriptblock]::Create($targetProof[0].Extent.Text))
   $weg = New-Object System.Collections.ArrayList
   $null = $weg.Add($start)
   $besucht = New-Object System.Collections.ArrayList
   function AktuelleUeberschrift { param([IntPtr]$h) $script:stateHeadings[$script:page] }
   function IstZielseite { param([IntPtr]$h, [string]$heading) [bool]($heading -ceq $ziel) }
+  function WarteAufZielseite { throw 'Der fertige Routen-Zielzustand darf keine Bereitschaftswarteschleife starten.' }
   function DrueckeKnopf {
     param([IntPtr]$h, [string]$name, [string]$wechselVon = '')
     $key = "$($script:page)|$name"
