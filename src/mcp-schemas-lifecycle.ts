@@ -56,8 +56,9 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
         "SHA256 der Sicherung; muss expectedHashBefore des Korrekturstands entsprechen",
       ),
     }).strict().optional().describe(
-      "Expliziter Korrekturmodus fuer eine als Korrektur/Berichtigung benannte Arbeitskopie. " +
-      "Ohne dieses Objekt bleiben uebermittelte oder unbekannte Faelle gesperrt.",
+      "Optionaler Korrekturmodus fuer einen ausdruecklich gewuenschten separaten Korrekturstand. " +
+      "Fuer normales Speichern im Original nicht noetig, auch bei Uebermittlungsvermerk oder unbekanntem " +
+      "Uebermittlungsstatus; das Ergebnis traegt dann transmittedCaseWarning.",
     ),
     hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
     waitMs: z.number().int().min(800).max(30000).optional().describe("Wartezeit auf Datei- und Hash-Readback"),

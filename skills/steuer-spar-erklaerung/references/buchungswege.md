@@ -117,9 +117,12 @@ Eine Gewinn-Erfassung läuft über das ganze Jahr und ist die Vorbefüllung der
 nächsten Voranmeldung. `sse_save` speichert deshalb auch dann, gibt aber
 `transmittedCaseWarning` mit dem Übermittlungszeitpunkt zurück.
 
-Diese Warnung ernst nehmen: Ein bereits übermittelter **Zeitraum** wird nicht
-still geändert. Für dessen Berichtigung gibt es den `correction`-Weg mit
-Arbeitskopie, Sicherung, Zeitraum und Grund.
+Diese Warnung ernst nehmen: Ein bereits übermittelter **Zielzeitraum** wird nur
+auf ausdrücklichen Korrekturauftrag geändert. Eine frühere Meldung eines
+anderen Zeitraums blockiert keine neuen Buchungen im Original. Der optionale
+`correction`-Weg mit Arbeitskopie, Sicherung, Zeitraum und Grund ist für einen
+ausdrücklich gewünschten separaten Korrekturstand gedacht. Eine Kopie ist
+keine Voraussetzung für die beauftragte Weiterarbeit am Original.
 
 ## Wo einzelne Belegarten hingehören
 

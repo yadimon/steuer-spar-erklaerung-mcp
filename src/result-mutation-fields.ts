@@ -308,6 +308,11 @@ export const MUTATION_OPERATION_RESULT_FIELDS = {
     transmittedAfter: OPTIONAL_TRANSMISSION_STATE,
     transmittedReasonBefore: OPTIONAL_STRING,
     transmittedReasonAfter: OPTIONAL_STRING,
+    transmittedCaseWarning: z.object({
+      kind: z.literal("transmitted-case").describe("Kennzeichnet einen Hinweis zum Uebermittlungsstatus, keinen Speicherfehler"),
+      reason: z.string().describe("Im Fallkopf erkannter Uebermittlungsvermerk oder unbekannter Uebermittlungsstatus"),
+      hinweis: z.string().describe("Erlaubte Originalarbeit und erforderliche Freigabe fuer bereits uebermittelte Zielzeitraeume"),
+    }).strict().optional().describe("Uebermittlungsvermerk des Falls; keine pauschale Schreibsperre oder Speicherbestaetigung"),
     binding: OPTIONAL_OBJECT,
     correction: OPTIONAL_OBJECT,
     saveEnabledAfter: OPTIONAL_BOOLEAN,

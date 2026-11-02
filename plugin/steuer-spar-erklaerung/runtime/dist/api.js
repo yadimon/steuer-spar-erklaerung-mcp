@@ -21983,7 +21983,7 @@ var init_mcp_schemas_lifecycle = __esm({
             "SHA256 der Sicherung; muss expectedHashBefore des Korrekturstands entsprechen"
           )
         }).strict().optional().describe(
-          "Expliziter Korrekturmodus fuer eine als Korrektur/Berichtigung benannte Arbeitskopie. Ohne dieses Objekt bleiben uebermittelte oder unbekannte Faelle gesperrt."
+          "Optionaler Korrekturmodus fuer einen ausdruecklich gewuenschten separaten Korrekturstand. Fuer normales Speichern im Original nicht noetig, auch bei Uebermittlungsvermerk oder unbekanntem Uebermittlungsstatus; das Ergebnis traegt dann transmittedCaseWarning."
         ),
         hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
         waitMs: external_exports.number().int().min(800).max(3e4).optional().describe("Wartezeit auf Datei- und Hash-Readback")
@@ -23260,7 +23260,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.53";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.54";
   }
 });
 
@@ -36788,6 +36788,11 @@ var init_result_mutation_fields = __esm({
         transmittedAfter: OPTIONAL_TRANSMISSION_STATE,
         transmittedReasonBefore: OPTIONAL_STRING,
         transmittedReasonAfter: OPTIONAL_STRING,
+        transmittedCaseWarning: external_exports.object({
+          kind: external_exports.literal("transmitted-case").describe("Kennzeichnet einen Hinweis zum Uebermittlungsstatus, keinen Speicherfehler"),
+          reason: external_exports.string().describe("Im Fallkopf erkannter Uebermittlungsvermerk oder unbekannter Uebermittlungsstatus"),
+          hinweis: external_exports.string().describe("Erlaubte Originalarbeit und erforderliche Freigabe fuer bereits uebermittelte Zielzeitraeume")
+        }).strict().optional().describe("Uebermittlungsvermerk des Falls; keine pauschale Schreibsperre oder Speicherbestaetigung"),
         binding: OPTIONAL_OBJECT,
         correction: OPTIONAL_OBJECT,
         saveEnabledAfter: OPTIONAL_BOOLEAN,

@@ -8,7 +8,7 @@ weder Clientkonfiguration noch Betriebssystem.
 
 Der Wizard klärt nur, was für den ursprünglichen Auftrag nötig ist. Merke dir
 diesen Auftrag unverändert, führe die Einrichtung nicht als neues Endziel ein
-und setze ihn nach der Planbestätigung fort.
+und setze ihn fort, sobald die wesentlichen Angaben und die Freigabe feststehen.
 
 Stelle höchstens **eine Frage pro Nachricht**. Bereits beantwortete Fragen
 nicht wiederholen.
@@ -35,8 +35,10 @@ Lies `sse_instances`.
   Frage nicht zusätzlich nach einem Dateipfad und öffne keine andere Datei.
 - Sind mehrere Fälle offen, frage in einer Nachricht, welcher davon der
   Arbeitsfall ist. Nenne nur die redigierten, vom Tool gelieferten Merkmale.
-- Ist kein Fall offen und enthält der Auftrag bereits einen eindeutigen
-  absoluten Fallpfad, bestätige genau diesen Pfad, bevor du ihn öffnest.
+- Ist kein Fall offen und der Fall bereits eindeutig vom Menschen gewählt,
+  öffne ihn, wenn das vom Auftrag umfasst ist. Eine bereits bestätigte Auswahl
+  nicht erneut abfragen. Fehlt die Freigabe oder ist die Datei unklar, frage
+  genau nach dieser fehlenden Entscheidung.
 - Fehlt auch dieser Pfad, frage nur nach der Falldatei. Suche nicht
   eigenmächtig das Laufwerk.
 - Gibt es nachweislich noch keinen Fall und der Nutzer will einen neuen,
@@ -61,7 +63,7 @@ Externe Connectoren, E-Mail, Cloudspeicher, Bankkonten oder zusätzliche
 Ordner erst nach separater Zustimmung lesen. Fehlende Belegquellen nicht durch
 eine Laufwerks- oder Kontosuche erraten.
 
-## 4. Sicheren Plan gemeinsam bestätigen
+## 4. Sicheren Plan mit dem Auftrag abgleichen
 
 Zeige einen kurzen, auf den ursprünglichen Auftrag zugeschnittenen Plan. Er
 nennt mindestens:
@@ -72,16 +74,20 @@ nennt mindestens:
   Dateistand einmal hashverifiziert nach `backups:` sichern;
 - jede Änderung sofort zurücklesen;
 - nicht speichern, schließen, verwerfen oder Save As verwenden, sofern das
-  nicht ausdrücklich separat beauftragt ist;
+  nicht vom ausdrücklichen Auftrag umfasst ist;
 - niemals über ELSTER senden oder übermitteln.
 
-Bitte um genau eine Bestätigung dieses Plans. Neue Pfade, Connectoren,
-Arbeitskopien oder Speicheraktionen sind eigene Entscheidungen und dürfen nicht
-in einem vagen „Standard“ versteckt werden.
+Eine klare Freigabe für den beschriebenen Umfang genügt. Hat der Mensch die
+Bearbeitung bereits ausdrücklich beauftragt, nenne den Plan und führe ihn aus;
+verlange keine zusätzliche Bestätigung für dieselben Schritte. Ein Auftrag
+kann Ändern und Speichern gemeinsam freigeben. Nur noch fehlende wesentliche
+Entscheidungen oder Erweiterungen des Auftrags klären. Neue Pfade,
+Connectoren, Arbeitskopien oder Speicheraktionen dürfen nicht in einem vagen
+„Standard“ versteckt werden.
 
 ## 5. Ursprünglichen Auftrag fortsetzen
 
-Nach Bestätigung ohne neue Einrichtungsrunde zum gemerkten Auftrag
+Nach Klärung und Freigabe ohne neue Einrichtungsrunde zum gemerkten Auftrag
 zurückkehren. Bindung, Quellen und Entscheidungen weiterverwenden. Vor der
 ersten dirty-fähigen Aktion die detaillierte
 [Fallsitzung](case-session.md) anwenden.

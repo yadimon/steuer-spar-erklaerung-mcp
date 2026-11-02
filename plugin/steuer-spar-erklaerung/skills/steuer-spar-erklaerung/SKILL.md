@@ -29,35 +29,51 @@ Setze danach den ursprünglichen Auftrag fort. Ein bestandener Preflight ist
 keine Freigabe für spätere Navigationen oder Mutationen; jeder API-Aufruf prüft
 seine Bindungen erneut.
 
+Direkte MCP-Werkzeuge über ihre Tooldefinitionen aufrufen; `ALL_TOOLS` enthält
+nur verschachtelte Werkzeuge und belegt daher keine fehlenden direkten Tools.
+
 ## First run
 
 Ist Fall oder Belegumfang noch unklar, lies
 [references/first-run.md](references/first-run.md). Der kurze Wizard behält
 den ursprünglichen Auftrag, stellt höchstens eine Frage pro Nachricht und
 lässt einen eindeutig geöffneten Fall gewinnen. Andernfalls bestätigt er Fall
-und vollständige Belegquellen. Nach Bestätigung des sicheren Plans setzt er
-den ursprünglichen Auftrag fort.
+und vollständige Belegquellen. Sobald die wesentlichen Angaben und die
+Freigabe feststehen, setzt er den ursprünglichen Auftrag fort.
 
 Bereits beantwortete Fragen nicht erneut stellen. Der First run darf keine
 Installerbefehle als Standardaktion ausführen, keine Clientkonfiguration
 verändern und keine versteckte Systemänderung vornehmen.
 
-## Harte Grenzen
+## Auftrag, Originalfall und technische Grenzen
 
-Diese Regeln gelten auch auf ausdrücklichen Wunsch:
+Der Originalfall ist der normale Arbeitsfall. Ein Übermittlungsvermerk allein
+ist keine Schreibsperre: Eine Gewinn-Erfassung wird im selben Fall für weitere
+Zeiträume fortgeführt. Ausdrücklich beauftragte Änderungen und `sse_save` sind
+auch im Original erlaubt. Verlange dafür keine Arbeits- oder Korrekturkopie.
+Einen bereits übermittelten **Zielzeitraum** nur mit einem ausdrücklichen
+Korrekturauftrag bearbeiten; eine frühere Meldung eines anderen Zeitraums
+blockiert den aktuellen Auftrag nicht.
+
+Eine klare Freigabe gilt für alle beauftragten Teilschritte. Verwende sie in
+der laufenden Aufgabe weiter, statt dieselbe Zustimmung erneut zu verlangen.
+Frage nur nach fehlenden wesentlichen Entscheidungen oder einer Erweiterung
+des Auftrags. Ein Auftrag darf Bearbeiten und Speichern gemeinsam freigeben.
 
 - Niemals über ELSTER senden, übermitteln, bestätigen oder abschließen. Keinen
   Versandklick und keinen Umgehungsweg vorbereiten.
-- Originale und übermittelte Falldateien niemals löschen, überschreiben,
-  umbenennen oder verschieben. Archive sind nur über den ausdrücklich
+- Falldateien nicht außerhalb der Anwendung binär überschreiben und nicht
+  ungefragt löschen, umbenennen oder verschieben. `sse_save` am gebundenen
+  Original ist der normale Speicherweg. Archive sind nur über den ausdrücklich
   beauftragten, inventar- und hashgebundenen `sse_archive_cases`-Vertrag
   zulässig.
 - Ein bereits eindeutig geöffneter Fall ist der Arbeitsfall. Nie still einen
   anderen öffnen. Bei mehreren offenen Fällen genau eine Auswahlfrage stellen.
 - Eine Arbeitskopie, `save_as`, Schließen oder Verwerfen ist keine implizite
   Sicherheitsmaßnahme und braucht einen ausdrücklichen Auftrag.
-- Ändern ist nicht Speichern. `sse_save` oder `sse_save_as` nur nach einem
-  getrennten ausdrücklichen Speicherauftrag für den exakt gebundenen Fall.
+- Ändern ist nicht Speichern. `sse_save` oder `sse_save_as` brauchen einen
+  ausdrücklichen Speicherauftrag für den exakt gebundenen Fall. „Ändere und
+  speichere“ genügt; dafür keine zweite Bestätigung verlangen.
 - Vor der ersten dirty-fähigen Navigation oder Mutation den aktuellen
   Dateistand einmal je unverändertem Disk-Hash privat sichern. Vor jedem
   Schreiben Fallreferenz, PID/HWND, Hash und Backupbindung erneut prüfen.
@@ -109,38 +125,28 @@ und keine Lockerung durch Weglassen der RuntimeId oder Namensraumwechsel.
 2. **Planen:** Auftrag als Prüfung, Belegabgleich, Änderung, UStVA oder
    Fallanlage erkennen. Nur die dafür nötigen Quellen und Operationen vorsehen.
    Offene fachliche Entscheidungen (Einkunftsart, Kleinunternehmer, Soll/Ist,
-   Zuordnung strittiger Belege) in **einer Klärungsrunde** gebündelt mit je
-   einem begründeten Vorschlag stellen; dabei fragen, ob der Nutzer den
-   **betreuten Modus** (jeder Schritt bestätigt) oder den **selbstständigen
-   Modus** (bestätigter Plan, Lücken am Ende) will. Ohne Antwort gilt betreut.
+   Zuordnung strittiger Belege) mit einem begründeten Vorschlag klären,
+   höchstens eine Frage pro Nachricht. Bereits beantwortete Angaben und
+   erteilte Freigaben weiterverwenden; keine zusätzliche Modusfrage stellen.
    Buchungsregel: Ein-/Ausgaben in die Kostenarten der Gewinn-Erfassung
    buchen; Vorsteuer und UStVA leitet das Programm daraus ab. Direkte
    UStVA-Beträge sind nur ein begründeter Fallback auf ausdrücklichen Wunsch.
-   Den sicheren Plan kurz bestätigen lassen, wenn er Navigation, Dateien oder
-   Mutationen umfasst.
+   Bei einem klaren Auftrag den Plan kurz nennen und im freigegebenen Umfang
+   ausführen. Nur noch offene wesentliche Entscheidungen bestätigen lassen.
 3. **Sichern:** Vor `sse_collect`, `sse_goto`, `sse_subpages`, navigierendem
    `sse_click_point`, Programm-Prüfer oder Mutation den unveränderten
    Dateistand genau einmal nach `backups:` sichern. Der vollständige
    Sitzungsvertrag steht in [case-session.md](references/case-session.md).
 4. **Lesen:** Verfügbare Werkzeuge und Grenzen aus `sse_capabilities`, der
-   API-Selbstbeschreibung und dem installierten API-Vertrag ableiten. Belege
-   nur aus bestätigten Quellen inventarisieren. Ergebnisse strukturiert lesen;
-   Screenshots sind nur ergänzende Evidenz. Für die Frage, was auf der
-   sichtbaren Seite steht — welcher Betrag, welche Auswahl —, ist
-   `sse_read_page` der billige Weg: eine Zeile je Beschriftung samt Wert.
-   `sse_table_read` verwenden, wenn es um die Zeilen einer Buchungstabelle
-   geht. MCP ergänzt bei fehlendem `noKeys` den Wert `true`; eine ausdrückliche
-   Angabe bleibt erhalten. Mit verifiziertem Qt-Backend liest dieser Hauptweg
-   das Modell passiv. Im gewöhnlichen UIA-Pfad ist `noKeys: true` nur der
-   sichtbare Teilbestand. Für dessen vollständiges Inventar vor dem Aufruf
-   ausdrücklich `readMode: "grid"` wählen. `vollstaendig`, `limitReached` und
-   `rowDetails` prüfen; die Rohzeilen enthalten auch leere Eingabeslots. Der
-   Gridmodus bewegt keinen Cursor und erlaubt kein `noKeys: false`.
-   Den aktiven Cursorlauf mit `noKeys: false` nur für fehlende passive Lesepfade,
-   bewiesen nötige UIA-Positionierung oder GUI-Diagnose wählen. Ein voller
-   Lauf zeigt das Tabellenende, keine beliebige Zielzeile. Kein Durchprobieren.
-   Spaltenköpfe und die unter `summen` gelesenen Kontrollsummen liefern
-   `sumLabel`, `sumOccurrence` und `expectedBefore` einer folgenden Änderung.
+   API-Selbstbeschreibung und dem installierten API-Vertrag ableiten. Belege nur
+   aus bestätigten Quellen inventarisieren; Screenshots sind ergänzende Evidenz.
+   Felder mit `sse_read_page`, Buchungszeilen mit `sse_table_read` lesen. MCP setzt
+   fehlendes `noKeys` auf `true`: Qt liest das Modell passiv, UIA nur Sichtbares.
+   Für vollständiges passives UIA-Lesen `readMode: "grid"` wählen und
+   `vollstaendig`, `limitReached`, `rowDetails` sowie leere Eingabeslots beachten.
+   `noKeys: false` nur für bewiesenen Cursorbedarf oder Diagnose verwenden;
+   ein voller Lauf zeigt das Tabellenende. Spaltenköpfe und Kontrollsummen
+   frisch binden; Details stehen in [buchungswege.md](references/buchungswege.md).
 5. **Ändern:** Nur genau eine eng gebundene Änderung oder einen bestätigten
    Batch ausführen. Für Tabellen den frisch gelesenen Vorwert beziehungsweise
    `expectedBefore` verwenden. Wert, Summe, Hash und Dirty-State sofort
@@ -154,19 +160,15 @@ und keine Lockerung durch Weglassen der RuntimeId oder Namensraumwechsel.
 6. **Prüfen:** Nach einer vollständigen Bearbeitung den Programm-Prüfer mit
    `sse_checker_run` starten und mit `sse_checker_results` lesen. Die Fallart
    bestimmt den profilierten Startweg; im Einkommensteuerfall muss die
-   Prüfseite geöffnet sein. Einzelne Meldungen über ihren exakt gelesenen Namen
-   mit `sse_checker_open` öffnen und mit Fundstelle und Vorschlag auflisten.
-   Erscheint beim Navigieren der automatische Hinweis „Die Prüfung hat ergeben …“, mit
-   `sse_warning_popup_read` lesen und nur fingerprintgebunden über
-   `sse_dialog_answer` („Jetzt ignorieren“ oder „Als gelesen markieren“)
-   beantworten; den Navigationsklick nicht wiederholen, sondern
-   `sse_ui_state` neu lesen. Nennt der Hinweistext ELSTER (etwa „ELSTER:
-   Einkunftsart fehlt!“), bleibt er gesperrt: dann die Ursache beheben, also
-   das fehlende Feld füllen, statt den Hinweis wegzuklicken.
+   Prüfseite geöffnet sein. Meldungen mit `sse_checker_open` exakt öffnen.
+   Automatische Prüfhinweise mit `sse_warning_popup_read` lesen und nur
+   fingerprintgebunden über `sse_dialog_answer` beantworten; danach
+   `sse_ui_state` neu lesen, keinen Navigationsklick wiederholen. Bei einem
+   gesperrten ELSTER-Hinweis die Ursache beheben, statt ihn wegzuklicken.
 7. **Abschließen:** Fall offen lassen. Knapp sagen, was gelesen oder geändert
-   wurde, ob die Änderung nur im Programm steht und dass nicht gespeichert
-   beziehungsweise nicht übermittelt wurde. Einen Bericht nur auf Auftrag
-   anlegen und dessen Ergebnisdatei samt Hash zurücklesen.
+   wurde und ob auf Auftrag gespeichert oder nur im Programm geändert wurde.
+   Übermittlung hat nicht stattgefunden. Berichte nur auf Auftrag als Datei
+   anlegen und diese samt Hash zurücklesen.
 
 MCP ist der Standardtransport und bleibt PC-blind; die lokale API führt die
 Windows-Arbeit aus. Direkte API-Nutzung ist nur ein vom Nutzer ausdrücklich
@@ -182,8 +184,7 @@ Lies nur die Referenz, die der aktuelle Auftrag tatsächlich braucht:
   Mutation, Sicherung, Arbeitskopie oder Speicherung;
 - [ustva.md](references/ustva.md) — nur bei UStVA, Gewinn-Erfassung oder dem
   belegten Folgejahrweg;
-- [case-create.md](references/case-create.md) — nur wenn ausdrücklich ein
-  neuer Fall angelegt werden soll oder kein passender Fall existiert;
+- [case-create.md](references/case-create.md) — nur bei ausdrücklich beauftragter Fallanlage;
 - [buchungswege.md](references/buchungswege.md) — bevor eine Ausgabe, Einnahme
   oder ein Reverse-Charge-Beleg eingetragen wird;
 - [steuerquellen.md](references/steuerquellen.md) — betragsrelevante oder

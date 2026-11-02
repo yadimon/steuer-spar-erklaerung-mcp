@@ -62,6 +62,11 @@ ersten dirty-fähigen Navigation oder Änderung wird der aktuelle Dateistand
 hashgebunden gesichert; jede Änderung braucht Readback und Speichern einen
 eigenen ausdrücklichen Auftrag.
 
+Der Originalfall ist der normale Arbeitsfall. Eine frühere Übermittlung sperrt
+ihn nicht pauschal für weitere Zeiträume. Klar beauftragte Änderungen und
+Speichern sind nach Sicherung auch im Original erlaubt; „ändere und speichere“
+genügt als gemeinsamer Auftrag. Bereits erteilte Freigaben werden weiterverwendet.
+
 ## Schnellstart
 
 Erstelle einen leeren Auftragsordner und verwende genau die Strecke für deinen
@@ -102,6 +107,13 @@ benötigt. Zur Laufzeit ist Node.js 22+ die einzige zusätzliche Voraussetzung:
 Es ist kein `npm install`, kein separates API-Terminal und kein weiterer
 Runtime-Download nötig. Beim MCP-Start laufen weder npm noch npx und es wird
 kein Netzwerkzugriff benötigt.
+
+Eine daneben vorhandene globale npm-Installation ersetzt das Plugin nicht.
+Das Plugin startet seine mitgelieferte Runtime; ein `npm uninstall -g` repariert
+deshalb keine fehlenden Plugin-Werkzeuge. Prüfe nach dem Neustart den
+Werkzeugkatalog im Client: Auch `sse_preflight` muss tatsächlich aufrufbar sein.
+Nur einen Teil der Werkzeuge zu sehen ist keine abgeschlossene Einrichtung;
+die [Fehlerbehebung](docs/INSTALLATION.md#fehlerbehebung) beschreibt die Prüfung.
 
 `plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei beiden Zielen in
 clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Beim

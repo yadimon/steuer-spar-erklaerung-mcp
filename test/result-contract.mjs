@@ -575,4 +575,10 @@ for (const [operation, shape] of Object.entries(realWorkerShapes)) {
   }
 }
 
+const transmittedCaseWarning = { kind: "transmitted-case", reason: "Synthetic earlier-period transmission", hinweis: "Original remains editable on request." };
+assert.deepEqual(parseApiOperationResult("save", { ok: true, saved: true, verified: true, transmittedCaseWarning }).transmittedCaseWarning,
+  transmittedCaseWarning, "Der dokumentierte Save-Vertrag muss die Uebermittlungswarnung erhalten.");
+assert.throws(() => parseApiOperationResult("save", { ok: true, transmittedCaseWarning: { ...transmittedCaseWarning, kind: "saved" } }),
+  /transmittedCaseWarning|transmitted-case/u, "Eine Uebermittlungswarnung darf keine Speicherbestaetigung vortaeuschen.");
+
 process.stdout.write(`Ergebnisvertraege: ${SSE_API_OPERATIONS.length} versionierte Schemas, Fehlerunion und Malformed-Gates bestanden\n`);
