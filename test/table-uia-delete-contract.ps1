@@ -71,7 +71,11 @@ function Set-SSECursorPoint {param($X,$Y) [SW]::CursorX=$X;[SW]::CursorY=$Y;[SW]
 function Assert-SSECursorPoint {param($X,$Y) if([SW]::CursorX -ne $X -or [SW]::CursorY -ne $Y){throw 'synthetic-cursor-drift'}}
 function Test-SSETableFocusedSource {param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,[switch]$AllowPositionNameSource,[ref]$FailureReason,[ref]$PositionNameProof) if($script:raiseCaptureSentinel){throw [InvalidOperationException]::new($script:SSE_CAPTURE_SENTINEL)};$script:sourceAllowed}
 function Wait-SSEUiaDeleteRows { }
-function Get-SSEUiaDeleteCell { $script:target }
+function Get-SSEUiaDeleteCell {
+ param($State,[int]$ProcessId,[int]$Row,[int]$Column)
+ Assert ($Row -eq 1 -and $Column -eq 0) 'Fixture target cell used the wrong model row or column.'
+ $script:target
+}
 function Assert-SSEUiaDeleteSelection {param($State,$ProcessId,$Row,$Column,[switch]$RequireUnselected,[switch]$SelectionOnly)
  if($script:selectionFails -and -not $RequireUnselected){throw 'synthetic-selection-refused'}
  if(-not $RequireUnselected -and -not $SelectionOnly){$script:selectionProofs++;if($script:interfereFinalSelection -and $script:selectionProofs -eq 2){[SW]::Tick++}}
@@ -161,7 +165,7 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
    'ambiguous-cell' {$active.tree.nodes+=@($active.tree.nodes[0])}
    'missing-cell' {$active.tree.nodes[0].rid='Unknown.Cell'}
    'foreign-input' {$script:activationInput=$true}
-   'pre-existing' {$script:states[0].editors=@($editor)}
+   'unmapped-pre-existing' {$script:states[0].editors=@($editor)}
    'not-closed' {$closed.editors=@($editor)}
    default {throw 'Unknown activation scenario.'}
   }
@@ -182,6 +186,11 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
    'ambiguous-cell' {$initial.tree.nodes+=@($initial.tree.nodes[0])}
    'missing-cell' {$initial.tree.nodes[0].rid='Unknown.Cell'}
    'not-closed' {$closed.editors=@($editor)}
+   'background' { }
+   'runtime-id-drift' {
+     $editor|Add-Member NoteProperty runtimeReads 0
+     $editor|Add-Member ScriptMethod GetRuntimeId {$this.runtimeReads++;@('Editor',[string]($this.runtimeReads%2))} -Force
+   }
    default {throw 'Unknown initial editor scenario.'}
   }
  }
@@ -202,6 +211,7 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
  $script:target.Current.ProcessId=$process.Id;[Windows.Automation.AutomationElement]::Hit=$script:target
  $script:target.Current.BoundingRectangle.Y=$(if($Clipped){5.0}else{100.0})
  [Windows.Automation.AutomationElement]::FocusedElement=$(if($script:initialEditorScenario){$editor}else{Focus})
+ if($script:initialEditorScenario -ceq 'background'){[SW]::Foreground=[IntPtr]99}
  [Windows.Forms.SendKeys]::EscapeFocus=Focus
  [Windows.Forms.SendKeys]::AfterUndoFocus=$(if($EditorAfterUndo){Focus 'Edit' 'Other.Editor' 'Other.Editor'}else{$null})
  if($WrongPoint){[Windows.Automation.AutomationElement]::Hit=Focus 'DataItem' 'Other.cell'}
@@ -514,11 +524,12 @@ foreach($initialDirty in @($false,$true)){
  Same $activated.keys @('{ESC}','^+{DEL}') 'Activation must cancel exactly one owned unchanged editor, then delete once.'
  Same $activated.clicks 1 'Activation editor handling added a target click or repeated selection.'
 }
-foreach($scenario in @('changed-value','changed-dirty','changed-model','changed-root','other-column','hidden-column','hidden-editor','foreign-focus','combo-editor','ambiguous-cell','missing-cell','foreign-input','pre-existing')){
+foreach($scenario in @('changed-value','changed-dirty','changed-model','changed-root','other-column','hidden-column','hidden-editor','foreign-focus','combo-editor','ambiguous-cell','missing-cell','foreign-input','unmapped-pre-existing')){
  $blockedActivation=Run (State $removed '100,00' $true) -ActivationScenario $scenario
  Assert (-not $blockedActivation.result.ok) ('Unproven activation editor was accepted: '+$scenario)
  Same $blockedActivation.keys @() ('Unproven activation dispatched input: '+$scenario)
  Same $blockedActivation.clicks 0 ('Unproven activation clicked the deletion target: '+$scenario)
+ if($scenario -ceq 'unmapped-pre-existing'){Assert ($blockedActivation.result.error -match 'no unique observed cell') 'Unmapped pre-existing editor failed for an unexpected reason.'}
 }
 $stillEditing=Run (State $removed '100,00' $true) -ActivationScenario 'not-closed'
  Assert (-not $stillEditing.result.ok) 'Unconfirmed editor closure proceeded to deletion.'
@@ -530,7 +541,7 @@ foreach($initialDirty in @($false,$true)){
  Assert $initialEditor.result.ok 'An existing unchanged Nr. delegate blocked deletion.'
  Same $initialEditor.keys @('{ESC}','^+{DEL}') 'An existing unchanged Nr. delegate was cancelled or deleted more than once.'
 }
-foreach($scenario in @('changed-value','other-column','hidden-column','hidden-editor','combo-editor','ambiguous-cell','missing-cell')){
+foreach($scenario in @('changed-value','other-column','hidden-column','hidden-editor','combo-editor','ambiguous-cell','missing-cell','background','runtime-id-drift')){
  $script:initialEditorScenario=$scenario
  $blocked=Run (State $removed '100,00' $true)
  Assert (-not $blocked.result.ok) ('An unproven existing editor was accepted: '+$scenario)

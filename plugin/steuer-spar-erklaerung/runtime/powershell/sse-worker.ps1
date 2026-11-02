@@ -12196,6 +12196,9 @@ function Enter-SSEPopupForeground([IntPtr]$MainHwnd, $ExpectedInputTick=$null) {
   if(-not (Test-SSELastInputUnchanged $epoch)){
     Fail 'Eingabemarke waehrend der Popup-Aktivierung geaendert; kein Popup geoeffnet.' 'interference'
   }
+  # Drop only TOPMOST/depth; retain this foreground and original lease through
+  # Expand and the subsequent verified operation until its common Emit exit.
+  Hide-SSETopmost $MainHwnd
 }
 
 function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid, $MenuElement=$null) {
@@ -16073,6 +16076,25 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $optionPopup=[IntPtr][int64]$optionObstruction.hitRoot
             if($optionLists.Count -ne 1 -or
                 -not (Test-SSEComboPopupRoot $optionObstruction $optionLists[0] $targetPid $optionPopup)){
+              # Close only our still-bound, unchanged combo. An input or
+              # foreground loss forbids even this non-physical cleanup.
+              try{
+                if((Test-SSELastInputUnchanged $inputBaseline) -and [SW]::GetForegroundWindow() -eq $hwnd -and
+                    (Get-CurrentHeading $hwnd) -ceq $expectedPage){
+                  $refusedCombo=Get-LiveElement $hwnd $combo.rid $combo.aid
+                  $refusedValue=$null;$refusedExpand=$null
+                  if($refusedCombo -and [string]$refusedCombo.Current.AutomationId -ceq [string]$combo.aid -and
+                      $refusedCombo.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$refusedValue)){
+                    $refusedRaw=$refusedValue.Current.Value
+                    if($refusedRaw -is [string] -and $refusedRaw -ceq $expectedCurrent -and
+                        $refusedCombo.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern,[ref]$refusedExpand) -and
+                        $refusedExpand.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Expanded -and
+                        (Test-SSELastInputUnchanged $inputBaseline) -and [SW]::GetForegroundWindow() -eq $hwnd){
+                      $refusedExpand.Collapse()
+                    }
+                  }
+                }
+              }catch{ }
               Fail 'Option liegt nicht im gebundenen Hauptfenster oder seinem exakten Qt-Popup. NICHT geklickt.' 'obstructed'
             }
             $optionList=$optionLists[0]

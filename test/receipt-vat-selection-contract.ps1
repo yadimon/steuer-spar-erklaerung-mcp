@@ -351,6 +351,7 @@ Write-Output 'Receipt VAT selection: actual guards, transient loss, semantic suc
 # Compose the real foreground lifetime with the real VAT producer. Earlier
 # fixtures deliberately stubbed Show/Hide and could not detect early release
 # by a preceding text commit. Native boundaries remain inert scalar recorders.
+& {
 foreach($name in @('Enter-SSEForegroundLease','Exit-SSEForegroundLease','Complete-SSEPhysicalSection',
  'Show-SSEWindow','Hide-SSETopmost','Get-SSEInputEpochEvidence','New-SSECommitResult','Commit-TrackedValue')){
  $defs=@($actualAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
@@ -407,3 +408,4 @@ $interference=Commit-TrackedValue ([IntPtr]7) $null 'value' 'before' '' 1
 Assert-True ($interference.method -ceq 'interference-inherited-input' -and $interference.interference -and
  $script:SSE_FOREGROUND_LEASE.acquisitions -eq $acquisitions) 'A text commit adopted a fresh input epoch before checking the inherited checkpoint.'
 Write-Output 'Receipt composition: original lease through text/VAT, standalone cleanup, stale/unbalanced scopes and inherited epoch passed.'
+}

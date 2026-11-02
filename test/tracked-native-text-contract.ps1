@@ -135,6 +135,7 @@ public static class SW {
   public static string PostTabValue,InputEcho;
   public static bool IsWindow(IntPtr hwnd) { return Valid; }
   public static IntPtr GetForegroundWindow() { return Foreground; }
+  public static bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,int flags) { return true; }
   public static uint GetWindowThreadProcessId(IntPtr hwnd, out int pid) { pid=hwnd.ToInt64()==7?100:200; return 1; }
   public static IntPtr WindowFromPoint(PT point) { return new IntPtr(ForeignHit?8:7); }
   public static IntPtr GetAncestor(IntPtr hwnd, uint flags) { return hwnd; }
@@ -869,3 +870,87 @@ $dataItemControl=Commit-TrackedValue ([IntPtr]7) $script:node ('A'+$greekProbe+'
 Assert-True ($dataItemControl.method -ceq 'verified-keyboard-replace' -and [SW]::PreTabReads -eq 0 -and [SW]::ForeignDuringPreTabRead -and $null -eq $dataItemControl.details.textBeforeCommitVerified -and (@([SW]::Events|Where-Object {$_ -ceq '{TAB}'})).Count -eq 1) 'DataItem input acquired the new Edit-only diagnostic read or lost its supported commit path.'
 Write-Output 'Tracked commit diagnosis: actual pre-TAB proof, non-owning substitution evidence, null preservation and input-during-read stop passed.'
 Write-Output 'Tracked native text: literal transport, readback, guards, partial failures and receipt rollback passed.'
+
+# Execute the receipt dispatcher's actual scope acquisition and forward loop
+# with a real text commit and real foreground lifetime; only native boundaries
+# and field observations are modeled. Keep these helper overrides local.
+& {
+ foreach($name in @('Enter-SSEForegroundLease','Exit-SSEForegroundLease','Show-SSEWindow','Hide-SSETopmost',
+  'Complete-SSEPhysicalSection','Get-SSEInputEpochEvidence')){
+  $def=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
+  Assert-True ($def.Count -eq 1) 'Actual compound lifetime helper ambiguous.'
+  Invoke-Expression $def[0].Extent.Text
+ }
+ $leaseInit=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $n.Left.Extent.Text -ceq '$script:SSE_FOREGROUND_LEASE'},$true))
+ $updateClause=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.SwitchStatementAst] -and
+  @($n.Clauses|Where-Object {$_.Item1.Extent.Text -ceq "'receipt_manager_update'"}).Count -eq 1},$true))
+ Assert-True ($leaseInit.Count -eq 1 -and $updateClause.Count -eq 1) 'Actual receipt scope source ambiguous.'
+ $items=@(@($updateClause[0].Clauses|Where-Object {$_.Item1.Extent.Text -ceq "'receipt_manager_update'"})[0].Item2.Statements)
+ $begin=@(0..($items.Count-1)|Where-Object {$items[$_].Extent.Text.StartsWith('$updateLease=')})
+ $end=@(0..($items.Count-1)|Where-Object {$items[$_].Extent.Text.StartsWith('$script:SSE_FOREGROUND_SCOPE_WATCH=')})
+ Assert-True ($begin.Count -eq 1 -and $end.Count -eq 1) 'Actual receipt scope statement range ambiguous.'
+ $scope=[scriptblock]::Create((@($items[$begin[0]..$end[0]]|ForEach-Object {$_.Extent.Text}) -join "`n"))
+ function Set-SSEForegroundWindowCore($Window,[switch]$Topmost){[SW]::Foreground=$Window;$true}
+ function Test-SSEWindowIsLockScreen {$false}
+ function Fail {param($Message,$Kind='error',$Details=$null) $script:scopeFailure=$Kind;throw 'receipt-scope-stopped'}
+ function Get-SSEReceiptManagerFieldValue {
+  param($Binding)
+  if($script:rollbackObservationDrift){$script:rollbackObservationDrift=$false;[SW]::Tick++}
+  [SW]::Value.Current.Value
+ }
+ function Reset-CompoundFixture {
+  Reset-TestState
+  Invoke-Expression $leaseInit[0].Extent.Text
+  $script:SSE_FOREGROUND_SCOPE_WATCH=$null
+  $null=Enter-SSEForegroundLease ([IntPtr]7);Hide-SSETopmost ([IntPtr]7)
+  $script:scopeFailure=$null
+  $script:rollbackObservationDrift=$false
+ }
+ foreach($problem in @('missing-watch','wrong-process','changed-epoch','wrong-foreground')){
+  Reset-CompoundFixture
+  $toolHwnd=[IntPtr]7;$targetPid=100
+  switch($problem){
+   'missing-watch'{$script:SSE_FOREGROUND_LEASE.watch=$null}
+   'wrong-process'{$targetPid=101}
+   'changed-epoch'{[SW]::Tick++}
+   'wrong-foreground'{[SW]::Foreground=[IntPtr]8}
+  }
+  try{. $scope}catch{Assert-True ($_.Exception.Message -ceq 'receipt-scope-stopped') 'Unexpected compound precondition failure.'}
+  Assert-True ($script:scopeFailure -ceq 'interference' -and [SW]::Events.Count -eq 0) ('Unsafe receipt scope acquisition: '+$problem)
+  Exit-SSEForegroundLease -Force -Reason 'emit'
+ }
+ foreach($contextFault in @('watch','epoch','rollback-observation')){
+ Reset-CompoundFixture
+ $toolHwnd=[IntPtr]7;$targetPid=100;$waitMs=1
+ . $scope
+ $originalWatch=$updateWatch
+ $script:node|Add-Member NoteProperty type 'Edit' -Force
+ $transactions=@([pscustomobject]@{name='title';kind='text';before='before';requested='requested';changed=$false;
+  binding=[pscustomobject]@{name='title';node=$script:node}})
+ $changedFields=New-Object Collections.ArrayList
+ $failedField=$null;$failedReason=$null;$uncertainFieldMutation=$false;$failedInputGuard=$false
+ Invoke-Expression $receiptLoop[0].Extent.Text
+ Assert-True (-not $failedField -and $transactions[0].changed -and [SW]::Value.Current.Value -ceq 'requested' -and
+  [Object]::ReferenceEquals($originalWatch,$script:SSE_FOREGROUND_LEASE.watch) -and
+  $script:SSE_FOREGROUND_LEASE.depth -eq 1 -and $script:SSE_FOREGROUND_LEASE.releases -eq 0) 'Real receipt text commit lost the actual dispatcher scope.'
+ # The next actual loop must stop before observing or committing another field
+ # after the original watch is replaced. Its actual rollback also sends no input.
+ $priorInputs=[SW]::Events.Count
+ if($contextFault -ceq 'rollback-observation'){
+  $failedField='title';$failedReason='Synthetic rollback trigger';$failedInputGuard=$false
+  $script:rollbackObservationDrift=$true
+ }else{
+  if($contextFault -ceq 'watch'){$script:SSE_FOREGROUND_LEASE.watch=New-Object object}else{[SW]::Tick++}
+  Invoke-Expression $receiptLoop[0].Extent.Text
+  Assert-True ($failedInputGuard -and [SW]::Events.Count -eq $priorInputs) 'Lost original watch or epoch allowed another forward commit.'
+ }
+ $mainHwnd=[IntPtr]7;$valuesBefore=[ordered]@{title='before'};$requestedValues=[ordered]@{title='requested'}
+ try{Invoke-Expression $rollback[0].Extent.Text}catch{Assert-True ($_.Exception.Message -ceq 'receipt-test-emitted') 'Unexpected compound rollback failure.'}
+ Assert-True ($script:emitted.cleanupRequired -and [SW]::Events.Count -eq $priorInputs) 'Lost original watch authorized an inverse commit.'
+ # Restore only the test watch for inert final release; no production rebaseline.
+ $script:SSE_FOREGROUND_LEASE.watch=$originalWatch
+ Exit-SSEForegroundLease -Force -Reason 'emit'
+ }
+}
+Write-Output 'Receipt dispatcher: actual scope preconditions, real text commit, original-watch loss and no inverse replay passed.'

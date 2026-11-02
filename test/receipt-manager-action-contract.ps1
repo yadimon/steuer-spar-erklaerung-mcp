@@ -1815,6 +1815,7 @@ function Show-SSEWindow($window){
  $script:menuForegroundAllowed
 }
 function Set-SSEForegroundLeaseInputCheckpoint {param($tick,$Point,[string]$Context) $script:menuForegroundCheckpoints++;$script:menuStoredEpoch=$tick}
+function Hide-SSETopmost {param($Window) $script:menuForegroundHides++}
 foreach($case in @(
  @{name='background';tick=10;allowed=$true;lost=$false;input=$false;kind=$null;shows=1;checkpoints=1},
  @{name='no-epoch';tick=$null;allowed=$true;lost=$false;input=$false;kind='interference';shows=0;checkpoints=0},
@@ -1825,10 +1826,12 @@ foreach($case in @(
  $script:menuForegroundTick=$case.tick;$script:menuForegroundAllowed=$case.allowed
  $script:menuForegroundLost=$case.lost;$script:menuForegroundInput=$case.input
  $script:menuForegroundShows=0;$script:menuForegroundCheckpoints=0;$script:menuDiagFailure=$null;$script:menuStoredEpoch=$null
+ $script:menuForegroundHides=0
  [MenuOpenDiagnosticContract.Windows]::Foreground=[IntPtr]99
  try{Enter-SSEPopupForeground ([IntPtr]11)}catch{Assert-True ($_.Exception.Message -ceq 'MenuDiagnosticFailure') 'Unexpected menu foreground failure.'}
  Assert-True ($script:menuDiagFailure.kind -ceq $case.kind -and $script:menuForegroundShows -eq $case.shows -and
   $script:menuForegroundCheckpoints -eq $case.checkpoints -and $script:menuStoredEpoch -ceq $case.tick) ('Menu activation lost its no-retry or input epoch contract: '+$case.name)
+ Assert-True ($script:menuForegroundHides -eq [int]($null -eq $case.kind)) 'Successful popup activation retained TOPMOST or failed activation performed extra cleanup.'
 }
 $script:menuForegroundTick=10;$script:menuForegroundCheckpoints=0;$script:menuStoredEpoch=$null
 function Show-SSEWindow { $script:menuForegroundTick++;throw 'Synthetic activation error' }

@@ -89,6 +89,9 @@ foreach($name in @('Test-SSEReceiptManagerInputContext','Set-SSEReceiptManagerBo
 }
 function Reset-Checkbox([string]$Mode,[bool]$Before){
  Reset-Fixture $Mode
+ [SW]::Foreground=[IntPtr]8
+ $script:updateWatch=$script:SSE_FOREGROUND_LEASE.watch
+ $script:SSE_FOREGROUND_SCOPE_WATCH=$null
  $script:checkboxNativeReads=0;$script:cursorMoves=0;$script:checkboxInitialBefore=$Before
  $script:checkboxCapturePayload=$null
  [ReceiptCheckboxPoint]::RuntimeId='42.7.12'
