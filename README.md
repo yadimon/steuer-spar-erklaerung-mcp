@@ -202,7 +202,8 @@ in [Architektur](docs/ARCHITEKTUR.md), [Qt-Vertrag](docs/NATIVE-QT.md) und
 
 Die Stabilisierung gilt auch für den normalen UIA-Pfad: Tabellenänderungen
 prüfen das vollständige Modell und den Nachzustand, Beleglisten behalten
-verborgene Spalten in ihrer Bindung. Ein bewusst geöffnetes Menü bleibt für
+verborgene Spalten in ihrer Bindung; das gilt auch für den optionalen Qt-Pfad.
+Ein bewusst geöffnetes Menü bleibt für
 den nächsten Aufruf offen. Bei verlorener Eingabebindung oder unbekanntem
 Schreibausgang folgt kein automatischer zweiter Schreibversuch. Die Grenzen
 und die getrennten Offline-, Live- und Dauerprüfungen beschreibt die

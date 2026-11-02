@@ -146,7 +146,7 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   echte boolesche Checkboxzustände für vollständige Detailwerte und deren
   Fingerprint. Ein lesbares leeres USt-Feld bleibt der gültige Nullsatz;
   unlesbare Werte und bloße Beschriftungen bestätigen ihn nicht.
-  Der UIA-Listenreader bindet auch verborgene Grid-Spalten und Belegnummern;
+  UIA- und Qt-Listenreader binden auch verborgene Grid-Spalten und Belegnummern;
   die Detailansicht verändert die Datenbindung nicht allein durch ihr Layout.
   Unlesbare oder doppelt gebundene Zellen ergeben keine vollständige Liste.
   Interne Mehrfeldänderungen behalten ihre ursprüngliche Lease über Text,

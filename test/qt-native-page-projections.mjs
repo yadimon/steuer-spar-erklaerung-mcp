@@ -1,3 +1,4 @@
+import { receiptGridFixture } from "./qt-native-receipt-grid-fixture.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -672,7 +673,7 @@ export async function testNativePageProjections() {
     const selectedNodes = tool ? receiptNodes : mainNodes;
     return { durationMs: tool ? 5 : 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
       hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
-      modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+      ...(args.tableProof ? { tableProof: receiptGridFixture(selectedNodes) } : {}), modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
       stats: { ...(tool ? receiptStats : stats), n: selectedNodes.length } } };
   } };
   const startNodes = [
@@ -694,7 +695,7 @@ export async function testNativePageProjections() {
       const selectedNodes = tool ? (actionState === "start" ? startNodes : receiptNodes) : mainNodes;
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
         hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
-        modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+        ...(args.tableProof ? { tableProof: receiptGridFixture(selectedNodes) } : {}), modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
         stats: { ...stats, n: selectedNodes.length } } };
     },
     requestAcknowledged: async (operation, args) => {
@@ -736,7 +737,7 @@ export async function testNativePageProjections() {
       const selectedNodes = tool ? startNodes : mainNodes;
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
         hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
-        modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+        ...(args.tableProof ? { tableProof: receiptGridFixture(selectedNodes) } : {}), modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
         stats: { ...stats, n: selectedNodes.length } } };
     },
     requestAcknowledged: async () => {
@@ -809,7 +810,7 @@ export async function testNativePageProjections() {
       const selectedNodes = tool ? (detailState === "detail" ? detailNodes : receiptNodes) : mainNodes;
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
         hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
-        modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+        ...(args.tableProof ? { tableProof: receiptGridFixture(selectedNodes) } : {}), modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
         stats: { ...stats, n: selectedNodes.length } } };
     },
     requestAcknowledged: async (operation, args) => {

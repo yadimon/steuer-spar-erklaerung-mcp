@@ -66,7 +66,7 @@ export function projectLinkMode(snapshot: LinkSnapshot, policy: ReceiptLinkPolic
     throw new ReceiptLinkError("The bound receipt link window is obstructed or incomplete.", "window-obstructed");
   const state = receiptState(snapshot.nodes, snapshot.hwnd, policy);
   if (state.error || state.state !== "list") return null;
-  const list = receiptList(snapshot.nodes, policy);
+  const list = receiptList(snapshot.nodes, policy, snapshot.tableProof);
   if ("error" in list || !list.rowsComplete) return null;
   if (list.draftCount !== 0) throw new ReceiptLinkError("Receipt linking requires a complete list without drafts.", "precondition-failed");
   const link = policy.controls.linkManagement;

@@ -1,3 +1,4 @@
+import { receiptGridFixture } from "./qt-native-receipt-grid-fixture.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -136,7 +137,7 @@ function fixture(options = {}) {
       const modalBlocked = !tool && !dialog && activeModalHwnd !== 0
         && (args.allowedModalTitle !== policy.title || args.allowedModalHwnd !== activeModalHwnd);
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd,
-        windowEnabled: true, modalBlocked, activeModalHwnd, nodes, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, exactMatches: {},
+        ...(args.tableProof ? { tableProof: receiptGridFixture(toolNodes()) } : {}), windowEnabled: true, modalBlocked, activeModalHwnd, nodes, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, exactMatches: {},
         stats: { n: nodes.length, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
           valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 } } };
     },
@@ -177,7 +178,7 @@ function fixture(options = {}) {
   const args = { hwnd: 42, expectedTargetPage: heading, expectedLinkTarget: target, acknowledgeLinkChange: true, waitMs: 100,
     items: [{ expectedReceiptTitle: rows[0].title, expectedDocumentNumber: rows[0].document, linked: !rows[0].linked }] };
   return { actions, persisted, args, get managerHwnd() { return managerHwnd; }, get readCount() { return readCount; },
-    list: () => { const previous = state; state = "list"; const list = receiptList(toolNodes(), policy); state = previous; return list; },
+    list: () => { const previous = state; state = "list"; const list = receiptList(toolNodes(), policy, receiptGridFixture(toolNodes())); state = previous; return list; },
     run: overrides => {
       const input = { ...args, ...overrides }; if (input.items === undefined) delete input.items;
       return executeQtNativeOperation("receipt_manager_link", input, { qtNativeClient: client }, 5000, undefined, activeProfile);

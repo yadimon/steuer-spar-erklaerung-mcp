@@ -29622,7 +29622,15 @@ var init_qt_native_tables = __esm({
 
 // src/qt-native-snapshot.ts
 import { setTimeout as delay } from "node:timers/promises";
-async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
+function validateQtReceiptTableProof(proof) {
+  const unique2 = (values, limit) => new Set(values).size === values.length && values.every((value) => value < limit);
+  const rids = proof.rows.flatMap((row) => row.rids);
+  const bounded = proof.rowCount <= 1e3 && proof.columnCount >= 1 && proof.columnCount <= 64 && proof.rowCount * proof.columnCount <= 2e4;
+  if (!unique2(proof.hiddenRows, proof.rowCount) || !unique2(proof.hiddenColumns, proof.columnCount) || new Set(rids).size !== rids.length || rids.includes(proof.tableRid) || proof.complete && (!bounded || proof.canFetchMore || proof.incompleteReason !== null || proof.rows.length !== proof.rowCount || proof.headers.length !== proof.columnCount || proof.rows.some((row, index) => row.row !== index || row.names.length !== proof.columnCount || row.rids.length !== proof.columnCount)) || !proof.complete && (!proof.incompleteReason || proof.rows.length !== 0)) {
+    throw new QtNativeTransportError("The native receipt table proof is incomplete or contradictory.", "native-contract");
+  }
+}
+async function readQtNativeSnapshot(client, args, timeoutMs, signal, internal) {
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
     throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
   }
@@ -29630,6 +29638,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
   const request = {
     maxNodes,
     ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
+    ...internal ? { tableProof: { aidSuffix: internal.tableProofAidSuffix } } : {},
     ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
     ...typeof args.allowedModalHwnd === "number" ? { allowedModalHwnd: args.allowedModalHwnd } : {},
     ...args.withValues === false ? { withValues: false } : {},
@@ -29662,6 +29671,13 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
     read.result.outcomeUnknown === true
   );
   const parsed = snapshotSchema.parse(read.result);
+  const hasProof = Object.hasOwn(parsed, "tableProof");
+  if (internal && !hasProof) throw new QtNativeTransportError(
+    "The native package lacks the receipt table proof; rebuild or update the native package.",
+    "native-contract"
+  );
+  if (!internal && hasProof) throw new QtNativeTransportError("An unrequested native table proof was returned.", "native-contract");
+  if (parsed.tableProof) validateQtReceiptTableProof(parsed.tableProof);
   const invalid2 = (message) => {
     throw new QtNativeTransportError(message, "native-contract");
   };
@@ -29730,7 +29746,7 @@ async function executeQtSnapshotGetValue(client, args, timeoutMs, signal) {
     nativeDurationMs: result.nativeDurationMs
   };
 }
-var text2, integer2, nodeSchema, snapshotSchema, fail3, MIN_READ_RETRY_BUDGET_MS;
+var text2, integer2, nodeSchema, nativeRid, tableProofSchema, snapshotSchema, fail3, MIN_READ_RETRY_BUDGET_MS;
 var init_qt_native_snapshot = __esm({
   "src/qt-native-snapshot.ts"() {
     "use strict";
@@ -29757,6 +29773,24 @@ var init_qt_native_snapshot = __esm({
       selected: external_exports.boolean().nullable(),
       scroll: external_exports.null()
     }).strict();
+    nativeRid = external_exports.string().regex(/^42\.-?\d+(?:\.4\.-?\d+)?$/u);
+    tableProofSchema = external_exports.object({
+      tableAid: text2.min(1),
+      tableRid: nativeRid,
+      rowCount: integer2.nonnegative(),
+      columnCount: integer2.nonnegative(),
+      complete: external_exports.boolean(),
+      canFetchMore: external_exports.boolean(),
+      incompleteReason: text2.nullable(),
+      headers: external_exports.array(text2).max(64),
+      hiddenColumns: external_exports.array(integer2.nonnegative()).max(64),
+      hiddenRows: external_exports.array(integer2.nonnegative()).max(1e3),
+      rows: external_exports.array(external_exports.object({
+        row: integer2.nonnegative(),
+        names: external_exports.array(text2).max(64),
+        rids: external_exports.array(nativeRid).max(64)
+      }).strict()).max(1e3)
+    }).strict();
     snapshotSchema = external_exports.object({
       ok: external_exports.literal(true),
       controllerBound: external_exports.literal(true),
@@ -29767,6 +29801,7 @@ var init_qt_native_snapshot = __esm({
       nodes: external_exports.array(nodeSchema).max(5e3),
       activeModalHwnd: integer2.nonnegative().optional(),
       foreground: external_exports.boolean().optional(),
+      tableProof: tableProofSchema.nullable().optional(),
       /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
       root: external_exports.object({ aid: text2, name: text2 }).strict().optional(),
       windowRect: external_exports.object({ x: integer2, y: integer2, w: integer2.nonnegative(), h: integer2.nonnegative() }).strict(),
@@ -30611,7 +30646,7 @@ async function receiptToolSnapshot(client, policy, timeoutMs, signal) {
     maxNodes: 5e3,
     toolTitle: policy.title,
     aidSuffixes: receiptToolAidSuffixes(policy)
-  }, timeoutMs, signal);
+  }, timeoutMs, signal, { tableProofAidSuffix: policy.list.tableAutomationIdSuffix });
 }
 async function receiptDetailSnapshot(client, policy, timeoutMs, signal) {
   return readQtNativeSnapshot(client, {
@@ -30623,7 +30658,7 @@ async function receiptDetailSnapshot(client, policy, timeoutMs, signal) {
       ...Object.values(policy.controls.editableFields).map((field) => field.automationIdSuffix)
     ])],
     aidContains: [".widget_detailPanel."]
-  }, timeoutMs, signal);
+  }, timeoutMs, signal, { tableProofAidSuffix: policy.list.tableAutomationIdSuffix });
 }
 async function receiptDirtyState(client, hwnd, allowedModalTitle, timeoutMs, signal) {
   const main2 = await readQtNativeSnapshot(client, {
@@ -30687,12 +30722,17 @@ function toggleState(node2) {
   if (node2.checked === false) return "Off";
   return null;
 }
-function receiptList(nodes, policy) {
+function receiptList(nodes, policy, proof) {
   const tableSuffix = policy.list.tableAutomationIdSuffix;
   const visible = nodes.filter((node2) => node2.w > 0 && node2.h > 0);
   const tables = visible.filter((node2) => node2.type === "Table" && node2.aid.endsWith(tableSuffix) && node2.on);
   if (tables.length !== 1) return { error: fail5("profile-contract", `${tables.length} visible receipt tables found.`) };
   const table = tables[0];
+  if (!proof || proof.tableAid !== table.aid || proof.tableRid !== table.rid)
+    return { error: fail5("native-contract", "The visible receipt table has no exact complete-model binding.") };
+  validateQtReceiptTableProof(proof);
+  if (proof.complete && proof.columnCount <= Math.max(policy.list.primaryTextColumn, policy.list.documentNumberColumn))
+    return { error: fail5("profile-contract", "The complete receipt model lacks a profiled identity column.") };
   const countLabels = [];
   for (const [index, suffix] of policy.list.countLabelAutomationIdSuffixes.entries()) {
     const matches = visible.filter((node2) => node2.aid.endsWith(suffix));
@@ -30706,23 +30746,25 @@ function receiptList(nodes, policy) {
   if (!countMatch?.groups?.total) return { error: fail5("profile-contract", `Unknown receipt count format: '${countText}'.`) };
   const count = Number.parseInt(countMatch.groups.total, 10);
   const headers = visible.filter((node2) => ["Header", "HeaderItem"].includes(node2.type) && node2.aid === table.aid).sort((left, right) => left.x - right.x).map((node2) => node2.name);
-  const groups = /* @__PURE__ */ new Map();
-  for (const node2 of visible.filter((candidate) => candidate.type === "DataItem" && candidate.aid === table.aid && candidate.y >= table.y)) {
-    const group = groups.get(node2.y) ?? [];
-    group.push(node2);
-    groups.set(node2.y, group);
-  }
-  const rows = [...groups.entries()].sort(([left], [right]) => left - right).map(([, group], offset) => {
-    const cells = group.sort((left, right) => left.x - right.x).map((node2) => ({
-      name: node2.name,
-      rid: node2.rid,
-      selected: node2.selected,
-      toggleState: toggleState(node2),
-      x: node2.x,
-      y: node2.y,
-      w: node2.w,
-      h: node2.h
-    }));
+  const modelCells = new Map(proof.rows.flatMap((row) => row.rids.map((rid, column) => [rid, row.names[column]])));
+  const visibleCells = nodes.filter((node2) => node2.type === "DataItem" && node2.aid === table.aid);
+  if (proof.complete && (new Set(visibleCells.map((node2) => node2.rid)).size !== visibleCells.length || visibleCells.some((node2) => modelCells.get(node2.rid) !== node2.name)))
+    return { error: fail5("native-contract", "The visible receipt cells contradict the complete model.") };
+  const byRid = new Map(visibleCells.map((node2) => [node2.rid, node2]));
+  const rows = proof.rows.map((row, offset) => {
+    const cells = row.names.map((name, column) => {
+      const rid = row.rids[column], node2 = byRid.get(rid);
+      return {
+        name,
+        rid,
+        selected: node2?.selected ?? null,
+        toggleState: node2 ? toggleState(node2) : null,
+        x: node2?.x ?? -1,
+        y: node2?.y ?? -1,
+        w: node2?.w ?? 0,
+        h: node2?.h ?? 0
+      };
+    });
     const named = cells.filter((cell) => cell.name);
     const rowRid = (named[0] ?? cells[0]).rid;
     const names = cells.map((cell) => cell.name);
@@ -30750,8 +30792,8 @@ function receiptList(nodes, policy) {
     rows,
     draftCount: rows.filter((row) => row.draft).length,
     listFingerprint,
-    rowsComplete: rows.length === count,
-    gridProjectionError: rows.length === count ? null : "Qt accessibility exposes only the current receipt rows."
+    rowsComplete: proof.complete && proof.hiddenRows.length === 0 && rows.length === count,
+    gridProjectionError: !proof.complete ? proof.incompleteReason : proof.hiddenRows.length ? "Receipt rows are explicitly hidden." : rows.length !== count ? "The receipt count differs from the complete model." : null
   };
 }
 function receiptDetailFields(nodes) {
@@ -30818,7 +30860,7 @@ function sameSemanticRow(left, right) {
   return left.primaryText === right.primaryText && left.documentNumber === right.documentNumber && left.contentFingerprint === right.contentFingerprint && JSON.stringify(stableCellNames(left)) === JSON.stringify(stableCellNames(right));
 }
 function sameReceiptListLayout(before, after) {
-  return before.headers.length > 0 && JSON.stringify(before.headers) === JSON.stringify(after.headers) && before.rows.every((row) => row.cells.length === before.headers.length) && after.rows.every((row) => row.cells.length === after.headers.length);
+  return before.headers.length > 0 && JSON.stringify(before.headers) === JSON.stringify(after.headers) && new Set([...before.rows, ...after.rows].map((row) => row.cells.length)).size <= 1;
 }
 function sameReceiptRows(before, after) {
   const remaining = [...after];
@@ -30863,7 +30905,7 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
   const state = receiptState(tool.nodes, tool.hwnd, parsedPolicy.data);
   if (state.error) return state.error;
   if (state.state !== "list") return fail5("precondition-failed", `Receipt list requires state 'list', current state is '${state.state}'.`);
-  const list = receiptList(tool.nodes, parsedPolicy.data);
+  const list = receiptList(tool.nodes, parsedPolicy.data, tool.tableProof);
   if ("error" in list) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
@@ -31008,7 +31050,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
   const stateBefore = receiptState(before.nodes, before.hwnd, policy);
   if (stateBefore.error) return stateBefore.error;
   if (stateBefore.state !== "list") return fail5("precondition-failed", `Receipt detail requires state 'list', current state is '${stateBefore.state}'.`);
-  const listBefore = receiptList(before.nodes, policy);
+  const listBefore = receiptList(before.nodes, policy, before.tableProof);
   if ("error" in listBefore) return listBefore.error;
   if (listBefore.listFingerprint !== expectedListFingerprint) {
     return fail5("stale", "The receipt list changed since receipt_manager_list; no native action was dispatched.");
@@ -31103,7 +31145,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
           await delay3(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
           restored = await receiptDetailSnapshot(client, policy, budget(), signal);
           nativeDurationMs += restored.nativeDurationMs;
-          const candidate = receiptList(restored.nodes, policy);
+          const candidate = receiptList(restored.nodes, policy, restored.tableProof);
           if (!("error" in candidate)) {
             listAfter = candidate;
             if (listRestored(candidate) && receiptDetailFields(restored.nodes).length === 0) break;
@@ -31428,7 +31470,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
   const state = receiptState(before.nodes, before.hwnd, policy);
   if (state.error) return state.error;
   if (state.state !== "list") return fail5("precondition-failed", "Receipt update requires the receipt list state.");
-  const listBefore = receiptList(before.nodes, policy);
+  const listBefore = receiptList(before.nodes, policy, before.tableProof);
   if ("error" in listBefore) return listBefore.error;
   if (!listBefore.rowsComplete) return fail5("native-incomplete", "Receipt update requires the complete counted receipt list.");
   if (listBefore.listFingerprint !== args.expectedListFingerprint.toUpperCase()) return fail5("stale", "Receipt list fingerprint changed; no action dispatched.");
@@ -31504,7 +31546,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
     if (!detailIdentityMatches(valuesBefore, rowBefore, policy)) throw new ReceiptUpdateError("Receipt detail belongs to another row.", "stale");
     if (detailBindingFingerprint(valuesBefore) !== args.expectedDetailFingerprint.toUpperCase()) {
       const restored2 = await closeDetail(detail);
-      const list = receiptList(restored2.nodes, policy);
+      const list = receiptList(restored2.nodes, policy, restored2.tableProof);
       const unchanged = !("error" in list) && list.rowsComplete && list.listFingerprint === listBefore.listFingerprint;
       return {
         ok: false,
@@ -31541,7 +31583,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
     const requestedMatch = fields.every((field) => equalValue(field, valuesAfter[field], args.values[field] ?? valuesBefore[field]));
     if (!requestedMatch) throw new ReceiptUpdateError("Final receipt detail readback differs from the requested transaction.", "postcondition-failed", true);
     let restored = await closeDetail(detail);
-    let listAfter = receiptList(restored.nodes, policy);
+    let listAfter = receiptList(restored.nodes, policy, restored.tableProof);
     const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
     const listReady = (list) => {
       const identity2 = reboundRow(list, valuesAfter, policy);
@@ -31550,7 +31592,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
     while (("error" in listAfter || !listReady(listAfter) || receiptDetailFields(restored.nodes).length > 0) && performance.now() < deadline) {
       await delay4(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
       restored = await detailRead();
-      listAfter = receiptList(restored.nodes, policy);
+      listAfter = receiptList(restored.nodes, policy, restored.tableProof);
     }
     if ("error" in listAfter) throw new ReceiptUpdateError(String(listAfter.error.error ?? "Final receipt list is unreadable."));
     const identity = reboundRow(listAfter, valuesAfter, policy);
@@ -31642,7 +31684,7 @@ async function executeQtNativeReceiptManagerUpdate(client, input2, timeoutMs, si
     if (rollback.complete && valuesBefore) {
       try {
         const restored = await closeDetail(await detailRead());
-        const list = receiptList(restored.nodes, policy);
+        const list = receiptList(restored.nodes, policy, restored.tableProof);
         const dirty = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
         const windows = await receiptWindowSet(client, budget(), signal);
         if (!dirty.error) nativeDurationMs += dirty.durationMs;
@@ -31711,7 +31753,7 @@ function projectLinkMode(snapshot, policy, target) {
     throw new ReceiptLinkError("The bound receipt link window is obstructed or incomplete.", "window-obstructed");
   const state = receiptState(snapshot.nodes, snapshot.hwnd, policy);
   if (state.error || state.state !== "list") return null;
-  const list = receiptList(snapshot.nodes, policy);
+  const list = receiptList(snapshot.nodes, policy, snapshot.tableProof);
   if ("error" in list || !list.rowsComplete) return null;
   if (list.draftCount !== 0) throw new ReceiptLinkError("Receipt linking requires a complete list without drafts.", "precondition-failed");
   const link = policy.controls.linkManagement;
@@ -31916,7 +31958,13 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
   };
   const toolRead = async () => {
     if (managerHwnd === null) throw new ReceiptLinkError("No exact receipt manager is owned by this transaction.", "stale-window");
-    const snapshot = await readQtNativeSnapshot(client, { toolTitle: policy.title, maxNodes: 5e3, withCellStates: true }, budget(), signal);
+    const snapshot = await readQtNativeSnapshot(
+      client,
+      { toolTitle: policy.title, maxNodes: 5e3, withCellStates: true },
+      budget(),
+      signal,
+      { tableProofAidSuffix: policy.list.tableAutomationIdSuffix }
+    );
     measured(snapshot.nativeDurationMs);
     if (snapshot.hwnd !== managerHwnd)
       throw new ReceiptLinkError("The exact receipt link manager was recreated; no further action dispatched.", "stale-window", true);
@@ -33744,7 +33792,7 @@ var init_qt_native_classification_session = __esm({
         return remaining.length === 0;
       }
       async guardedDetail() {
-        const detail = await this.detailRead(), list = receiptList(detail.nodes, this.policy);
+        const detail = await this.detailRead(), list = receiptList(detail.nodes, this.policy, detail.tableProof);
         if (!this.boundDetail(detail) || "error" in list || !this.listIdentity(list))
           this.error("The seven detail fields, target identity or other complete receipt rows changed.", "stale", this.mutationStarted);
         return detail;
@@ -33754,7 +33802,7 @@ var init_qt_native_classification_session = __esm({
         const state = receiptState(detail.nodes, detail.hwnd, this.policy);
         if (state.error) this.error(String(state.error.error), String(state.error.kind));
         if (state.state !== "list") this.error("Classification requires the complete receipt list.", "precondition-failed");
-        const list = receiptList(detail.nodes, this.policy);
+        const list = receiptList(detail.nodes, this.policy, detail.tableProof);
         if ("error" in list) this.error(String(list.error.error), String(list.error.kind));
         if (!list.rowsComplete || list.listFingerprint !== this.args.expectedListFingerprint.toUpperCase())
           this.error("The complete receipt list differs from its fresh binding.", "stale");
@@ -33779,7 +33827,7 @@ var init_qt_native_classification_session = __esm({
             await delay9(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
           } while (performance.now() < deadline);
         }
-        const selected = receiptList(detail.nodes, this.policy);
+        const selected = receiptList(detail.nodes, this.policy, detail.tableProof);
         if (!this.boundDetail(detail) || "error" in selected || selected.listFingerprint !== list.listFingerprint)
           this.error("The complete detail/list binding changed before opening the chooser.", "stale");
       }
@@ -33926,7 +33974,7 @@ var init_qt_native_classification_session = __esm({
           if (exactDetailClose(detail.nodes, this.policy).length === 0) break;
           await delay9(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
         } while (performance.now() < deadline);
-        const list = receiptList(detail.nodes, this.policy);
+        const list = receiptList(detail.nodes, this.policy, detail.tableProof);
         const windows = await receiptWindowSet(this.client, this.budget(), this.signal);
         if (windows.error) this.error(String(windows.error.error));
         const dirty = await receiptDirtyState(this.client, this.args.hwnd, this.policy.title, this.budget(), this.signal);

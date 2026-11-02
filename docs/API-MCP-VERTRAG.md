@@ -1021,7 +1021,7 @@ dynamisch und wird für die jeweils angefragte Operation serialisiert.
 
 Der Operationsvertrag trennt Registrierung von aktueller Interaktionsfreigabe.
 Beim BelegManager ist nur `receipt_manager_list` als `focusless-read` erlaubt.
-Der UIA-Listenreader liest das vollständige Grid auch bei wenigen Belegen;
+Die UIA- und Qt-Listenreader lesen das vollständige Grid auch bei wenigen Belegen;
 eine geöffnete Detailansicht darf verborgene Modellspalten und Belegnummern
 nicht aus der Zeilenbindung entfernen. `headers` enthält die sichtbaren
 beschrifteten Spalten, `rows.cells` zusätzlich unbeschriftete und verborgene
@@ -1029,6 +1029,10 @@ Modellzellen. Diese Arrays sind keine paarweise Indexzuordnung. Fachliche
 Werte stehen in `primaryText` und `documentNumber`. Unlesbare Zellen,
 mehrdeutige Runtime-IDs oder ein Widerspruch zum Gesamtzähler lassen
 `rowsComplete=false`; sie bestätigen keinen vollständigen Listenfingerprint.
+Der native Nachweis bindet die exakte Tabelle und alle logischen Zellpositionen
+ohne Auswahl, Fokus oder Bildlauf zu verändern. Fehlt er im nativen Paket,
+ist ein Neubau oder Update erforderlich. Widersprechen sichtbare Zellen dem
+Modell, endet der Aufruf mit `native-contract`.
 Die neun weiteren registrierten Operationen melden in
 `capabilities.operationPolicy` `foreground-required`/`blocked` und liefern bei
 gueltigen Aufrufen denselben nicht wiederholbaren strukturierten Block ueber

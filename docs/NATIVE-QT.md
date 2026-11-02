@@ -77,6 +77,22 @@ Ein vorhandener Handler ist deshalb weder eine allgemeine Qt-Freigabe noch ein
 Grund, den bisherigen Worker zu entfernen. Paket- oder Produktänderungen
 benötigen erneut passende Identitäts- und Funktionsnachweise.
 
+### Vollständige Beleglisten
+
+Beleglesungen fordern intern zusätzlich zum sichtbaren Baum einen gebundenen
+Tabellennachweis an. Er liest jede logische Zelle einschließlich verdeckter
+Spalten und Zeilen außerhalb des sichtbaren Bereichs. Öffnen und Schließen der
+Details verändern dadurch keine Fingerprints allein durch das Layout.
+Runtime-IDs und Namen sichtbarer Zellen müssen zum selben Modell passen.
+
+Der Nachweis bewegt weder Fokus noch Auswahl oder Bildlauf und lädt keine
+weiteren Modellzeilen nach. Er ist auf 1.000 Zeilen, 64 Spalten und insgesamt
+20.000 Zellen begrenzt. Nachladbare Modelle, ausdrücklich versteckte Zeilen und
+widersprüchliche Bestandszahlen bestätigen keinen vollständigen Bestand.
+Sichtbare Überschriften bleiben von den vollständigen Modellzellen getrennt.
+Ältere native Pakete ohne diesen Nachweis müssen neu gebaut oder aktualisiert
+werden; ein unvollständiger sichtbarer Baum ersetzt ihn nicht.
+
 ## Tabellen und geschützte Cursorwege
 
 Gewöhnliches `table_read` liest das gebundene QWidget-/QAbstractItemModel ohne

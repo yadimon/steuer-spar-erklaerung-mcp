@@ -14,11 +14,36 @@ const nodeSchema = z.object({
   selected: z.boolean().nullable(), scroll: z.null(),
 }).strict();
 export type QtSnapshotNode = z.infer<typeof nodeSchema>;
+const nativeRid = z.string().regex(/^42\.-?\d+(?:\.4\.-?\d+)?$/u);
+const tableProofSchema = z.object({
+  tableAid: text.min(1), tableRid: nativeRid, rowCount: integer.nonnegative(), columnCount: integer.nonnegative(),
+  complete: z.boolean(), canFetchMore: z.boolean(), incompleteReason: text.nullable(),
+  headers: z.array(text).max(64), hiddenColumns: z.array(integer.nonnegative()).max(64),
+  hiddenRows: z.array(integer.nonnegative()).max(1000),
+  rows: z.array(z.object({ row: integer.nonnegative(), names: z.array(text).max(64),
+    rids: z.array(nativeRid).max(64) }).strict()).max(1000),
+}).strict();
+export type QtReceiptTableProof = z.infer<typeof tableProofSchema>;
+export function validateQtReceiptTableProof(proof: QtReceiptTableProof): void {
+  const unique = (values: number[], limit: number) => new Set(values).size === values.length && values.every(value => value < limit);
+  const rids = proof.rows.flatMap(row => row.rids);
+  const bounded = proof.rowCount <= 1000 && proof.columnCount >= 1 && proof.columnCount <= 64
+    && proof.rowCount * proof.columnCount <= 20_000;
+  if (!unique(proof.hiddenRows, proof.rowCount) || !unique(proof.hiddenColumns, proof.columnCount)
+    || new Set(rids).size !== rids.length || rids.includes(proof.tableRid)
+    || (proof.complete && (!bounded || proof.canFetchMore || proof.incompleteReason !== null
+      || proof.rows.length !== proof.rowCount || proof.headers.length !== proof.columnCount
+      || proof.rows.some((row, index) => row.row !== index || row.names.length !== proof.columnCount || row.rids.length !== proof.columnCount)))
+    || (!proof.complete && (!proof.incompleteReason || proof.rows.length !== 0))) {
+    throw new QtNativeTransportError("The native receipt table proof is incomplete or contradictory.", "native-contract");
+  }
+}
 const snapshotSchema = z.object({
   ok: z.literal(true), controllerBound: z.literal(true), scope: z.literal("qt-accessibility-content"),
   hwnd: integer.positive(), windowEnabled: z.boolean(), modalBlocked: z.boolean(), nodes: z.array(nodeSchema).max(5000),
   activeModalHwnd: integer.nonnegative().optional(),
   foreground: z.boolean().optional(),
+  tableProof: tableProofSchema.nullable().optional(),
   /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
   root: z.object({ aid: text, name: text }).strict().optional(),
   windowRect: z.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
@@ -37,6 +62,7 @@ export const MIN_READ_RETRY_BUDGET_MS = 2500;
 /** A fresh GUI-thread content tree with UIA-compatible runtime IDs. No UIA client or PowerShell process. */
 export async function readQtNativeSnapshot(
   client: QtNativeClient, args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal,
+  internal?: { tableProofAidSuffix: string },
 ) {
   if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
     throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
@@ -44,6 +70,7 @@ export async function readQtNativeSnapshot(
   const maxNodes = typeof args.maxNodes === "number" ? args.maxNodes : 4000;
   const request = {
     maxNodes, ...(typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {}),
+    ...(internal ? { tableProof: { aidSuffix: internal.tableProofAidSuffix } } : {}),
     ...(typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {}),
     ...(typeof args.allowedModalHwnd === "number" ? { allowedModalHwnd: args.allowedModalHwnd } : {}),
     ...(args.withValues === false ? { withValues: false } : {}),
@@ -78,6 +105,11 @@ export async function readQtNativeSnapshot(
   if (!read.result.ok) throw new QtNativeTransportError(String(read.result.error ?? "Native snapshot failed."),
     String(read.result.code ?? "native-read"), read.result.outcomeUnknown === true);
   const parsed = snapshotSchema.parse(read.result);
+  const hasProof = Object.hasOwn(parsed, "tableProof");
+  if (internal && !hasProof) throw new QtNativeTransportError(
+    "The native package lacks the receipt table proof; rebuild or update the native package.", "native-contract");
+  if (!internal && hasProof) throw new QtNativeTransportError("An unrequested native table proof was returned.", "native-contract");
+  if (parsed.tableProof) validateQtReceiptTableProof(parsed.tableProof);
   const invalid = (message: string) => { throw new QtNativeTransportError(message, "native-contract"); };
   if (args.toolTitle === undefined && parsed.hwnd !== client.binding.hwnd) invalid("Snapshot returned another window.");
   if (parsed.stats.n !== parsed.nodes.length || parsed.nodes.length > maxNodes

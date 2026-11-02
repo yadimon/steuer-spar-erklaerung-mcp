@@ -73,7 +73,8 @@ export async function executeQtNativeReceiptManagerLink(
   };
   const toolRead = async () => {
     if (managerHwnd === null) throw new ReceiptLinkError("No exact receipt manager is owned by this transaction.", "stale-window");
-    const snapshot = await readQtNativeSnapshot(client, { toolTitle: policy.title, maxNodes: 5000, withCellStates: true }, budget(), signal);
+    const snapshot = await readQtNativeSnapshot(client, { toolTitle: policy.title, maxNodes: 5000, withCellStates: true }, budget(), signal,
+      { tableProofAidSuffix: policy.list.tableAutomationIdSuffix });
     measured(snapshot.nativeDurationMs);
     if (snapshot.hwnd !== managerHwnd)
       throw new ReceiptLinkError("The exact receipt link manager was recreated; no further action dispatched.", "stale-window", true);
