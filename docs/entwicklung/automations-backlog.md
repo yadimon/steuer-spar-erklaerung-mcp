@@ -72,9 +72,15 @@ Batch-Verarbeitung bedeutet nicht parallele Klicks auf dasselbe Fenster.
 
 Die eigenen Einnahmenpositionen lassen sich bereits mit
 [`sse_position_create`](../API-REFERENZ.md) anlegen.
-Offen bleibt dafür ein automatisierter Live-Suiteschritt mit leerem und
-vorhandenem Inventar, Duplikatversuch, Abbruch und vollständigem Readback.
-Die [Live-Bilanz](../VERIFIKATION.md) führt diese Lücke ausdrücklich.
+Die opt-in Prüfung `npm run test:live-income-positions` ist auch in
+`npm run test:live` registriert. Sie prüft in einem neuen synthetischen
+Folgejahresfall die erste und eine weitere Position, das genaue Inventar sowie
+Speichern und Wiederöffnen. Falscher Dateihash, fehlendes Backup, ein anderer
+Fall, doppelte Namen und abweichende erwartete Nettobeträge werden vor einer
+weiteren Anlage abgewiesen; diese Ablehnungen dürfen Inventar und Dateien nicht
+verändern. Umfang und Nachweisgrenzen stehen in der
+[Live-Abdeckung](../VERIFIKATION.md#live-abdeckung). Eine gezielte Unterbrechung
+während der Anlage ist damit nicht belegt.
 
 ## Priorität 2: Tests und Messungen
 
