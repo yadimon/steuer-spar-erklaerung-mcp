@@ -12172,13 +12172,19 @@ function Enter-SSEMenuForeground([IntPtr]$MainHwnd) {
   # background application. Prove activation before Expand, without a retry.
   $epoch=Get-SSELastInputTick
   if($null -eq $epoch){Fail 'Eingabe-Epoche vor der Menueaktivierung ist unlesbar.' 'interference'}
-  if(-not (Show-SSEWindow $MainHwnd) -or [SW]::GetForegroundWindow() -ne $MainHwnd){
+  $foregroundReady=$false
+  try{$foregroundReady=Show-SSEWindow $MainHwnd}
+  finally{
+    # Keep the request's original epoch even when activation fails or throws;
+    # cleanup must not adopt input observed during acquisition as its own.
+    Set-SSEForegroundLeaseInputCheckpoint $epoch -Context 'menu-foreground'
+  }
+  if(-not $foregroundReady -or [SW]::GetForegroundWindow() -ne $MainHwnd){
     Fail 'Das gebundene Hauptfenster konnte fuer die Menueoeffnung nicht aktiviert werden.' 'foreground-failed'
   }
   if(-not (Test-SSELastInputUnchanged $epoch)){
     Fail 'Fremde Eingabe waehrend der Menueaktivierung; kein Menue geoeffnet.' 'interference'
   }
-  Set-SSEForegroundLeaseInputCheckpoint $epoch -Context 'menu-foreground'
 }
 
 function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid, $MenuElement=$null) {

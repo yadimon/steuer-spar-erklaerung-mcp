@@ -1810,20 +1810,26 @@ function Show-SSEWindow($window){
  if($script:menuForegroundInput){$script:menuForegroundTick++}
  $script:menuForegroundAllowed
 }
-function Set-SSEForegroundLeaseInputCheckpoint {param($tick,$Point,[string]$Context) $script:menuForegroundCheckpoints++}
+function Set-SSEForegroundLeaseInputCheckpoint {param($tick,$Point,[string]$Context) $script:menuForegroundCheckpoints++;$script:menuStoredEpoch=$tick}
 foreach($case in @(
  @{name='background';tick=10;allowed=$true;lost=$false;input=$false;kind=$null;shows=1;checkpoints=1},
  @{name='no-epoch';tick=$null;allowed=$true;lost=$false;input=$false;kind='interference';shows=0;checkpoints=0},
- @{name='activation-refused';tick=10;allowed=$false;lost=$false;input=$false;kind='foreground-failed';shows=1;checkpoints=0},
- @{name='foreground-lost';tick=10;allowed=$true;lost=$true;input=$false;kind='foreground-failed';shows=1;checkpoints=0},
- @{name='foreign-input';tick=10;allowed=$true;lost=$false;input=$true;kind='interference';shows=1;checkpoints=0}
+ @{name='activation-refused';tick=10;allowed=$false;lost=$false;input=$false;kind='foreground-failed';shows=1;checkpoints=1},
+ @{name='foreground-lost';tick=10;allowed=$true;lost=$true;input=$false;kind='foreground-failed';shows=1;checkpoints=1},
+ @{name='foreign-input';tick=10;allowed=$true;lost=$false;input=$true;kind='interference';shows=1;checkpoints=1}
 )){
  $script:menuForegroundTick=$case.tick;$script:menuForegroundAllowed=$case.allowed
  $script:menuForegroundLost=$case.lost;$script:menuForegroundInput=$case.input
- $script:menuForegroundShows=0;$script:menuForegroundCheckpoints=0;$script:menuDiagFailure=$null
+ $script:menuForegroundShows=0;$script:menuForegroundCheckpoints=0;$script:menuDiagFailure=$null;$script:menuStoredEpoch=$null
  [MenuOpenDiagnosticContract.Windows]::Foreground=[IntPtr]99
  try{Enter-SSEMenuForeground ([IntPtr]11)}catch{Assert-True ($_.Exception.Message -ceq 'MenuDiagnosticFailure') 'Unexpected menu foreground failure.'}
  Assert-True ($script:menuDiagFailure.kind -ceq $case.kind -and $script:menuForegroundShows -eq $case.shows -and
-  $script:menuForegroundCheckpoints -eq $case.checkpoints) ('Menu activation lost its no-retry or input epoch contract: '+$case.name)
+  $script:menuForegroundCheckpoints -eq $case.checkpoints -and $script:menuStoredEpoch -ceq $case.tick) ('Menu activation lost its no-retry or input epoch contract: '+$case.name)
 }
+$script:menuForegroundTick=10;$script:menuForegroundCheckpoints=0;$script:menuStoredEpoch=$null
+function Show-SSEWindow { $script:menuForegroundTick++;throw 'Synthetic activation error' }
+$activationError=$null
+try{Enter-SSEMenuForeground ([IntPtr]11)}catch{$activationError=$_.Exception.Message}
+Assert-True ($activationError -ceq 'Synthetic activation error' -and $script:menuStoredEpoch -eq 10 -and
+ $script:menuForegroundCheckpoints -eq 1) 'Activation exception lost the original failure or input epoch.'
 Write-Output 'Menu foreground: exact activation, inherited input epoch, refused activation and no retry passed.'
