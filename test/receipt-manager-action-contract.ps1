@@ -114,6 +114,7 @@ $legacyListClassification = @'
   $visibleGroups = @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })
   $projectedCellGroups = New-Object 'System.Collections.Generic.List[object]'
   $gridProjectionError = $null
+  $gridProjectionComplete = $true
   $searchNodes = @($State.nodes | Where-Object {
     $_.type -eq 'Edit' -and [string]$_.aid -and
     ([string]$_.aid).EndsWith($searchSuffix, [StringComparison]::Ordinal)
@@ -655,6 +656,9 @@ $listState.nodes = @(
   [pscustomobject]@{ aid=$tableAid; name='Neuer Beleg*'; type='DataItem'; rid='row-a'; on=$true; selected=$true; x=158; y=273; w=300; h=30 },
   [pscustomobject]@{ aid=$tableAid; name='0'; type='DataItem'; rid='row-b'; on=$true; selected=$null; x=539; y=273; w=83; h=30 }
 )
+# This fixture tests the supplied tree only; the live Grid boundary is
+# exercised separately below with an explicit native-pattern recorder.
+$listState.window=0
 $projection = Get-SSEReceiptManagerListProjection $listState $policy
 Assert-True ($projection.count -eq 1 -and $projection.rows.Count -eq 1 -and $projection.rowsComplete) 'BelegManager-Liste wurde nicht vollstaendig projiziert.'
 Assert-True ($projection.draftCount -eq 1 -and $projection.rows[0].draft) 'Leerer Belegentwurf wurde nicht markiert.'
@@ -884,7 +888,7 @@ foreach ($required in @(
   '$filterText.Length -gt 0',
   '$projectionExpectedCount = $gridRowCount',
   '$grid.GetItem($gridRow, $gridColumn)',
-  '$projectedCellGroups.Count -ne $count'
+  '$gridProjectionComplete'
 )) {
   Assert-True ($projectionBlock.Contains($required)) "BelegManager-Listenprojektion enthaelt den Virtualisierungs-Guard '$required' nicht."
 }
@@ -1833,3 +1837,68 @@ try{Enter-SSEMenuForeground ([IntPtr]11)}catch{$activationError=$_.Exception.Mes
 Assert-True ($activationError -ceq 'Synthetic activation error' -and $script:menuStoredEpoch -eq 10 -and
  $script:menuForegroundCheckpoints -eq 1) 'Activation exception lost the original failure or input epoch.'
 Write-Output 'Menu foreground: exact activation, inherited input epoch, refused activation and no retry passed.'
+
+# Opening receipt details changes the viewport column set, not the underlying
+# Grid. Keep the real projector and replace only the native pattern boundary.
+Add-Type -TypeDefinition @'
+using System;
+namespace ReceiptGridShapeContract {
+ public class Rect {public double X,Y,Width=80,Height=20;}
+ public class CellInfo {public string Name;public Rect BoundingRectangle;}
+ public class Cell {
+  int column;public CellInfo Current;
+  public Cell(int col,string name){column=col;Current=new CellInfo{Name=name,BoundingRectangle=new Rect{X=100+100*col,Y=300}};}
+  public string[] GetRuntimeId(){return new string[]{"42","51","0",column.ToString()};}
+  public bool TryGetCurrentPattern(object pattern,out object result){result=null;return false;}
+ }
+ public class GridInfo {public int RowCount=1,ColumnCount=9;}
+ public class GridPattern {
+  public static object Pattern=new object();public GridInfo Current=new GridInfo();public string Title="Synthetic invoice";
+  public Cell GetItem(int row,int column){return new Cell(column,new string[]{"",Title,"15.01.2025","12,34","","","","","SYN-1"}[column]);}
+ }
+ public class SelectionItemPattern {public static object Pattern=new object();}
+ public class TogglePattern {public static object Pattern=new object();}
+}
+'@
+$gridCode=(Get-WorkerFunctionText 'Get-SSEReceiptManagerListProjection').Replace('Get-SSEReceiptManagerListProjection','Get-SSEReceiptGridShapeProjection')
+foreach($type in @('GridPattern','SelectionItemPattern','TogglePattern')){$gridCode=$gridCode.Replace('[Windows.Automation.'+$type+']','[ReceiptGridShapeContract.'+$type+']')}
+Invoke-Expression $gridCode
+$script:shapeGrid=New-Object ReceiptGridShapeContract.GridPattern;$script:shapeGridAvailable=$true
+$script:shapeTable=[pscustomobject]@{}
+$script:shapeTable|Add-Member ScriptMethod TryGetCurrentPattern {param($pattern,[ref]$result)$result.Value=$script:shapeGrid;return $script:shapeGridAvailable}
+function Get-LiveElement { $script:shapeTable }
+$script:UIAElementCache=@{}
+$policy=(Get-Content -LiteralPath $catalogPath -Raw -Encoding UTF8|ConvertFrom-Json).windows.receiptManager
+function New-GridShapeState([int[]]$Columns,[int]$Count=1){
+ $aid='SSE_Application.BMMainWindow'+[string]$policy.list.tableAutomationIdSuffix
+ $nodes=@(
+  [pscustomobject]@{type='Table';aid=$aid;rid='shape-table';on=$true;x=80;y=233;w=900;h=400},
+  [pscustomobject]@{type='Text';aid=('SSE_Application.BMMainWindow'+$policy.list.countLabelAutomationIdSuffixes[0]);name=('MEINE BELEGE ('+$Count+')')}
+ )
+ foreach($name in @('Bezeichnung','Datum','Betrag')){$nodes+=@([pscustomobject]@{type='HeaderItem';aid=$aid;name=$name;x=(100+$nodes.Count*100);y=233;w=100;h=20})}
+ foreach($column in $Columns){
+  $cell=$script:shapeGrid.GetItem(0,$column)
+  $nodes+=@([pscustomobject]@{type='DataItem';aid=$aid;rid=($cell.GetRuntimeId() -join '.');name=$cell.Current.Name;selected=$false;toggleState=$null;x=(100+$column*100);y=300;w=80;h=20})
+ }
+ [pscustomobject]@{state='list';window=51;nodes=$nodes}
+}
+$wideState=New-GridShapeState @(0,1,2,3,4,5,6)
+$narrowState=New-GridShapeState @(0,1,2,3)
+$wide=Get-SSEReceiptGridShapeProjection $wideState $policy
+$narrow=Get-SSEReceiptGridShapeProjection $narrowState $policy
+Assert-True ($wide.rowsComplete -and $narrow.rowsComplete -and $wide.listFingerprint -ceq $narrow.listFingerprint -and
+ $wide.rows[0].rowFingerprint -ceq $narrow.rows[0].rowFingerprint) 'Receipt bindings changed solely because opening details cropped the visible columns.'
+Assert-True ($wide.rows[0].cells.Count -eq 9 -and $narrow.rows[0].documentNumber -ceq 'SYN-1') 'Complete Grid columns or the hidden profiled document number were lost.'
+$script:shapeGrid.Title='Changed invoice'
+$changed=Get-SSEReceiptGridShapeProjection $narrowState $policy
+Assert-True ($changed.listFingerprint -cne $wide.listFingerprint) 'A real model change was hidden by viewport normalization.'
+$script:shapeGrid.Title='Synthetic invoice';$script:shapeGrid.Current.RowCount=2
+$drifted=Get-SSEReceiptGridShapeProjection $wideState $policy
+Assert-True (-not $drifted.rowsComplete) 'A live Grid/count-label mismatch claimed a complete receipt inventory.'
+$script:shapeGrid.Current.RowCount=1;$script:shapeGridAvailable=$false
+$unavailable=Get-SSEReceiptGridShapeProjection $wideState $policy
+Assert-True (-not $unavailable.rowsComplete) 'An unavailable bound Grid fell back to a claimed complete viewport.'
+$script:shapeGridAvailable=$true;$script:shapeGrid.Current.RowCount=0
+$empty=Get-SSEReceiptGridShapeProjection (New-GridShapeState @() 0) $policy
+Assert-True ($empty.rowsComplete -and $empty.count -eq 0 -and $empty.rows.Count -eq 0) 'A proved empty Grid was not complete.'
+Write-Output 'Receipt Grid: layout-independent fingerprints, hidden document number, real drift, unavailable model and proved empty inventory passed.'

@@ -542,6 +542,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
   $visibleGroups = @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })
   $projectedCellGroups = New-Object 'System.Collections.Generic.List[object]'
   $gridProjectionError = $null
+  $gridProjectionComplete = $true
   $searchNodes = [object[]]$searchCandidates
   $filterText = $(if ($searchNodes.Count -eq 1) { [string]$searchNodes[0].val } else { '' })
   $projectionExpectedCount = $count
@@ -550,12 +551,14 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
   }
 
   # QTableWidget begrenzt den normalen ControlView-Baum auf 30 Zeilen. Das
-  # GridPattern kennt dagegen auch die danach virtualisierten Modellzeilen und
-  # liefert sie read-only per GetItem, ohne die Tabelle zu rollen oder den
-  # sichtbaren Zustand zu veraendern. Nur wenn Zeilenzaehler und Grid exakt
-  # uebereinstimmen, ersetzt die vollstaendige Grid-Projektion den sichtbaren
-  # Ausschnitt; andernfalls bleibt rowsComplete absichtlich false.
-  if ($projectedCellGroups.Count -ne $count -and $State.window) {
+  # GridPattern kennt auch virtualisierte Zeilen und ausgeblendete Spalten.
+  # Die Detailansicht verengt den sichtbaren Ausschnitt selbst bei nur einer
+  # Zeile. Deshalb jede fenstergebundene Liste aus dem vollstaendigen Grid
+  # lesen: derselbe Datensatz behaelt sein Binding ueber Layoutwechsel hinweg.
+  # Zaehler-/Modelldrift oder ein unlesbares Grid beweisen keine Vollstaendigkeit.
+  if ($State.window) {
+    $gridProjectionComplete = $false
+    $gridProjectionError = 'Das gebundene Grid ist nicht vollstaendig lesbar oder stimmt nicht mit dem Belegzaehler ueberein.'
     try {
       $liveTable = Get-LiveElement ([IntPtr][int64]$State.window) ([string]$table.rid) ([string]$table.aid)
       $gridObject = $null
@@ -604,6 +607,8 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
             $gridGroups.Add([object]@($gridCells))
           }
           $projectedCellGroups = $gridGroups
+          $gridProjectionComplete = $true
+          $gridProjectionError = $null
         }
       }
     } catch {
@@ -665,7 +670,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
     count=$count; countSource='info-label'; countText=$countText
     headers=$headerNames; rows=@($rows)
     draftCount=@($rows | Where-Object { $_.draft }).Count
-    listFingerprint=$listFingerprint; rowsComplete=[bool]($rows.Count -eq $projectionExpectedCount)
+    listFingerprint=$listFingerprint; rowsComplete=[bool]($gridProjectionComplete -and $rows.Count -eq $projectionExpectedCount)
     gridProjectionError=$gridProjectionError
   }
 }

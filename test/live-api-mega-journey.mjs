@@ -1347,13 +1347,14 @@ try {
         assert.equal(result.valuesComplete, true);
       }, "receipt-import-detail", 120_000);
     const serial = sourceAtStart.head.slice(0, 8).toUpperCase();
+    assert.equal(typeof detail.values.net, "boolean", "Beleg muss einen lesbaren Netto-Zustand liefern.");
     const receiptValues = {
       title: `API Mega Synthetic ${serial}`,
       date: "2025-01-15",
       documentNumber: `MEGA-${serial}`,
       amount: "12,34",
       vatRate: "19",
-      net: false,
+      net: !detail.values.net,
       note: "Generated synthetic benchmark receipt",
     };
     await mutateAndRead(
