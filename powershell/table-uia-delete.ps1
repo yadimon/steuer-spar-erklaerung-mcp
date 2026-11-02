@@ -269,6 +269,29 @@ function Assert-SSEUiaDeleteSelection {
   if(-not $current -or -not $current.Current.HasKeyboardFocus){throw 'The actual current model row is not the selected deletion row.'}
 }
 
+function Get-SSEUiaDeleteActivationEditorCoordinate {
+  param($State)
+  if($State.editors.Count -ne 1){throw 'Activation did not create exactly one editor.'}
+  $current=$State.editors[0].Current;$bounds=$current.BoundingRectangle
+  if($current.ControlType -ne [Windows.Automation.ControlType]::Edit -or
+      $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or $bounds.IsEmpty -or $bounds.Width -le 0 -or $bounds.Height -le 0){
+    throw 'The activation editor is not a visible text editor.'
+  }
+  foreach($number in @($bounds.X,$bounds.Y,$bounds.Width,$bounds.Height)){
+    if([double]::IsNaN($number) -or [double]::IsInfinity($number)){throw 'The activation editor geometry is unavailable.'}
+  }
+  $cells=@($State.tree.nodes|Where-Object{$_.type -ceq 'DataItem' -and $_.p -eq $State.root.i -and
+    [Math]::Abs($_.x-$bounds.X) -le 2 -and [Math]::Abs($_.y-$bounds.Y) -le 2 -and
+    [Math]::Abs($_.w-$bounds.Width) -le 2 -and [Math]::Abs($_.h-$bounds.Height) -le 2})
+  if($cells.Count -ne 1){throw 'The activation editor has no unique observed cell.'}
+  $coordinate=Resolve-SSEGridCellCoordinate $State.scan ([string]$cells[0].rid)
+  if(-not $coordinate -or -not $State.scan.headers[$coordinate.column].visible -or
+      [string]$State.scan.headers[$coordinate.column].name -cnotin @('Nr.','Nr')){
+    throw 'The activation editor is not the exact visible Nr. cell.'
+  }
+  $coordinate
+}
+
 function Close-SSEUiaDeleteOwnEditor {
   param($Binding,$Before,$Clicked,[int]$Row,[int]$Column,[int]$RemovedRow=-1)
   $exactRemoval=[bool]($RemovedRow -ge 0 -and (Get-SSEGridDeleteOutcome $Before.model $Clicked.model $RemovedRow) -ceq 'deleted-exact')
@@ -291,7 +314,7 @@ function Close-SSEUiaDeleteOwnEditor {
       -not $editor.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern,[ref]$value) -or
       $value.Current.IsReadOnly -isnot [bool] -or $value.Current.IsReadOnly -or [string]$value.Current.Value -cne [string]$cell.name -or
       -not $target.Current.HasKeyboardFocus -or $cell.semantic.type -cne 'text'){
-    throw 'The new editor is not the exact unchanged own clicked cell.'
+    throw 'The new editor is not the exact unchanged own bound cell.'
   }
   if(-not $exactRemoval){Assert-SSEUiaDeleteSelection $Clicked $Binding.processId $Row $Column -SelectionOnly}
   if(-not (Test-SSEUiaDeleteEpoch $Binding) -or [string]$value.Current.Value -cne [string]$cell.name -or
@@ -380,9 +403,19 @@ function Invoke-SSEUiaTableDelete {
     $activatedWindows=Get-SSEInteractionWindowSet $ProcessId $Hwnd
     if(@($activatedWindows.windows|Where-Object{$_.role -cne 'main'}).Count -or $activatedWindows.windows.Count -ne 1){throw 'A blocking window appeared during activation.'}
     $transaction.windows=$activatedWindows
-    $active=Read-SSEUiaDeleteState $binding
+    $active=Read-SSEUiaDeleteState $binding -AllowOwnEditor
     if($active.model.key -cne $initial.model.key -or $active.dirty -ne $initial.dirty -or
         -not (Test-SSEScalarEqual $active.summary $initial.summary)){throw 'The complete model changed while activating the window.'}
+    if($active.editors.Count){
+      # Qt can create a Nr. delegate when our foreground activation restores
+      # the current cell. Initial state proved no editor, and the unchanged
+      # input epoch, exact table and complete model still belong to this call.
+      if($active.root.rid -cne $initial.root.rid -or $active.root.aid -cne $initial.root.aid){
+        throw 'The table identity changed during activation; no editor was cancelled.'
+      }
+      $activationCell=Get-SSEUiaDeleteActivationEditorCoordinate $active
+      $active=Close-SSEUiaDeleteOwnEditor $binding $initial $active $activationCell.row $activationCell.column
+    }
     $sourceReason=$null;$positionNameProof=$null
     if(-not (Test-SSETableFocusedSource $Hwnd $ProcessId $active.tree $active.root.aid $active.root.rid `
         -AllowPositionNameSource -FailureReason ([ref]$sourceReason) -PositionNameProof ([ref]$positionNameProof))){

@@ -60,7 +60,10 @@ function Arg($Arguments,$Name,$Default=$null){if($Arguments.ContainsKey($Name)){
 function Get-SSELastInputTick {[SW]::Tick}
 function Test-SSELastInputUnchanged($Epoch){$null -ne $Epoch -and $Epoch -eq [SW]::Tick}
 function Get-SSEInteractionWindowSet {if($script:tickDuringWindowInventory){[SW]::Tick++};[pscustomobject]@{fingerprint=$(if($script:windowSetChanged){'synthetic-changed-window-set'}else{'synthetic-fixed-window-set'});windows=@([pscustomobject]@{role='main';hwnd=1})} }
-function Show-SSEWindow { }
+function Show-SSEWindow {
+ if($script:activationEditor){[Windows.Automation.AutomationElement]::FocusedElement=$script:activationEditor}
+ if($script:activationInput){[SW]::Tick++}
+}
 function Test-SSEScalarEqual($Left,$Right){[string]$Left -ceq [string]$Right}
 function Set-SSEForegroundLeaseInputCheckpoint { }
 function Get-SSEPointObstruction {[pscustomobject]@{isBoundTarget=$true}}
@@ -94,13 +97,15 @@ function Read-SSEUiaDeleteState {
  $Binding.maxRawMs=$(if($script:reads -eq $script:slowRawRead){2600.0}else{[Math]::Max($Binding.maxRawMs,1.0)})
  if($script:reads -eq $script:failRead){throw 'synthetic-provider-failure'}
  if($script:reads -gt $script:states.Count){throw 'Unexpected read beyond fixture'}
- $script:states[$script:reads-1]
+ $state=$script:states[$script:reads-1]
+ if(-not $AllowOwnEditor -and $state.editors.Count){throw 'The exact table contains an unaccounted editor.'}
+ $state
 }
 $script:target=[pscustomobject]@{Current=[pscustomobject]@{ProcessId=0;ControlType='DataItem';IsOffscreen=$false;HasKeyboardFocus=$true;AutomationId='Synthetic.Table';BoundingRectangle=[pscustomobject]@{IsEmpty=$false;X=100.0;Y=100.0;Width=100.0;Height=20.0}}}
 $script:target|Add-Member ScriptMethod TryGetCurrentPattern {param($Pattern,[ref]$Result)$Result.Value=New-Object Windows.Automation.SelectionItemPattern;return $true}
 $script:target|Add-Member ScriptMethod GetRuntimeId {@('Cell',1)}
 function Focus([string]$Type='Table',[string]$Rid='Table.1',[string]$Aid='Synthetic.Table',[int]$ProcessId=[SW]::ProcessId){
- $node=[pscustomobject]@{rid=$Rid;Current=[pscustomobject]@{ControlType=$Type;ProcessId=$ProcessId;HasKeyboardFocus=$true;AutomationId=$Aid;
+ $node=[pscustomobject]@{rid=$Rid;Current=[pscustomobject]@{ControlType=$Type;ProcessId=$ProcessId;HasKeyboardFocus=$true;IsOffscreen=$false;AutomationId=$Aid;
   BoundingRectangle=$script:target.Current.BoundingRectangle}}
  $node|Add-Member ScriptMethod GetRuntimeId {$this.rid.Split('.')};$node
 }
@@ -116,7 +121,7 @@ function State($Model,[string]$Summary='300,00',[bool]$Dirty=$false){
   summaryAid='Synthetic.Summary';tree=$null;editors=@();inputState=[pscustomobject]@{ok=$true;editorFree=$true;editorNodes=@()}}
 }
 $before=Model @('alpha-complete-row','beta-complete-row','input-slot');$removed=Model @('alpha-complete-row','input-slot')
-function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRead=0,[switch]$NoRid,[switch]$RefuseSource,[switch]$RefuseSelection,[switch]$Interference,[switch]$RefuseUndoFocus,[switch]$ToggleTarget,[switch]$HiddenTarget,[switch]$Clipped,[switch]$WrongPoint,[switch]$InterfereFinalSelection,[switch]$InterfereFinalUndo,[switch]$InterferePoint,[switch]$MovePointCursor,[int]$SlowRead=0,[bool]$InitialDirty=$false,[switch]$PostEditor,[switch]$AmbiguousEditorCell,[switch]$MissingEditorCell,[switch]$MissingEditorRid,[switch]$ChangedEditorValue,[int]$SlowRawRead=0,[switch]$EditorAfterUndo,[switch]$IndependentCellAid,[switch]$ChangeWindowsFinalSelection,[switch]$TickInFinalInventory){
+function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRead=0,[switch]$NoRid,[switch]$RefuseSource,[switch]$RefuseSelection,[switch]$Interference,[switch]$RefuseUndoFocus,[switch]$ToggleTarget,[switch]$HiddenTarget,[switch]$Clipped,[switch]$WrongPoint,[switch]$InterfereFinalSelection,[switch]$InterfereFinalUndo,[switch]$InterferePoint,[switch]$MovePointCursor,[int]$SlowRead=0,[bool]$InitialDirty=$false,[switch]$PostEditor,[switch]$AmbiguousEditorCell,[switch]$MissingEditorCell,[switch]$MissingEditorRid,[switch]$ChangedEditorValue,[int]$SlowRawRead=0,[switch]$EditorAfterUndo,[switch]$IndependentCellAid,[switch]$ChangeWindowsFinalSelection,[switch]$TickInFinalInventory,[string]$ActivationScenario=''){
  $prefix=@((State $before '300,00' $InitialDirty),(State $before '300,00' $InitialDirty),(State $before '300,00' $InitialDirty),(State $before '300,00' $InitialDirty))
  [Windows.Forms.SendKeys]::AfterDeleteFocus=$null
  if($PostEditor){
@@ -134,6 +139,33 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
   [Windows.Forms.SendKeys]::AfterDeleteFocus=$editor
  }else{$script:states=$prefix+@($After,$After)}
  if($Restored){$script:states+=@($Restored)}
+ $script:activationEditor=$null;$script:activationInput=$false
+ if($ActivationScenario){
+  $editor=Editor 'Duplicate';$active=$script:states[1];$active.editors=@($editor)
+  $active.tree=[pscustomobject]@{nodes=@([pscustomobject]@{type='DataItem';p=10;aid='Synthetic.Table';rid='Cell.1';x=100.0;y=100.0;w=100.0;h=20.0})}
+  $closed=State $before '300,00' $InitialDirty
+  $script:states=@($script:states[0],$active,$closed)+@($script:states|Select-Object -Skip 2)
+  foreach($state in $script:states){$state.scan.headers[0]|Add-Member NoteProperty name 'Nr.' -Force}
+  $script:activationEditor=$editor
+  switch($ActivationScenario){
+   'unchanged' { }
+   'changed-value' {$editor.valuePattern.Current.Value='Uncommitted input'}
+   'changed-dirty' {$active.dirty=-not $InitialDirty}
+   'changed-model' {$active.model=Model @('changed-alpha','beta-complete-row','input-slot')}
+   'changed-root' {$active.root.rid='Other.Table'}
+   'other-column' {$active.scan.headers[0].name='Amount'}
+   'hidden-column' {$active.scan.headers[0].visible=$false}
+   'hidden-editor' {$editor.Current.IsOffscreen=$true}
+   'foreign-focus' {$editor.Current.ProcessId=999}
+   'combo-editor' {$editor.Current.ControlType='ComboBox'}
+   'ambiguous-cell' {$active.tree.nodes+=@($active.tree.nodes[0])}
+   'missing-cell' {$active.tree.nodes[0].rid='Unknown.Cell'}
+   'foreign-input' {$script:activationInput=$true}
+   'pre-existing' {$script:states[0].editors=@($editor)}
+   'not-closed' {$closed.editors=@($editor)}
+   default {throw 'Unknown activation scenario.'}
+  }
+ }
  $script:reads=0;$script:failRead=$FailRead;$script:sourceAllowed=-not $RefuseSource;$script:selectionFails=[bool]$RefuseSelection
  $script:undoFocusFails=[bool]$RefuseUndoFocus
  $script:interfereFinalSelection=[bool]$InterfereFinalSelection;$script:interfereFinalUndo=[bool]$InterfereFinalUndo
@@ -457,4 +489,20 @@ Same $undoEditor.result.outcomeUnknown $true 'An outside editor after Undo was r
 Assert $undoEditor.focusPreserved 'An unproven post-Undo focus was not preserved for cleanup.'
 $ownCellAid=Run (State $removed '100,00' $true) -PostEditor -IndependentCellAid
 Assert $ownCellAid.result.ok 'A correctly bound post-delete cell was rejected because its AutomationId differed from the table.'
+foreach($initialDirty in @($false,$true)){
+ $activated=Run (State $removed '100,00' $true) -ActivationScenario 'unchanged' -InitialDirty $initialDirty
+ Assert $activated.result.ok 'An unchanged Nr. editor created by this request activation blocked deletion.'
+ Same $activated.keys @('{ESC}','^+{DEL}') 'Activation must cancel exactly one owned unchanged editor, then delete once.'
+ Same $activated.clicks 1 'Activation editor handling added a target click or repeated selection.'
+}
+foreach($scenario in @('changed-value','changed-dirty','changed-model','changed-root','other-column','hidden-column','hidden-editor','foreign-focus','combo-editor','ambiguous-cell','missing-cell','foreign-input','pre-existing')){
+ $blockedActivation=Run (State $removed '100,00' $true) -ActivationScenario $scenario
+ Assert (-not $blockedActivation.result.ok) ('Unproven activation editor was accepted: '+$scenario)
+ Same $blockedActivation.keys @() ('Unproven activation dispatched input: '+$scenario)
+ Same $blockedActivation.clicks 0 ('Unproven activation clicked the deletion target: '+$scenario)
+}
+$stillEditing=Run (State $removed '100,00' $true) -ActivationScenario 'not-closed'
+ Assert (-not $stillEditing.result.ok) 'Unconfirmed editor closure proceeded to deletion.'
+ Same $stillEditing.keys @('{ESC}') 'An unconfirmed own closure was replayed or followed by deletion.'
+ Same $stillEditing.clicks 0 'Unconfirmed activation editor closure clicked the target.'
 Write-Output 'UIA delete transaction: exact and zero removal, ineffective command, full/failed undo, wrong rows, provider failure, focus interference and no replay passed.'
