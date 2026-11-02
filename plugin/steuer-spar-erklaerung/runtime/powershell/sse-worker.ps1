@@ -12157,7 +12157,7 @@ function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArgum
   }
 }
 
-function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid) {
+function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid, $MenuElement=$null) {
   # Failure-only, value-free observations never authorize another action.
   $result=[ordered]@{popupCount=-1;otherPopupCount=-1;state=-1;stateKnown=$false;
     mainListed=$false;foregroundKnown=$false;foregroundIsMain=$false;observationIncomplete=$false}
@@ -12181,6 +12181,14 @@ function Get-SSEMenuOpenObservation($Pattern, [IntPtr]$MainHwnd, [int]$TargetPid
     $result.foregroundKnown=($foreground -ne [IntPtr]::Zero)
     $result.foregroundIsMain=($result.foregroundKnown -and $foreground -eq $MainHwnd)
   } catch {$result.observationIncomplete=$true}
+  if($null -ne $MenuElement){
+    try {
+      $current=$MenuElement.Current
+      $enabled=$current.IsEnabled;$focused=$current.HasKeyboardFocus;$offscreen=$current.IsOffscreen
+      if($enabled -isnot [bool] -or $focused -isnot [bool] -or $offscreen -isnot [bool]){throw 'Menu observation is unavailable.'}
+      $result.menuEnabled=$enabled;$result.menuFocused=$focused;$result.menuOffscreen=$offscreen
+    } catch {$result.observationIncomplete=$true}
+  }
   [pscustomobject]$result
 }
 
@@ -12202,23 +12210,25 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   try { $pattern = $element.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern) }
   catch { Fail "Menue '$MenuName' hat kein lesbares ExpandCollapse-Pattern." 'pattern-failed' }
   if (-not $pattern) { Fail "Menue '$MenuName' hat kein ExpandCollapse-Pattern." 'pattern-failed' }
+  $expandWatch=[Diagnostics.Stopwatch]::StartNew()
   try { $pattern.Expand() }
   catch { Fail "Menue '$MenuName' liess sich nicht oeffnen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
+  $expandWatch.Stop()
   $targetPid = 0
   [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$targetPid) | Out-Null
   # Bis das Menue aufgeklappt UND sein Popup sichtbar ist, hoechstens 700 ms.
   if (-not (Wait-SSEMenuPopup $pattern $targetPid $true 700)) {
-    $beforeCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid
+    $beforeCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid $element
     $collapseReturned=$false;$closed=$false
     try {$pattern.Collapse();$collapseReturned=$true} catch { }
     try {$closed=Wait-SSEMenuPopup $null $targetPid $false 500} catch { }
-    $afterCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid
+    $afterCleanup=Get-SSEMenuOpenObservation $pattern $MainHwnd $targetPid $element
     # Verified means closed in the observed, still-listed process; no action replay follows.
     $cleanupVerified=[bool]($targetPid -gt 0 -and $afterCleanup.mainListed -and
       $collapseReturned -and $closed -and $afterCleanup.popupCount -eq 0 -and
       $afterCleanup.otherPopupCount -eq 0 -and $afterCleanup.stateKnown -and
       $afterCleanup.state -eq [int][System.Windows.Automation.ExpandCollapseState]::Collapsed)
-    $evidence=[pscustomobject]@{beforeCleanup=$beforeCleanup;afterCleanup=$afterCleanup;
+    $evidence=[pscustomobject]@{beforeCleanup=$beforeCleanup;afterCleanup=$afterCleanup;expandMs=$expandWatch.ElapsedMilliseconds;
       collapseReturned=$collapseReturned;closeObserved=[bool]$closed;cleanupVerified=$cleanupVerified}
     $details=[pscustomobject]@{mutationState=[pscustomobject]@{menuOpenEvidence=$evidence};retryable=$false}
     # Do not assert a compound caller's mutation state or clear its uncertainty.

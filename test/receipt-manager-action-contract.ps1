@@ -1773,7 +1773,7 @@ foreach($case in $cases){
   $script:menuDiagPattern|Add-Member ScriptProperty Current {& $script:menuDiagCase.state}
   $script:menuDiagPattern|Add-Member ScriptMethod Expand {$this.expands++;& $script:menuDiagCase.expand}
   $script:menuDiagPattern|Add-Member ScriptMethod Collapse {$this.collapses++;& $script:menuDiagCase.collapse}
-  $script:menuDiagElement=[pscustomobject]@{}
+  $script:menuDiagElement=[pscustomobject]@{Current=[pscustomobject]@{IsEnabled=$true;HasKeyboardFocus=$true;IsOffscreen=$false}}
   $script:menuDiagElement|Add-Member ScriptMethod GetCurrentPattern {param($p) $script:menuDiagPattern}
   $raised=$false
   try{$null=Open-SSEMenuByName ([IntPtr]11) 'Extras'}catch{$raised=$_.Exception.Message -ceq 'MenuDiagnosticFailure'}
@@ -1792,3 +1792,10 @@ foreach($failureCase in @('closed','survives','collapse-throws','cleanup-read-th
   Assert-MenuNumericEvidence $evidenceByCase[$failureCase]
 }
 Write-Output 'Menu failed opening: exact action counts, listed identity, checked cleanup and value-free diagnostics passed.'
+Assert-True ($evidenceByCase.closed.beforeCleanup.menuEnabled -and $evidenceByCase.closed.beforeCleanup.menuFocused -and
+  -not $evidenceByCase.closed.beforeCleanup.menuOffscreen) 'Failed menu opening lost the passive action-state observations.'
+Assert-True ($evidenceByCase.closed.expandMs -ge 0) 'Failed menu opening lost its bounded Expand duration.'
+$brokenMenu=[pscustomobject]@{Current=[pscustomobject]@{IsEnabled=$true;HasKeyboardFocus=$null;IsOffscreen=$false}}
+$partial=Get-SSEMenuOpenObservation $script:menuDiagPattern ([IntPtr]11) 42 $brokenMenu
+Assert-True ($partial.observationIncomplete -and $null -eq $partial.menuEnabled) 'A stale menu getter produced misleading booleans.'
+Assert-MenuNumericEvidence $partial
