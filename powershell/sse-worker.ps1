@@ -50,6 +50,7 @@ $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
 $script:SSE_TRACKED_PLAN_INPUT_CONTEXT = $null
+$script:SSE_FOREGROUND_SCOPE_WATCH = $null
 # Operationsname, den der Vorwaermlauf dem Dispatcher gibt, um dessen Rumpf
 # uebersetzen zu lassen. Er kann kein echter Auftrag sein: die Auftragszeile
 # laesst nur '^[a-z][a-z0-9_]{0,63}$' zu, dieser Name faellt bewusst heraus.
@@ -1579,7 +1580,7 @@ function Set-SSEReceiptManagerVatRateSelection(
     # SSE 31 stellt "keine abziehbare USt" als leeren Editwert dar; das
     # Popup bietet nur 7 und 19. Der Nullsatz wird deshalb streng als leerer
     # QLineEdit-Wert committed und kanonisch als 0 gelesen.
-    $clearCommit = Commit-TrackedValue $ToolHwnd $ResolvedField.node '' $observation.value
+    $clearCommit = Commit-TrackedValue $ToolHwnd $ResolvedField.node '' $observation.value '' $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick
     if ([string]$clearCommit.method -cne 'verified-keyboard-replace') {
       return [pscustomobject]@{
         ok=$false; error="USt-Nullsatz-Commit meldete '$([string]$clearCommit.method)'."
@@ -5176,6 +5177,14 @@ function Hide-SSETopmost([IntPtr]$hwnd) {
 # sofort zurueck. Emit bleibt der gemeinsame Safety-Net-Ausgang, falls eine
 # Exception vor diesem expliziten Abschluss abbricht.
 function Complete-SSEPhysicalSection([IntPtr]$hwnd) {
+  $lease=$script:SSE_FOREGROUND_LEASE
+  # Only an explicitly held compound operation may retain its original lease.
+  # Incidental nesting and a stale scope keep the standalone immediate exit.
+  if($null -ne $script:SSE_FOREGROUND_SCOPE_WATCH -and
+      [Object]::ReferenceEquals($script:SSE_FOREGROUND_SCOPE_WATCH,$lease.watch) -and [int]$lease.depth -gt 1){
+    Exit-SSEForegroundLease -Hwnd $hwnd
+    return
+  }
   Exit-SSEForegroundLease -Hwnd $hwnd -Force -Reason 'physical-section'
 }
 
@@ -25482,10 +25491,30 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
 
+    # The row click owns a still-live lease at depth zero. Hold that exact
+    # generation across nested text, Boolean and VAT commits; never replace a
+    # lost watch or input epoch after a partial receipt change.
+    $updateLease=$script:SSE_FOREGROUND_LEASE
+    $updateWatch=$updateLease.watch
+    if($null -eq $updateWatch -or [int]$updateLease.targetPid -ne $targetPid -or
+        $null -eq $updateLease.lastOwnedInputTick -or -not (Test-SSELastInputUnchanged $updateLease.lastOwnedInputTick) -or
+        [SW]::GetForegroundWindow() -ne $toolHwnd){
+      Fail 'Eigene Lease oder Eingabe-Epoche der Belegauswahl ging vor dem Befuellen verloren; NICHT befuellt.' 'interference'
+    }
+    if(-not (Enter-SSEForegroundLease $toolHwnd) -or
+        -not [Object]::ReferenceEquals($updateWatch,$script:SSE_FOREGROUND_LEASE.watch)){
+      Fail 'Urspruengliche Lease der Belegauswahl ist verloren; NICHT befuellt.' 'interference'
+    }
+    $script:SSE_FOREGROUND_SCOPE_WATCH=$updateWatch
     $changedFields = New-Object System.Collections.ArrayList
     $failedField = $null; $failedReason = $null; $uncertainFieldMutation = $false; $failedInputGuard = $false
     $failedPointEvidence = $null
     foreach ($transaction in @($transactions)) {
+      if(-not [Object]::ReferenceEquals($updateWatch,$script:SSE_FOREGROUND_LEASE.watch) -or
+          -not (Test-SSELastInputUnchanged $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick)){
+        $failedField=$transaction.name;$failedReason='Urspruengliche Lease oder Eingabe-Epoche der Belegaenderung ist verloren.'
+        $failedInputGuard=$true;break
+      }
       $observation = Get-SSEReceiptManagerBoundFieldObservation $toolHwnd $transaction.binding
       if (-not $observation.ok) {
         $failedField = $transaction.name; $failedReason = $observation.error; $failedInputGuard = $true; break
@@ -25544,7 +25573,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           break
         }
       } else {
-        $commit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.requested) ([pscustomobject]@{raw=$currentValue;value=$transaction.before}) ([string]$transaction.kind)
+        $commit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.requested) ([pscustomobject]@{raw=$currentValue;value=$transaction.before}) ([string]$transaction.kind) $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick
         if ([string]$commit.method -cne 'verified-keyboard-replace') {
           $failedField = $transaction.name; $failedReason = "Feldcommit meldete '$([string]$commit.method)'."
           $uncertainFieldMutation = [bool]$commit.details.mutationStarted
@@ -25576,6 +25605,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
       [array]::Reverse($changedTransactions)
       foreach ($transaction in $changedTransactions) {
+        if(-not [Object]::ReferenceEquals($updateWatch,$script:SSE_FOREGROUND_LEASE.watch) -or
+            -not (Test-SSELastInputUnchanged $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick)){$rollbackContextLost=$true;$rollbackOk=$false}
         $observation = Get-SSEReceiptManagerBoundFieldObservation $toolHwnd $transaction.binding
         $resolved = $observation.resolved; $currentValue = $observation.value
         $entryOk = $false; $method = 'not-attempted'; $rollbackError = $null; $rollbackPointEvidence = $null
@@ -25615,7 +25646,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $rollbackError = $booleanRollback.error
             $rollbackPointEvidence = $booleanRollback
           } else {
-            $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([pscustomobject]@{raw=$currentValue;value=$transaction.requested}) ([string]$transaction.kind)
+            $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([pscustomobject]@{raw=$currentValue;value=$transaction.requested}) ([string]$transaction.kind) $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick
             $method = [string]$rollbackCommit.method
             $inverseAccepted = [bool]($method -ceq 'verified-keyboard-replace' -and -not $rollbackCommit.interference)
           }
