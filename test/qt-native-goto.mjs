@@ -120,7 +120,7 @@ try {
 function fixture(options = {}) {
   let current = options.start ?? "Start page", searchOpen = false, term = "", reads = 0, targetReads = 0, incompleteNativeReads = 0;
   let pendingReadObserved = false, pageGeneration = 0, queuedSearchReads = 0;
-  const actions = [], route = [...(options.landings ?? ["Target page"])];
+  const actions = [], trace = [], route = [...(options.landings ?? ["Target page"])];
   const nodes = () => {
     const { nodes: value, add } = builder();
     const header = add("Group", "", "main.ClientFrameSSE.ClientHeader");
@@ -154,6 +154,8 @@ function fixture(options = {}) {
     request: async operation => {
       if (operation === "window_inventory") return { durationMs: 1, result: inventory() };
       assert.equal(operation, "accessibility_snapshot"); reads++;
+      if (options.snapshotHeadings) current = options.snapshotHeadings[Math.min(reads - 1, options.snapshotHeadings.length - 1)];
+      trace.push({ event: "read", heading: current, actionCount: actions.length });
       if (searchOpen && queuedSearchReads < (options.queuedSearchReads ?? 0)) {
         queuedSearchReads++;
         return { durationMs: 2000, result: { ok: false, code: "GUI_QUEUE_TIMEOUT", error: "Read cancelled before dispatch",
@@ -177,6 +179,7 @@ function fixture(options = {}) {
       const target = nodes().find(node => node.rid === args.rid && node.aid === args.aid);
       assert(target); assert.equal(args.expectedName, target.name);
       actions.push(args);
+      trace.push({ event: "action", name: target.name });
       if (options.rejectAction) return { durationMs: 1, receiptAcknowledged: false,
         result: { ok: false, mutationAttempted: false, code: "stale", error: "Stale target" } };
       if (args.action === "replace-edit-text") { assert.equal(args.expectedValue, term); term = args.value; }
@@ -189,7 +192,7 @@ function fixture(options = {}) {
       return { durationMs: 1, receiptAcknowledged: true, mutationAckMs: 1, result: { ok: true, mutationAttempted: true } };
     },
   };
-  return { actions, get reads() { return reads; }, run: args => executeQtNativeOperation("goto",
+  return { actions, trace, get reads() { return reads; }, run: args => executeQtNativeOperation("goto",
     { pageId: "synthetic.target", hwnd: 42, ...args }, { qtNativeClient: client }, options.timeoutMs ?? 8000, undefined, options.profile ?? knownProfile) };
 }
 assert(isQtNativeOperation("goto"));
@@ -197,6 +200,34 @@ const already = fixture({ start: "Target page" });
 assert.equal((await already.run()).erreicht, true); assert.equal(already.actions.length, 0);
 const delayed = fixture({ start: "Target page", incompleteReads: 2 });
 assert.equal((await delayed.run()).erreicht, true); assert.equal(delayed.actions.length, 0);
+// Seeing the exact target starts a bounded readiness proof, never another
+// navigation strategy when the target disappears before that proof completes.
+const targetDriftCases = [
+  { name: "initial target drift", headings: ["Target page", "Other page"], visibleTarget: true, actions: [], phase: "precondition" },
+  { name: "pre-loop target drift", headings: ["Start page", "Target page", "Other page"], actions: [], phase: "paging" },
+  { name: "post-step target drift", headings: ["Start page", "Start page", "Target page", "Other page"], actions: ["Weiter"], phase: "paging" },
+  { name: "unchanged incomplete target", headings: ["Target page"], visibleTarget: true, actions: [], phase: "precondition" },
+];
+const targetDriftResults = [];
+for (const test of targetDriftCases) {
+  const subject = fixture({ snapshotHeadings: test.headings, visibleTarget: test.visibleTarget, incompleteReads: Infinity });
+  const result = await subject.run({ useSearch: false, maxSteps: 2 });
+  targetDriftResults.push({ name: test.name, ok: result.ok, kind: result.kind, phase: result.phase,
+    mutationAttempted: result.mutationAttempted, outcomeUnknown: result.outcomeUnknown,
+    actions: subject.actions.map(action => action.expectedName), trace: subject.trace, error: result.error });
+}
+assert.deepEqual(targetDriftResults.map(({ name, ok, kind, phase, mutationAttempted, outcomeUnknown, actions }) =>
+  ({ name, ok, kind, phase, mutationAttempted, outcomeUnknown, actions })), targetDriftCases.map(test =>
+  ({ name: test.name, ok: false, kind: "navigation-blocked", phase: test.phase,
+    mutationAttempted: test.actions.length > 0, outcomeUnknown: test.actions.length > 0, actions: test.actions })),
+JSON.stringify(targetDriftResults));
+for (const result of targetDriftResults) {
+  const firstTarget = result.trace.findIndex(entry => entry.event === "read" && entry.heading === "Target page");
+  assert(firstTarget >= 0, result.name);
+  assert.equal(result.trace.slice(firstTarget + 1).filter(entry => entry.event === "action").length, 0,
+    `${result.name}: no further dispatch after the exact target is seen`);
+  assert.match(result.error, /no further navigation dispatched/i, result.name);
+}
 const tree = fixture({ visibleTarget: true });
 assert.equal((await tree.run()).richtung, "Navigationsbaum"); assert.equal(tree.actions.length, 1);
 assert.equal(tree.actions[0].action, "activate-navigation-item");

@@ -33483,6 +33483,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
     if (stateOf(snapshot).headingMatches) {
       snapshot = await pollPage(lastHeading, 1800, false);
       if (stateOf(snapshot).ready) return complete(snapshot);
+      throw new GotoError("The target heading changed before its exact fields, tables or sums were ready; no further navigation dispatched.");
     }
     if (button(snapshot, "Suche schließen")) throw new GotoError("A search view is already open; close it before starting a new native goto.", "precondition-failed");
     let start = lastHeading;
@@ -33560,6 +33561,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
       if (stateOf(snapshot).headingMatches) {
         snapshot = await pollPage(lastHeading, 1800, false);
         if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
+        throw new GotoError("The target heading changed before its exact fields, tables or sums were ready; no further navigation dispatched.");
       }
       const previous = lastHeading;
       if (/^[1-9][0-9]*\. .+/u.test(previous ?? "")) entryContext = previous;
@@ -33584,6 +33586,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
       if (stateOf(snapshot).headingMatches) {
         snapshot = await pollPage(previous, 1800, false);
         if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
+        throw new GotoError("The target heading changed before its exact fields, tables or sums were ready; no further navigation dispatched.");
       }
       if (lastHeading === previous) {
         const inventory = await readProcessWindowInventory(client, budget(), signal);

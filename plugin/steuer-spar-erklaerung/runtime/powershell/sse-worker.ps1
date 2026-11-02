@@ -21208,6 +21208,34 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       } while ($sw.ElapsedMilliseconds -lt $timeoutMs)
       [pscustomobject]@{ bereit=$false; ueberschrift=$letzte; runden=@($runden) }
     }
+    function Get-SSEGotoTargetProof {
+      param([IntPtr]$h, [string]$heading)
+      if (IstZielseite $h $heading) {
+        return [pscustomobject]@{ bereit=$true; ueberschrift=$heading; runden=@() }
+      }
+      $headingMatchesTarget = $(if ($knownTarget) {
+        Test-KnownPageHeading $heading $knownTarget.page
+      } else { [bool]($heading -eq $ziel) })
+      if (-not $headingMatchesTarget) {
+        return [pscustomobject]@{ bereit=$false; ueberschrift=$heading; runden=@() }
+      }
+      # Die Ueberschrift kann vor ihren Feldern erscheinen. Das erreichte Ziel
+      # nicht durch Suche oder weiteres Blaettern verlassen; nur seine bereits
+      # vorhandene begrenzte Fertigpruefung abwarten und deren Beweis verwenden.
+      $proof = WarteAufZielseite $h 1800
+      if ($proof.bereit -ne $true) {
+        $targetStillVisible = $(if ($knownTarget) {
+          Test-KnownPageHeading ([string]$proof.ueberschrift) $knownTarget.page
+        } else { [bool]($proof.ueberschrift -eq $ziel) })
+        $message = $(if ($targetStillVisible) {
+          'Die Zielueberschrift ist sichtbar, aber ihre Felder oder Tabellen sind noch nicht vollstaendig gebunden; keine weitere Navigation.'
+        } else {
+          'Die Zielseite hat sich waehrend der Bereitschaftspruefung geaendert; keine weitere Navigation.'
+        })
+        Fail $message 'navigation-blocked' ([pscustomobject]@{ueberschrift=$proof.ueberschrift; weg=@($proof.runden)})
+      }
+      return $proof
+    }
     # Nach dem Invoke wartet der Klick auf den Seitenwechsel. Die festen 900 ms
     # waren dafuer das GESAMTE Budget: Die Blaetterschleife liest die
     # Ueberschrift danach genau einmal und deutet 'unveraendert' als
@@ -21259,7 +21287,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $start = AktuelleUeberschrift $hwnd
     # 'weg' ist im Ergebnisvertrag eine Liste. Ein blosser Text hier liess jeden
     # goto-Aufruf auf die bereits offene Seite als invalid-operation-result enden.
-    if (IstZielseite $hwnd $start) {
+    $zielBeweis = Get-SSEGotoTargetProof $hwnd $start
+    if ($zielBeweis.bereit -eq $true) {
+      $start = [string]$zielBeweis.ueberschrift
       Emit ([pscustomobject]@{
         ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
         ueberschrift=$start; schritte=0; weg=@('schon dort')
@@ -21574,7 +21604,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Ein verzoegerter Seitenaufbau kann seit der letzten Gegenprobe das
       # Ziel erreicht haben. Die ohnehin frische Lesung vor dem naechsten
       # Invoke muss es bestaetigen, bevor Weiter/Zurueck es wieder verlaesst.
-      if (IstZielseite $hwnd $vorher) {
+      $zielBeweis = Get-SSEGotoTargetProof $hwnd $vorher
+      if ($zielBeweis.bereit -eq $true) {
+        $vorher = [string]$zielBeweis.ueberschrift
         $null = $weg.Add("Ziel vor weiterem Blaettern bestaetigt -> $vorher")
         Emit ([pscustomobject]@{
           ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
@@ -21624,7 +21656,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
       }
 
-      if (IstZielseite $hwnd $jetzt) {
+      $zielBeweis = Get-SSEGotoTargetProof $hwnd $jetzt
+      if ($zielBeweis.bereit -eq $true) {
+        $jetzt = [string]$zielBeweis.ueberschrift
         Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $jetzt; schritte = $weg.Count
           richtung = $richtung; weg = @($weg); fokusfrei = $true })
       }
