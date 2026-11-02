@@ -222,7 +222,9 @@ export function registerUiTools(registry: McpRegistry): void {
         "Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer " +
         "Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder " +
         "Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; " +
-        "Vorher-/Nachher-Dirty-State wird immer gemeldet.",
+        "Bei Erfolg wird der Vorher-/Nachher-Dirty-State gemeldet. Beim BelegManager muss innerhalb " +
+        "von waitMs genau ein gebundenes Fenster erscheinen. Fehlt der Nachweis nach dem Klick, " +
+        "bleibt der Ausgang unbekannt: zuerst lesen, den Klick nicht automatisch wiederholen.",
     },
   );
 

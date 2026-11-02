@@ -45148,7 +45148,7 @@ function registerUiTools(registry2) {
     "sse_menu_click",
     {
       title: "[Fallback] Menueeintrag ausloesen",
-      description: "[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback. Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; Vorher-/Nachher-Dirty-State wird immer gemeldet."
+      description: "[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback. Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; Bei Erfolg wird der Vorher-/Nachher-Dirty-State gemeldet. Beim BelegManager muss innerhalb von waitMs genau ein gebundenes Fenster erscheinen. Fehlt der Nachweis nach dem Klick, bleibt der Ausgang unbekannt: zuerst lesen, den Klick nicht automatisch wiederholen."
     }
   );
   registerApiTool(

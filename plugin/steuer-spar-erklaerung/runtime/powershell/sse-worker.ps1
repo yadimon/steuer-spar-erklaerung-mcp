@@ -24719,6 +24719,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 1500 100 10000
     if (Test-Versand $eintrag) { Fail "GESPERRT: '$eintrag' fuehrt zu einer Uebermittlung." 'blocked' }
     Assert-SSEDestructiveAcknowledgement $a @($eintrag)
+    $inputBaseline = Get-SSELastInputTick
     $caseCreateSaveDialog = Arg $a '__caseCreateSaveDialog'
     $mainWindow = if ($null -ne $caseCreateSaveDialog) { Resolve-SSEMainWindowDescriptor $a }
       else { Resolve-SSEMainWindowDescriptor $a -RestoreMinimized }
@@ -24749,28 +24750,71 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # einen modalen Dialog oeffnet. Der verifizierte physische Klick kehrt
     # sofort zurueck und ist hier zugleich strenger an das sichtbare Popup
     # und die SSE-Prozess-ID gebunden.
-    $dirtyBefore = Get-DirtyStateFast $mainHwnd
-    $null = Click-VerifiedPoint $match.hwnd $match.node
     $receiptPolicy = Get-SSEReceiptManagerPolicy
+    $dirtyBefore = Get-DirtyStateFast $mainHwnd
+    try {
+      $null = Click-VerifiedPoint $match.hwnd $match.node $inputBaseline `
+        -ExpectedRuntimeId ([string]$match.node.rid) -ThrowOnFailure
+    } catch {
+      $pointError = $_.Exception
+      $inputKnown = $pointError.Data['inputDispatched'] -is [bool]
+      $inputSent = $(if ($inputKnown) { [bool]$pointError.Data['inputDispatched'] } else { $null })
+      $unknown = -not $inputKnown -or $inputSent -or [bool]$pointError.Data['reconciliationRequired']
+      $pointKind = $(if ($pointError.Data['kind']) { [string]$pointError.Data['kind'] } else { 'error' })
+      Fail $pointError.Message $pointKind ([pscustomobject]@{
+        inputDispatched=$inputSent; outcomeUnknown=[bool]$unknown; retryable=$false
+        reconciliationRequired=[bool]$unknown; cleanupRequired=[bool]$unknown
+      })
+    }
     if ([string]$match.node.name -ceq [string]$receiptPolicy.title) {
-      $toolDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
-      do {
-        $toolMatches = @(Get-Windows 'SSE' | Where-Object {
-          [int]$_.pid -eq $targetPid -and
-          [string]$_.title -ceq [string]$receiptPolicy.title -and
-          [string]$_.cls -match [string]$receiptPolicy.classPattern -and
-          -not [bool]$_.minimiert -and -not [bool]$_.hung
+      $toolWatch = [Diagnostics.Stopwatch]::StartNew()
+      try {
+        do {
+          $toolWindows = @(Get-Windows 'SSE')
+          $toolMatches = @($toolWindows | Where-Object {
+            [int]$_.pid -eq $targetPid -and
+            [string]$_.title -ceq [string]$receiptPolicy.title -and
+            [string]$_.cls -match [string]$receiptPolicy.classPattern -and
+            -not [bool]$_.minimiert -and -not [bool]$_.hung
+          })
+          if ($toolMatches.Count -eq 1 -or $toolWatch.ElapsedMilliseconds -ge $waitMs) { break }
+          $remaining = $waitMs - [int]$toolWatch.ElapsedMilliseconds
+          if ($remaining -gt 0) { Start-Sleep -Milliseconds ([Math]::Min(100, $remaining)) }
+        } while ($true)
+      } catch {
+        Fail 'Menue-Klick gesendet, aber der Fensterzustand ist nicht lesbar. NICHT wiederholen, zuerst lesend abgleichen.' 'postcondition-failed' ([pscustomobject]@{
+          inputDispatched=$true; outcomeUnknown=$true; retryable=$false; reconciliationRequired=$true; cleanupRequired=$true
         })
-        if ($toolMatches.Count -eq 1 -or [DateTime]::UtcNow -ge $toolDeadline) { break }
-        Start-Sleep -Milliseconds 100
-      } while ($true)
+      }
+      if ($toolMatches.Count -ne 1 -or $toolWatch.ElapsedMilliseconds -gt $waitMs) {
+        Fail 'Menue-Klick gesendet, aber das BelegManager-Fenster ist innerhalb der Frist nicht eindeutig bestaetigt. NICHT wiederholen, zuerst lesend abgleichen.' 'postcondition-failed' ([pscustomobject]@{
+          inputDispatched=$true; outcomeUnknown=$true; retryable=$false; reconciliationRequired=$true; cleanupRequired=$true
+          observedToolWindows=$toolMatches.Count; waitedMs=[int64]$toolWatch.ElapsedMilliseconds
+          titleOnlyWindows=@($toolWindows | Where-Object {
+            [int]$_.pid -eq $targetPid -and [string]$_.title -ceq [string]$receiptPolicy.title
+          }).Count
+        })
+      }
+      $windowCount = $toolWindows.Count
     } else {
       Start-Sleep -Milliseconds $waitMs
+      try { $windowCount = (@(Get-Windows 'SSE')).Count }
+      catch {
+        Fail 'Menue-Klick gesendet, aber der Nachzustand ist nicht lesbar. NICHT wiederholen.' 'postcondition-failed' ([pscustomobject]@{
+          inputDispatched=$true; outcomeUnknown=$true; retryable=$false; reconciliationRequired=$true; cleanupRequired=$true
+        })
+      }
+    }
+    try { $dirtyAfter = Get-DirtyStateFast $mainHwnd }
+    catch {
+      Fail 'Menue-Klick gesendet, aber der Speicherzustand ist nicht lesbar. NICHT wiederholen.' 'postcondition-failed' ([pscustomobject]@{
+        inputDispatched=$true; outcomeUnknown=$true; retryable=$false; reconciliationRequired=$true; cleanupRequired=$true
+      })
     }
     Emit ([pscustomobject]@{
       ok = $true; ausgeloest = $match.node.name; angefordert = $eintrag
-      method = 'verified-point'; fenster = (@(Get-Windows 'SSE')).Count
-      ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyStateFast $mainHwnd)
+      method = 'verified-point'; fenster = $windowCount
+      ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
     })
   }
 

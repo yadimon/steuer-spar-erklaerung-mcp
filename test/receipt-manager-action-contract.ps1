@@ -173,7 +173,7 @@ foreach ($required in @(
   '[int]$_.pid -eq $targetPid',
   '[string]$_.cls -match [string]$receiptPolicy.classPattern',
   '$toolMatches.Count -eq 1',
-  'Start-Sleep -Milliseconds 100',
+  'Start-Sleep -Milliseconds ([Math]::Min(100, $remaining))',
   'else {',
   'Start-Sleep -Milliseconds $waitMs'
 )) {
@@ -1921,3 +1921,4 @@ $script:shapeGridAvailable=$true;$script:shapeGrid.Current.RowCount=0
 $empty=Get-SSEReceiptGridShapeProjection (New-GridShapeState @() 0) $policy
 Assert-True ($empty.rowsComplete -and $empty.count -eq 0 -and $empty.rows.Count -eq 0) 'A proved empty Grid was not complete.'
 Write-Output 'Receipt Grid: layout-independent fingerprints, hidden document number, real drift, unavailable model and proved empty inventory passed.'
+. (Join-Path $PSScriptRoot 'menu-click-contract.ps1')

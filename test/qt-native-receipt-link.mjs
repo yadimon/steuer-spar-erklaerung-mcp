@@ -242,10 +242,19 @@ for (const options of [{}, { footerLag: true }, { rows: [
   if (options.transfer) assert.equal(result.applyClick.valueTransferCancelled, true);
 }
 
-for (const options of [{ modifiedBeforeEdit: true }, { wrongModifiedHeader: true },
-  { initialTimestamp: "" }, { initialFutureTimestamp: true }]) {
+for (const { options, expected } of [
+  { options: { modifiedBeforeEdit: true }, expected: { kind: "stale", state: "unknown", unknown: true, cleanup: true,
+    cancels: 0, error: /changed outside this transaction/u } },
+  ...[{ wrongModifiedHeader: true }, { initialTimestamp: "" }, { initialFutureTimestamp: true }].map(options => ({ options,
+    expected: { kind: "profile-contract", state: "cancelled", unknown: false, cleanup: false, cancels: 1,
+      error: /profiled receipt modification timestamp/u } })),
+]) {
   const test = fixture(options), result = await test.run();
   assert.equal(result.ok, false, JSON.stringify(options));
+  assert.equal(result.kind, expected.kind); assert.match(result.error, expected.error);
+  assert.equal(result.resultingState, expected.state); assert.equal(result.outcomeUnknown, expected.unknown);
+  assert.equal(result.cleanupRequired, expected.cleanup);
+  assert.equal(test.actions.filter(action => action.aid.endsWith(link.cancelAutomationIdSuffix)).length, expected.cancels);
   assert.equal(test.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 0);
   assert.deepEqual(test.persisted, [false, true]);
   assert.equal(test.actions.filter(action => action.action === "set-table-check-state").length, 0);
@@ -260,7 +269,7 @@ const actualNow = Date.now, fixedNow = Date.parse("2025-08-01T12:00:00.500Z");
 try {
   Date.now = () => fixedNow;
   const subsecond = fixture({ initialTimestamp: "2025-08-01T12:00:00.490Z" });
-  assert.equal((await subsecond.run()).ok, true, "Different millisecond stamps in one second must commit without an artificial wait");
+  assert.equal((await subsecond.run()).ok, true, "Distinct millisecond stamps within one UTC second must be accepted");
   const equalStamp = fixture({ initialTimestamp: new Date(fixedNow).toISOString() });
   const equalResult = await equalStamp.run();
   assert.equal(equalResult.ok, false); assert.equal(equalResult.outcomeUnknown, true); assert.equal(equalResult.cleanupRequired, true);
