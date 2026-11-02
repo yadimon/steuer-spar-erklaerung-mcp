@@ -693,6 +693,7 @@ export async function testNativePageProjections() {
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === "BelegManager";
       const selectedNodes = tool ? (actionState === "start" ? startNodes : receiptNodes) : mainNodes;
+      assert.equal(args.tableProof, undefined, "Receipt control actions must not read the full model");
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
         hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
         ...(args.tableProof ? { tableProof: receiptGridFixture(selectedNodes) } : {}), modalBlocked: false, exactMatches: {}, nodes: selectedNodes,

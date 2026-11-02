@@ -452,6 +452,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
   $tableSuffix = [string]$Policy.list.tableAutomationIdSuffix
   $countSuffixes = @($Policy.list.countLabelAutomationIdSuffixes | ForEach-Object { [string]$_ })
   $documentNumberColumn = [int]$Policy.list.documentNumberColumn
+  $primaryTextColumn = [int]$Policy.list.primaryTextColumn
   $draftMarker = [string]$Policy.list.draftMarker
   $searchSuffix = [string]$Policy.list.searchAutomationIdSuffix
 
@@ -569,7 +570,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
         $gridColumnCount = [int]$grid.Current.ColumnCount
         $gridMatchesProjection = $gridRowCount -eq $count -or
           ($filterText.Length -gt 0 -and $gridRowCount -ge 0 -and $gridRowCount -le $count)
-        if ($gridMatchesProjection -and $gridColumnCount -gt 0) {
+        if ($gridMatchesProjection -and $gridColumnCount -gt [Math]::Max($primaryTextColumn, $documentNumberColumn)) {
           $projectionExpectedCount = $gridRowCount
           $gridGroups = New-Object 'System.Collections.Generic.List[object]'
           $gridIdentities = New-Object 'Collections.Generic.HashSet[string]'
@@ -635,7 +636,9 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
     if (-not $cells.Count) { continue }
     $rowIndex++
     $namedCells = @($cells | Where-Object { [string]$_.name })
-    $rowRid = $(if ($namedCells.Count) { [string]$namedCells[0].rid } else { [string]$cells[0].rid })
+    $primaryCell = $(if ($State.window -and $gridProjectionComplete) { $cells[$primaryTextColumn] }
+      elseif ($namedCells.Count) { $namedCells[0] } else { $cells[0] })
+    $rowRid = [string]$primaryCell.rid
     if (-not $rowRid) {
       $failure = [pscustomobject]@{ok=$false;kind='profile-contract';error="BelegManager-Zeile $rowIndex hat keine Runtime-ID."}
       if ($ReturnFailure) { return $failure }
@@ -646,18 +649,18 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
       index=$rowIndex; rid=$rowRid; cells=$names
     }
     $rowFingerprint = Get-SSETextSha256 ($rowBody | ConvertTo-Json -Depth 5 -Compress)
-    # Tabellenbreite und Detailansicht bestimmen, welche Zusatzspalten Qt
-    # gerade ueber UIA exponiert. Die fachliche Primaerbezeichnung bleibt
-    # dagegen stabil und eignet sich als Multiset-Readback der unberuehrten
-    # Restzeilen nach einer Loeschung.
-    $primaryText = $(if ($namedCells.Count) { [string]$namedCells[0].name } else { '' })
+    # Die profilierte logische Titelspalte bleibt auch bei verborgenen
+    # fuehrenden Metadaten die fachliche Zeilenidentitaet.
+    $primaryText = [string]$primaryCell.name
     $documentNumber = $(if ($cells.Count -gt $documentNumberColumn) {
       [string]$cells[$documentNumberColumn].name
     } else { '' })
     $contentFingerprint = Get-SSETextSha256 (([pscustomobject][ordered]@{
       primaryText=$primaryText
     }) | ConvertTo-Json -Depth 4 -Compress)
-    $isDraft = @($names | Where-Object { $_.EndsWith($draftMarker, [StringComparison]::Ordinal) }).Count -gt 0
+    $isDraft = $(if ($State.window -and $gridProjectionComplete) {
+      $primaryText.EndsWith($draftMarker, [StringComparison]::Ordinal)
+    } else { @($names | Where-Object { $_.EndsWith($draftMarker, [StringComparison]::Ordinal) }).Count -gt 0 })
     $selected = @($cells | Where-Object { $null -ne $_.selected -and [bool]$_.selected }).Count -gt 0
     $null = $rows.Add([pscustomobject][ordered]@{
       index=$rowIndex; rowRid=$rowRid; rowFingerprint=$rowFingerprint

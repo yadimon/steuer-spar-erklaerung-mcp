@@ -54,6 +54,12 @@ const completeList = receiptList(viewport, policy, modelProof);
 assert(!("error" in completeList)); assert.equal(completeList.rowsComplete, true);
 assert.equal(completeList.rows[0].documentNumber, "HIDDEN-DOC");
 assert.equal(completeList.rows[0].cells.length, 9);
+const leadingMetadata = structuredClone(modelProof); leadingMetadata.rows[0].names[0] = "Hidden metadata*";
+leadingMetadata.hiddenColumns.push(0);
+const withMetadata = receiptList(viewport, policy, leadingMetadata);
+assert.equal(withMetadata.rows[0].primaryText, "Synthetic receipt");
+assert.equal(withMetadata.rows[0].rowRid, modelProof.rows[0].rids[2]);
+assert.equal(withMetadata.rows[0].draft, false, "Hidden metadata cannot turn a receipt into a draft");
 const changedHidden = structuredClone(modelProof); changedHidden.rows[0].names[8] = "CHANGED-DOC";
 assert.notEqual(receiptList(viewport, policy, changedHidden).listFingerprint, completeList.listFingerprint,
   "A hidden model value must remain part of the stale-write guard");

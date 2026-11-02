@@ -30641,12 +30641,12 @@ function receiptToolAidSuffixes(policy) {
     policy.list.searchAutomationIdSuffix
   ])];
 }
-async function receiptToolSnapshot(client, policy, timeoutMs, signal) {
+async function receiptToolSnapshot(client, policy, timeoutMs, signal, withTableProof = true) {
   return readQtNativeSnapshot(client, {
     maxNodes: 5e3,
     toolTitle: policy.title,
     aidSuffixes: receiptToolAidSuffixes(policy)
-  }, timeoutMs, signal, { tableProofAidSuffix: policy.list.tableAutomationIdSuffix });
+  }, timeoutMs, signal, withTableProof ? { tableProofAidSuffix: policy.list.tableAutomationIdSuffix } : void 0);
 }
 async function receiptDetailSnapshot(client, policy, timeoutMs, signal) {
   return readQtNativeSnapshot(client, {
@@ -30765,11 +30765,11 @@ function receiptList(nodes, policy, proof) {
         h: node2?.h ?? 0
       };
     });
-    const named = cells.filter((cell) => cell.name);
-    const rowRid = (named[0] ?? cells[0]).rid;
+    const primary = cells[policy.list.primaryTextColumn];
+    const rowRid = primary.rid;
     const names = cells.map((cell) => cell.name);
     const index = offset + 1;
-    const primaryText = named[0]?.name ?? "";
+    const primaryText = primary.name;
     const documentNumber = cells.length > policy.list.documentNumberColumn ? cells[policy.list.documentNumberColumn].name : "";
     return {
       index,
@@ -30779,7 +30779,7 @@ function receiptList(nodes, policy, proof) {
       primaryText,
       documentNumber,
       cells,
-      draft: names.some((name) => name.endsWith(policy.list.draftMarker)),
+      draft: primaryText.endsWith(policy.list.draftMarker),
       selected: cells.some((cell) => cell.selected === true)
     };
   });
@@ -30951,7 +30951,7 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     matchesComplete: matchedCount <= limit,
     ungespeichert: dirtyState2.dirty,
     physicalInputUsed: false,
-    hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten." : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
+    hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im vollstaendigen Qt-Modell enthalten." : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError}.` + (list.rows.length === 0 ? " Ohne vollstaendigen Modellnachweis werden keine Zeilen zurueckgegeben." : ""),
     nativeDurationMs: tool.nativeDurationMs + dirtyState2.durationMs
   };
 }
@@ -31743,6 +31743,27 @@ function linkRowIdentity(row, policy) {
 function linkListIdentity(list, policy) {
   return receiptFingerprint({ count: list.count, rows: list.rows.map((row) => linkRowIdentity(row, policy)).sort() });
 }
+function linkTimestampTransition(before, after, item, policy) {
+  const column = 6;
+  if (before.snapshot.hwnd !== after.snapshot.hwnd || before.snapshot.tableProof?.headers[column] !== "Geändert" || after.snapshot.tableProof?.headers[column] !== "Geändert") return null;
+  const previous = resolveLinkRow(before, item), next = resolveLinkRow(after, item);
+  if (previous.rowRid !== next.rowRid || previous.cells.length !== next.cells.length) return null;
+  const oldValue = previous.cells[column]?.name, newValue = next.cells[column]?.name;
+  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+  if (!oldValue || !newValue || oldValue === newValue || !iso.test(oldValue) || !iso.test(newValue) || !Number.isFinite(Date.parse(oldValue)) || !Number.isFinite(Date.parse(newValue)) || new Date(oldValue).toISOString() !== oldValue || new Date(newValue).toISOString() !== newValue || Date.parse(newValue) < Date.parse(oldValue)) return null;
+  const restored = { ...next, cells: next.cells.map((cell, index) => index === column ? { ...cell, name: oldValue } : cell) };
+  const normalized2 = { ...after.list, rows: after.list.rows.map((row) => row === next ? restored : row) };
+  if (linkListIdentity(normalized2, policy) !== linkListIdentity(before.list, policy)) return null;
+  const oldKey = linkRowIdentity(previous, policy), newKey = linkRowIdentity(next, policy);
+  const rekey = (states) => {
+    if (states.get(oldKey)?.length !== 1 || states.has(newKey)) return null;
+    const renamed = new Map(states);
+    renamed.delete(oldKey);
+    renamed.set(newKey, [...states.get(oldKey)]);
+    return renamed;
+  };
+  return { identity: linkListIdentity(after.list, policy), rekey };
+}
 function resolveLinkRow(mode, item) {
   const matches = mode.list.rows.filter((row) => row.primaryText === item.expectedReceiptTitle && (item.expectedDocumentNumber === void 0 || row.documentNumber === item.expectedDocumentNumber) && (item.receiptContentFingerprint === void 0 || row.contentFingerprint === item.receiptContentFingerprint.toUpperCase()));
   if (matches.length !== 1) throw new ReceiptLinkError("The exact receipt title/document/content selector is missing or ambiguous.", matches.length ? "ambiguous" : "stale");
@@ -32125,8 +32146,8 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
       throw new ReceiptLinkError("Multiple receipt selectors resolve to the same row; no checkbox edit dispatched.", "ambiguous");
     const linkedBefore = initialRows.map((row) => checkedLinkRow(row, policy));
     const changes = items.map((item, index) => linkedBefore[index] === item.linked ? -1 : index).filter((index) => index >= 0);
-    const identityBefore = linkListIdentity(modeBefore.list, policy);
-    const expectedStates = new Map([...modeBefore.states].map(([identity, states]) => [identity, [...states]]));
+    let identityBefore = linkListIdentity(modeBefore.list, policy);
+    let expectedStates = new Map([...modeBefore.states].map(([identity, states]) => [identity, [...states]]));
     let expectedCount = modeBefore.footerCount, finalMode = modeBefore;
     if (changes.length === 0) {
       cancelClick = await closeMode("cancel");
@@ -32180,8 +32201,17 @@ async function executeQtNativeReceiptManagerLink(client, input2, timeoutMs, sign
       finalMode = await poll(async () => {
         const candidate = await readMode();
         if (!candidate) return null;
-        if (linkListIdentity(candidate.list, policy) !== identityBefore)
+        if (linkListIdentity(candidate.list, policy) !== identityBefore) {
+          const transition = linkTimestampTransition(fresh, candidate, item, policy);
+          const nextStates = transition?.rekey(expectedStates), priorStates = transition?.rekey(previousStates);
+          if (transition && nextStates && candidate.footerCount === expectedCount && linkStatesEqual(candidate, nextStates)) {
+            identityBefore = transition.identity;
+            expectedStates = nextStates;
+            return candidate;
+          }
+          if (priorStates && candidate.footerCount === previousCount && linkStatesEqual(candidate, priorStates)) return null;
           throw new ReceiptLinkError("Receipt content changed during the exact link checkbox commit.", "stale", true);
+        }
         if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return candidate;
         if (candidate.footerCount === previousCount && linkStatesEqual(candidate, previousStates)) return null;
         throw new ReceiptLinkError("Other receipt link states changed during the exact checkbox commit; no further action dispatched.", "stale", true);
@@ -32298,7 +32328,7 @@ async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, sign
     }
     return value;
   };
-  const before = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
+  const before = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal, false);
   if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) {
     return fail5("window-obstructed", "The receipt manager is unavailable or obstructed.");
   }
@@ -32369,7 +32399,7 @@ async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, sign
         );
       }
       await delay7(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
-      after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
+      after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal, false);
       stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
       if (!stateAfter.error && stateAfter.state === action.toState) break;
     } while (performance.now() < postconditionDeadline && remaining() > 0);

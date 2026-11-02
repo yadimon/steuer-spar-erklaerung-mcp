@@ -94,6 +94,8 @@ export function fixture(options = {}) {
     }
     assert.equal(operation, "accessibility_snapshot");
     const tool = request.toolTitle === policy.title, dialog = request.toolTitle === dlg.title;
+    assert.deepEqual(request.tableProof, tool ? { aidSuffix: policy.list.tableAutomationIdSuffix } : undefined,
+      "Only receipt reads request their exact complete-model proof");
     const tree = tool ? reindexReceiptNodes(nodes().filter(node => !(options.detailHidesColumns && open && node.type === "DataItem" && node.x >= 240))) : dialog ? modalNodes() : [{ i: 0, p: -1, d: 0, type: "Button", name: "Speichern",
       aid: "main.MainToolBar.tb_sichern", rid: "42.42.4.1", x: 0, y: 0, w: 50, h: 20, on: Boolean(options.dirtyDrift && closed),
       val: null, ro: null, checked: null, selected: null, scroll: null }];

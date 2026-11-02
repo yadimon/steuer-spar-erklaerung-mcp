@@ -1033,6 +1033,9 @@ Der native Nachweis bindet die exakte Tabelle und alle logischen Zellpositionen
 ohne Auswahl, Fokus oder Bildlauf zu verändern. Fehlt er im nativen Paket,
 ist ein Neubau oder Update erforderlich. Widersprechen sichtbare Zellen dem
 Modell, endet der Aufruf mit `native-contract`.
+Vollständige Gridzeilen verwenden die profilierte Titelspalte für Titel,
+Zeilenbindung und Entwurfskennzeichen; führende verborgene Metadaten ändern
+diese Identität nicht.
 Die neun weiteren registrierten Operationen melden in
 `capabilities.operationPolicy` `foreground-required`/`blocked` und liefern bei
 gueltigen Aufrufen denselben nicht wiederholbaren strukturierten Block ueber

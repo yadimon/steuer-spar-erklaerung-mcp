@@ -1857,9 +1857,9 @@ namespace ReceiptGridShapeContract {
  public class GridInfo {public int RowCount=1,ColumnCount=9;}
  public class GridPattern {
   public static object Pattern=new object();public GridInfo Current=new GridInfo();
-  public string[] Values=new string[]{"","Synthetic invoice","15.01.2025","12,34","","","","","SYN-1"};
+  public string[] Values=new string[]{"","","Synthetic invoice","15.01.2025","12,34","","","","SYN-1"};
   public int[] Ids=new int[]{0,1,2,3,4,5,6,7,8};
-  public string Title {get{return Values[1];}set{Values[1]=value;}}
+  public string Title {get{return Values[2];}set{Values[2]=value;}}
   public void ClearName(int column){Values[column]=null;}
   public Cell GetItem(int row,int column){return new Cell(Ids[column],Values[column]);}
  }
@@ -1896,6 +1896,12 @@ $narrow=Get-SSEReceiptGridShapeProjection $narrowState $policy
 Assert-True ($wide.rowsComplete -and $narrow.rowsComplete -and $wide.listFingerprint -ceq $narrow.listFingerprint -and
  $wide.rows[0].rowFingerprint -ceq $narrow.rows[0].rowFingerprint) 'Receipt bindings changed solely because opening details cropped the visible columns.'
 Assert-True ($wide.rows[0].cells.Count -eq 9 -and $narrow.rows[0].documentNumber -ceq 'SYN-1') 'Complete Grid columns or the hidden profiled document number were lost.'
+$script:shapeGrid.Values[0]='Hidden metadata*'
+$leadingMetadata=Get-SSEReceiptGridShapeProjection $narrowState $policy
+Assert-True ($leadingMetadata.rowsComplete -and $leadingMetadata.rows[0].primaryText -ceq 'Synthetic invoice' -and
+ $leadingMetadata.rows[0].rowRid -ceq $wide.rows[0].rowRid -and -not $leadingMetadata.rows[0].draft) `
+ 'A leading hidden metadata cell replaced the profiled receipt identity or draft state.'
+$script:shapeGrid.Values[0]=''
 $script:shapeGrid.Title='Changed invoice'
 $changed=Get-SSEReceiptGridShapeProjection $narrowState $policy
 Assert-True ($changed.listFingerprint -cne $wide.listFingerprint) 'A real model change was hidden by viewport normalization.'

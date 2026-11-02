@@ -45,7 +45,7 @@ $policy=[pscustomobject]@{
  states=[pscustomobject]@{detail=[pscustomobject]@{requiredAutomationIdSuffixes=@('.detail.anchor')};list=[pscustomobject]@{requiredAutomationIdSuffixes=@('.list.anchor')}}
  actions=[pscustomobject]@{}
  controls=[pscustomobject]@{detailClose=[pscustomobject]@{automationIdSuffix='.close';expectedName='synthetic-close'}}
- list=[pscustomobject]@{tableAutomationIdSuffix='.table';countLabelAutomationIdSuffixes=@('.count');documentNumberColumn=1;draftMarker='(draft)';searchAutomationIdSuffix='.search'}
+ list=[pscustomobject]@{tableAutomationIdSuffix='.table';countLabelAutomationIdSuffixes=@('.count');primaryTextColumn=0;documentNumberColumn=1;draftMarker='(draft)';searchAutomationIdSuffix='.search'}
 }
 function New-CloseNode{
  [pscustomobject]@{rid='42.7.13';aid='synthetic.close';type='Button';name='synthetic-close';on=$true;x=20;y=40;w=80;h=20}

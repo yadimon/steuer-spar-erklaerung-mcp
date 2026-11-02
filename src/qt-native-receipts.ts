@@ -69,12 +69,13 @@ function receiptToolAidSuffixes(policy: z.infer<typeof receiptPolicySchema>): st
 
 export async function receiptToolSnapshot(
   client: QtNativeClient, policy: z.infer<typeof receiptPolicySchema>, timeoutMs: number, signal?: AbortSignal,
+  withTableProof = true,
 ) {
   return readQtNativeSnapshot(client, {
     maxNodes: 5000,
     toolTitle: policy.title,
     aidSuffixes: receiptToolAidSuffixes(policy),
-  }, timeoutMs, signal, { tableProofAidSuffix: policy.list.tableAutomationIdSuffix });
+  }, timeoutMs, signal, withTableProof ? { tableProofAidSuffix: policy.list.tableAutomationIdSuffix } : undefined);
 }
 
 export async function receiptDetailSnapshot(
@@ -213,11 +214,11 @@ export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof rece
       return { name, rid, selected: node?.selected ?? null, toggleState: node ? toggleState(node) : null,
         x: node?.x ?? -1, y: node?.y ?? -1, w: node?.w ?? 0, h: node?.h ?? 0 };
     });
-    const named = cells.filter(cell => cell.name);
-    const rowRid = (named[0] ?? cells[0])!.rid;
+    const primary = cells[policy.list.primaryTextColumn]!;
+    const rowRid = primary.rid;
     const names = cells.map(cell => cell.name);
     const index = offset + 1;
-    const primaryText = named[0]?.name ?? "";
+    const primaryText = primary.name;
     const documentNumber = cells.length > policy.list.documentNumberColumn
       ? cells[policy.list.documentNumberColumn]!.name : "";
     return {
@@ -228,7 +229,7 @@ export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof rece
       primaryText,
       documentNumber,
       cells,
-      draft: names.some(name => name.endsWith(policy.list.draftMarker)),
+      draft: primaryText.endsWith(policy.list.draftMarker),
       selected: cells.some(cell => cell.selected === true),
     };
   });
@@ -439,8 +440,9 @@ export async function executeQtNativeReceiptManagerList(
     ungespeichert: dirtyState.dirty,
     physicalInputUsed: false,
     hinweis: list.rowsComplete
-      ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten."
-      : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
+      ? "Alle vom BelegManager gezaehlten Zeilen sind im vollstaendigen Qt-Modell enthalten."
+      : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError}.`
+        + (list.rows.length === 0 ? " Ohne vollstaendigen Modellnachweis werden keine Zeilen zurueckgegeben." : ""),
     nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs!,
   };
 }

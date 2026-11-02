@@ -38,6 +38,25 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 
+class ReceiptProofModel : public QStandardItemModel {
+public:
+    using QStandardItemModel::QStandardItemModel;
+    bool moreRows = false;
+    mutable bool invalidateProof = false, slowProof = false;
+    bool canFetchMore(const QModelIndex &parent) const override { return !parent.isValid() && moreRows; }
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override {
+        const auto value = QStandardItemModel::data(index, role);
+        if (index.row() == 39 && index.column() == 2 && role == Qt::DisplayRole) {
+            if (slowProof) { slowProof = false; QThread::msleep(1600); }
+            if (invalidateProof) {
+                invalidateProof = false;
+                const_cast<ReceiptProofModel *>(this)->setData(index, "changed-last-option", Qt::DisplayRole);
+            }
+        }
+        return value;
+    }
+};
+
 class FixtureTraceJournal {
     struct Record {
         const char *phase;
@@ -411,6 +430,7 @@ int main(int argc, char **argv) {
     HANDLE controller = nullptr;
     HWND untitled = nullptr;
     QDialog *tool = nullptr, *duplicateTool = nullptr, *navigationTool = nullptr, *optionTool = nullptr;
+    QPointer<QTableView> duplicateOptionTable;
     QPointer<PreparationProbeLineEdit> preparationProbe;
     PassiveReadCounters passiveCounters;
     QPointer<QWidget> passivePage;
@@ -542,7 +562,7 @@ int main(int argc, char **argv) {
                     optionTool->setObjectName("syntheticOptions"); optionTool->setWindowTitle("Synthetic options");
                     auto *optionLayout = new QVBoxLayout(optionTool);
                     auto *optionView = new QTableView(optionTool); optionView->setObjectName("optionTable");
-                    auto *optionModel = new QStandardItemModel(40, 3, optionView);
+                    auto *optionModel = new ReceiptProofModel(40, 3, optionView);
                     for (int row = 0; row < 40; ++row) {
                         auto *item = new QStandardItem; item->setCheckable(true); item->setCheckState(row == 39 ? Qt::Checked : Qt::Unchecked);
                         optionModel->setItem(row, 0, item);
@@ -565,6 +585,28 @@ int main(int argc, char **argv) {
                     });
                     optionTool->resize(400, 240); optionTool->show();
                 }
+                else if (command == "hide-option-proof-row" || command == "show-option-proof-row") {
+                    optionTool->findChild<QTableView *>()->setRowHidden(39, command == "hide-option-proof-row");
+                }
+                else if (command == "fetchable-option-proof" || command == "complete-option-proof") {
+                    static_cast<ReceiptProofModel *>(optionTool->findChild<QTableView *>()->model())->moreRows = command == "fetchable-option-proof";
+                }
+                else if (command == "oversized-option-proof" || command == "restore-option-proof") {
+                    auto *model = static_cast<ReceiptProofModel *>(optionTool->findChild<QTableView *>()->model());
+                    model->setRowCount(command == "oversized-option-proof" ? 1001 : 40);
+                    model->setData(model->index(39, 2), "option-39", Qt::DisplayRole);
+                }
+                else if (command == "slow-option-proof" || command == "invalidate-option-proof") {
+                    auto *model = static_cast<ReceiptProofModel *>(optionTool->findChild<QTableView *>()->model());
+                    model->slowProof = command == "slow-option-proof";
+                    model->invalidateProof = command == "invalidate-option-proof";
+                }
+                else if (command == "duplicate-option-proof") {
+                    duplicateOptionTable = new QTableView(optionTool); duplicateOptionTable->setObjectName("optionTable");
+                    duplicateOptionTable->setModel(optionTool->findChild<QTableView *>()->model());
+                    duplicateOptionTable->setGeometry(10, 10, 120, 80); duplicateOptionTable->show();
+                }
+                else if (command == "remove-duplicate-option-proof") { delete duplicateOptionTable.data(); }
                 else if (command == "empty-option-tool") {
                     if (optionTool) { auto *model = optionTool->findChild<QTableView *>()->model(); model->removeRows(0, model->rowCount()); }
                 }

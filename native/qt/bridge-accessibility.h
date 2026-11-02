@@ -86,7 +86,7 @@ static bool accessibilityModalBlocked(QWidget *root, const Json &request) {
 }
 // A viewport tree cannot prove a receipt list: hidden columns and offscreen
 // rows still belong to the same model. Read them without changing the view.
-static Json receiptTableProof(QWidget *root, const Json &request) {
+static Json receiptTableProof(QWidget *root, const Json &request, QElapsedTimer &timer) {
     if (!request.contains("toolTitle") || !request.at("tableProof").is_object()
         || request.at("tableProof").size() != 1 || !request.at("tableProof").contains("aidSuffix")
         || !request.at("tableProof").at("aidSuffix").is_string())
@@ -94,11 +94,10 @@ static Json receiptTableProof(QWidget *root, const Json &request) {
     const auto suffix = request.at("tableProof").at("aidSuffix").get<std::string>();
     if (suffix.empty() || suffix.size() > 4096) throw std::runtime_error("Invalid receipt table suffix");
     QPointer<QWidget> rootGuard(root);
-    QElapsedTimer timer; timer.start();
     std::vector<QPointer<QTableView>> matches;
     std::vector<QObject *> pending{root}; int visited = 0;
     while (!pending.empty()) {
-        if (++visited > 50000 || timer.elapsed() > 1000) throw std::runtime_error("Receipt table lookup exceeds bound");
+        if (++visited > 50000 || timer.elapsed() > 1500) throw std::runtime_error("Receipt table lookup exceeds snapshot bound");
         auto *object = pending.back(); pending.pop_back();
         if (auto *view = qobject_cast<QTableView *>(object)) {
             if (view->isVisible() && view->isEnabled() && view->thread() == QThread::currentThread()) {
@@ -117,7 +116,8 @@ static Json receiptTableProof(QWidget *root, const Json &request) {
     auto *iface = QAccessible::queryAccessibleInterface(view);
     auto *table = iface ? iface->tableInterface() : nullptr;
     QPointer<QAbstractItemModel> model(view->model());
-    if (!table || !model || !belongsTo(view, root)) throw std::runtime_error("Receipt table has no owned model");
+    if (!table || !model || !belongsTo(view, root) || model->thread() != QThread::currentThread())
+        throw std::runtime_error("Receipt table has no owned GUI-thread model");
     TableModelReadScope scope(view);
     const auto modelRoot = view->rootIndex();
     const int rows = scope.read([&](QAbstractItemModel *) { return table->rowCount(); });
@@ -133,6 +133,11 @@ static Json receiptTableProof(QWidget *root, const Json &request) {
         {"tableRid", accessibleRuntimeId(iface, host)}, {"rowCount", rows}, {"columnCount", columns},
         {"complete", false}, {"canFetchMore", fetch}, {"incompleteReason", nullptr},
         {"headers", Json::array()}, {"hiddenColumns", Json::array()}, {"hiddenRows", Json::array()}, {"rows", Json::array()}};
+    const auto timeBound = [&] {
+        proof["complete"] = false; proof["incompleteReason"] = "read-time-bound";
+        proof["rows"] = Json::array();
+        return proof;
+    };
     if (fetch || rows > 1000 || columns < 1 || columns > 64 || static_cast<long long>(rows) * columns > 20000) {
         proof["incompleteReason"] = fetch ? "model-can-fetch-more" : "model-dimensions-exceed-bound";
         return proof;
@@ -141,11 +146,14 @@ static Json receiptTableProof(QWidget *root, const Json &request) {
         scope.check();
         return rootGuard && view && model && view->model() == model && view->rootIndex() == modelRoot
             && view->isVisible() && view->isEnabled() && belongsTo(view, rootGuard)
-            && scope.read([&](QAbstractItemModel *) { return table->rowCount() == rows && table->columnCount() == columns; })
-            && scope.read([&](QAbstractItemModel *m) { return m->rowCount(modelRoot) == rows && m->columnCount(modelRoot) == columns
-                && !m->canFetchMore(modelRoot); });
+            && scope.read([&](QAbstractItemModel *) { return table->rowCount(); }) == rows
+            && scope.read([&](QAbstractItemModel *) { return table->columnCount(); }) == columns
+            && scope.read([&](QAbstractItemModel *m) { return m->rowCount(modelRoot); }) == rows
+            && scope.read([&](QAbstractItemModel *m) { return m->columnCount(modelRoot); }) == columns
+            && !scope.read([&](QAbstractItemModel *m) { return m->canFetchMore(modelRoot); });
     };
     for (int column = 0; column < columns; ++column) {
+        if (timer.elapsed() > 1500) return timeBound();
         proof["headers"].push_back(accessibleText(scope.read([&](QAbstractItemModel *m) {
             return m->headerData(column, Qt::Horizontal, Qt::DisplayRole).toString(); }), true));
         if (!unchanged()) throw std::runtime_error("Receipt model changed while reading headers");
@@ -154,14 +162,18 @@ static Json receiptTableProof(QWidget *root, const Json &request) {
     std::unordered_set<std::string> identities;
     std::size_t bytes = 0;
     for (int row = 0; row < rows; ++row) {
+        if (!unchanged()) throw std::runtime_error("Receipt model changed before reading a row");
         if (view->isRowHidden(row)) proof["hiddenRows"].push_back(row);
         Json names = Json::array(), rids = Json::array();
         for (int column = 0; column < columns; ++column) {
-            if (timer.elapsed() > 1000 || !unchanged()) throw std::runtime_error("Receipt model changed or exceeded its read bound");
+            if (timer.elapsed() > 1500) return timeBound();
             auto *cell = scope.read([&](QAbstractItemModel *) { return table->cellAt(row, column); });
             auto *position = cell && cell->isValid() ? cell->tableCellInterface() : nullptr;
-            if (!position || !scope.read([&](QAbstractItemModel *) { return position->rowIndex() == row && position->columnIndex() == column
-                && position->rowExtent() == 1 && position->columnExtent() == 1 && position->table() == iface; }))
+            if (!position || scope.read([&](QAbstractItemModel *) { return position->rowIndex(); }) != row
+                || scope.read([&](QAbstractItemModel *) { return position->columnIndex(); }) != column
+                || scope.read([&](QAbstractItemModel *) { return position->rowExtent(); }) != 1
+                || scope.read([&](QAbstractItemModel *) { return position->columnExtent(); }) != 1
+                || scope.read([&](QAbstractItemModel *) { return position->table(); }) != iface)
                 throw std::runtime_error("Receipt cell has no exact grid position");
             names.push_back(accessibleText(scope.read([&](QAbstractItemModel *) { return cell->text(QAccessible::Name); }), true));
             const auto rid = accessibleRuntimeId(cell, host);
@@ -174,6 +186,7 @@ static Json receiptTableProof(QWidget *root, const Json &request) {
         proof["rows"].push_back(std::move(item));
     }
     if (!unchanged()) throw std::runtime_error("Receipt model changed before completing the proof");
+    if (timer.elapsed() > 1500) return timeBound();
     proof["complete"] = true;
     return proof;
 }
@@ -338,7 +351,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
             {"truncated", truncated || depthLimited}, {"depthLimited", depthLimited}, {"valErr", 0}, {"scrollErr", 0},
             {"source", "qt"}, {"fallbackReason", ""}, {"snapshotMs", timer.nsecsElapsed() / 1e6}}}};
     if (request.contains("tableProof")) {
-        result["tableProof"] = receiptTableProof(root, request);
+        result["tableProof"] = truncated || depthLimited ? Json(nullptr) : receiptTableProof(root, request, timer);
         if (result.dump().size() > 8 * 1024 * 1024) throw std::runtime_error("Snapshot and receipt proof exceed output bound");
         result["stats"]["snapshotMs"] = timer.nsecsElapsed() / 1e6;
     }

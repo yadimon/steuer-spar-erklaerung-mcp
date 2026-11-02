@@ -9,7 +9,7 @@ import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.
 import { fail, receiptFingerprint, receiptState } from "./qt-native-receipts.js";
 import { cancelKnownReceiptLinkTransfer } from "./qt-native-receipt-link-dialog.js";
 import {
-  checkedLinkRow, exactLinkControl, linkListIdentity, linkRowIdentity, linkStatesEqual, projectLinkMode,
+  checkedLinkRow, exactLinkControl, linkListIdentity, linkRowIdentity, linkStatesEqual, linkTimestampTransition, projectLinkMode,
   receiptLinkPolicySchema, ReceiptLinkError, resolveLinkRow, type LinkItem, type LinkMode, type LinkSnapshot,
 } from "./qt-native-receipt-link-projection.js";
 
@@ -189,8 +189,8 @@ export async function executeQtNativeReceiptManagerLink(
       throw new ReceiptLinkError("Multiple receipt selectors resolve to the same row; no checkbox edit dispatched.", "ambiguous");
     const linkedBefore = initialRows.map(row => checkedLinkRow(row, policy));
     const changes = items.map((item, index) => linkedBefore[index] === item.linked ? -1 : index).filter(index => index >= 0);
-    const identityBefore = linkListIdentity(modeBefore.list, policy);
-    const expectedStates = new Map([...modeBefore.states].map(([identity, states]) => [identity, [...states]]));
+    let identityBefore = linkListIdentity(modeBefore.list, policy);
+    let expectedStates = new Map([...modeBefore.states].map(([identity, states]) => [identity, [...states]]));
     let expectedCount = modeBefore.footerCount, finalMode = modeBefore;
     if (changes.length === 0) {
       cancelClick = await closeMode("cancel");
@@ -223,8 +223,16 @@ export async function executeQtNativeReceiptManagerLink(
       finalMode = await poll(async () => {
         const candidate = await readMode();
         if (!candidate) return null;
-        if (linkListIdentity(candidate.list, policy) !== identityBefore)
+        if (linkListIdentity(candidate.list, policy) !== identityBefore) {
+          const transition = linkTimestampTransition(fresh, candidate, item, policy);
+          const nextStates = transition?.rekey(expectedStates), priorStates = transition?.rekey(previousStates);
+          if (transition && nextStates && candidate.footerCount === expectedCount && linkStatesEqual(candidate, nextStates)) {
+            identityBefore = transition.identity; expectedStates = nextStates;
+            return candidate;
+          }
+          if (priorStates && candidate.footerCount === previousCount && linkStatesEqual(candidate, priorStates)) return null;
           throw new ReceiptLinkError("Receipt content changed during the exact link checkbox commit.", "stale", true);
+        }
         if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return candidate;
         if (candidate.footerCount === previousCount && linkStatesEqual(candidate, previousStates)) return null;
         throw new ReceiptLinkError("Other receipt link states changed during the exact checkbox commit; no further action dispatched.", "stale", true);

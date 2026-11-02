@@ -89,9 +89,22 @@ Der Nachweis bewegt weder Fokus noch Auswahl oder Bildlauf und lädt keine
 weiteren Modellzeilen nach. Er ist auf 1.000 Zeilen, 64 Spalten und insgesamt
 20.000 Zellen begrenzt. Nachladbare Modelle, ausdrücklich versteckte Zeilen und
 widersprüchliche Bestandszahlen bestätigen keinen vollständigen Bestand.
+Baum und Tabellennachweis teilen dasselbe Arbeitsbudget. Wird es während des
+gebundenen Zellreads erschöpft, enthält der unvollständige Nachweis keine
+Teilzeilen. Modelländerungssignale verwerfen den laufenden Read. Reine
+BelegManager-Steueraktionen benötigen diesen zusätzlichen Modellread nicht.
 Sichtbare Überschriften bleiben von den vollständigen Modellzellen getrennt.
 Ältere native Pakete ohne diesen Nachweis müssen neu gebaut oder aktualisiert
 werden; ein unvollständiger sichtbarer Baum ersetzt ihn nicht.
+
+Titel, Zeilen-Runtime-ID und Entwurfskennzeichen stammen aus der profilierten
+Titelspalte. Ein Text in einer führenden verborgenen Spalte ersetzt diese
+Identität nicht. Beim nativen Verknüpfen darf nach einem quittierten eigenen
+Checkbox-Commit nur der bekannte Änderungszeitstempel des exakt gebundenen
+Zielbelegs fortschreiten. Die Brücke prüft dazu die Spaltenbindung und alle
+anderen Zellen und Zeilen. Erst der bestätigte Checkbox- und Fußzeilenzustand
+übernimmt den neuen Zeitstempel für die nächsten Prüfungen. Eine Änderung vor
+dem eigenen Commit oder an einem anderen Beleg bleibt ein Fehler.
 
 ## Tabellen und geschützte Cursorwege
 

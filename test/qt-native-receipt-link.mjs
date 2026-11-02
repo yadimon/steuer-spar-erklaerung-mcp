@@ -55,7 +55,7 @@ function fixture(options = {}) {
   const persisted = rows.map(row => row.linked), actions = [];
   let staged = [...persisted], managerHwnd = options.alreadyOpen ? 84 : null;
   let opens = 0, state = "start", dirty = false, edited = false, applied = false, transfer = false;
-  let footerLag = false, readCount = 0;
+  let footerLag = false, readCount = 0, listReads = 0;
   const nodeBuilder = hwnd => {
     const nodes = [];
     const add = (type, name, aid, extra = {}) => {
@@ -86,10 +86,19 @@ function fixture(options = {}) {
       add("Table", "", "receipt" + policy.list.tableAutomationIdSuffix, { x: 0, y: 100, w: 900, h: 300 });
       add("Text", `MEINE BELEGE (${rows.length + (options.incomplete ? 1 : 0)})`, "receipt" + policy.list.countLabelAutomationIdSuffixes[0]);
       add("Edit", "", "receipt" + policy.list.searchAutomationIdSuffix, { val: "" });
+      for (let column = 0; column < 9; column++) add("Header", column === 6 ? "Geändert" : "",
+        "receipt" + policy.list.tableAutomationIdSuffix, { x: column * 80, y: 100 });
       rows.forEach((row, rowIndex) => {
         for (let column = 0; column < 9; column++) {
           const title = options.contentDrift && edited && rowIndex === 1 ? "Foreign receipt" : row.title;
-          add("DataItem", column === 2 ? title + (options.draft ? "*" : "") : column === 8 ? row.document : "",
+          const timestamp = (options.modifiedAfterEdit && edited && rowIndex === 0)
+            || (options.otherModifiedAfterEdit && edited && rowIndex === 1)
+            || (options.modifiedBeforeEdit && listReads >= 2 && rowIndex === 0)
+            ? options.invalidModified ? "unreadable" : options.backwardModified ? "2024-12-31T00:00:00.000Z"
+              : options.invalidCalendarModified ? "2025-02-30T00:00:00.000Z" : "2025-01-02T00:00:00.000Z"
+            : "2025-01-01T00:00:00.000Z";
+          add("DataItem", column === 2 ? title + (options.draft ? "*" : "") : column === 8 ? row.document
+            : column === 6 ? timestamp : column === 5 ? options.createdAfterEdit && edited ? "Foreign creation" : "Fixed creation" : "",
             "receipt" + policy.list.tableAutomationIdSuffix, { x: column * 80, y: 140 + rowIndex * 30,
               checked: column === link.rowToggleColumn ? staged[rowIndex] : null });
         }
@@ -129,6 +138,7 @@ function fixture(options = {}) {
       if (operation === "window_inventory") return { durationMs: 1, result: inventory() };
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === policy.title, dialog = args.toolTitle === policy.linkValueTransferDialog.title;
+      if (tool && state === "list") listReads++;
       if (tool && options.recreated && edited) managerHwnd += 1;
       const hwnd = tool ? managerHwnd : dialog ? 120 : 42;
       assert(hwnd !== null, "The transaction must not read a closed owned manager");
@@ -193,7 +203,7 @@ for (const options of [{}, { footerLag: true }, { rows: [
   { title: "Synthetic receipt", document: "DOC-1", linked: false },
   { title: "Duplicate other", document: "OTHER-1", linked: false },
   { title: "Duplicate other", document: "OTHER-1", linked: true },
-] }, { transfer: "known" }]) {
+] }, { transfer: "known" }, { modifiedAfterEdit: true }]) {
   const test = fixture(options), before = [...test.persisted];
   const result = await test.run();
   assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.verified, true);
@@ -206,6 +216,16 @@ for (const options of [{}, { footerLag: true }, { rows: [
   assert.equal(test.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 1);
   assert.equal(test.actions.filter(action => action.aid.endsWith(link.cancelAutomationIdSuffix)).length, 1);
   if (options.transfer) assert.equal(result.applyClick.valueTransferCancelled, true);
+}
+
+for (const options of [{ otherModifiedAfterEdit: true }, { modifiedBeforeEdit: true },
+  { modifiedAfterEdit: true, createdAfterEdit: true }, { modifiedAfterEdit: true, invalidModified: true },
+  { modifiedAfterEdit: true, backwardModified: true }, { modifiedAfterEdit: true, invalidCalendarModified: true }]) {
+  const test = fixture(options), result = await test.run();
+  assert.equal(result.ok, false, JSON.stringify(options));
+  assert.equal(test.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 0);
+  assert.deepEqual(test.persisted, [false, true]);
+  if (options.modifiedBeforeEdit) assert.equal(test.actions.filter(action => action.action === "set-table-check-state").length, 0);
 }
 
 const noOp = fixture();
@@ -234,6 +254,11 @@ assert.equal((await batch.run({ items: [
   { expectedReceiptTitle: "Synthetic receipt", linked: true }, { expectedReceiptTitle: "Other receipt", linked: false },
 ] })).ok, true);
 assert.deepEqual(batch.persisted, [true, false]);
+const timestampBatch = fixture({ modifiedAfterEdit: true });
+assert.equal((await timestampBatch.run({ items: [
+  { expectedReceiptTitle: "Synthetic receipt", linked: true }, { expectedReceiptTitle: "Other receipt", linked: false },
+] })).ok, true, "An adopted own timestamp must stay bound through subsequent batch steps and reopen");
+assert.deepEqual(timestampBatch.persisted, [true, false]);
 assert.equal(batch.actions.filter(action => action.action === "set-table-check-state").length, 2);
 assert.equal(batch.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 1);
 

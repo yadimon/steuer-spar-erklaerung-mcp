@@ -46,7 +46,7 @@ export async function executeQtNativeReceiptManagerAction(
     }
     return value;
   };
-  const before = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
+  const before = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal, false);
   if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) {
     return fail("window-obstructed", "The receipt manager is unavailable or obstructed.");
   }
@@ -117,7 +117,7 @@ export async function executeQtNativeReceiptManagerAction(
         );
       }
       await delay(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
-      after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
+      after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal, false);
       stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
       if (!stateAfter.error && stateAfter.state === action.toState) break;
     } while (performance.now() < postconditionDeadline && remaining() > 0);

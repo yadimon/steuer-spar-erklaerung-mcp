@@ -53,6 +53,33 @@ export function linkListIdentity(list: ReceiptListProjection, policy: ReceiptLin
   return receiptFingerprint({ count: list.count, rows: list.rows.map(row => linkRowIdentity(row, policy)).sort() });
 }
 
+/** Only an acknowledged own checkbox commit may advance its row's modified
+ * timestamp. Every other logical cell and every other row stays exactly bound. */
+export function linkTimestampTransition(before: LinkMode, after: LinkMode, item: LinkItem, policy: ReceiptLinkPolicy) {
+  const column = 6;
+  if (before.snapshot.hwnd !== after.snapshot.hwnd
+    || before.snapshot.tableProof?.headers[column] !== "Geändert"
+    || after.snapshot.tableProof?.headers[column] !== "Geändert") return null;
+  const previous = resolveLinkRow(before, item), next = resolveLinkRow(after, item);
+  if (previous.rowRid !== next.rowRid || previous.cells.length !== next.cells.length) return null;
+  const oldValue = previous.cells[column]?.name, newValue = next.cells[column]?.name;
+  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+  if (!oldValue || !newValue || oldValue === newValue || !iso.test(oldValue) || !iso.test(newValue)
+    || !Number.isFinite(Date.parse(oldValue)) || !Number.isFinite(Date.parse(newValue))
+    || new Date(oldValue).toISOString() !== oldValue || new Date(newValue).toISOString() !== newValue
+    || Date.parse(newValue) < Date.parse(oldValue)) return null;
+  const restored = { ...next, cells: next.cells.map((cell, index) => index === column ? { ...cell, name: oldValue } : cell) };
+  const normalized = { ...after.list, rows: after.list.rows.map(row => row === next ? restored : row) };
+  if (linkListIdentity(normalized, policy) !== linkListIdentity(before.list, policy)) return null;
+  const oldKey = linkRowIdentity(previous, policy), newKey = linkRowIdentity(next, policy);
+  const rekey = (states: Map<string, boolean[]>) => {
+    if (states.get(oldKey)?.length !== 1 || states.has(newKey)) return null;
+    const renamed = new Map(states); renamed.delete(oldKey); renamed.set(newKey, [...states.get(oldKey)!]);
+    return renamed;
+  };
+  return { identity: linkListIdentity(after.list, policy), rekey };
+}
+
 export function resolveLinkRow(mode: LinkMode, item: LinkItem): ReceiptRow {
   const matches = mode.list.rows.filter(row => row.primaryText === item.expectedReceiptTitle
     && (item.expectedDocumentNumber === undefined || row.documentNumber === item.expectedDocumentNumber)
