@@ -72,6 +72,10 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   Ein offenes Qt-Popup wird bei der Auswahl nicht erneut aktiviert. Seine
   Prozess-, Klassen-, Inventar- und Punktbindung sowie das bereits aktive
   Hauptfenster bleiben Pflicht; die Beobachtungsbindung erhält den Cursor-Rückweg.
+  Eine begrenzte Hover-Vorbereitung bleibt im selben Eintrag und verhindert
+  den verlorenen Klick bei veraltetem Qt-Cursor-Cache. Sie behält die
+  ursprüngliche Eingabemarke und sendet selbst keine Maustaste. Die
+  isolierten Helferprüfungen ersetzen die gesonderte reale Abnahme nicht.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.

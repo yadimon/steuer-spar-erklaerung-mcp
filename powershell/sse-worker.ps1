@@ -3866,6 +3866,98 @@ function Test-SSEWizardNavigationFrameBeforeClick([IntPtr]$Window, $Binding, [in
   }
 }
 
+function Get-SSEMenuHoverPoints($Node, [int]$Dpi) {
+  if ($Dpi -lt 96 -or $Dpi -gt 768) { throw 'Menue-DPI nicht sicher lesbar.' }
+  foreach ($key in @('x','y','w','h')) {
+    $value = [double]$Node.$key
+    if ([double]::IsNaN($value) -or [double]::IsInfinity($value) -or
+        $null -eq $Node.$key -or $value -ne [Math]::Truncate($value) -or
+        $value -lt [int]::MinValue -or $value -gt [int]::MaxValue) { throw 'Menue-Rechteck ist ungueltig.' }
+  }
+  $cx = [long][Math]::Round([double]$Node.x + [double]$Node.w / 2)
+  $cy = [long][Math]::Round([double]$Node.y + [double]$Node.h / 2)
+  $step = [int][Math]::Ceiling(2.0 * $Dpi / 96)
+  # Zehn verschiedene Punkte: auch nach einem Enter-only-Move und einem
+  # im Qt-Cache verworfenen Move bleiben acht Bewegungen (>6 ab -1).
+  # Alle bleiben im selben Eintrag; der letzte ist der bisherige Klickpunkt.
+  foreach ($offset in @(-5,4,-4,3,-3,2,-2,1,-1,0)) {
+    $x = $cx + $offset * $step
+    if ($x -le [long]$Node.x -or $x -ge ([long]$Node.x + [long]$Node.w - 1) -or
+        $cy -le [long]$Node.y -or $cy -ge ([long]$Node.y + [long]$Node.h - 1) -or
+        $x -lt [int]::MinValue -or $x -gt [int]::MaxValue -or
+        $cy -lt [int]::MinValue -or $cy -gt [int]::MaxValue) { throw 'Menue-Eintrag bietet keine sichere Hover-Flaeche.' }
+    [pscustomobject]@{x=[int]$x;y=[int]$cy}
+  }
+}
+
+function Initialize-SSEMenuHover([IntPtr]$Window, $Node, $ExpectedInputTick, [IntPtr]$ForegroundWindow,
+  [string]$ExpectedRuntimeId, [scriptblock]$BeforeClickCheck, $Binding, [scriptblock]$OnFailure) {
+  try { $points = @(Get-SSEMenuHoverPoints $Node ([int][SW]::GetDpiForWindow($Window))) }
+  catch { & $OnFailure $_.Exception.Message 'precondition-failed'; return }
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $checkPoint = {
+    param($Point)
+    if ($watch.ElapsedMilliseconds -ge 2500 -or -not (Test-SSELastInputUnchanged $ExpectedInputTick) -or
+        [SW]::GetForegroundWindow() -ne $ForegroundWindow) {
+      & $OnFailure 'Menue-Hover hat Frist oder Eingabebindung verloren. NICHT geklickt.' 'interference'
+    }
+    foreach ($key in @(1,2,4,5,6,16,17,18)) {
+      if ([SW]::GetAsyncKeyState($key) -lt 0) { & $OnFailure 'Gedrueckte Taste oder Maustaste verhindert Menue-Hover. NICHT geklickt.' 'interference' }
+    }
+    try { $bound = & $BeforeClickCheck $Window $Binding $Point.x $Point.y }
+    catch { & $OnFailure 'Menue-Bindung waehrend Hover nicht lesbar. NICHT geklickt.' 'stale' }
+    if (-not $bound -or -not (Get-SSEPointObstruction $Window $Point.x $Point.y).isBoundTarget) {
+      & $OnFailure 'Menue-Popup waehrend Hover nicht mehr gebunden. NICHT geklickt.' 'stale'
+    }
+    $element = $null
+    try { $element = $script:AE::FromPoint((New-Object Windows.Point($Point.x,$Point.y))) } catch { }
+    $hit = $false
+    for ($level = 0; $level -lt 8 -and $element; $level++) {
+      if ($(try { $element.GetRuntimeId() -join '.' } catch { '' }) -ceq $ExpectedRuntimeId) { $hit = $true; break }
+      try { $element = $WLK.GetParent($element) } catch { $element = $null }
+    }
+    if (-not $hit) { & $OnFailure 'Hover-Punkt gehoert nicht mehr zum gebundenen Menueeintrag. NICHT geklickt.' 'stale' }
+    if ($watch.ElapsedMilliseconds -ge 2500 -or -not (Test-SSELastInputUnchanged $ExpectedInputTick) -or
+        [SW]::GetForegroundWindow() -ne $ForegroundWindow) {
+      & $OnFailure 'Frist oder Eingabebindung nach Hover-Punktpruefung verloren. NICHT geklickt.' 'interference'
+    }
+  }
+  foreach ($point in $points) {
+    & $checkPoint $point
+    Set-SSECursorPoint $point.x $point.y -OnFailure $OnFailure
+    # SetCursorPos/WM_MOUSEMOVE erzeugen keine eigene Hardware-Epoche.
+    # Fuer den Cursor-Rueckweg nur die urspruengliche Epoche behalten.
+    Set-SSEForegroundLeaseInputCheckpoint $ExpectedInputTick $point -Context 'menu-hover'
+    & $checkPoint $point
+    $thread = [SW]::GetCurrentThreadId()
+    $previous = [SW]::EnterPhysicalDpiContext()
+    if ($previous -eq [IntPtr]::Zero) { & $OnFailure 'Physischer Menue-DPI-Kontext nicht verfuegbar. NICHT geklickt.' 'precondition-failed' }
+    try {
+      $client = New-Object SW+PT; $client.X=$point.x; $client.Y=$point.y
+      if (-not [SW]::ScreenToClient($Window,[ref]$client) -or
+          $client.X -lt -32768 -or $client.X -gt 32767 -or $client.Y -lt -32768 -or $client.Y -gt 32767) {
+        & $OnFailure 'Menue-Hover-Koordinaten nicht darstellbar. NICHT geklickt.' 'precondition-failed'
+      }
+      $packed = ([long]($client.X -band 65535)) -bor ([long]($client.Y -band 65535) -shl 16)
+      $result = [IntPtr]::Zero
+      if ([SW]::SendMessageTimeout($Window,0x0200,[IntPtr]::Zero,[IntPtr]$packed,2,100,[ref]$result) -eq [IntPtr]::Zero) {
+        & $OnFailure 'Menue-Hover nicht fristgerecht bestaetigt. NICHT geklickt.' 'precondition-failed'
+      }
+    } finally {
+      if ([SW]::GetCurrentThreadId() -ne $thread -or -not [SW]::RestoreDpiContext($previous)) {
+        Exit-SSEForegroundLease -Hwnd $ForegroundWindow -Force -PreserveForeground -Reason 'menu-dpi-context-unconfirmed'
+        $failure = [InvalidOperationException]::new('DPI-Rueckweg nach Menue-Hover nicht bestaetigt. NICHT geklickt.')
+        $failure.Data['kind']='precondition-failed'; $failure.Data['inputDispatched']=$false
+        $failure.Data['reconciliationRequired']=$true
+        throw $failure
+      }
+    }
+    & $checkPoint $point
+    Assert-SSECursorPoint $point.x $point.y -OnFailure $OnFailure
+  }
+  return $watch
+}
+
 function Click-VerifiedPoint(
   [IntPtr]$Window,
   $Node,
@@ -4030,8 +4122,13 @@ function Click-VerifiedPoint(
   }
   $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
   $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$foregroundTarget)
-  Set-SSECursorPoint $px $py -OnFailure $cursorFailure
-  Start-Sleep -Milliseconds 100
+  if ($popupMode) {
+    $menuHoverWatch = Initialize-SSEMenuHover $Window $Node $ExpectedInputTick $foregroundTarget $ExpectedRuntimeId `
+      $BeforeClickCheck $BeforeClickBinding $pointFailure
+  } else {
+    Set-SSECursorPoint $px $py -OnFailure $cursorFailure
+    Start-Sleep -Milliseconds 100
+  }
   if ($ExpectedRuntimeId) {
     $pointElement = $null
     try { $pointElement = $script:AE::FromPoint((New-Object Windows.Point($px,$py))) } catch { }
@@ -4074,6 +4171,9 @@ function Click-VerifiedPoint(
   if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
       ($RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget)) {
     & $pointFailure 'Eingabe-Epoche oder Vordergrund nach der letzten Cursorpruefung geaendert. NICHT geklickt.' 'interference'
+  }
+  if ($popupMode -and $menuHoverWatch.ElapsedMilliseconds -ge 2500) {
+    & $pointFailure 'Menue-Hover-Frist nach der letzten Zielpruefung abgelaufen. NICHT geklickt.' 'precondition-failed'
   }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
     $clickDispatched = $true

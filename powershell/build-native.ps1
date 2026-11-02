@@ -97,7 +97,7 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
     SW=@('PrintWindow','GetWindowRect','GetDlgItem','EnumWindows','EnumChildWindows','GetDlgCtrlID',
       'GetWindowThreadProcessId','GetWindowTextW','GetClassNameW','IsWindowVisible','IsWindowEnabled','GetWindow','GetWindowPlacement',
       'IsWindow','IsWindowUnicode','IsHungAppWindow',
-      'SetForegroundWindow','SendMessageTimeout','SendMessageTimeoutA','SendMessageTimeoutW','SetCursorPos','GetCursorPos','mouse_event','keybd_event',
+      'SetForegroundWindow','SendMessageTimeout','SendMessageTimeoutA','SendMessageTimeoutW','SetCursorPos','GetCursorPos','GetAsyncKeyState','mouse_event','keybd_event',
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','GetDpiForWindow','GetPhysicalClientOrigin','GetMonitorWorkArea','PostMessage',
       'SendMessage','GetForegroundWindow','GetDoubleClickTime','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText','EnterPhysicalDpiContext','RestoreDpiContext')

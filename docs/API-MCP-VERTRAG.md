@@ -1228,6 +1228,16 @@ weder Popup noch Hauptfenster erneut. Derselbe Prozess, die bekannte
 Popup-Klasse, das vollständige Menüinventar und der tatsächliche Punktnachweis
 sind Pflicht. Die nur beobachtende Vordergrundbindung behält den geschützten
 Cursor-Rückweg; ein Fokus- oder Eingabewechsel erlaubt keinen Klick.
+Vor dem einzigen Klick bereitet der Helfer denselben Menüeintrag mit zehn
+verschiedenen Hover-Punkten innerhalb seiner Fläche vor und endet am
+ursprünglichen Klickpunkt. Damit kann Qt einen Klick auch dann erkennen,
+wenn sein Cursor-Cache noch die Position des vorherigen Menüklicks enthält.
+Jeder Punkt benötigt dieselbe Runtime-ID, Popup- und Eingabebindung; gedrückte
+Maus- oder Modifikatortasten, eine unbestätigte Nachricht oder ein verlorener
+DPI-Rückweg brechen vor dem Klick ab. Die Vorbereitung hat eine eigene
+monotone Frist, sendet keine Maustaste und übernimmt keine neue Eingabemarke.
+Die Frist verhindert einen verspäteten Klick, kann aber einen synchron
+blockierenden UIA-Read nicht vorzeitig unterbrechen.
 Beim katalogisierten
 BelegManager bestätigt erst genau ein Fenster mit passender Prozesskennung,
 Klasse und Titel den Erfolg innerhalb von `waitMs`; es darf weder minimiert

@@ -10,6 +10,11 @@ foreach($name in @('Click-VerifiedPoint','Enter-SSEForegroundLease','Exit-SSEFor
  if($found.Count -ne 1){throw ('Actual menu point helper is ambiguous: '+$name)}
  . ([scriptblock]::Create($found[0].Extent.Text))
 }
+foreach($name in @('Get-SSEMenuHoverPoints','Initialize-SSEMenuHover')){
+ $found=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
+ if($found.Count -ne 1){throw ('Actual menu hover helper is ambiguous: '+$name)}
+ . ([scriptblock]::Create($found[0].Extent.Text))
+}
 $leaseInit=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$script:SSE_FOREGROUND_LEASE'},$true))
 if($leaseInit.Count -ne 1){throw 'Actual foreground lease initializer is ambiguous.'}
 $initializeLease=[scriptblock]::Create($leaseInit[0].Extent.Text)
@@ -23,13 +28,28 @@ public static class SW {
  public static uint Tick=37,PopupPid=55;
  public static bool PopupAlive=true,MainAlive=true,CorrectPoint=true,RedirectRoot;
  public static Action OnCursorRead,OnMouseUp,OnPointRead;
+ public static Action OnHoverMessage,OnCursorMove;
+ public static int HoverMessages,CursorMoves,DpiRestores,HeldKey,FinalPointReads;
+ public static bool MessageTimeout,ClientConversionFailure,DpiRestoreFailure,DpiEnterFailure;
+ public static uint GetDpiForWindow(IntPtr h){return 96;}
+ public static short GetAsyncKeyState(int key){return (short)(key==HeldKey?-32768:0);}
+ public static uint GetCurrentThreadId(){return 1;}
+ public static IntPtr EnterPhysicalDpiContext(){return new IntPtr(DpiEnterFailure?0:12);}
+ public static bool RestoreDpiContext(IntPtr previous){DpiRestores++;return previous.ToInt64()==12&&!DpiRestoreFailure;}
+ public static bool ScreenToClient(IntPtr h,ref PT p){return !ClientConversionFailure;}
+ public static IntPtr SendMessageTimeout(IntPtr h,uint message,IntPtr w,IntPtr l,uint flags,uint timeout,out IntPtr result){
+  if(h.ToInt64()!=202||message!=0x0200||w!=IntPtr.Zero||flags!=2||timeout!=100)throw new Exception("Unexpected hover message");
+  int packed=unchecked((int)l.ToInt64());
+  if((short)(packed&65535)!=CursorX||(short)(packed>>16)!=CursorY)throw new Exception("Hover message disagrees with actual cursor");
+  HoverMessages++;result=IntPtr.Zero;if(OnHoverMessage!=null)OnHoverMessage();return new IntPtr(MessageTimeout?0:1);
+ }
  public static IntPtr GetForegroundWindow(){return new IntPtr(Foreground);}
  public static bool IsWindow(IntPtr h){return h.ToInt64()==101?MainAlive:h.ToInt64()==202&&PopupAlive;}
  public static uint GetWindowThreadProcessId(IntPtr h,out int pid){pid=IsWindow(h)?(h.ToInt64()==101?55:(int)PopupPid):0;return pid==0?0u:1u;}
  public static IntPtr GetAncestor(IntPtr h,int kind){return RedirectRoot&&h.ToInt64()==202?new IntPtr(101):h;}
  public static IntPtr GetWindow(IntPtr h,int kind){return IntPtr.Zero;}
  public static bool GetCursorPos(ref PT p){p.X=CursorX;p.Y=CursorY;if(OnCursorRead!=null)OnCursorRead();return true;}
- public static bool SetCursorPos(int x,int y){CursorX=x;CursorY=y;return true;}
+ public static bool SetCursorPos(int x,int y){CursorMoves++;CursorX=x;CursorY=y;if(OnCursorMove!=null)OnCursorMove();return true;}
  public static bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int w,int height,int flags){WindowPosCalls++;return true;}
  public static void mouse_event(int flags,int x,int y,int data,IntPtr extra){MouseCalls++;if(flags==4){Tick++;PopupAlive=false;if(OnMouseUp!=null)OnMouseUp();}}
 }
@@ -56,6 +76,9 @@ function Reset-MenuPoint {
  [SW]::Foreground=101;[SW]::CursorX=7;[SW]::CursorY=9;[SW]::MouseCalls=0;[SW]::WindowPosCalls=0
  [SW]::Tick=37;[SW]::PopupPid=55;[SW]::PopupAlive=$true;[SW]::MainAlive=$true;[SW]::CorrectPoint=$true;[SW]::RedirectRoot=$false
  [SW]::OnCursorRead=$null;[SW]::OnMouseUp=$null;[SW]::OnPointRead=$null
+ [SW]::OnHoverMessage=$null;[SW]::OnCursorMove=$null;[SW]::HoverMessages=0;[SW]::CursorMoves=0;[SW]::DpiRestores=0;[SW]::HeldKey=0
+ [SW]::MessageTimeout=$false;[SW]::ClientConversionFailure=$false;[SW]::DpiRestoreFailure=$false;[SW]::DpiEnterFailure=$false
+ [SW]::FinalPointReads=0
  $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadowSaveBits'
  $script:listedPopup=$true;$script:unobstructed=$true
  $script:foreignAfterInput=$false
@@ -74,11 +97,65 @@ function Assert-NoMenuActivation {
 Reset-MenuPoint
 $point=Invoke-MenuPoint
 Check-MenuPoint ([SW]::MouseCalls -eq 2 -and $point.foregroundHwndBeforeClick -eq 101 -and $point.foregroundBoundBeforeClick) 'An ownerless same-process popup was not clicked exactly once under its bound main foreground.'
+Check-MenuPoint ([SW]::HoverMessages -eq 10 -and [SW]::DpiRestores -eq 10 -and [SW]::CursorMoves -eq 10) 'The exact menu item was not prepared with ten bounded no-button moves before the single click.'
 Assert-NoMenuActivation
 Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.depth -eq 0 -and $null -ne $script:SSE_FOREGROUND_LEASE.watch -and $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 38) 'The click lost its original observational lease or its own input checkpoint.'
 Exit-SSEForegroundLease -Force -Reason 'emit'
 Check-MenuPoint ([SW]::CursorX -eq 7 -and [SW]::CursorY -eq 9 -and $script:SSE_FOREGROUND_LEASE.cursorRestored) 'The already-foreground popup path did not restore the original cursor after its own input.'
 Assert-NoMenuActivation
+
+foreach($dpi in @(96,120,144,192,288,768)){
+ $wide=[pscustomobject]@{x=-5000;y=-300;w=500;h=40}
+ $plan=@(Get-SSEMenuHoverPoints $wide $dpi)
+ Check-MenuPoint ($plan.Count -eq 10 -and @($plan|ForEach-Object{$_.x}|Select-Object -Unique).Count -eq 10) 'Hover plan lost its ten distinct points.'
+ Check-MenuPoint ($plan[9].x -eq -4750 -and $plan[9].y -eq -280 -and
+  @($plan|Where-Object{$_.x -le -5000 -or $_.x -ge -4501 -or $_.y -ne -280}).Count -eq 0) 'Hover crossed an item boundary or changed its final click point.'
+}
+foreach($bad in @(
+ @{node=[pscustomobject]@{x=0;y=0;w=20;h=20};dpi=96},
+ @{node=[pscustomobject]@{x=0;y=0;w=100;h=2};dpi=96},
+ @{node=[pscustomobject]@{x=0;y=0;w=100;h=20};dpi=0},
+ @{node=[pscustomobject]@{x=0;y=0;w=100;h=20};dpi=769},
+ @{node=[pscustomobject]@{x=0.5;y=0;w=100;h=20};dpi=96},
+ @{node=[pscustomobject]@{x=[int]::MaxValue;y=0;w=100;h=20};dpi=96},
+ @{node=[pscustomobject]@{x=0;y=0;w=100};dpi=96}
+)){
+ $caught=$null;try{Get-SSEMenuHoverPoints $bad.node $bad.dpi|Out-Null}catch{$caught=$_}
+ Check-MenuPoint ($null -ne $caught) 'An unprovable menu hover geometry was accepted.'
+}
+foreach($case in @(
+ @{name='held-mouse';setup={[SW]::HeldKey=1}},
+ @{name='held-modifier';setup={[SW]::HeldKey=17}},
+ @{name='message-timeout';setup={[SW]::MessageTimeout=$true}},
+ @{name='hover-deadline';setup={[SW]::OnHoverMessage={[Threading.Thread]::Sleep(2550)}}},
+ @{name='late-final-proof';messages=10;setup={[SW]::OnPointRead={if([SW]::HoverMessages -eq 10){[Threading.Thread]::Sleep(2550)}}}},
+ @{name='late-dispatch-proof';messages=10;setup={[SW]::OnPointRead={if([SW]::HoverMessages -eq 10){[SW]::FinalPointReads++;if([SW]::FinalPointReads -eq 2){[Threading.Thread]::Sleep(2550)}}}}},
+ @{name='conversion';setup={[SW]::ClientConversionFailure=$true}},
+ @{name='dpi-enter';setup={[SW]::DpiEnterFailure=$true}},
+ @{name='dpi-restore';setup={[SW]::DpiRestoreFailure=$true}},
+ @{name='input-after-hover';setup={[SW]::OnHoverMessage={[SW]::Tick=38}}},
+ @{name='foreground-after-hover';setup={[SW]::OnHoverMessage={[SW]::Foreground=999}}},
+ @{name='popup-after-hover';setup={[SW]::OnHoverMessage={[SW]::PopupPid=56}}},
+ @{name='rid-after-hover';setup={[SW]::OnHoverMessage={[SW]::CorrectPoint=$false}}},
+ @{name='rid-before-first-message';setup={[SW]::OnCursorMove={if([SW]::CursorMoves -eq 1){[SW]::CorrectPoint=$false}}}},
+ @{name='obstruction-before-first-message';setup={[SW]::OnCursorMove={if([SW]::CursorMoves -eq 1){$script:unobstructed=$false}}}},
+ @{name='obstruction-after-hover';setup={[SW]::OnHoverMessage={$script:unobstructed=$false}}}
+)){
+ Reset-MenuPoint;& $case.setup;$caught=$null
+ try{Invoke-MenuPoint|Out-Null}catch{$caught=$_}
+ Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and
+  [SW]::MouseCalls -eq 0 -and [SW]::HoverMessages -le $(if($case.messages){$case.messages}else{1})) ('Hover failure dispatched or replayed a click: '+$case.name)
+ Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+ if($case.name -ceq 'input-after-hover'){
+  Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 37 -and -not $script:SSE_FOREGROUND_LEASE.cursorRestored) 'Hover adopted foreign input or restored a cursor over it.'
+ }
+ if($case.name -ceq 'message-timeout'){
+  Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.cursorRestored -and [SW]::DpiRestores -eq 1) 'A pre-click message timeout lost the proven cursor or DPI return path.'
+ }
+ if($case.name -in @('rid-before-first-message','obstruction-before-first-message')){
+  Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.cursorRestored -and [SW]::CursorX -eq 7 -and [SW]::CursorY -eq 9 -and [SW]::HoverMessages -eq 0) 'A post-move target refusal stranded the cursor before the first hover message.'
+ }
+}
 
 foreach($case in @(
  @{name='foreign-foreground';setup={[SW]::Foreground=999}},
