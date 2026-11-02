@@ -19,6 +19,13 @@ $clause = @($ast.FindAll({ param($node) $node -is [Management.Automation.Languag
   ForEach-Object { $_.Clauses } | Where-Object { $_.Item1.Extent.Text -ceq "'save'" })
 if ($clause.Count -ne 1) { throw 'Der echte save-Dispatcher fehlt oder ist mehrdeutig.' }
 $saveBody = [scriptblock]::Create((@($clause[0].Item2.Statements | ForEach-Object { $_.Extent.Text }) -join "`n"))
+$warningEmission = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Extent.Text.StartsWith('if ($script:SSE_TRANSMITTED_CASE_WARNING) {')
+}, $true))
+if ($warningEmission.Count -ne 1) { throw 'Der echte Warnungs-Emitter fehlt oder ist mehrdeutig.' }
+$script:TransmissionWarningEmit = [scriptblock]::Create($warningEmission[0].Extent.Text)
 $script:Scenarios = 0
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Arg($Object, [string]$Name, $Default = $null) {
@@ -29,6 +36,17 @@ function Fail([string]$Message, [string]$Kind) {
   $error = [InvalidOperationException]::new($Message); $error.Data['kind'] = $Kind; throw $error
 }
 function Emit($Result) {
+  $obj = $Result
+  $previousError = [Console]::Error
+  $warningLog = New-Object IO.StringWriter
+  try {
+    [Console]::SetError($warningLog)
+    & $script:TransmissionWarningEmit
+  } finally {
+    [Console]::SetError($previousError)
+    $script:LastWarningOutput = $warningLog.ToString()
+    $warningLog.Dispose()
+  }
   $error = [InvalidOperationException]::new('synthetic-result'); $error.Data['result'] = $Result; throw $error
 }
 function Test-Path { param([string]$LiteralPath, [string]$PathType) $true }
@@ -39,8 +57,8 @@ function Get-Sha256 { param([string]$Path) $(if ($script:Invokes) { 'B' * 64 } e
 function Get-Item { param([string]$LiteralPath) [pscustomobject]@{ LastWriteTimeUtc=[datetime]'2025-01-01T00:00:00Z' } }
 function Get-CaseSummary {
   param([string]$Path)
-  [pscustomobject]@{ transmitted=$false; header=[pscustomobject]@{
-    FileType='GewErfass'; VJahr='2026'; Steuernummer=''; ElsterTransferTime=''; MitElsterVersendetText=''; FileSavedBy='31'
+  [pscustomobject]@{ transmitted=$script:CaseTransmitted; transmittedReason=$script:TransmissionReason; header=[pscustomobject]@{
+    FileType='GewErfass'; VJahr='2026'; Steuernummer=''; ElsterTransferTime=$script:TransferTime; MitElsterVersendetText=''; FileSavedBy='31'
   } }
 }
 function Walk-Tree {
@@ -59,6 +77,9 @@ function New-SaveNode([string]$Name = '', $Enabled = $true, [string]$Aid = 'App.
   [pscustomobject]@{ type=$Type; name=$Name; aid=$Aid; rid='42.1.2'; on=$Enabled }
 }
 function Reset-Case {
+  $script:CaseTransmitted = $false; $script:TransmissionReason = ''; $script:TransferTime = ''
+  $script:SSE_TRANSMITTED_CASE_WARNING = $null
+  $script:LastWarningOutput = ''
   $script:Invokes = 0; $script:LiveBindings = New-Object System.Collections.ArrayList
   $script:BeforeNodes = @(New-SaveNode)
   $script:AfterNodes = @(New-SaveNode '' $false)
@@ -74,9 +95,10 @@ function Reset-Case {
     $invoke
   }
 }
-function Invoke-SaveCase {
+function Invoke-SaveCase($Correction = $null) {
   $script:Scenarios++
   $a = @{ expectedPath=(Join-Path $root 'synthetic.GewErfass2026'); expectedHashBefore=('A' * 64) }
+  if ($null -ne $Correction) { $a.correction = $Correction }
   try { & $saveBody; throw 'save gab kein Ergebnis zurueck.' }
   catch {
     if ($_.Exception.Data.Contains('result')) { return $_.Exception.Data['result'] }
@@ -98,6 +120,47 @@ foreach ($name in @('', 'Sichern', 'Speichern')) {
   Assert-True ($script:LiveBindings.Count -eq 1 -and $script:LiveBindings[0].hwnd -eq 4242 -and
     $script:LiveBindings[0].rid -ceq '42.1.2' -and $script:LiveBindings[0].aid -ceq 'App.MainToolBar.tb_sichern') 'Der Live-Schalter verlor seine exakte Fenster-/AID-/RuntimeId-Bindung.'
 }
+Reset-Case
+$script:CaseTransmitted = $true
+$script:TransferTime = '12.01.2026 10:30:00'
+$script:TransmissionReason = 'Synthetic earlier-period transmission'
+$result = Invoke-SaveCase
+Assert-True ($result.ok -eq $true -and $result.saved -eq $true -and $result.verified -eq $true -and $script:Invokes -eq 1) 'Ein frueherer Uebermittlungsvermerk sperrte das regulaere Speichern im gebundenen Original.'
+Assert-True ($null -eq $result.correction) 'Normales Speichern verlangte einen separaten Korrekturstand.'
+Assert-True ($result.transmittedCaseWarning.kind -ceq 'transmitted-case' -and
+  $result.transmittedCaseWarning.reason -ceq $script:TransmissionReason -and
+  $result.transmittedCaseWarning.hinweis.Contains('keine Schreibsperre fuer das Original')) 'Die Uebermittlungswarnung fehlt im Ergebnis oder behauptet erneut eine pauschale Originalsperre.'
+Assert-True ($script:LastWarningOutput.Contains('Fall mit Uebermittlungsvermerk gespeichert.')) 'Der verifizierte Original-Save fehlt in der Diagnose.'
+
+Reset-Case; $script:CaseTransmitted = $true; $script:TransferTime = '12.01.2026 10:30:00'
+$script:BeforeNodes = @(New-SaveNode '' $false); $script:LiveElement.Current.IsEnabled = $false
+$result = Invoke-SaveCase
+Assert-True ($result.ok -eq $true -and $result.noChanges -eq $true -and $result.saved -eq $false -and $script:Invokes -eq 0 -and
+  $result.transmittedCaseWarning.kind -ceq 'transmitted-case') 'Der unveraenderte uebermittelte Fall verlor No-op oder Warnung.'
+Assert-True ($script:LastWarningOutput.Contains('kein Speicherversuch') -and -not $script:LastWarningOutput.Contains('gespeichert.')) 'Die No-op-Diagnose behauptet einen Speichervorgang.'
+
+Reset-Case; $script:CaseTransmitted = $true; $script:TransferTime = '12.01.2026 10:30:00'
+$script:AfterNodes = @()
+$result = Invoke-SaveCase
+Assert-True ($result.ok -eq $false -and $result.kind -ceq 'postcondition-failed' -and $script:Invokes -eq 1 -and
+  $result.transmittedCaseWarning.kind -ceq 'transmitted-case') 'Ein unbestaetigter Original-Save verlor seinen Fehler oder wurde wiederholt.'
+Assert-True ($script:LastWarningOutput.Contains('nicht bestaetigt') -and -not $script:LastWarningOutput.Contains('gespeichert.')) 'Die Fehlerdiagnose behauptet einen erfolgreichen Save.'
+
+Reset-Case; $script:CaseTransmitted = 'unknown'; $script:TransmissionReason = 'Synthetic unknown transmission state'
+$result = Invoke-SaveCase
+Assert-True ($result.ok -eq $true -and $result.saved -eq $true -and $script:Invokes -eq 1 -and
+  $result.transmittedCaseWarning.reason -ceq $script:TransmissionReason) 'Unbekannter Uebermittlungsstatus muss den gebundenen Save mit Warnung erhalten.'
+
+$correction = @{ acknowledged=$true; period='2026-02'; reason='Synthetic correction';
+  sourcePath=(Join-Path $root 'source.GewErfass2026'); backupPath=(Join-Path $root 'backup.GewErfass2026');
+  expectedSourceHash=('A' * 64); expectedBackupHash=('A' * 64) }
+Reset-Case
+$result = Invoke-SaveCase $correction
+Assert-True ($result.ok -eq $false -and $result.kind -ceq 'bad-args' -and $script:Invokes -eq 0) 'correction darf beim nicht uebermittelten Fall keinen Save ausloesen.'
+Reset-Case; $script:CaseTransmitted = $true; $script:TransferTime = '12.01.2026 10:30:00'
+$result = Invoke-SaveCase $correction
+Assert-True ($result.ok -eq $false -and $result.kind -ceq 'precondition-failed' -and $script:Invokes -eq 0) 'Der optionale Korrekturvertrag verlor seine getrennte Zielbindung.'
+
 Reset-Case
 $script:BeforeNodes = @((New-SaveNode), (New-SaveNode 'Sichern' $true 'App.OtherToolbar.tb_sichern'))
 Assert-True ((Invoke-SaveCase).saved -eq $true -and $script:Invokes -eq 1) 'Ein fremder gleichnamiger Schalter verdraengte die Hauptsymbolleiste.'

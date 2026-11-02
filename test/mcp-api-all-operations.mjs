@@ -78,8 +78,19 @@ try {
   assert.match(instructions, /Niemals ueber ELSTER/u);
   assert.match(instructions, /hashverifizierte Sicherung nach backups:/u);
   assert.match(instructions, /Aendern erlaubt kein Speichern/u);
+  assert.match(instructions, /Originalfall ist der normale Arbeitsfall/u);
+  assert.match(instructions, /Ein Uebermittlungsvermerk allein\s+ist keine Schreibsperre/u);
+  assert.match(instructions, /Eine klare Freigabe gilt fuer alle beauftragten Teilschritte/u);
+  assert.doesNotMatch(instructions, /uebermittelte Faelle nie speichern oder veraendern/u,
+    "MCP darf beauftragte Originalarbeit nicht entgegen dem Save-Vertrag pauschal verbieten.");
   const tools = (await client.listTools()).tools;
   assert.equal(tools.length, expectedToolCount);
+  const saveTool = tools.find((tool) => tool.name === "sse_save");
+  assert(saveTool, "Der normale Save-Vertrag fehlt im MCP-Katalog.");
+  assert(!saveTool.inputSchema.required?.includes("correction"), "Original-Save darf keinen Korrekturstand verlangen.");
+  assert.match(saveTool.inputSchema.properties.correction.description, /Optionaler Korrekturmodus.+Original nicht noetig/u);
+  assert.doesNotMatch(saveTool.inputSchema.properties.correction.description, /gesperrt/u,
+    "Die Schema-Beschreibung darf keinen erlaubten Original-Save verbieten.");
   const directTools = tools.filter((tool) => tool.name in SSE_MCP_TOOL_OPERATIONS);
   assert.equal(directTools.length, Object.keys(SSE_MCP_TOOL_OPERATIONS).length);
   for (const tool of directTools) {

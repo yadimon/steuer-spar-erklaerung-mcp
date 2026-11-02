@@ -168,8 +168,9 @@ Der erste Auftrag soll keine zweite Installation auslösen. Der Skill:
 3. stellt höchstens eine Frage pro Nachricht;
 4. verwendet einen bereits eindeutig geöffneten Fall, andernfalls lässt er
    Fall und vollständige Belegquellen bestätigen;
-5. zeigt einen sicheren Plan und setzt nach dessen Bestätigung den
-   ursprünglichen Auftrag fort.
+5. gleicht seinen Plan mit dem Auftrag ab und setzt ihn im bereits
+   freigegebenen Umfang fort; nur noch fehlende wesentliche Entscheidungen
+   werden erfragt.
 
 Ein passender erster Prompt ist:
 

@@ -62,6 +62,11 @@ ersten dirty-fähigen Navigation oder Änderung wird der aktuelle Dateistand
 hashgebunden gesichert; jede Änderung braucht Readback und Speichern einen
 eigenen ausdrücklichen Auftrag.
 
+Der Originalfall ist der normale Arbeitsfall. Eine frühere Übermittlung sperrt
+ihn nicht pauschal für weitere Zeiträume. Klar beauftragte Änderungen und
+Speichern sind nach Sicherung auch im Original erlaubt; „ändere und speichere“
+genügt als gemeinsamer Auftrag. Bereits erteilte Freigaben werden weiterverwendet.
+
 ## Schnellstart
 
 Erstelle einen leeren Auftragsordner und verwende genau die Strecke für deinen

@@ -38,15 +38,17 @@ const localExecutors = new Map([
 const APPENDED_TRANSPORT_FIELDS = ["ms", "focusTelemetry", "treeWalks", "treeWalkMs", "treeWalkDetail"];
 const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", ...APPENDED_TRANSPORT_FIELDS]);
 function appendedTransportFields(body) {
-  return new Set([...body.matchAll(
+  const logicalLines = body.replace(/`\r?\n[ \t]*/gu, " ");
+  return new Set([...logicalLines.matchAll(
     /^\s*\$obj\s*\|\s*Add-Member\s+-NotePropertyName\s+([A-Za-z][A-Za-z0-9_]*)\s+-NotePropertyValue\b/gmu,
   )].map((match) => match[1]));
 }
 assert.deepEqual([...appendedTransportFields(
   "# $obj | Add-Member -NotePropertyName comment -NotePropertyValue 1\n" +
   "$nested | Add-Member -NotePropertyName nested -NotePropertyValue 1\n" +
-  "$obj | Add-Member -NotePropertyName actual -NotePropertyValue @(1)",
-)], ["actual"], "Nur an den echten Ergebnisumschlag angehaengte Felder duerfen als Transportbeleg gelten.");
+  "$obj | Add-Member -NotePropertyName actual -NotePropertyValue @(1)\n" +
+  "$obj | Add-Member -NotePropertyName continued `\r\n  -NotePropertyValue $warning",
+)], ["actual", "continued"], "Nur an den echten Ergebnisumschlag angehaengte Felder samt PowerShell-Fortsetzungen duerfen als Transportbeleg gelten.");
 const emitStart = workerSource.indexOf("\nfunction Emit(");
 assert(emitStart >= 0, "Gemeinsamer Worker-Emit-Pfad fehlt.");
 const emitEnd = workerSource.indexOf("\nfunction ", emitStart + 10);
@@ -858,6 +860,11 @@ for (const operation of SSE_API_OPERATIONS) {
   if (API_INTERNAL_OPERATIONS.includes(operation)) continue;
   const body = blockBody(operation);
   const emittedFields = emittedResultFields(body);
+  // Emit appends these fields to the same result envelope. Discover them
+  // from the real helper rather than maintaining an unchecked field list.
+  if (/\bEmit\s/u.test(body)) {
+    for (const field of appendedFields) emittedFields.add(field);
+  }
   for (const field of SHARED_API_RESULT_FIELDS.get(operation)?.fields ?? []) emittedFields.add(field);
   for (const [helper, fields] of SHARED_WORKER_RESULT_FIELDS) {
     if (!body.includes(`${helper} `)) continue;

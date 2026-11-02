@@ -126,8 +126,8 @@ Nur dann die genaue PID stoppen; niemals einen Prozessname-Sweep ausführen.
   verschoben oder gelöscht;
 - der eindeutig geöffnete Fall kann nur nach privater hashverifizierter
   Sicherung kontrolliert geändert werden;
-- Persistieren, Arbeitskopie und `save_as` brauchen einen separaten
-  ausdrücklichen Auftrag und unmittelbaren Readback;
+- Persistieren, Arbeitskopie und `save_as` brauchen einen ausdrücklichen Auftrag
+  und unmittelbaren Readback; die Freigabe darf im selben Auftrag stehen;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt;
 - Profil 2024 bleibt experimentell und ist für Nutzer nicht freigegeben.
 

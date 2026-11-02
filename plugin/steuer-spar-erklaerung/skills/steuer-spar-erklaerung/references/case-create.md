@@ -29,8 +29,9 @@ Einkommensteuer-Datei für ein anderes Jahr legt das Produkt 2025 nicht an.
 
 ## Klärungsrunde vor der Anlage
 
-Stelle die fachlichen Fragen **gebündelt in einer Nachricht**, jeweils mit
-einem begründeten Vorschlag, und warte auf die Antwort:
+Kläre nur fehlende fachliche Angaben, jeweils mit einem begründeten Vorschlag
+und höchstens einer Frage pro Nachricht. Bereits beantwortete Angaben und
+eine klare Freigabe für die Anlage weiterverwenden:
 
 - Dateiname des Falls;
 - Einkunftsart (`Gewerbebetrieb`, `selbstständige Tätigkeit`,
@@ -38,9 +39,10 @@ einem begründeten Vorschlag, und warte auf die Antwort:
 - Kleinunternehmer nach § 19 UStG ja/nein;
 - Soll- oder Istversteuerung — das ist eine Steuerentscheidung, kein Vorgabewert;
 - Meldezeitraum der UStVA, sofern bekannt;
-- gewünschter Modus: **betreut** (jeder Schritt wird vor der Ausführung
-  bestätigt) oder **selbstständig** (du arbeitest den bestätigten Plan ab und
-  meldest am Ende Lücken und Zweifelsfälle). Ohne Antwort gilt betreut.
+
+Keine zusätzliche Modusfrage oder erneute Freigabe derselben Anlageschritte
+verlangen. Wünscht der Mensch ausdrücklich schrittweise Bestätigungen, gilt
+dieser gewählte Ablauf.
 
 ## Ablauf nach der Anlage
 

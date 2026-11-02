@@ -44,15 +44,17 @@ for (const requirement of [
   "Ändern ist nicht Speichern",
   "Erfolg nur nach strukturiertem Readback",
   "MCP ist der Standardtransport",
-  "in **einer Klärungsrunde** gebündelt",
+  "Eine klare Freigabe gilt für alle beauftragten Teilschritte",
   "Ein-/Ausgaben in die Kostenarten der Gewinn-Erfassung",
-  "Ohne Antwort gilt betreut",
+  "keine zusätzliche Modusfrage stellen",
 ]) {
   assert(normalizedMain.includes(requirement), `Hauptskill-Vertrag fehlt: ${requirement}`);
 }
 
 const caseCreate = readFileSync(join(skillRoot, "references", "case-create.md"), "utf8");
 const normalizedCaseCreate = caseCreate.replace(/\s+/gu, " ");
+assert.doesNotMatch(normalizedCaseCreate, /Ohne Antwort gilt betreut/iu,
+  "Ein klarer Anlageauftrag darf keine zusaetzliche Modusfreigabe verlangen.");
 for (const requirement of [
   "`sse_case_create`",
   "sichtbaren Desktop",
@@ -69,7 +71,10 @@ for (const requirement of [
 
 assert.match(normalizedMain, /Fehlt jedes `sse_\*`-Tool.+nichts installieren.+Installationsanleitung/iu);
 assert.match(normalizedMain, /Niemals über ELSTER/iu);
-assert.match(normalizedMain, /Originale und übermittelte Falldateien niemals löschen, überschreiben/iu);
+assert.match(normalizedMain, /Originalfall ist der normale Arbeitsfall/iu);
+assert.match(normalizedMain, /Ein Übermittlungsvermerk allein ist keine Schreibsperre/iu);
+assert.match(normalizedMain, /Falldateien nicht außerhalb der Anwendung binär überschreiben/iu);
+assert.match(normalizedMain, /„Ändere und speichere“ genügt; dafür keine zweite Bestätigung verlangen/iu);
 assert(normalizedMain.includes("Eine Arbeitskopie, `save_as`, Schließen oder Verwerfen ist keine implizite"));
 assert.match(normalizedMain, /vor der ersten dirty-fähigen Navigation oder Mutation.+Disk-Hash/iu);
 assert(normalizedMain.includes("keinen Prozess nach Namen beenden. Fremde, alte"));
@@ -101,7 +106,7 @@ for (const requirement of [
   "Rufe zuerst das echte MCP-Tool `sse_preflight` auf",
   "Ist genau ein Fall vollständig und eindeutig geöffnet, gewinnt dieser Fall",
   "vollständigen Liste der freigegebenen Belegordner",
-  "Sicheren Plan gemeinsam bestätigen",
+  "Sicheren Plan mit dem Auftrag abgleichen",
   "Ursprünglichen Auftrag fortsetzen",
 ]) {
   assert(normalizedFirstRun.includes(requirement), `First-run-Vertrag fehlt: ${requirement}`);
@@ -109,8 +114,16 @@ for (const requirement of [
 assert.match(normalizedFirstRun, /keine Installerbefehle ausführen.+keine Clientdatei verändern/iu);
 assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
 assert(firstRun.includes("`caseDir` ist eine Ressourcen-/Redaktionsgrenze, keine Fallauswahl"));
+assert.match(normalizedFirstRun, /verlange keine zusätzliche Bestätigung für dieselben Schritte/iu);
+assert.doesNotMatch(normalizedFirstRun, /ausdrücklich separat beauftragt/iu);
 
 const caseSession = readFileSync(join(skillRoot, "references", "case-session.md"), "utf8");
+const normalizedCaseSession = caseSession.replace(/\s+/gu, " ");
+assert.match(normalizedCaseSession, /Originalfall ist der normale Arbeitsfall/iu);
+assert.match(normalizedCaseSession, /`transmittedCaseWarning` ist ein Hinweis, keine pauschale Schreibsperre/iu);
+assert.match(normalizedCaseSession, /Bei `noChanges=true` und gleichem Disk-Hash bleibt die bestehende Sicherung gültig/iu);
+assert.doesNotMatch(normalizedCaseSession, /Ist ein Fall bereits übermittelt.+speichere nicht/iu,
+  "Sitzungsregeln duerfen den erlaubten Original-Save nicht pauschal verbieten.");
 for (const requirement of [
   "Der offene Fall ist maßgeblich",
   "Eine Sicherung je unverändertem Dateistand",

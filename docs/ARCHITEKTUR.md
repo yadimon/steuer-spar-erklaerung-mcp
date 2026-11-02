@@ -596,15 +596,21 @@ Latenzgarantie.
 
 - ELSTER, Senden und sonstige Übermittlung ans Finanzamt bleiben immer
   gesperrt.
-- Originale und übermittelte Fälle werden nie gelöscht, umbenannt oder auf
-  Dateiebene überschrieben; übermittelte Fälle werden nie verändert.
+- Der Originalfall ist der normale Arbeitsfall. Ein Übermittlungsvermerk allein
+  ist keine Schreibsperre; eine Gewinn-Erfassung bleibt für weitere Zeiträume
+  bearbeitbar. Ausdrücklich beauftragte Änderungen und Speichern sind im Original
+  erlaubt. Bereits übermittelte Zielzeiträume brauchen einen Korrekturauftrag;
+  eine separate Korrekturdatei entsteht nur auf ausdrücklichen Wunsch.
+- Falldateien werden nicht außerhalb der Anwendung binär überschrieben und
+  nicht ungefragt gelöscht, umbenannt oder verschoben.
 - Ein eindeutig geöffneter Fall ist der normale Arbeitsfall. Vor der ersten
   Mutation oder UI-Navigation mit möglichem Dirty-State wird sein aktueller
   Disk-Hash einmal als bytegleiche Sicherung im privaten Backupbereich
   geschützt; dieselbe Sicherung wird für denselben Fall und unveränderten Hash
   innerhalb der laufenden Aufgabe wiederverwendet.
-- Mutation, Persistenz und Dateiauswahl sind getrennte Freigaben. Ohne
-  ausdrücklichen Speicherauftrag bleibt der geänderte Fall offen und
+- Mutation, Persistenz und Dateiauswahl sind getrennte Handlungen, die gemeinsam
+  in einem klaren Auftrag freigegeben werden können. Ohne ausdrücklichen
+  Speicherauftrag bleibt der geänderte Fall offen und
   ungespeichert; Arbeits-/Korrekturkopie, `save_as`, Schließen, Verwerfen oder
   Wechseln sind keine automatischen Sicherheitswege.
 - Eine hashverifizierte Prüffallkopie bleibt für einen ausdrücklich isolierten

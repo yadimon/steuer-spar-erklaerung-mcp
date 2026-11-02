@@ -26,8 +26,9 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "freigegebenen Folgejahres im Modus einurvor. Nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. " +
         "Vor einem Start mit caseRef immer sse_instances lesen. Ist genau ein Fall schon offen, bleibt er " +
         "der Arbeitsfall; sse_launch darf ihn nicht still durch eine Kopie oder einen anderen Fall ersetzen. " +
-        "Nennt der Mensch einen anderen Fall und der offene Fall hat ungespeicherte Aenderungen, muss der Agent " +
-        "vor jedem Speichern, Verwerfen, Schliessen oder Wechseln nachfragen. " +
+        "Nennt der Mensch einen anderen Fall und der offene Fall hat ungespeicherte Aenderungen, muss eine " +
+        "noch fehlende Entscheidung zu Speichern, Verwerfen oder Schliessen vor dem Wechsel geklaert werden. " +
+        "Bereits ausdruecklich beauftragte Schritte nicht erneut bestaetigen lassen. " +
         "Nach dem Start kann eine Rueckfrage nach einer Wiederherstellungsdatei erscheinen - mit " +
         "sse_dialog_list lesen und ausschliesslich mit dem gelieferten Fingerprint ueber " +
         "sse_dialog_answer beantworten; niemals dafuer den generischen Klick verwenden.",
@@ -78,11 +79,14 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "ohne Dateibindung verwenden. Traegt der Fallkopf eine Uebermittlung, wird trotzdem gespeichert - " +
         "eine Gewinn-Erfassung laeuft ueber das ganze Jahr und ist die Vorbefuellung der naechsten " +
         "Voranmeldung -, aber das Ergebnis traegt dann transmittedCaseWarning. Diese Warnung ernst nehmen: " +
-        "Ein bereits uebermittelter ZEITRAUM darf nicht still geaendert werden. Fuer dessen Berichtigung " +
-        "kann correction nach ausdruecklicher menschlicher Freigabe ausschliesslich eine separat " +
+        "Ein bereits uebermittelter ZEITRAUM darf nicht still geaendert werden. Ein klarer Auftrag " +
+        "zur Arbeit im Original ist nach verifizierter Sicherung erlaubt; eine Kopie ist keine Voraussetzung. " +
+        "Ein Auftrag 'aendern und speichern' erlaubt beide Schritte ohne zweite Bestaetigung. " +
+        "Der optionale correction-Vertrag kann nach ausdruecklicher menschlicher Freigabe eine separat " +
         "als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes " +
         "uebermitteltes Original und dessen SHA256 sowie eine bytegleiche Vorzustands-Sicherung unter backups: " +
-        "sind Pflicht. Ein generisches force gibt es nicht, das Original bleibt unveraendert und sse_save " +
+        "sind Pflicht. Ein generisches force gibt es nicht; im correction-Vertrag bleibt das gebundene " +
+        "Quelloriginal unveraendert. sse_save " +
         "loest niemals ELSTER aus. Bei einer UStVA-Berichtigung muss das fachliche Kennzeichen corrected " +
         "separat im richtigen Zeitraum gesetzt und zurueckgelesen werden.",
     },

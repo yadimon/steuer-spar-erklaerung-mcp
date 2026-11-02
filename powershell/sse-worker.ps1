@@ -2439,15 +2439,21 @@ function Emit($obj) {
       "SSE-WARNUNG: veralteter Rueckfallweg '$([string]$script:SSE_DEPRECATED_FALLBACK.operation)' " +
       "benutzt. $([string]$script:SSE_DEPRECATED_FALLBACK.reason)")
   }
-  # Ein Fall, dessen Kopf eine Uebermittlung traegt, wird gespeichert - aber
-  # nie stillschweigend. Die Warnung steht im Ergebnis UND auf der
-  # Fehlerausgabe, damit sie auch in Protokollen auftaucht, die nur den
-  # Prozess mitschreiben.
+  # Report the transmission marker without turning an unconfirmed save or a
+  # verified no-op into a success claim in stderr.
   if ($script:SSE_TRANSMITTED_CASE_WARNING) {
     $obj | Add-Member -NotePropertyName transmittedCaseWarning `
       -NotePropertyValue $script:SSE_TRANSMITTED_CASE_WARNING -Force
+    $saveOutcome = 'Speichern mit Uebermittlungsvermerk nicht bestaetigt.'
+    if ($obj.ok -eq $true -and $obj.PSObject.Properties['saved'] -and $obj.saved -eq $true -and
+        $obj.PSObject.Properties['verified'] -and $obj.verified -eq $true) {
+      $saveOutcome = 'Fall mit Uebermittlungsvermerk gespeichert.'
+    } elseif ($obj.ok -eq $true -and $obj.PSObject.Properties['noChanges'] -and $obj.noChanges -eq $true -and
+              $obj.PSObject.Properties['saved'] -and $obj.saved -eq $false) {
+      $saveOutcome = 'Keine ungespeicherten Aenderungen; kein Speicherversuch.'
+    }
     [Console]::Error.WriteLine(
-      "SSE-WARNUNG: Fall mit Uebermittlungsvermerk gespeichert. " +
+      "SSE-WARNUNG: $saveOutcome " +
       "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.reason) " +
       "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.hinweis)")
   }
@@ -16679,13 +16685,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $summaryBefore = Get-CaseSummary $expectedPath
     if (-not $summaryBefore) { Fail 'Falldateikopf konnte vor dem Speichern nicht gelesen werden.' 'parse-failed' }
     # A case-level ElsterTransferTime can describe an earlier UStVA period in
-    # a year-long Gewinn-Erfassung. A blanket lock would make later periods
-    # impossible to maintain. Nevertheless, an already transmitted ORIGINAL
-    # must never be overwritten. The only exception is therefore an explicit,
-    # period-bound correction WORKING COPY with a separately hash-bound source
-    # and a byte-identical pre-save backup. Keep all of these checks at the
-    # final worker boundary so neither the API nor a direct worker call can
-    # turn the correction contract into a generic force bypass.
+    # a year-long Gewinn-Erfassung. Normal bound saves remain available in
+    # that original case; the marker is a warning, not a file-level lock.
+    # The optional correction contract describes a separately requested
+    # correction copy. Its source, backup and period checks remain at the
+    # final worker boundary; it is not required for normal original-case work.
     $correctionResult = $null
     $correction = Arg $a 'correction'
     if ($summaryBefore.transmitted -ne $false) {
@@ -16696,23 +16700,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         # ganzen Jahres. Eine Gewinn-Erfassung wird ueber das Jahr
         # weitergefuehrt und ist die Vorbefuellung fuer die naechste
         # Voranmeldung; eine Blankosperre machte genau den Zweck der Datei
-        # unmoeglich - der Kommentar oben sagt das seit jeher, die Umsetzung
-        # hielt sich nicht daran.
+        # unmoeglich.
         #
         # Was wirklich gilt: Ein bereits uebermittelter ZEITRAUM darf nicht
         # still geaendert werden. Das ist eine Aussage ueber Zeitraeume, nicht
         # ueber die Datei. Gespeichert wird deshalb, und die Warnung nennt die
         # Uebermittlung in jedem Ergebnis.
         #
-        # Der correction-Weg bleibt unveraendert: Wer einen uebermittelten
-        # Zeitraum wirklich berichtigt, bindet Arbeitskopie, Sicherung,
-        # Zeitraum und Grund - und bekommt dafuer die strengere Pruefung.
+        # Der optionale correction-Weg bindet einen ausdruecklich gewaehlten
+        # separaten Korrekturstand an Quelle, Sicherung, Zeitraum und Grund.
         $script:SSE_TRANSMITTED_CASE_WARNING = [pscustomobject]@{
           kind = 'transmitted-case'
           reason = $transmissionReason
-          hinweis = ('Bereits uebermittelte Zeitraeume duerfen nicht still geaendert werden. Fuer die ' +
-                     'Berichtigung eines uebermittelten Zeitraums den correction-Weg mit Arbeitskopie, ' +
-                     'Sicherung, Zeitraum und Grund benutzen.')
+          hinweis = ('Ein Uebermittlungsvermerk allein ist keine Schreibsperre fuer das Original. ' +
+                     'Bereits uebermittelte Zielzeitraeume nur auf ausdruecklichen Korrekturauftrag aendern. ' +
+                     'Der optionale correction-Weg bindet einen separat gewuenschten Korrekturstand ' +
+                     'an Quelle, Sicherung, Zeitraum und Grund.')
         }
       } else {
 

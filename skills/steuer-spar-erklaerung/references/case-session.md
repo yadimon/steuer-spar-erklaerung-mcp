@@ -4,6 +4,12 @@ Lies diese Referenz vor jeder UI-Navigation oder Änderung an einem Steuerfall.
 Sie bildet den normalen Nutzerfall ab: Der Mensch hat seinen einen Steuerfall
 bereits geöffnet und arbeitet gemeinsam mit dem Agenten daran.
 
+Der Originalfall ist der normale Arbeitsfall. Ein Übermittlungsvermerk allein
+ist keine Schreibsperre. Insbesondere bleibt eine Gewinn-Erfassung nach einer
+Voranmeldung für spätere Zeiträume bearbeitbar. Der Auftrag des Menschen gilt
+für die benannten Änderungen am Original; keine zusätzliche Kopie verlangen.
+Eine bestehende klare Freigabe nicht erneut bestätigen lassen.
+
 ## Der offene Fall ist maßgeblich
 
 1. Lies `sse_instances` und den frischen UI-Zustand. Ist genau ein eindeutig
@@ -15,8 +21,9 @@ bereits geöffnet und arbeitet gemeinsam mit dem Agenten daran.
    jedes fallbezogene Werkzeug an dessen `hwnd`.
 3. Nennt der Mensch ausdrücklich einen anderen Fall als den geöffneten, lies
    zuerst den Dirty-/Dialogzustand des offenen Falls. Bei ungespeicherten
-   Änderungen oder unbekanntem Zustand frage, ob er gespeichert, verworfen oder
-   offen gelassen werden soll. Die Bitte, den anderen Fall zu bearbeiten, ist
+   Änderungen oder unbekanntem Zustand kläre die noch fehlende Entscheidung
+   zu Speichern, Verwerfen oder Offenlassen. Bereits klare Aufträge nicht
+   erneut bestätigen lassen. Die Bitte, den anderen Fall zu bearbeiten, ist
    keine Erlaubnis für eine dieser drei Entscheidungen.
 4. Im bereits offenen Arbeitsfall sind vorhandene ungespeicherte Eingaben kein
    Grund, ihn zu ersetzen. Ändere nur den beauftragten Wert, speichere und
@@ -54,11 +61,11 @@ allein noch keine Sicherung.
    Nach Verlust dieses verifizierten Aufgabenkontexts genügt ein gleicher Hash
    in einer Dateiliste nicht als Herkunftsnachweis; beginne eine neue Aufgabe
    mit einer neuen Sicherung, statt irgendeine alte Datei still zu übernehmen.
-5. Nach einem ausdrücklich beauftragten und erfolgreich verifizierten
-   `sse_save` ist der Disk-Hash ein neuer Zustand. Verwirf das gemerkte Tupel;
-   vor einer späteren Mutation entsteht eine neue Sicherung. Ohne Speichern
-   und bei unverändertem Disk-Hash bleibt die bisherige Sicherung gültig, auch
-   bei einer direkten Folgefrage des Menschen.
+5. Nur wenn ein ausdrücklich beauftragter und verifizierter `sse_save` den
+   Disk-Hash geändert hat, verwirf das gemerkte Tupel; vor einer späteren
+   Mutation entsteht eine neue Sicherung. Bei `noChanges=true` und gleichem
+   Disk-Hash bleibt die bestehende Sicherung gültig, ebenso bei einer direkten
+   Folgefrage des Menschen ohne neuen Dateistand.
 6. Ändert sich der Disk-Hash außerhalb des eigenen bestätigten Speicherns,
    stoppe und kläre die Fallbindung neu. Verwende die alte Sicherung nicht als
    Schutz des neuen Zustands.
@@ -81,15 +88,21 @@ zusammenhängenden Auftrag eine Sicherung des unveränderten Ausgangsstands.
   `sse_save_as`.
 - Nur ein ausdrücklicher Auftrag wie „ändere und speichere“ oder „speichere
   jetzt“ erlaubt `sse_save` für den exakt gebundenen Fall. Lies Hash, Wert,
-  Summen und Dirty-State davor und danach zurück.
+  Summen und Dirty-State davor und danach zurück. Beide Schritte dürfen in
+  derselben Freigabe stehen; eine weitere Bestätigung ist dann nicht nötig.
 - `sse_save_as` und ein `cases:`-Ziel von `sse_make_working_copy` sind nur
   erlaubt, wenn der Mensch ausdrücklich eine neue Datei, Arbeitskopie,
   Prüfkopie, Korrektur oder Berichtigung verlangt. Eine Bitte um Sicherheit,
   Backup oder Korrektur eines Wertes ist keine solche Freigabe.
-- Ist ein Fall bereits übermittelt oder serverseitig nicht sicher in-place
-  speicherbar, speichere nicht und erzeuge nicht automatisch eine
-  Korrekturkopie. Erkläre den Stopp und frage, ob der Mensch ausdrücklich eine
-  separat benannte Korrektur-/Berichtigungsdatei anlegen lassen will.
+- `sse_save` darf den beauftragten Originalfall auch bei einem früheren
+  Übermittlungsvermerk speichern. `transmittedCaseWarning` ist ein Hinweis,
+  keine pauschale Schreibsperre. Einen bereits übermittelten Zielzeitraum nur
+  nach einem ausdrücklichen Korrekturauftrag ändern. Der optionale
+  `correction`-Vertrag gilt für eine ausdrücklich gewählte separate
+  Korrekturdatei; er ist keine Voraussetzung für normales Arbeiten im Original.
+- Weist die API das Speichern wegen einer technischen Bindungs- oder
+  Zustandsabweichung ab, stoppe und kläre diesen konkreten Fehler. Verlange
+  nicht ersatzweise eine Arbeitskopie und umgehe die Ablehnung nicht.
 - Beende eine normale Änderung mit Readback und lass den Arbeitsfall offen.
   Sage knapp, ob die Änderung nur im geöffneten Programm steht oder auf
   ausdrücklichen Wunsch gespeichert wurde. Erzeuge keinen separaten

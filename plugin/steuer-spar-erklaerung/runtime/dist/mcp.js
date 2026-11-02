@@ -21470,7 +21470,7 @@ var init_mcp_schemas_lifecycle = __esm({
             "SHA256 der Sicherung; muss expectedHashBefore des Korrekturstands entsprechen"
           )
         }).strict().optional().describe(
-          "Expliziter Korrekturmodus fuer eine als Korrektur/Berichtigung benannte Arbeitskopie. Ohne dieses Objekt bleiben uebermittelte oder unbekannte Faelle gesperrt."
+          "Optionaler Korrekturmodus fuer einen ausdruecklich gewuenschten separaten Korrekturstand. Fuer normales Speichern im Original nicht noetig, auch bei Uebermittlungsvermerk oder unbekanntem Uebermittlungsstatus; das Ergebnis traegt dann transmittedCaseWarning."
         ),
         hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
         waitMs: external_exports.number().int().min(800).max(3e4).optional().describe("Wartezeit auf Datei- und Hash-Readback")
@@ -22903,6 +22903,11 @@ var init_result_mutation_fields = __esm({
         transmittedAfter: OPTIONAL_TRANSMISSION_STATE,
         transmittedReasonBefore: OPTIONAL_STRING,
         transmittedReasonAfter: OPTIONAL_STRING,
+        transmittedCaseWarning: external_exports.object({
+          kind: external_exports.literal("transmitted-case").describe("Kennzeichnet einen Hinweis zum Uebermittlungsstatus, keinen Speicherfehler"),
+          reason: external_exports.string().describe("Im Fallkopf erkannter Uebermittlungsvermerk oder unbekannter Uebermittlungsstatus"),
+          hinweis: external_exports.string().describe("Erlaubte Originalarbeit und erforderliche Freigabe fuer bereits uebermittelte Zielzeitraeume")
+        }).strict().optional().describe("Uebermittlungsvermerk des Falls; keine pauschale Schreibsperre oder Speicherbestaetigung"),
         binding: OPTIONAL_OBJECT,
         correction: OPTIONAL_OBJECT,
         saveEnabledAfter: OPTIONAL_BOOLEAN,
@@ -44590,7 +44595,7 @@ function registerLifecycleTools(registry2) {
     "sse_launch",
     {
       title: "Programm starten",
-      description: "Startet die SteuerSparErklaerung, optional direkt mit einer Falldatei. Der Startmodus bestimmt das Modul. Nur das aktive, verifizierte Produktprofil und dazu passende Falldateien werden akzeptiert; andere Jahres-/Engine-Versionen werden nicht ersatzweise gesteuert. Wenn beim Start genau ein Hauptfenster erkennbar ist, liefert instance dessen PID/HWND zur sofortigen expliziten Bindung aller Folgeaktionen. einur=Gewinnermittlung/EUER, normal=Einkommensteuer, einurvor=Gewinn-Erfassung Folgejahr, fest=Feststellung, ermaess=Lohnsteuer-Ermaessigung, vorweg=Prognose. UStVA im Profiljahr wird im Modus einur bearbeitet; die Gewinn-Erfassung des ausdruecklich freigegebenen Folgejahres im Modus einurvor. Nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. Vor einem Start mit caseRef immer sse_instances lesen. Ist genau ein Fall schon offen, bleibt er der Arbeitsfall; sse_launch darf ihn nicht still durch eine Kopie oder einen anderen Fall ersetzen. Nennt der Mensch einen anderen Fall und der offene Fall hat ungespeicherte Aenderungen, muss der Agent vor jedem Speichern, Verwerfen, Schliessen oder Wechseln nachfragen. Nach dem Start kann eine Rueckfrage nach einer Wiederherstellungsdatei erscheinen - mit sse_dialog_list lesen und ausschliesslich mit dem gelieferten Fingerprint ueber sse_dialog_answer beantworten; niemals dafuer den generischen Klick verwenden."
+      description: "Startet die SteuerSparErklaerung, optional direkt mit einer Falldatei. Der Startmodus bestimmt das Modul. Nur das aktive, verifizierte Produktprofil und dazu passende Falldateien werden akzeptiert; andere Jahres-/Engine-Versionen werden nicht ersatzweise gesteuert. Wenn beim Start genau ein Hauptfenster erkennbar ist, liefert instance dessen PID/HWND zur sofortigen expliziten Bindung aller Folgeaktionen. einur=Gewinnermittlung/EUER, normal=Einkommensteuer, einurvor=Gewinn-Erfassung Folgejahr, fest=Feststellung, ermaess=Lohnsteuer-Ermaessigung, vorweg=Prognose. UStVA im Profiljahr wird im Modus einur bearbeitet; die Gewinn-Erfassung des ausdruecklich freigegebenen Folgejahres im Modus einurvor. Nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. Vor einem Start mit caseRef immer sse_instances lesen. Ist genau ein Fall schon offen, bleibt er der Arbeitsfall; sse_launch darf ihn nicht still durch eine Kopie oder einen anderen Fall ersetzen. Nennt der Mensch einen anderen Fall und der offene Fall hat ungespeicherte Aenderungen, muss eine noch fehlende Entscheidung zu Speichern, Verwerfen oder Schliessen vor dem Wechsel geklaert werden. Bereits ausdruecklich beauftragte Schritte nicht erneut bestaetigen lassen. Nach dem Start kann eine Rueckfrage nach einer Wiederherstellungsdatei erscheinen - mit sse_dialog_list lesen und ausschliesslich mit dem gelieferten Fingerprint ueber sse_dialog_answer beantworten; niemals dafuer den generischen Klick verwenden."
     },
     (r) => ({
       pid: r.pid,
@@ -44618,7 +44623,7 @@ function registerLifecycleTools(registry2) {
     "sse_save",
     {
       title: "Steuerfall sicher speichern",
-      description: "Speichert nur den bereits geoeffneten, referenzierten Steuerfall. caseRef und expectedHashBefore sind Pflicht und muessen mit Fenstertitel und Datei uebereinstimmen. Sind mehrere Steuerfaelle offen, muss das exakte Hauptfenster per hwnd gebunden werden. Danach werden Hashwechsel, deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Eine Bitte, Werte zu aendern, erlaubt noch kein Speichern: sse_save nur verwenden, wenn der Mensch in diesem Auftrag ausdruecklich das Speichern verlangt. Nicht fuer Wiederherstellungsfaelle ohne Dateibindung verwenden. Traegt der Fallkopf eine Uebermittlung, wird trotzdem gespeichert - eine Gewinn-Erfassung laeuft ueber das ganze Jahr und ist die Vorbefuellung der naechsten Voranmeldung -, aber das Ergebnis traegt dann transmittedCaseWarning. Diese Warnung ernst nehmen: Ein bereits uebermittelter ZEITRAUM darf nicht still geaendert werden. Fuer dessen Berichtigung kann correction nach ausdruecklicher menschlicher Freigabe ausschliesslich eine separat als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes uebermitteltes Original und dessen SHA256 sowie eine bytegleiche Vorzustands-Sicherung unter backups: sind Pflicht. Ein generisches force gibt es nicht, das Original bleibt unveraendert und sse_save loest niemals ELSTER aus. Bei einer UStVA-Berichtigung muss das fachliche Kennzeichen corrected separat im richtigen Zeitraum gesetzt und zurueckgelesen werden."
+      description: "Speichert nur den bereits geoeffneten, referenzierten Steuerfall. caseRef und expectedHashBefore sind Pflicht und muessen mit Fenstertitel und Datei uebereinstimmen. Sind mehrere Steuerfaelle offen, muss das exakte Hauptfenster per hwnd gebunden werden. Danach werden Hashwechsel, deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Eine Bitte, Werte zu aendern, erlaubt noch kein Speichern: sse_save nur verwenden, wenn der Mensch in diesem Auftrag ausdruecklich das Speichern verlangt. Nicht fuer Wiederherstellungsfaelle ohne Dateibindung verwenden. Traegt der Fallkopf eine Uebermittlung, wird trotzdem gespeichert - eine Gewinn-Erfassung laeuft ueber das ganze Jahr und ist die Vorbefuellung der naechsten Voranmeldung -, aber das Ergebnis traegt dann transmittedCaseWarning. Diese Warnung ernst nehmen: Ein bereits uebermittelter ZEITRAUM darf nicht still geaendert werden. Ein klarer Auftrag zur Arbeit im Original ist nach verifizierter Sicherung erlaubt; eine Kopie ist keine Voraussetzung. Ein Auftrag 'aendern und speichern' erlaubt beide Schritte ohne zweite Bestaetigung. Der optionale correction-Vertrag kann nach ausdruecklicher menschlicher Freigabe eine separat als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes uebermitteltes Original und dessen SHA256 sowie eine bytegleiche Vorzustands-Sicherung unter backups: sind Pflicht. Ein generisches force gibt es nicht; im correction-Vertrag bleibt das gebundene Quelloriginal unveraendert. sse_save loest niemals ELSTER aus. Bei einer UStVA-Berichtigung muss das fachliche Kennzeichen corrected separat im richtigen Zeitraum gesetzt und zurueckgelesen werden."
     },
     { timeoutMs: 9e4 }
   );
@@ -45426,24 +45431,35 @@ var MCP_CONDUCT_INSTRUCTIONS = [
   "  Selektoren, RID oder selectorNamespace nicht zur Umgehung einer Ablehnung austauschen.",
   "  sse_capabilities beschreibt die Gruppen und ihre erlaubten Einsatzbedingungen.",
   "",
-  "Harte Grenzen, auch auf ausdruecklichen Wunsch:",
+  "Auftrag, Originalfall und technische Grenzen:",
   "- Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.",
-  "- Originalfaelle nie loeschen, umbenennen oder auf Dateiebene ueberschreiben;",
-  "  uebermittelte Faelle nie speichern oder veraendern.",
+  "- Der Originalfall ist der normale Arbeitsfall. Ein Uebermittlungsvermerk allein",
+  "  ist keine Schreibsperre: Eine Gewinn-Erfassung wird fuer weitere Zeitraeume",
+  "  im selben Fall fortgefuehrt. Ausdruecklich beauftragte Aenderungen und",
+  "  Speichern mit sse_save sind auch im Original erlaubt. Einen bereits",
+  "  uebermittelten Zielzeitraum nur auf ausdruecklichen Korrekturauftrag aendern.",
+  "  Keine Arbeits-/Korrekturkopie als Voraussetzung fuer Originalarbeit verlangen.",
+  "  Falldateien nicht ausserhalb der Anwendung binaer ueberschreiben und nicht",
+  "  ungefragt loeschen, umbenennen oder verschieben.",
+  "- Eine klare Freigabe gilt fuer alle beauftragten Teilschritte und bleibt in",
+  "  der laufenden Aufgabe gueltig. Nicht erneut bestaetigen lassen; nur fehlende",
+  "  wesentliche Entscheidungen oder Erweiterungen des Auftrags klaeren.",
   "- Ist genau ein Steuerfall bereits offen, ist er der Arbeitsfall. Nicht still",
   "  eine Arbeits-/Korrekturkopie erzeugen oder oeffnen, keinen anderen Fall",
-  "  starten und den offenen Fall weder speichern noch schliessen.",
+  "  starten und den offenen Fall nicht ungefragt speichern oder schliessen.",
   "- Vor der ersten Aenderung oder einer UI-Navigation, die den Fall dirty machen",
   "  kann, den aktuellen Dateihash lesen und mit sse_make_working_copy genau eine",
   "  hashverifizierte Sicherung nach backups: erzeugen. Dieselbe Sicherung fuer",
   "  denselben Fall und unveraenderten Dateihash in der laufenden Aufgabe",
-  "  wiederverwenden; nicht vor jedem Tool-Aufruf neu sichern. Nach einem",
-  "  ausdruecklich beauftragten Speichern muss die naechste Aenderung den neuen",
-  "  Dateistand erneut sichern. Eine backups:-Sicherung niemals oeffnen.",
-  "- Aendern erlaubt kein Speichern. sse_save nur nach ausdruecklichem Auftrag zum",
-  "  Speichern; sse_save_as oder eine cases:-Kopie nur, wenn der Mensch genau eine",
+  "  wiederverwenden; nicht vor jedem Tool-Aufruf neu sichern. Nur nach einem",
+  "  bestaetigten Speichern mit geaendertem Disk-Hash vor der naechsten Aenderung",
+  "  den neuen Dateistand sichern; noChanges=true bei gleichem Hash behaelt die",
+  "  bisherige Sicherung. Eine backups:-Sicherung niemals oeffnen.",
+  "- Aendern erlaubt kein Speichern. Ein Auftrag wie 'aendern und speichern'",
+  "  erlaubt beides ohne zweite Bestaetigung. sse_save nur nach ausdruecklichem",
+  "  Auftrag zum Speichern; sse_save_as oder eine cases:-Kopie nur, wenn der Mensch genau eine",
   "  neue Datei/Kopie verlangt. Muss fuer einen anderen Fall gewechselt werden und",
-  "  der offene Fall ist ungespeichert, zuerst den Menschen fragen; nie still",
+  "  der offene Fall ist ungespeichert, eine noch fehlende Entscheidung klaeren; nie still",
   "  speichern, verwerfen, schliessen oder wechseln.",
   "- Erfolg erst nach Readback behaupten; ein Exitcode genuegt nicht.",
   "",

@@ -124,7 +124,8 @@ einzigem Skriptargument starten und denselben optionalen
 - Originale und übermittelte Fälle werden nicht still ersetzt oder gelöscht;
 - vor dirty-fähiger Navigation oder Mutation wird der aktuelle Dateistand
   einmal je unverändertem Hash privat gesichert;
-- `save` und `save_as` brauchen einen separaten ausdrücklichen Auftrag;
+- `save` und `save_as` brauchen einen ausdrücklichen Auftrag, auch gemeinsam
+  mit der Änderung; dafür ist keine zweite Bestätigung nötig;
 - jede Änderung braucht unmittelbaren Readback;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt.
 
