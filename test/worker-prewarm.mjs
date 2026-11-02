@@ -47,6 +47,7 @@ const configuredPoolTarget = (value) => Number(execFileSync(
   ["--input-type=module", "-e", poolTargetProbe],
   {
     cwd: root,
+    windowsHide: true,
     env: { ...process.env, SSE_WORKER_PREWARM_POOL_SIZE: value },
     encoding: "utf8",
   },
@@ -56,7 +57,7 @@ assert.equal(configuredPoolTarget("999"), 4, "Der Reservevorrat muss nach oben a
 assert.equal(configuredPoolTarget("0"), 1, "Der Reservevorrat muss nach unten mindestens eins bleiben.");
 const configuredDeadline = execFileSync(process.execPath, ["--input-type=module", "-e",
   'const m=await import("./dist/worker-prewarm.js");process.stdout.write(String(m.prewarmStartupTimeoutMs()));'], {
-  cwd: root, env: { ...process.env, SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "23000" }, encoding: "utf8",
+  cwd: root, windowsHide: true, env: { ...process.env, SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "23000" }, encoding: "utf8",
 });
 assert.equal(configuredDeadline, "23000", "Readiness waiters must use the same deadline as the pool.");
 
