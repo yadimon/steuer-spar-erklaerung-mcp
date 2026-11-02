@@ -83,7 +83,7 @@ function Assert-SSEUiaDeleteTableFocus {param($State,$ProcessId)
  & $actualTableFocus $State $ProcessId
  if($script:reads -ge 6){$script:undoFocusProofs++;if($script:interfereFinalUndo -and $script:undoFocusProofs -eq 2){[SW]::Tick++}}
 }
-function Close-SSEUiaDeleteOwnEditor {param($Binding,$Before,$Clicked,$Row,$Column,[int]$RemovedRow=-1) & $actualOwnEditor $Binding $Before $Clicked $Row $Column -RemovedRow $RemovedRow}
+function Close-SSEUiaDeleteOwnEditor {param($Binding,$Before,$Clicked,$Row,$Column,[int]$RemovedRow=-1,[switch]$ExistingNumberEditor) & $actualOwnEditor $Binding $Before $Clicked $Row $Column -RemovedRow $RemovedRow -ExistingNumberEditor:$ExistingNumberEditor}
 function Read-SSEUiaDeleteState {
  param($Binding,[switch]$AllowOwnEditor)
  if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'synthetic-provider-epoch-lost'}
@@ -166,6 +166,25 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
    default {throw 'Unknown activation scenario.'}
   }
  }
+ if($script:initialEditorScenario){
+  $editor=Editor 'Duplicate';$initial=$script:states[0];$initial.editors=@($editor)
+  $initial.tree=[pscustomobject]@{nodes=@([pscustomobject]@{type='DataItem';p=10;aid='Synthetic.Table';rid='Cell.1';x=100.0;y=100.0;w=100.0;h=20.0})}
+  $closed=State $before '300,00' $InitialDirty
+  $script:states=@($initial,$closed)+@($script:states|Select-Object -Skip 1)
+  foreach($state in $script:states){$state.scan.headers[0]|Add-Member NoteProperty name 'Nr.' -Force}
+  switch($script:initialEditorScenario){
+   'unchanged' { }
+   'changed-value' {$editor.valuePattern.Current.Value='Uncommitted input'}
+   'other-column' {$initial.scan.headers[0].name='Amount'}
+   'hidden-column' {$initial.scan.headers[0].visible=$false}
+   'hidden-editor' {$editor.Current.IsOffscreen=$true}
+   'combo-editor' {$editor.Current.ControlType='ComboBox'}
+   'ambiguous-cell' {$initial.tree.nodes+=@($initial.tree.nodes[0])}
+   'missing-cell' {$initial.tree.nodes[0].rid='Unknown.Cell'}
+   'not-closed' {$closed.editors=@($editor)}
+   default {throw 'Unknown initial editor scenario.'}
+  }
+ }
  $script:reads=0;$script:failRead=$FailRead;$script:sourceAllowed=-not $RefuseSource;$script:selectionFails=[bool]$RefuseSelection
  $script:undoFocusFails=[bool]$RefuseUndoFocus
  $script:interfereFinalSelection=[bool]$InterfereFinalSelection;$script:interfereFinalUndo=[bool]$InterfereFinalUndo
@@ -182,7 +201,7 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
  $process=[Diagnostics.Process]::GetCurrentProcess();[SW]::ProcessId=$process.Id
  $script:target.Current.ProcessId=$process.Id;[Windows.Automation.AutomationElement]::Hit=$script:target
  $script:target.Current.BoundingRectangle.Y=$(if($Clipped){5.0}else{100.0})
- [Windows.Automation.AutomationElement]::FocusedElement=Focus
+ [Windows.Automation.AutomationElement]::FocusedElement=$(if($script:initialEditorScenario){$editor}else{Focus})
  [Windows.Forms.SendKeys]::EscapeFocus=Focus
  [Windows.Forms.SendKeys]::AfterUndoFocus=$(if($EditorAfterUndo){Focus 'Edit' 'Other.Editor' 'Other.Editor'}else{$null})
  if($WrongPoint){[Windows.Automation.AutomationElement]::Hit=Focus 'DataItem' 'Other.cell'}
@@ -390,7 +409,7 @@ function Cancel($Change=$null,[switch]$AfterDelete,[switch]$InterfereFinalProof,
  $script:states=@($(if($AfterDelete){State $removed '100,00' $true}else{State $before}));$script:reads=0;$script:failRead=0
  if($ChangeAfterEscape){$script:states[0].dirty=-not $script:states[0].dirty}
  $binding=[pscustomobject]@{guard=$null;maxReadMs=1.0;maxRawMs=1.0;processId=[SW]::ProcessId;hwnd=[IntPtr]1;
-  transaction=[pscustomobject]@{epoch=[SW]::Tick;windows=(Get-SSEInteractionWindowSet)}}
+  transaction=[pscustomobject]@{epoch=[SW]::Tick;windows=(Get-SSEInteractionWindowSet);touched=$false}}
  $binding.guard={Test-SSELastInputUnchanged $binding.transaction.epoch}.GetNewClosure()
  $error=$null;$result=$null
  try{$result=& $actualOwnEditor $binding $prior $next 1 0 -RemovedRow $(if($AfterDelete){1}else{-1})}catch{$error=$_}
@@ -505,4 +524,22 @@ $stillEditing=Run (State $removed '100,00' $true) -ActivationScenario 'not-close
  Assert (-not $stillEditing.result.ok) 'Unconfirmed editor closure proceeded to deletion.'
  Same $stillEditing.keys @('{ESC}') 'An unconfirmed own closure was replayed or followed by deletion.'
  Same $stillEditing.clicks 0 'Unconfirmed activation editor closure clicked the target.'
+foreach($initialDirty in @($false,$true)){
+ $script:initialEditorScenario='unchanged'
+ $initialEditor=Run (State $removed '100,00' $true) -InitialDirty $initialDirty
+ Assert $initialEditor.result.ok 'An existing unchanged Nr. delegate blocked deletion.'
+ Same $initialEditor.keys @('{ESC}','^+{DEL}') 'An existing unchanged Nr. delegate was cancelled or deleted more than once.'
+}
+foreach($scenario in @('changed-value','other-column','hidden-column','hidden-editor','combo-editor','ambiguous-cell','missing-cell')){
+ $script:initialEditorScenario=$scenario
+ $blocked=Run (State $removed '100,00' $true)
+ Assert (-not $blocked.result.ok) ('An unproven existing editor was accepted: '+$scenario)
+ Same $blocked.keys @() ('An unproven existing editor received input: '+$scenario)
+ Same $blocked.clicks 0 ('An unproven existing editor allowed a deletion click: '+$scenario)
+}
+$script:initialEditorScenario='not-closed'
+$stillOpen=Run (State $removed '100,00' $true)
+Assert (-not $stillOpen.result.ok) 'An existing Nr. delegate with unconfirmed closure proceeded to deletion.'
+Same $stillOpen.keys @('{ESC}') 'An unconfirmed existing Nr. delegate closure was replayed.'
+$script:initialEditorScenario=$null
 Write-Output 'UIA delete transaction: exact and zero removal, ineffective command, full/failed undo, wrong rows, provider failure, focus interference and no replay passed.'
