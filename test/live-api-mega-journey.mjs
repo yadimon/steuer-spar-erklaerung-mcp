@@ -1330,7 +1330,14 @@ try {
         assert.equal(result.count, 1);
         assert.equal(result.rowsComplete, true);
         assert.deepEqual(result.headers, emptyList.headers);
-        assert.equal(receiptBinding(result).cells.length, result.headers.length);
+        // UIA includes unnamed icon/toggle cells; headers names only the
+        // labelled columns. They need not have the same length.
+        const cells = receiptBinding(result).cells;
+        assert(cells.length >= result.headers.length,
+          'Belegzeile enthaelt weniger Zellen als benannte Spalten.');
+        assert(cells.every((cell) => typeof cell.rid === 'string' && cell.rid.length > 0));
+        assert.equal(new Set(cells.map((cell) => cell.rid)).size, cells.length,
+          'Belegzeile wiederholt eine Zellidentitaet.');
         importedList = result;
       });
     let detail = await read("receipt_manager_read",
