@@ -220,6 +220,9 @@ function fixture(options = {}) {
 }
 
 assert(isQtNativeOperation("receipt_manager_link"));
+// Successful queued-callback cases use the normal provider wait budget, not
+// a scheduler-speed assertion. Rejection/deadline cases retain 100 ms below.
+const positiveCallbackWaitMs = 4000;
 for (const options of [{}, { footerLag: true }, { rows: [
   { title: "Synthetic receipt", document: "DOC-1", linked: true },
   { title: "Other receipt", document: "OTHER-1", linked: false },
@@ -229,8 +232,9 @@ for (const options of [{}, { footerLag: true }, { rows: [
   { title: "Duplicate other", document: "OTHER-1", linked: true },
 ] }, { transfer: "known" }, { modifiedLagReads: 1 }, { modifiedLagReads: 2, footerLag: true }]) {
   const test = fixture(options), before = [...test.persisted];
-  const result = await test.run();
-  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.verified, true);
+  const result = await test.run({ waitMs: positiveCallbackWaitMs });
+  assert.equal(result.ok, true, JSON.stringify({ scenario: "positive-callback-propagation", options, result }));
+  assert.equal(result.verified, true);
   assert.equal(result.persistenceVerified, true); assert.equal(result.applied, true); assert.equal(result.cleanupRequired, false);
   assert.equal(result.dirtyStateUnchangedBeforeApply, true); assert.equal(result.windowIdentitiesUnchanged, true);
   assert.equal(result.physicalInputUsed, false); assert.equal(result.foregroundLeaseUsed, false);
@@ -304,9 +308,10 @@ assert.equal((await batch.run({ items: [
 ] })).ok, true);
 assert.deepEqual(batch.persisted, [true, false]);
 const timestampBatch = fixture({ modifiedLagReads: 2 });
-assert.equal((await timestampBatch.run({ items: [
+const timestampBatchResult = await timestampBatch.run({ waitMs: positiveCallbackWaitMs, items: [
   { expectedReceiptTitle: "Synthetic receipt", linked: true }, { expectedReceiptTitle: "Other receipt", linked: false },
-] })).ok, true, "An adopted own timestamp must stay bound through subsequent batch steps and reopen");
+] });
+assert.equal(timestampBatchResult.ok, true, JSON.stringify({ scenario: "delayed-timestamp-batch-and-reopen", result: timestampBatchResult }));
 assert.deepEqual(timestampBatch.persisted, [true, false]);
 assert.equal(timestampBatch.timestampUpdates, 2, "Each batch row must publish and bind its own timestamp before the next action");
 assert.equal(batch.actions.filter(action => action.action === "set-table-check-state").length, 2);
