@@ -1853,8 +1853,12 @@ namespace ReceiptGridShapeContract {
  }
  public class GridInfo {public int RowCount=1,ColumnCount=9;}
  public class GridPattern {
-  public static object Pattern=new object();public GridInfo Current=new GridInfo();public string Title="Synthetic invoice";
-  public Cell GetItem(int row,int column){return new Cell(column,new string[]{"",Title,"15.01.2025","12,34","","","","","SYN-1"}[column]);}
+  public static object Pattern=new object();public GridInfo Current=new GridInfo();
+  public string[] Values=new string[]{"","Synthetic invoice","15.01.2025","12,34","","","","","SYN-1"};
+  public int[] Ids=new int[]{0,1,2,3,4,5,6,7,8};
+  public string Title {get{return Values[1];}set{Values[1]=value;}}
+  public void ClearName(int column){Values[column]=null;}
+  public Cell GetItem(int row,int column){return new Cell(Ids[column],Values[column]);}
  }
  public class SelectionItemPattern {public static object Pattern=new object();}
  public class TogglePattern {public static object Pattern=new object();}
@@ -1892,7 +1896,13 @@ Assert-True ($wide.rows[0].cells.Count -eq 9 -and $narrow.rows[0].documentNumber
 $script:shapeGrid.Title='Changed invoice'
 $changed=Get-SSEReceiptGridShapeProjection $narrowState $policy
 Assert-True ($changed.listFingerprint -cne $wide.listFingerprint) 'A real model change was hidden by viewport normalization.'
-$script:shapeGrid.Title='Synthetic invoice';$script:shapeGrid.Current.RowCount=2
+$script:shapeGrid.Title='Synthetic invoice';$script:shapeGrid.ClearName(8)
+$unknownName=Get-SSEReceiptGridShapeProjection $wideState $policy
+Assert-True (-not $unknownName.rowsComplete) 'An unreadable Grid name was silently converted into an empty value.'
+$script:shapeGrid.Values[8]='SYN-1';$script:shapeGrid.Ids[8]=1
+$duplicateId=Get-SSEReceiptGridShapeProjection $wideState $policy
+Assert-True (-not $duplicateId.rowsComplete) 'A Grid repeating a cell identity claimed a complete inventory.'
+$script:shapeGrid.Ids[8]=8;$script:shapeGrid.Current.RowCount=2
 $drifted=Get-SSEReceiptGridShapeProjection $wideState $policy
 Assert-True (-not $drifted.rowsComplete) 'A live Grid/count-label mismatch claimed a complete receipt inventory.'
 $script:shapeGrid.Current.RowCount=1;$script:shapeGridAvailable=$false

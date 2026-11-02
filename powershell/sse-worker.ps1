@@ -572,11 +572,14 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
         if ($gridMatchesProjection -and $gridColumnCount -gt 0) {
           $projectionExpectedCount = $gridRowCount
           $gridGroups = New-Object 'System.Collections.Generic.List[object]'
+          $gridIdentities = New-Object 'Collections.Generic.HashSet[string]'
           for ($gridRow = 0; $gridRow -lt $projectionExpectedCount; $gridRow++) {
             $gridCells = New-Object System.Collections.ArrayList
             for ($gridColumn = 0; $gridColumn -lt $gridColumnCount; $gridColumn++) {
               $gridItem = $grid.GetItem($gridRow, $gridColumn)
               if (-not $gridItem) { throw "Grid-Zeile $gridRow, Spalte $gridColumn fehlt." }
+              $gridName = $gridItem.Current.Name
+              if ($gridName -isnot [string]) { throw "Grid-Text in Zeile $gridRow, Spalte $gridColumn ist nicht lesbar." }
               $rectangle = $gridItem.Current.BoundingRectangle
               $selected = $null
               $toggleState = $null
@@ -591,13 +594,14 @@ function Get-SSEReceiptManagerListProjection($State, $Policy, [switch]$ReturnFai
                 $toggleState = [string]([Windows.Automation.TogglePattern]$toggleObject).Current.ToggleState
               }
               $gridRid = ($gridItem.GetRuntimeId() -join '.')
-              if ($gridRid) { $script:UIAElementCache[$gridRid] = $gridItem }
+              if (-not $gridRid -or -not $gridIdentities.Add($gridRid)) { throw 'Grid-Zellidentitaet fehlt oder ist wiederholt.' }
+              $script:UIAElementCache[$gridRid] = $gridItem
               $gridX = $(if ([double]::IsNaN([double]$rectangle.X) -or [double]::IsInfinity([double]$rectangle.X)) { 0 } else { [int]$rectangle.X })
               $gridY = $(if ([double]::IsNaN([double]$rectangle.Y) -or [double]::IsInfinity([double]$rectangle.Y)) { 0 } else { [int]$rectangle.Y })
               $gridWidth = $(if ([double]::IsNaN([double]$rectangle.Width) -or [double]::IsInfinity([double]$rectangle.Width)) { 0 } else { [int]$rectangle.Width })
               $gridHeight = $(if ([double]::IsNaN([double]$rectangle.Height) -or [double]::IsInfinity([double]$rectangle.Height)) { 0 } else { [int]$rectangle.Height })
               $null = $gridCells.Add([pscustomobject]@{
-                name=[string]$gridItem.Current.Name
+                name=$gridName
                 rid=$gridRid
                 selected=$selected
                 toggleState=$toggleState
