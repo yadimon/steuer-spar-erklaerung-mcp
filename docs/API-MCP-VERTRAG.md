@@ -1222,7 +1222,13 @@ Menüs wieder zu. Ein unbestätigtes Öffnen wird nicht wiederholt. Auch bei
 einem Aktivierungsfehler bleibt die ursprüngliche Eingabemarke für die
 Bereinigung maßgeblich.
 `menu_click` bindet den physischen Klick an die frisch gelesene Runtime-ID des
-Menüeintrags und die ursprüngliche Eingabemarke. Beim katalogisierten
+Menüeintrags und die ursprüngliche Eingabemarke. Bei einem eigenen
+Qt-Popup bleibt das bereits aktive Hauptfenster gebunden; der Klick aktiviert
+weder Popup noch Hauptfenster erneut. Derselbe Prozess, die bekannte
+Popup-Klasse, das vollständige Menüinventar und der tatsächliche Punktnachweis
+sind Pflicht. Die nur beobachtende Vordergrundbindung behält den geschützten
+Cursor-Rückweg; ein Fokus- oder Eingabewechsel erlaubt keinen Klick.
+Beim katalogisierten
 BelegManager bestätigt erst genau ein Fenster mit passender Prozesskennung,
 Klasse und Titel den Erfolg innerhalb von `waitMs`; es darf weder minimiert
 noch blockiert sein. Menütexte mit Zugriffstasten oder Tastenkürzeln verwenden

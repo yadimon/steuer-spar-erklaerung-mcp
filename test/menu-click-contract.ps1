@@ -45,13 +45,15 @@ function Invoke-MenuClickCase([string]$Mode,[int]$AppearsAt=0,[string]$RawLabel=
   [pscustomobject]@{hwnd=[IntPtr]202;node=$node}
  }
  function Get-LiveElement {return [pscustomobject]@{readable=$true}}
- function Get-DirtyStateFast {if($state.mode -ceq 'dirty-error' -and $state.clicks){throw 'Synthetic unreadable dirty state'};return $true}
+ function Get-DirtyStateFast {if($state.mode -ceq 'pre-dirty-error' -or ($state.mode -ceq 'dirty-error' -and $state.clicks)){throw 'Synthetic unreadable dirty state'};return $true}
  function Get-SSEReceiptManagerPolicy {
   if($state.mode -ceq 'policy-error'){throw 'Synthetic unreadable catalogue'}
   [pscustomobject]@{title='BelegManager';classPattern='^Qt\d+QWindowToolSaveBits$'}
  }
- function Click-VerifiedPoint($Window,$Node,$ExpectedInputTick,[string]$ExpectedRuntimeId,[switch]$ThrowOnFailure){
-  $state.clicks++;$state.clickArgs=@{window=[int64]$Window;rid=$Node.rid;tick=$ExpectedInputTick;expectedRid=$ExpectedRuntimeId;throws=[bool]$ThrowOnFailure}
+ function Click-VerifiedPoint($Window,$Node,$ExpectedInputTick,[string]$ExpectedRuntimeId,[switch]$ThrowOnFailure,
+  [switch]$RequireForeground,[IntPtr]$ForegroundWindow,[scriptblock]$BeforeClickCheck,$BeforeClickBinding){
+  $state.clicks++;$state.clickArgs=@{window=[int64]$Window;rid=$Node.rid;tick=$ExpectedInputTick;expectedRid=$ExpectedRuntimeId;throws=[bool]$ThrowOnFailure;
+   foreground=[int64]$ForegroundWindow;requires=[bool]$RequireForeground;binding=$BeforeClickBinding;check=$BeforeClickCheck}
   if($state.mode -in @('before-click','after-click','unknown-point-error')){
    $e=[InvalidOperationException]::new('Synthetic point refusal')
    if($state.mode -cne 'unknown-point-error'){$e.Data['kind']='interference';$e.Data['inputDispatched']=($state.mode -ceq 'after-click')}
@@ -62,7 +64,7 @@ function Invoke-MenuClickCase([string]$Mode,[int]$AppearsAt=0,[string]$RawLabel=
  function Step-MenuClock([int]$Milliseconds){[MenuClickContract.Clock]::Now+=$Milliseconds}
  function Get-Windows {
   $state.reads++;$null=$state.readTimes.Add([MenuClickContract.Clock]::Now)
-  if(-not $state.clicks -and $state.mode -cne 'already-open'){
+  if(-not $state.clicks -and -not $state.mode.StartsWith('already-open')){
    if($state.mode -ceq 'pre-read-error'){throw 'Synthetic unreadable pre-state'}
    return
   }
@@ -76,11 +78,16 @@ function Invoke-MenuClickCase([string]$Mode,[int]$AppearsAt=0,[string]$RawLabel=
    'minimized' {$tool.minimiert=$true}
    'hung' {$tool.hung=$true}
    'two' {return @($tool,([pscustomobject]@{hwnd=304;pid=55;title='BelegManager';cls=$tool.cls;minimiert=$false;hung=$false}))}
+   'already-open-minimized' {$tool.minimiert=$true}
+   'already-open-hung' {$tool.hung=$true}
+   'already-open-wrong-class' {$tool.cls='Qt692QWindowIcon'}
+   'duplicate-minimized' {return @($tool,([pscustomobject]@{hwnd=304;pid=55;title='BelegManager';cls=$tool.cls;minimiert=$true;hung=$false}))}
+   'duplicate-wrong-class' {return @($tool,([pscustomobject]@{hwnd=304;pid=55;title='BelegManager';cls='Qt692QWindowIcon';minimiert=$false;hung=$false}))}
   }
   if($state.mode -ceq 'slow-read'){[MenuClickContract.Clock]::Now=251}
   if([MenuClickContract.Clock]::Now -ge $state.appearsAt){return $tool}
  }
- function Emit($Object){$e=[InvalidOperationException]::new('Menu contract complete');$e.Data['MenuClickResult']=$Object;throw $e}
+ function Emit($Object){$state.finishedAt=[MenuClickContract.Clock]::Now;$e=[InvalidOperationException]::new('Menu contract complete');$e.Data['MenuClickResult']=$Object;throw $e}
  function Fail($Message,$Kind='error',$Details=$null){
   $payload=[ordered]@{ok=$false;kind=$Kind;error=$Message}
   foreach($p in @($Details.PSObject.Properties)){$payload[$p.Name]=$p.Value}
@@ -95,7 +102,7 @@ function Invoke-MenuClickCase([string]$Mode,[int]$AppearsAt=0,[string]$RawLabel=
 # The old dispatcher reports success after its already existing wait expires.
 $missing=Invoke-MenuClickCase 'zero'
 Assert-MenuClick ($missing.result.ok -eq $false -and $missing.result.kind -ceq 'postcondition-failed') 'A dispatched menu click without its catalogued window must not report success.'
-foreach($mode in @('zero','two','wrong-pid','wrong-class','wrong-title','minimized','hung','read-error','dirty-error','slow-read')){
+foreach($mode in @('zero','two','wrong-pid','wrong-class','wrong-title','minimized','hung','read-error','dirty-error','slow-read','duplicate-minimized','duplicate-wrong-class')){
  $case=Invoke-MenuClickCase $mode
  Assert-MenuClick ($case.result.ok -eq $false -and $case.result.inputDispatched -eq $true -and
   $case.result.outcomeUnknown -eq $true -and $case.result.retryable -eq $false) ('Unknown post-click outcome lost: '+$mode)
@@ -106,7 +113,9 @@ foreach($at in @(0,200,250)){
  Assert-MenuClick ($case.result.ok -eq $true -and $case.state.clicks -eq 1) 'A unique correctly bound window did not complete the menu action.'
  Assert-MenuClick ($case.state.tickReads -eq 1 -and $case.state.clickArgs.tick -eq 37 -and
   $case.state.clickArgs.expectedRid -ceq 'menu-item' -and $case.state.clickArgs.window -eq 202 -and
-  $case.state.clickArgs.throws) 'The exact item RID and original epoch were not passed to the real point helper.'
+  $case.state.clickArgs.throws -and $case.state.clickArgs.requires -and $case.state.clickArgs.foreground -eq 101 -and
+  $case.state.clickArgs.binding.processId -eq 55 -and $case.state.clickArgs.binding.popupHwnd -eq 202 -and
+  $null -ne $case.state.clickArgs.check) 'The exact item RID, original epoch and bound popup/main relation were not passed to the real point helper.'
 }
 $late=Invoke-MenuClickCase 'success' 251
 Assert-MenuClick ($late.result.ok -eq $false -and $late.result.outcomeUnknown -eq $true -and $late.state.clicks -eq 1) 'A window first appearing after the deadline was accepted or clicked again.'
@@ -115,7 +124,7 @@ foreach($mode in @('before-click','after-click','unknown-point-error')){
  Assert-MenuClick ($case.result.ok -eq $false -and $case.state.clicks -eq 1 -and $case.state.reads -eq 1) 'A refused or unknown point action was followed by more work.'
  Assert-MenuClick ($case.result.outcomeUnknown -eq ($mode -cne 'before-click')) 'Known unsent and unknown sent point actions were conflated.'
 }
-foreach($mode in @('missing-tick','missing-rid','disabled','unreadable-enabled','already-open','pre-read-error')){
+foreach($mode in @('missing-tick','missing-rid','disabled','unreadable-enabled','already-open','already-open-minimized','already-open-hung','already-open-wrong-class','pre-read-error','pre-dirty-error')){
  $case=Invoke-MenuClickCase $mode
  Assert-MenuClick ($case.result.ok -eq $false -and $case.result.kind -ceq 'precondition-failed' -and $case.result.inputDispatched -eq $false -and
   $case.result.outcomeUnknown -eq $false -and $case.result.retryable -eq $false -and $case.state.clicks -eq 0) ('Unsafe menu precondition accepted: '+$mode)
@@ -130,4 +139,7 @@ $policy=Invoke-MenuClickCase 'policy-error'
 Assert-MenuClick ($policy.state.clicks -eq 0 -and $policy.error -ceq 'Synthetic unreadable catalogue') 'The receipt policy was first read after physical input.'
 $generic=Invoke-MenuClickCase 'generic'
 Assert-MenuClick ($generic.result.ok -eq $true -and $generic.state.clicks -eq 1) 'A generic menu entry changed its dispatch contract.'
+Assert-MenuClick ($generic.state.reads -eq 1 -and $generic.state.finishedAt -eq 250) 'A generic command entered the receipt-specific precondition or polling path.'
+$nearMiss=Invoke-MenuClickCase 'success' 0 'BelegManager oeffnen'
+Assert-MenuClick ($nearMiss.result.ok -eq $true -and $nearMiss.state.reads -eq 1 -and $nearMiss.state.finishedAt -eq 250) 'A near-miss receipt label entered the special window contract.'
 Write-Output 'Menu click: actual dispatcher, exact item/epoch, bounded window proof and no replay after unknown outcomes passed.'

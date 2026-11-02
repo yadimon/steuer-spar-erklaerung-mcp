@@ -1,0 +1,175 @@
+$ErrorActionPreference='Stop'
+$worker=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
+$parseErrors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($worker,[ref]$null,[ref]$parseErrors)
+if($parseErrors.Count){throw 'Worker cannot be parsed.'}
+foreach($name in @('Click-VerifiedPoint','Enter-SSEForegroundLease','Exit-SSEForegroundLease',
+ 'Set-SSEForegroundLeaseInputCheckpoint','Get-SSEInputEpochEvidence','Test-SSELastInputUnchanged',
+ 'Set-SSECursorPoint','Assert-SSECursorPoint','Hide-SSETopmost','Test-SSEMenuPointBinding')){
+ $found=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
+ if($found.Count -ne 1){throw ('Actual menu point helper is ambiguous: '+$name)}
+ . ([scriptblock]::Create($found[0].Extent.Text))
+}
+$leaseInit=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$script:SSE_FOREGROUND_LEASE'},$true))
+if($leaseInit.Count -ne 1){throw 'Actual foreground lease initializer is ambiguous.'}
+$initializeLease=[scriptblock]::Create($leaseInit[0].Extent.Text)
+Add-Type -AssemblyName WindowsBase
+Add-Type @'
+using System;
+public static class SW {
+ public struct PT {public int X,Y;}
+ public static long Foreground=101;
+ public static int CursorX=7,CursorY=9,MouseCalls,WindowPosCalls;
+ public static uint Tick=37,PopupPid=55;
+ public static bool PopupAlive=true,MainAlive=true,CorrectPoint=true,RedirectRoot;
+ public static Action OnCursorRead,OnMouseUp,OnPointRead;
+ public static IntPtr GetForegroundWindow(){return new IntPtr(Foreground);}
+ public static bool IsWindow(IntPtr h){return h.ToInt64()==101?MainAlive:h.ToInt64()==202&&PopupAlive;}
+ public static uint GetWindowThreadProcessId(IntPtr h,out int pid){pid=IsWindow(h)?(h.ToInt64()==101?55:(int)PopupPid):0;return pid==0?0u:1u;}
+ public static IntPtr GetAncestor(IntPtr h,int kind){return RedirectRoot&&h.ToInt64()==202?new IntPtr(101):h;}
+ public static IntPtr GetWindow(IntPtr h,int kind){return IntPtr.Zero;}
+ public static bool GetCursorPos(ref PT p){p.X=CursorX;p.Y=CursorY;if(OnCursorRead!=null)OnCursorRead();return true;}
+ public static bool SetCursorPos(int x,int y){CursorX=x;CursorY=y;return true;}
+ public static bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int w,int height,int flags){WindowPosCalls++;return true;}
+ public static void mouse_event(int flags,int x,int y,int data,IntPtr extra){MouseCalls++;if(flags==4){Tick++;PopupAlive=false;if(OnMouseUp!=null)OnMouseUp();}}
+}
+public sealed class MenuPointElement {public int[] GetRuntimeId(){return SW.CorrectPoint?new int[]{4,7}:new int[]{4,8};}}
+public static class MenuPointAE {public static MenuPointElement FromPoint(object p){if(SW.OnPointRead!=null)SW.OnPointRead();return new MenuPointElement();}}
+'@
+$script:AE=[MenuPointAE]
+$WLK=[pscustomobject]@{}
+$WLK|Add-Member ScriptMethod GetParent {param($Element) return $null}
+function Get-SSELastInputTick {[SW]::Tick}
+function Start-Sleep {param($Milliseconds) if($Milliseconds -eq 180 -and $script:foreignAfterInput){[SW]::Tick++}}
+function Set-SSEForegroundWindowCore {param([IntPtr]$Hwnd,[switch]$Topmost) $script:activationCalls++;return $true}
+function Show-SSEWindow {param([IntPtr]$Hwnd) $script:showCalls++;Enter-SSEForegroundLease $Hwnd}
+function Test-SSEWindowIsLockScreen {return $false}
+function Get-SSEWindowClassName([IntPtr]$Window){if($Window -eq [IntPtr]202){return $script:popupClass};return 'Qt692QWindowIcon'}
+function Get-SSEMenuPopupWindows([int]$TargetPid){if($script:listedPopup -and [SW]::PopupAlive){[pscustomobject]@{hwnd=202;pid=55;cls=$script:popupClass}}}
+function Get-SSEPointObstruction([IntPtr]$Window,[int]$X,[int]$Y){
+ if($Window -ne [IntPtr]202){throw 'Popup hit proof was rebound to the main window.'}
+ [pscustomobject]@{isBoundTarget=$script:unobstructed}
+}
+function Fail($Message,$Kind,$Details){throw ('Unexpected terminal Emit: '+$Kind+' '+$Message)}
+function Reset-MenuPoint {
+ & $initializeLease
+ [SW]::Foreground=101;[SW]::CursorX=7;[SW]::CursorY=9;[SW]::MouseCalls=0;[SW]::WindowPosCalls=0
+ [SW]::Tick=37;[SW]::PopupPid=55;[SW]::PopupAlive=$true;[SW]::MainAlive=$true;[SW]::CorrectPoint=$true;[SW]::RedirectRoot=$false
+ [SW]::OnCursorRead=$null;[SW]::OnMouseUp=$null;[SW]::OnPointRead=$null
+ $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadow'
+ $script:listedPopup=$true;$script:unobstructed=$true
+ $script:foreignAfterInput=$false
+}
+$node=[pscustomobject]@{x=20;y=30;w=100;h=20;rid='4.7';name='BelegManager';type='MenuItem';on=$true}
+function Invoke-MenuPoint([scriptblock]$Before=$null){
+ $binding=[pscustomobject]@{mainHwnd=101;processId=55;popupHwnd=202}
+ $verify={param($Window,$Binding,$X,$Y) Test-SSEMenuPointBinding $Window $Binding}
+ if($Before){$verify={param($Window,$Binding,$X,$Y) & $Before $Window $Binding $X $Y;Test-SSEMenuPointBinding $Window $Binding}}
+ Click-VerifiedPoint ([IntPtr]202) $node 37 -ForegroundWindow ([IntPtr]101) -RequireForeground -ExpectedRuntimeId '4.7' -ThrowOnFailure -BeforeClickCheck $verify -BeforeClickBinding $binding
+}
+function Check-MenuPoint([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
+function Assert-NoMenuActivation {
+ Check-MenuPoint ($script:showCalls -eq 0 -and $script:activationCalls -eq 0 -and [SW]::WindowPosCalls -eq 0) 'An open menu or its main window was activated or raised.'
+}
+Reset-MenuPoint
+$point=Invoke-MenuPoint
+Check-MenuPoint ([SW]::MouseCalls -eq 2 -and $point.foregroundHwndBeforeClick -eq 101 -and $point.foregroundBoundBeforeClick) 'An ownerless same-process popup was not clicked exactly once under its bound main foreground.'
+Assert-NoMenuActivation
+Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.depth -eq 0 -and $null -ne $script:SSE_FOREGROUND_LEASE.watch -and $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 38) 'The click lost its original observational lease or its own input checkpoint.'
+Exit-SSEForegroundLease -Force -Reason 'emit'
+Check-MenuPoint ([SW]::CursorX -eq 7 -and [SW]::CursorY -eq 9 -and $script:SSE_FOREGROUND_LEASE.cursorRestored) 'The already-foreground popup path did not restore the original cursor after its own input.'
+Assert-NoMenuActivation
+
+foreach($case in @(
+ @{name='foreign-foreground';setup={[SW]::Foreground=999}},
+ @{name='foreign-input';setup={[SW]::Tick=38}},
+ @{name='foreign-popup';setup={[SW]::PopupPid=56}},
+ @{name='dead-main';setup={[SW]::MainAlive=$false}},
+ @{name='wrong-class';setup={$script:popupClass='Qt692QWindowToolSaveBits'}},
+ @{name='wrong-root';setup={[SW]::RedirectRoot=$true}},
+ @{name='missing-popup';setup={$script:listedPopup=$false}},
+ @{name='obstructed';setup={$script:unobstructed=$false}},
+ @{name='wrong-point';setup={[SW]::CorrectPoint=$false}},
+ @{name='input-during-capture';setup={[SW]::OnCursorRead={[SW]::Tick=38}}},
+ @{name='foreground-during-capture';setup={[SW]::OnCursorRead={[SW]::Foreground=999}}},
+ @{name='unreadable-capture';setup={[SW]::OnCursorRead={throw 'Synthetic capture refusal'}}},
+ @{name='input-during-point';setup={[SW]::OnPointRead={[SW]::Tick=38}}}
+)){
+ Reset-MenuPoint;& $case.setup;$caught=$null
+ try{Invoke-MenuPoint|Out-Null}catch{$caught=$_}
+ Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0) ('An unsafe menu point crossed the dispatch boundary: '+$case.name)
+ Exit-SSEForegroundLease -Force -Reason 'emit'
+ Assert-NoMenuActivation
+ if($case.name -ceq 'input-during-capture'){
+  Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 37 -and -not $script:SSE_FOREGROUND_LEASE.releaseInputEvidence.unchanged) 'Foreign input during observation was adopted as an owned epoch.'
+ }
+}
+Reset-MenuPoint
+$script:SSE_FOREGROUND_LEASE.watch=[Diagnostics.Stopwatch]::StartNew()
+$script:SSE_FOREGROUND_LEASE.depth=2;$script:SSE_FOREGROUND_LEASE.lastAcquireRaised=$true
+$heldWatch=$script:SSE_FOREGROUND_LEASE.watch;$caught=$null
+try{Invoke-MenuPoint|Out-Null}catch{$caught=$_}
+Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0 -and
+ [object]::ReferenceEquals($heldWatch,$script:SSE_FOREGROUND_LEASE.watch) -and $script:SSE_FOREGROUND_LEASE.depth -eq 2 -and
+ $script:SSE_FOREGROUND_LEASE.lastAcquireRaised) 'An observational menu call adopted or modified an existing lease.'
+Assert-NoMenuActivation
+foreach($missing in @('tick','rid','foreground','check','binding','throw','double-click','prepare','msaa','same-window')){
+ Reset-MenuPoint
+ $arguments=@{Window=[IntPtr]202;Node=$node;ExpectedInputTick=37;ForegroundWindow=[IntPtr]101;RequireForeground=$true;
+  ExpectedRuntimeId='4.7';ThrowOnFailure=$true;BeforeClickCheck={return $true};BeforeClickBinding=[pscustomobject]@{mainHwnd=101}}
+ switch($missing){
+  'tick'{$arguments.ExpectedInputTick=$null}
+  'rid'{$arguments.ExpectedRuntimeId=''}
+  'foreground'{$arguments.RequireForeground=$false}
+  'check'{$arguments.BeforeClickCheck=$null}
+  'binding'{$arguments.BeforeClickBinding=$null}
+  'throw'{$arguments.ThrowOnFailure=$false}
+  'double-click'{$arguments.ClickCount=2}
+  'prepare'{$arguments.PrepareTarget={throw 'Preparation must not run'}}
+  'msaa'{$arguments.Node=[pscustomobject]@{x=20;y=30;w=100;h=20;source='msaa-point'}}
+  'same-window'{$arguments.ForegroundWindow=[IntPtr]202}
+ }
+ $caught=$null;try{Click-VerifiedPoint @arguments|Out-Null}catch{$caught=$_}
+ Check-MenuPoint ($null -ne $caught -and [SW]::MouseCalls -eq 0 -and $null -eq $script:SSE_FOREGROUND_LEASE.watch) ('Incomplete popup authority was accepted: '+$missing)
+ Assert-NoMenuActivation
+}
+Reset-MenuPoint
+$throwingCheck={param($Window,$Binding,$X,$Y) if($null -ne $X){throw 'Synthetic unreadable final popup'}}
+$caught=$null;try{Invoke-MenuPoint $throwingCheck|Out-Null}catch{$caught=$_}
+Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['kind'] -ceq 'stale' -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0) 'A throwing last popup proof lost its known-unsent state.'
+Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+foreach($change in @(
+ {[SW]::Foreground=999}, {[SW]::PopupPid=56}, {$script:popupClass='Qt692QWindowToolSaveBits'}, {$script:listedPopup=$false}
+)){
+ Reset-MenuPoint;$caught=$null
+ $before={param($Window,$Binding,$X,$Y) if($null -ne $X){& $change}}
+ try{Invoke-MenuPoint $before|Out-Null}catch{$caught=$_}
+ Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0) 'Popup or foreground drift during the final proof was accepted.'
+ Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+}
+Reset-MenuPoint
+$script:foreignAfterInput=$true
+$caught=$null
+try{Invoke-MenuPoint|Out-Null}catch{$caught=$_}
+Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $true -and [SW]::MouseCalls -eq 2) 'Post-click interference lost its dispatch evidence or replayed input.'
+Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+
+$calls=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Click-VerifiedPoint' -and
+ @($n.CommandElements|Where-Object{$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'ForegroundWindow'}).Count -gt 0},$true))
+$menuSwitch=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.SwitchStatementAst] -and
+ @($n.Clauses|Where-Object{$_.Item1.Extent.Text -ceq "'menu_click'"}).Count -eq 1},$true))
+Check-MenuPoint ($menuSwitch.Count -eq 1) 'Actual menu dispatcher is ambiguous.'
+$menuExtent=@($menuSwitch[0].Clauses|Where-Object{$_.Item1.Extent.Text -ceq "'menu_click'"})[0].Item2.Extent
+Check-MenuPoint ($calls.Count -eq 1 -and $calls[0].Extent.StartOffset -gt $menuExtent.StartOffset -and $calls[0].Extent.EndOffset -lt $menuExtent.EndOffset) 'The popup-only foreground contract spread to unrelated point callers.'
+Reset-MenuPoint
+[SW]::Tick=0
+$zeroLease=Enter-SSEForegroundLease ([IntPtr]101) -ObserveOnly -ExpectedInputTick ([uint64]0)
+Check-MenuPoint ($zeroLease -eq $true -and $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 0) 'An observational lease rejected a valid zero epoch.'
+Assert-NoMenuActivation
+Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
+Reset-MenuPoint
+$defaultLease=Enter-SSEForegroundLease ([IntPtr]101)
+Check-MenuPoint ($defaultLease -eq $true -and $script:activationCalls -eq 1 -and $script:SSE_FOREGROUND_LEASE.raises -eq 1 -and
+ $script:SSE_FOREGROUND_LEASE.raisedWindows.Contains([int64]101)) 'The default foreground acquisition lost its activation behavior.'
+Exit-SSEForegroundLease -Force -Reason 'emit'
+Write-Output 'Menu point: actual click/lease/cursor composition, ownerless popup, no activation, retained input and strict dispatch boundaries passed.'

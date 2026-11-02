@@ -69,6 +69,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   deaktivierte Einträge und bereits offene Zielfenster erlauben keinen Klick.
   Fehlender oder verlorener Nachweis nach dem exakt gebundenen Klick
   bleibt unbekannt und erlaubt weder Wiederholung noch Menübereinigung.
+  Ein offenes Qt-Popup wird bei der Auswahl nicht erneut aktiviert. Seine
+  Prozess-, Klassen-, Inventar- und Punktbindung sowie das bereits aktive
+  Hauptfenster bleiben Pflicht; die Beobachtungsbindung erhält den Cursor-Rückweg.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.

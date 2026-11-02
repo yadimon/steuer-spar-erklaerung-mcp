@@ -3878,8 +3878,11 @@ function Click-VerifiedPoint(
   [scriptblock]$BeforeClickCheck = $null,
   $BeforeClickBinding = $null,
   [switch]$ThrowOnFailure,
-  [scriptblock]$PrepareTarget = $null
+  [scriptblock]$PrepareTarget = $null,
+  [IntPtr]$ForegroundWindow = [IntPtr]::Zero
 ) {
+  $popupMode = ($ForegroundWindow -ne [IntPtr]::Zero)
+  $foregroundTarget = $(if ($popupMode) { $ForegroundWindow } else { $Window })
   $clickDispatched = $false
   $foregroundAcquired = $false
   $focusAttempted = $false
@@ -3891,13 +3894,13 @@ function Click-VerifiedPoint(
     # Eingabebindung erhalten, damit der Aufrufer nicht automatisch verwirft.
     if (-not $clickDispatched -and
         (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
-         ($RequireForeground -and $foregroundAcquired -and [SW]::GetForegroundWindow() -ne $Window))) {
+         ($RequireForeground -and $foregroundAcquired -and [SW]::GetForegroundWindow() -ne $foregroundTarget))) {
       $Kind = 'interference'
       $Message = 'Eingabe- oder Vordergrundbindung waehrend der Punktpruefung verloren. ' + $Message
     }
     # Erst klassifizieren, dann die eigene Lease freigeben: deren Rueckgabe
     # kann selbst den vorherigen Vordergrund wiederherstellen.
-    if ($focusAttempted) { Hide-SSETopmost $Window }
+    if ($focusAttempted) { Hide-SSETopmost $foregroundTarget }
     if ($ThrowOnFailure) {
       $failure=[InvalidOperationException]::new([string]$Message)
       $failure.Data['kind']=$Kind
@@ -3918,6 +3921,16 @@ function Click-VerifiedPoint(
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
     & $pointFailure 'Eigene Eingabe-Epoche vor der Fokusuebernahme verloren. NICHT geklickt.' 'interference'
   }
+  if ($popupMode) {
+    if ($ForegroundWindow -eq $Window -or $null -eq $ExpectedInputTick -or -not $RequireForeground -or
+        -not $ExpectedRuntimeId -or -not $BeforeClickCheck -or -not $BeforeClickBinding -or
+        -not $ThrowOnFailure -or $PrepareTarget -or $ClickCount -ne 1 -or $Node.source -eq 'msaa-point') {
+      & $pointFailure 'Ein offenes Popup braucht eine vollstaendige Hauptfenster-, Punkt- und Eingabebindung.' 'precondition-failed'
+    }
+    try { $popupBound = & $BeforeClickCheck $Window $BeforeClickBinding $null $null }
+    catch { & $pointFailure 'Popup-Bindung vor dem Klick nicht lesbar. NICHT geklickt.' 'stale' }
+    if (-not $popupBound) { & $pointFailure 'Popup oder aktives Hauptfenster nicht mehr exakt gebunden. NICHT geklickt.' 'interference' }
+  }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
   if ($PrepareTarget -and ($null -eq $ExpectedInputTick -or -not $RequireForeground -or -not $ExpectedRuntimeId -or
       -not $BeforeClickCheck -or -not $BeforeClickBinding -or -not $ThrowOnFailure)) {
@@ -3929,19 +3942,33 @@ function Click-VerifiedPoint(
   # zwischen ihnen wird nie geklickt und die Lease sauber wieder abgesenkt.
   # Ein dauerhaft verweigerter Vordergrund bleibt fail-closed.
   $foregroundReady = (-not $RequireForeground)
-  for ($foregroundAttempt = 1; $foregroundAttempt -le $ForegroundAttempts; $foregroundAttempt++) {
-    $focusAttempted = $true
-    $null = Show-SSEWindow $Window
-    # Bei einer bereits gehaltenen Lease ist SSE schon oben und im Vordergrund.
-    # Ein weiterer Settle pro Zell-/Pfeil-/Popup-Klick waere nur Flackern und
-    # macht mehrstufige Tabellenaktionen unnoetig langsam.
-    if ($script:SSE_FOREGROUND_LEASE.lastAcquireRaised -and $SettleMs -gt 0) { Start-Sleep -Milliseconds $SettleMs }
-    if (-not $RequireForeground -or [SW]::GetForegroundWindow() -eq $Window) {
-      $foregroundReady = $true
-      break
+  if ($popupMode) {
+    # Qt-Popups haben nicht zwingend einen Win32-Owner. Das bereits aktive
+    # Hauptfenster nur beobachten; jede erneute Aktivierung kann den offenen
+    # Menuezustand veraendern. Die Lease behaelt trotzdem den Cursor-Rueckweg.
+    $leaseBefore = $script:SSE_FOREGROUND_LEASE.watch
+    try { $observed = Enter-SSEForegroundLease $foregroundTarget -ObserveOnly -ExpectedInputTick $ExpectedInputTick }
+    catch {
+      $focusAttempted = ($null -eq $leaseBefore -and $null -ne $script:SSE_FOREGROUND_LEASE.watch)
+      & $pointFailure 'Beobachtende Vordergrundbindung nicht lesbar. NICHT geklickt.' 'stale'
     }
-    Hide-SSETopmost $Window
-    if ($foregroundAttempt -lt $ForegroundAttempts) { Start-Sleep -Milliseconds 100 }
+    $focusAttempted = ($null -eq $leaseBefore -and $null -ne $script:SSE_FOREGROUND_LEASE.watch)
+    $foregroundReady = [bool]$observed
+  } else {
+    for ($foregroundAttempt = 1; $foregroundAttempt -le $ForegroundAttempts; $foregroundAttempt++) {
+      $focusAttempted = $true
+      $null = Show-SSEWindow $Window
+      # Bei einer bereits gehaltenen Lease ist SSE schon oben und im Vordergrund.
+      # Ein weiterer Settle pro Zell-/Pfeil-/Popup-Klick waere nur Flackern und
+      # macht mehrstufige Tabellenaktionen unnoetig langsam.
+      if ($script:SSE_FOREGROUND_LEASE.lastAcquireRaised -and $SettleMs -gt 0) { Start-Sleep -Milliseconds $SettleMs }
+      if (-not $RequireForeground -or [SW]::GetForegroundWindow() -eq $Window) {
+        $foregroundReady = $true
+        break
+      }
+      Hide-SSETopmost $Window
+      if ($foregroundAttempt -lt $ForegroundAttempts) { Start-Sleep -Milliseconds 100 }
+    }
   }
   if (-not $foregroundReady) {
     & $pointFailure 'Gebundenes SSE-Fenster konnte vor dem verifizierten Klick nicht in den Vordergrund gebracht werden. NICHT geklickt.' 'interference'
@@ -3998,11 +4025,11 @@ function Click-VerifiedPoint(
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
     & $pointFailure 'Fremde Benutzereingabe unmittelbar vor dem verifizierten Klick erkannt. NICHT geklickt.' 'interference'
   }
-  if ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) {
+  if ($RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget) {
     & $pointFailure 'Gebundenes SSE-Fenster ist unmittelbar vor dem verifizierten Klick nicht im Vordergrund. NICHT geklickt.' 'interference'
   }
   $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
-  $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$Window)
+  $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$foregroundTarget)
   Set-SSECursorPoint $px $py -OnFailure $cursorFailure
   Start-Sleep -Milliseconds 100
   if ($ExpectedRuntimeId) {
@@ -4030,19 +4057,22 @@ function Click-VerifiedPoint(
         }
         & $pointFailure $_.Exception.Message 'precondition-failed' $null $true $true
       }
+    } elseif ($popupMode) {
+      try { $beforeClickBound = & $BeforeClickCheck $Window $BeforeClickBinding $px $py }
+      catch { & $pointFailure 'Popup-Bindung unmittelbar vor dem Klick nicht lesbar. NICHT geklickt.' 'stale' }
     } else { $beforeClickBound = & $BeforeClickCheck $Window $BeforeClickBinding $px $py }
     if (-not $beforeClickBound) {
       & $pointFailure 'Das gebundene Klickziel ist unmittelbar vor dem Mausklick nicht mehr bestaetigt. NICHT geklickt.' 'stale'
     }
   }
   if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
-      ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) -or
+      ($RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget) -or
       -not (Get-SSEPointObstruction $Window $px $py).isBoundTarget) {
     & $pointFailure 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
   }
   Assert-SSECursorPoint $px $py -OnFailure $cursorFailure
   if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
-      ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window)) {
+      ($RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget)) {
     & $pointFailure 'Eingabe-Epoche oder Vordergrund nach der letzten Cursorpruefung geaendert. NICHT geklickt.' 'interference'
   }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
@@ -4057,7 +4087,7 @@ function Click-VerifiedPoint(
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $inputTickAfterClick)) {
     & $pointFailure 'Eingabe-Epoche nach dem bereits ausgefuehrten verifizierten Klick geaendert oder nicht lesbar.' 'interference'
   }
-  if ([SW]::IsWindow($Window)) { Hide-SSETopmost $Window }
+  if ([SW]::IsWindow($foregroundTarget)) { Hide-SSETopmost $foregroundTarget }
   [pscustomobject]@{
     x = $px; y = $py; clickCount = $ClickCount
     inputTickAfterClick=$inputTickAfterClick
@@ -4978,10 +5008,13 @@ function Set-SSEForegroundWindowCore([IntPtr]$hwnd, [switch]$Topmost) {
   return $false
 }
 
-function Enter-SSEForegroundLease([IntPtr]$Hwnd) {
+function Enter-SSEForegroundLease([IntPtr]$Hwnd, [switch]$ObserveOnly, $ExpectedInputTick = $null) {
   $lease = $script:SSE_FOREGROUND_LEASE
+  if ($ObserveOnly -and $null -ne $lease.watch) { return $false }
   $lease.lastAcquireRaised = $false
   if ($Hwnd -eq [IntPtr]::Zero -or -not [SW]::IsWindow($Hwnd)) { return $false }
+  if ($ObserveOnly -and ($null -eq $ExpectedInputTick -or
+      [SW]::GetForegroundWindow() -ne $Hwnd -or -not (Test-SSELastInputUnchanged $ExpectedInputTick))) { return $false }
 
   # watch bleibt auch bei depth=0 bis Emit gesetzt. Ein zwischenzeitliches
   # Hide nimmt nur TOPMOST zurueck; es darf den Benutzerfokus nicht vor einer
@@ -4997,8 +5030,9 @@ function Enter-SSEForegroundLease([IntPtr]$Hwnd) {
     } else { $null })
     $lease.raisedWindows.Clear()
     $lease.acquisitions = 0; $lease.raises = 0; $lease.topmostCycles = 0; $lease.releases = 0
-    $lease.lastOwnedInputTick = Get-SSELastInputTick
-    $lease.lastOwnedInputContext = 'foreground-lease-acquire'
+    if ($ObserveOnly) { $lease.lastOwnedInputTick = [uint64]$ExpectedInputTick }
+    else { $lease.lastOwnedInputTick = Get-SSELastInputTick }
+    $lease.lastOwnedInputContext = $(if ($ObserveOnly) { 'foreground-observe' } else { 'foreground-lease-acquire' })
     $lease.releaseInputEvidence = $null
     $lease.foregroundBeforeRestore = $null; $lease.foregroundAfterRestore = $null
     $lease.ownedCursorPoint = $null
@@ -5009,6 +5043,9 @@ function Enter-SSEForegroundLease([IntPtr]$Hwnd) {
 
   $lease.depth = [int]$lease.depth + 1
   $lease.acquisitions = [int]$lease.acquisitions + 1
+  if ($ObserveOnly) {
+    return [bool]([SW]::GetForegroundWindow() -eq $Hwnd -and (Test-SSELastInputUnchanged $ExpectedInputTick))
+  }
   if ([int]$lease.acquisitions -gt 1 -and [SW]::GetForegroundWindow() -eq $Hwnd) {
     return $true
   }
@@ -12430,6 +12467,24 @@ function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string
       }
   }
   @($entryMatches)
+}
+
+function Test-SSEMenuPointBinding([IntPtr]$Popup, $Binding) {
+  try {
+    $main = [IntPtr][int64]$Binding.mainHwnd
+    $expectedPid = [int]$Binding.processId
+    if ($expectedPid -le 0 -or $Popup -eq $main -or [int64]$Popup -ne [int64]$Binding.popupHwnd -or
+        -not [SW]::IsWindow($main) -or -not [SW]::IsWindow($Popup) -or
+        [SW]::GetAncestor($main,2) -ne $main -or [SW]::GetAncestor($Popup,2) -ne $Popup -or
+        [SW]::GetForegroundWindow() -ne $main -or
+        (Get-SSEWindowClassName $Popup) -notmatch '^Qt\d+QWindowPopupDropShadow$') { return $false }
+    $mainPid = 0; $popupPid = 0
+    $null = [SW]::GetWindowThreadProcessId($main,[ref]$mainPid)
+    $null = [SW]::GetWindowThreadProcessId($Popup,[ref]$popupPid)
+    if ($mainPid -ne $expectedPid -or $popupPid -ne $expectedPid) { return $false }
+    $listed = @(Get-SSEMenuPopupWindows $expectedPid | Where-Object { [int64]$_.hwnd -eq [int64]$Popup })
+    [bool]($listed.Count -eq 1 -and [SW]::GetForegroundWindow() -eq $main)
+  } catch { $false }
 }
 
 function Open-SSESaveAsDialog([IntPtr]$MainHwnd, [int]$TargetPid) {
@@ -24762,17 +24817,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # und die SSE-Prozess-ID gebunden.
     $receiptPolicy = Get-SSEReceiptManagerPolicy
     $opensReceiptManager = (ConvertTo-MenuLabel $match.node.name) -ceq (ConvertTo-MenuLabel $receiptPolicy.title)
-    $receiptWindowMatches = {
+    $receiptTitleMatches = {
       param($Windows)
       @($Windows | Where-Object {
         [int]$_.pid -eq $targetPid -and
-        [string]$_.title -ceq [string]$receiptPolicy.title -and
-        [string]$_.cls -match [string]$receiptPolicy.classPattern -and
-        -not [bool]$_.minimiert -and -not [bool]$_.hung
+        [string]$_.title -ceq [string]$receiptPolicy.title
       })
     }
     if ($opensReceiptManager) {
-      try { $alreadyOpen = @(& $receiptWindowMatches @(Get-Windows 'SSE')) }
+      try { $alreadyOpen = @(& $receiptTitleMatches @(Get-Windows 'SSE')) }
       catch {
         Fail 'Fensterzustand vor dem Menue-Klick nicht lesbar; nichts ausgeloest.' 'precondition-failed' ([pscustomobject]@{
           inputDispatched=$false; outcomeUnknown=$false; retryable=$false
@@ -24784,10 +24837,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         })
       }
     }
-    $dirtyBefore = Get-DirtyStateFast $mainHwnd
+    try { $dirtyBefore = Get-DirtyStateFast $mainHwnd }
+    catch {
+      Fail 'Speicherzustand vor dem Menue-Klick nicht lesbar; nichts ausgeloest.' 'precondition-failed' ([pscustomobject]@{
+        inputDispatched=$false; outcomeUnknown=$false; retryable=$false
+      })
+    }
+    $menuPointBinding = [pscustomobject]@{mainHwnd=[int64]$mainHwnd;processId=$targetPid;popupHwnd=[int64]$match.hwnd}
+    $menuPointCheck = { param($Window,$Binding,$X,$Y) Test-SSEMenuPointBinding $Window $Binding }
     try {
       $null = Click-VerifiedPoint $match.hwnd $match.node $inputBaseline `
-        -ExpectedRuntimeId ([string]$match.node.rid) -ThrowOnFailure
+        -ExpectedRuntimeId ([string]$match.node.rid) -ThrowOnFailure -RequireForeground -ForegroundWindow $mainHwnd `
+        -BeforeClickCheck $menuPointCheck -BeforeClickBinding $menuPointBinding
     } catch {
       $pointError = $_.Exception
       $inputKnown = $pointError.Data['inputDispatched'] -is [bool]
@@ -24804,8 +24865,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       try {
         do {
           $toolWindows = @(Get-Windows 'SSE')
-          $toolMatches = @(& $receiptWindowMatches $toolWindows)
-          if ($toolMatches.Count -eq 1 -or $toolWatch.ElapsedMilliseconds -ge $waitMs) { break }
+          $titleMatches = @(& $receiptTitleMatches $toolWindows)
+          $toolMatches = @($titleMatches | Where-Object {
+            [string]$_.cls -match [string]$receiptPolicy.classPattern -and
+            -not [bool]$_.minimiert -and -not [bool]$_.hung
+          })
+          if (($titleMatches.Count -eq 1 -and $toolMatches.Count -eq 1) -or $toolWatch.ElapsedMilliseconds -ge $waitMs) { break }
           $remaining = $waitMs - [int]$toolWatch.ElapsedMilliseconds
           if ($remaining -gt 0) { Start-Sleep -Milliseconds ([Math]::Min(100, $remaining)) }
         } while ($true)
@@ -24814,13 +24879,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           inputDispatched=$true; outcomeUnknown=$true; retryable=$false; reconciliationRequired=$true; cleanupRequired=$true
         })
       }
-      if ($toolMatches.Count -ne 1 -or $toolWatch.ElapsedMilliseconds -gt $waitMs) {
+      if ($titleMatches.Count -ne 1 -or $toolMatches.Count -ne 1 -or $toolWatch.ElapsedMilliseconds -gt $waitMs) {
         Fail 'Menue-Klick gesendet, aber das BelegManager-Fenster ist innerhalb der Frist nicht eindeutig bestaetigt. NICHT wiederholen, zuerst lesend abgleichen.' 'postcondition-failed' ([pscustomobject]@{
           inputDispatched=$true; outcomeUnknown=$true; retryable=$false; reconciliationRequired=$true; cleanupRequired=$true
           observedToolWindows=$toolMatches.Count; waitedMs=[int64]$toolWatch.ElapsedMilliseconds
-          titleOnlyWindows=@($toolWindows | Where-Object {
-            [int]$_.pid -eq $targetPid -and [string]$_.title -ceq [string]$receiptPolicy.title
-          }).Count
+          titleOnlyWindows=$titleMatches.Count
         })
       }
       $windowCount = $toolWindows.Count

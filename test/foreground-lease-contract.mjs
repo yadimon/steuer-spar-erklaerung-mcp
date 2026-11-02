@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const worker = readFileSync(new URL("../powershell/sse-worker.ps1", import.meta.url), "utf8");
 
@@ -18,7 +19,7 @@ assert(emitRelease >= 0, "Emit erzwingt keine Lease-Freigabe.");
 assert(emitRelease < emit.indexOf("ConvertTo-Json"), "Lease wird erst nach der JSON-Serialisierung freigegeben.");
 assert.match(emit, /focusTelemetry.*Get-SSEForegroundLeaseTelemetry/s);
 
-const enter = functionBlock("Enter-SSEForegroundLease([IntPtr]$Hwnd)");
+const enter = functionBlock("Enter-SSEForegroundLease(");
 for (const required of [
   "$lease.previousForeground = [int64][SW]::GetForegroundWindow()",
   "$lease.previousCursor",
@@ -342,3 +343,10 @@ assert(topmostCore.includes("Wait-SSEExactForeground $hwnd 150") &&
 process.stdout.write(
   "Foreground-Lease: sofortiger Physical-Cleanup, bounded polling, Cursor/Fokus-Restore und Input-Race vertraglich gebunden.\n",
 );
+const popupContract = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+  "-File", fileURLToPath(new URL("./menu-point-contract.ps1", import.meta.url))], {
+  encoding: "utf8", windowsHide: true, timeout: 60_000, maxBuffer: 1024 * 1024,
+});
+assert.equal(popupContract.error, undefined, "Popup composition contract could not finish.");
+assert.equal(popupContract.status, 0, popupContract.stderr || popupContract.stdout);
+process.stdout.write(popupContract.stdout);
