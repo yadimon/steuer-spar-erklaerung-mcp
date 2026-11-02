@@ -860,6 +860,17 @@ Produktstart benötigt erneut frische Fall-, Fenster- und Vorwertprüfungen.
 
 ## Prüfung
 
+Die opt-in CTest-Prüfung `native-menu-motion` verwendet ein echtes Qt-Menü
+auf einem eigenen inaktiven Desktop. Ein bewusst gesetzter alter Cursor-Cache
+reproduziert den wirkungslosen Einzelklick. Zehn verschiedene Bewegungen im
+selben Eintrag müssen anschließend genügend Qt-Mausereignisse und genau eine
+Auslösung durch ein einziges Drücken/Loslassen nachweisen. Drei Durchläufe
+prüfen dieselbe Menügeometrie. Die Fixture sendet native Fensternachrichten,
+bewegt keinen physischen Cursor und wechselt nicht den Eingabedesktop.
+Damit prüft sie den Ereignisweg und den eingesetzten Cache-Zustand; die reale
+Cursor-Rückstellung und der vollständige Produktablauf bleiben getrennte
+Live-Nachweise.
+
 Für interne native Schreibpfade bietet `QtNativeClient.requestAcknowledged`
 eine zusammenhängende Anfrage samt Empfangsbestätigung an. Beide Schritte
 teilen eine Frist; andere Aufrufe auf derselben Verbindung werden währenddessen
