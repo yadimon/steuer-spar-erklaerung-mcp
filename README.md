@@ -200,6 +200,14 @@ Backendweg ausprobiert. Zweck, Umstellungsprozess und Nachweisgrenzen stehen
 in [Architektur](docs/ARCHITEKTUR.md), [Qt-Vertrag](docs/NATIVE-QT.md) und
 [Native-Matrix](docs/NATIVE-COVERAGE.md).
 
+Die Stabilisierung gilt auch für den normalen UIA-Pfad: Tabellenänderungen
+prüfen das vollständige Modell und den Nachzustand, Beleglisten behalten
+verborgene Spalten in ihrer Bindung. Ein bewusst geöffnetes Menü bleibt für
+den nächsten Aufruf offen. Bei verlorener Eingabebindung oder unbekanntem
+Schreibausgang folgt kein automatischer zweiter Schreibversuch. Die Grenzen
+und die getrennten Offline-, Live- und Dauerprüfungen beschreibt die
+[Verifikation](docs/VERIFIKATION.md).
+
 Die direkte Installation der
 [`@yadimon/steuer-spar-erklaerung-api`](packages/api/README.md) oder des
 [`@yadimon/steuer-spar-erklaerung-mcp`](packages/mcp/README.md) bleibt als

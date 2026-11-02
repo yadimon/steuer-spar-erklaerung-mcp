@@ -8,10 +8,8 @@
 #      gelesenen Option.
 #   2. Hat sich die Option seit dem Baumlauf veraendert oder ist sie nicht mehr
 #      lesbar, wird nichts geklickt: Liste zuklappen und 'stale' melden.
-#   3. Der Klick traegt keine FromPoint-Bindung: Nach dem Anheben des
-#      Hauptfensters liefert FromPoint am Optionspunkt gemessen den
-#      Seiteninhalt unter dem Popup, obwohl der Klick die Option waehlt. Eine
-#      Bindung wuerde jeden Direktklick verweigern.
+#   3. Ein eigenes Qt-Popup braucht eine frische Prozess-, Klassen-, Listen-
+#      und Geometriebindung. Ein fremdes Fenster ist kein erlaubtes Ziel.
 #   4. Andere Engines und der versteckte Desktop behalten SelectionItem.Select.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -43,6 +41,8 @@ Assert-True ($optionChoices.Count -eq 1) 'Die Auswahl einer eindeutig gefundenen
 $block = [scriptblock]::Create((@($optionChoices[0].Clauses[1].Item2.Statements | ForEach-Object { $_.Extent.Text }) -join "`n"))
 
 $optionAid = 'SSE_Application.AAV4GLEngineWindow31.centralWidget.Zeitraum.QComboBoxPrivateContainer.QComboBoxListView'
+Invoke-Expression (@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Test-SSEComboPopupRoot'},$true))[0].Extent.Text)
 function OptionNode {
   [pscustomobject]@{ type='ListItem'; name='2. Vierteljahr'; aid=$optionAid; x=600; y=340; w=180; h=24; on=$true; rid='42.7' }
 }
@@ -55,7 +55,8 @@ function FreshOption([hashtable]$Changes = @{}) {
 }
 
 function Invoke-OptionChoice {
-  param([int]$Engine, [string]$DesktopName = '', $Fresh = (FreshOption))
+  param([int]$Engine, [string]$DesktopName = '', $Fresh = (FreshOption),
+    $Obstruction = ([pscustomobject]@{isBoundTarget=$true}), [switch]$MissingList)
   $script:clicks = New-Object System.Collections.ArrayList
   $script:liveReads = New-Object System.Collections.ArrayList
   $script:conversions = 0
@@ -71,8 +72,14 @@ function Invoke-OptionChoice {
   $method = 'select'
   $expectedPage = 'Umsatzsteuer-Voranmeldungen'
   $before = '1. Vierteljahr'
+  $expectedCurrent=$before
   $expectedAfter = $wanted
   $combo = [pscustomobject]@{ rid='42.1'; aid='SSE_Application.AAV4GLEngineWindow31.centralWidget.Zeitraum' }
+  $prefix=$combo.aid
+  $targetPid=42
+  $list=[pscustomobject]@{type='List';aid=$optionAid;rid='42.9';on=$true;x=590;y=330;w=210;h=100}
+  $expanded=[pscustomobject]@{nodes=@($list)}
+  if($MissingList){$expanded.nodes=@()}
   $ec = [pscustomobject]@{}
   $ec | Add-Member -MemberType ScriptMethod -Name Collapse -Value { $script:collapses++ }
   $selection = [pscustomobject]@{}
@@ -90,11 +97,14 @@ function Invoke-OptionChoice {
     $liveOption
   }
   function Convert-ExactElementToNode { param($Element) $script:conversions++; $Fresh }
+  function Get-SSEPointObstruction {param($Window,$X,$Y) $Obstruction}
   function Click-VerifiedPoint {
     param([IntPtr]$Window, $Node, $ExpectedInputTick = $null, [switch]$RequireForeground, [int]$SettleMs = 250,
-          [int]$ClickCount = 1, [int]$ForegroundAttempts = 3, [string]$ExpectedRuntimeId = '')
+          [int]$ClickCount = 1, [int]$ForegroundAttempts = 3, [string]$ExpectedRuntimeId = '',
+          $BeforeClickCheck=$null, $BeforeClickBinding=$null)
     $null = $script:clicks.Add([pscustomobject]@{
       window=[int64]$Window; x=$Node.x; y=$Node.y; w=$Node.w; h=$Node.h; count=$ClickCount; rid=$ExpectedRuntimeId
+      binding=$BeforeClickBinding
     })
   }
   function Get-SSELastInputTick { 7 }
@@ -126,6 +136,24 @@ Assert-True ($direct.selects -eq 0 -and $direct.method -ceq 'verified-point' -an
              $null -eq $direct.emitted -and $direct.collapses -eq 0) `
   'Der Direktklick lief nicht als einziger Auswahlweg ohne Fehler.'
 
+$popup=[pscustomobject]@{isBoundTarget=$false;boundPid=42;hitPid=42;hitRoot=5252
+ className='Qt692QWindowPopupDropShadowSaveBits';rootRect=[pscustomobject]@{x=590;y=330;w=210;h=100}}
+$popupClick=Invoke-OptionChoice 31 -Obstruction $popup
+Assert-True ($null -eq $popupClick.failed -and $popupClick.clicks.Count -eq 1 -and
+ $popupClick.clicks[0].window -eq 5252 -and $popupClick.clicks[0].binding.mainHwnd -eq 4242 -and
+ $popupClick.clicks[0].binding.listRid -ceq '42.9' -and $popupClick.clicks[0].binding.expectedCurrent -ceq '1. Vierteljahr') 'Direct option must target its exact own Qt popup with the original combo, list and prior value.'
+foreach($problem in @('pid','bound-pid','class','geometry','missing-list')){
+ $badPopup=$popup | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+ switch($problem){
+  'pid'{$badPopup.hitPid=43}
+  'bound-pid'{$badPopup.boundPid=43}
+  'class'{$badPopup.className='UnrelatedWindow'}
+  'geometry'{$badPopup.rootRect.x=900}
+ }
+ $refused=Invoke-OptionChoice 31 -Obstruction $badPopup -MissingList:($problem -ceq 'missing-list')
+ Assert-True ($refused.clicks.Count -eq 0 -and $refused.selects -eq 0 -and $refused.failed.kind -ceq 'obstructed') ('Unsafe direct popup click: '+$problem)
+}
+
 # 2. Die Option ist seit dem Baumlauf verrutscht: geklickt wird ihr frisches
 #    Rechteck.
 $moved = Invoke-OptionChoice 31 -Fresh (FreshOption @{ y=388 })
@@ -139,6 +167,7 @@ $changedOptions = [ordered]@{
   'umbenannt'         = (FreshOption @{ name='3. Vierteljahr' })
   'anderer Typ'       = (FreshOption @{ type='Text' })
   'andere RuntimeId'  = (FreshOption @{ rid='42.9' })
+  'andere AutomationId' = (FreshOption @{ aid='Synthetic.Replaced' })
   'nicht mehr lesbar' = $null
 }
 foreach ($case in $changedOptions.GetEnumerator()) {
@@ -162,3 +191,85 @@ foreach ($case in @(
 }
 
 Write-Output 'combo_select: Direktklick nur auf die frisch gelesene, unveraenderte Option - bestanden'
+
+# Execute the real initial expansion, including foreground acquisition. A Qt
+# popup opened from the background can change the Windows input epoch before
+# any option is chosen. Activation must precede Expand, without a new baseline.
+$statements=@($comboBody.Statements)
+$first=@(0..($statements.Count-1) | Where-Object {$statements[$_].Extent.Text.StartsWith('$interactionBefore = Get-SSEInteractionWindowSet')})
+$last=@(0..($statements.Count-1) | Where-Object {$statements[$_].Extent.Text.StartsWith('$expanded = Walk-Tree')})
+Assert-True ($first.Count -eq 1 -and $last.Count -eq 1) 'Initial combo expansion is not uniquely bounded.'
+$openBlock=[scriptblock]::Create((@($statements[$first[0]..($last[0]-1)] | ForEach-Object {$_.Extent.Text}) -join "`n"))
+Add-Type -TypeDefinition @'
+using System;
+public static class ComboForegroundContract {
+ public static IntPtr Foreground;
+ public static IntPtr GetForegroundWindow(){return Foreground;}
+}
+'@
+$foregroundHelper=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in @('Enter-SSEMenuForeground','Enter-SSEPopupForeground')
+},$true))
+Assert-True ($foregroundHelper.Count -eq 1) 'Popup foreground helper must remain unique.'
+Invoke-Expression ($foregroundHelper[0].Extent.Text.Replace('[SW]::','[ComboForegroundContract]::'))
+function Invoke-InitialComboExpansion([string]$Scenario) {
+ $script:comboScenario=$Scenario;$script:comboTick=7;$script:comboExpands=0;$script:comboCollapses=0
+ $script:comboShows=0;$script:comboStoredTick=$null;$script:comboFailure=$null;$script:comboReads=0
+ [ComboForegroundContract]::Foreground=[IntPtr]99
+ $hwnd=[IntPtr]4242;$targetPid=42;$guardUserInput=$true;$inputBaseline=7
+ $combo=[pscustomobject]@{rid='42.1';aid='Synthetic.Period'};$expectedCurrent='Januar';$expectedPage='Synthetic page'
+ $script:comboValue=[pscustomobject]@{Current=[pscustomobject]@{Value='Januar'}}
+ $script:comboExpand=[pscustomobject]@{Current=[pscustomobject]@{ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Collapsed}}
+ $script:comboExpand | Add-Member ScriptMethod Expand {
+  $script:comboExpands++
+  if([ComboForegroundContract]::Foreground -ne [IntPtr]4242 -or $script:comboScenario -eq 'input-during-expand'){$script:comboTick++}
+  $this.Current.ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Expanded
+ }
+ $script:comboExpand | Add-Member ScriptMethod Collapse {$script:comboCollapses++}
+ function Get-SSELastInputTick {$script:comboTick}
+ function Test-SSELastInputUnchanged {param($Expected) $Expected -eq $script:comboTick}
+ function Set-SSEForegroundLeaseInputCheckpoint {param($InputTick,$CursorPoint,[string]$Context) $script:comboStoredTick=$InputTick}
+ function Show-SSEWindow {
+  param([IntPtr]$Window)
+  $script:comboShows++
+  if($script:comboScenario -eq 'activation-refused'){return $false}
+  [ComboForegroundContract]::Foreground=$Window
+  if($script:comboScenario -eq 'input-during-activation'){$script:comboTick++}
+  $true
+ }
+ function Get-SSEInteractionWindowSet {param($ProcessId,$Window) [pscustomobject]@{fingerprint='same'}}
+ function Get-CurrentHeading {param($Window) 'Synthetic page'}
+ function Wait-SSEComboExpansionState {param($Pattern,$Expanded,$TimeoutMs) $true}
+ function Get-LiveElement {
+  param($Window,$RuntimeId,$AutomationId)
+  $script:comboReads++
+  $aid='Synthetic.Period'
+  if($script:comboScenario -eq 'binding-after-activation' -and $script:comboShows -gt 0){$aid='Synthetic.Replaced'}
+  $live=[pscustomobject]@{Current=[pscustomobject]@{AutomationId=$aid}}
+  $live | Add-Member ScriptMethod TryGetCurrentPattern {
+   param($Pattern,$Out)
+   if($Pattern -eq [System.Windows.Automation.ValuePattern]::Pattern){$Out.Value=$script:comboValue}
+   else{$Out.Value=$script:comboExpand}
+   $true
+  }
+  $live
+ }
+ function Fail {param($Message,$Kind='error',$Details=$null) $script:comboFailure=$Kind;throw 'combo-expansion-stopped'}
+ try{. $openBlock}catch{Assert-True ($_.Exception.Message -ceq 'combo-expansion-stopped') "Unexpected expansion error: $($_.Exception.Message)"}
+ [pscustomobject]@{failure=$script:comboFailure;expands=$script:comboExpands;collapses=$script:comboCollapses
+  shows=$script:comboShows;checkpoint=$script:comboStoredTick;reads=$script:comboReads}
+}
+$opened=Invoke-InitialComboExpansion 'background'
+Assert-True ($null -eq $opened.failure -and $opened.shows -eq 1 -and $opened.expands -eq 1 -and
+ $opened.collapses -eq 0 -and $opened.checkpoint -eq 7 -and $opened.reads -eq 2) 'Combo must activate and rebind before its one Expand, retaining the original input epoch.'
+foreach($case in @(
+ @{scenario='activation-refused';kind='foreground-failed';expands=0;collapses=0},
+ @{scenario='input-during-activation';kind='interference';expands=0;collapses=0},
+ @{scenario='binding-after-activation';kind='precondition-failed';expands=0;collapses=0},
+ @{scenario='input-during-expand';kind='interference';expands=1;collapses=1}
+)){
+ $stopped=Invoke-InitialComboExpansion $case.scenario
+ Assert-True ($stopped.failure -ceq $case.kind -and $stopped.expands -eq $case.expands -and
+  $stopped.collapses -eq $case.collapses -and $stopped.shows -eq 1 -and $stopped.checkpoint -eq 7) ('Unsafe combo expansion: '+$case.scenario)
+}
+Write-Output 'combo_select: foreground before Expand, fresh binding, original epoch and no retry passed.'

@@ -190,8 +190,8 @@ assert.match(menu, /Get-SSEOpenMenuEntryMatches \$hwnd \$targetPid ''/u,
   "Menueinventar und Auswahl muessen denselben Popup-Vertrag nutzen.");
 assert(!menu.includes("catch { }") && !menu.includes("$mainTree"),
   "Ein unlesbares Popup darf nicht durch virtuelle Hauptbaum-Eintraege verdeckt werden.");
-assert(menu.indexOf("Enter-SSEMenuForeground $hwnd") < menu.indexOf("Read-SSEMenuTree $hwnd $targetPid") &&
-  menu.lastIndexOf("Enter-SSEMenuForeground $hwnd") < menu.indexOf("Open-SSEMenuByName $hwnd $wunsch"),
+assert(menu.indexOf("Enter-SSEPopupForeground $hwnd") < menu.indexOf("Read-SSEMenuTree $hwnd $targetPid") &&
+  menu.lastIndexOf("Enter-SSEPopupForeground $hwnd") < menu.indexOf("Open-SSEMenuByName $hwnd $wunsch"),
   "Benannte und vollstaendige Menueinventare brauchen vor Expand ein bestaetigtes Vordergrundfenster.");
 assert(menu.includes("-PreserveForegroundReason 'requested-open-menu'"),
   "Ein angefordertes offenes Menue darf durch den Emit-Cleanup nicht wieder geschlossen werden.");

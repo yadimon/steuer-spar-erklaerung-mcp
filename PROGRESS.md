@@ -101,6 +101,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   ersetzen Textanwesenheit und sichtbaren Zeilenrang als Nachweis. Verborgene
   Spalten und Checkboxwerte werden mitgeprüft. Eigene Zelleditoren brauchen
   einen gesonderten Fokus-/Wertnachweis; unbekannte Editoren bleiben erhalten.
+  Ein unveränderter Nr.-Editor darf nach vollständiger Ziel-, Modell-,
+  Fenster- und Eingabeprüfung einmal geschlossen werden, auch wenn er schon
+  vor der Aktivierung vorhanden war. Unlesbare Geometrie erlaubt kein Escape.
   Weder eine unveränderte Summe noch eine ausbleibende beobachtete Wirkung
   erlauben Erfolg, Rollbackbehauptung oder Wiederholung. Ein Undo benötigt
   genau die eigene Einerentfernung und erneut bewiesenen Tabellenfokus.
@@ -143,6 +146,11 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   echte boolesche Checkboxzustände für vollständige Detailwerte und deren
   Fingerprint. Ein lesbares leeres USt-Feld bleibt der gültige Nullsatz;
   unlesbare Werte und bloße Beschriftungen bestätigen ihn nicht.
+  Der UIA-Listenreader bindet auch verborgene Grid-Spalten und Belegnummern;
+  die Detailansicht verändert die Datenbindung nicht allein durch ihr Layout.
+  Unlesbare oder doppelt gebundene Zellen ergeben keine vollständige Liste.
+  Interne Mehrfeldänderungen behalten ihre ursprüngliche Lease über Text,
+  USt-Auswahl und Checkbox. Einzelne Textabschlüsse bleiben sofort freigegeben.
   Der USt-Auswahlhelfer liest vor seiner No-op-Bestätigung den gebundenen
   Vorwert frisch. Ein fehlendes oder ersetztes Feld und ein abweichender Wert
   erlauben keine Änderung. Ein Clear behält den vorher geprüften Rohwert als

@@ -1805,7 +1805,7 @@ $partial=Get-SSEMenuOpenObservation $script:menuDiagPattern ([IntPtr]11) 42 $bro
 Assert-True ($partial.observationIncomplete -and $null -eq $partial.menuEnabled) 'A stale menu getter produced misleading booleans.'
 Assert-MenuNumericEvidence $partial
 
-Invoke-Expression ((Get-WorkerFunctionText 'Enter-SSEMenuForeground').Replace('[SW]::','[MenuOpenDiagnosticContract.Windows]::'))
+Invoke-Expression ((Get-WorkerFunctionText 'Enter-SSEPopupForeground').Replace('[SW]::','[MenuOpenDiagnosticContract.Windows]::'))
 function Get-SSELastInputTick {$script:menuForegroundTick}
 function Test-SSELastInputUnchanged($tick){$null -ne $tick -and $tick -eq $script:menuForegroundTick}
 function Show-SSEWindow($window){
@@ -1826,14 +1826,14 @@ foreach($case in @(
  $script:menuForegroundLost=$case.lost;$script:menuForegroundInput=$case.input
  $script:menuForegroundShows=0;$script:menuForegroundCheckpoints=0;$script:menuDiagFailure=$null;$script:menuStoredEpoch=$null
  [MenuOpenDiagnosticContract.Windows]::Foreground=[IntPtr]99
- try{Enter-SSEMenuForeground ([IntPtr]11)}catch{Assert-True ($_.Exception.Message -ceq 'MenuDiagnosticFailure') 'Unexpected menu foreground failure.'}
+ try{Enter-SSEPopupForeground ([IntPtr]11)}catch{Assert-True ($_.Exception.Message -ceq 'MenuDiagnosticFailure') 'Unexpected menu foreground failure.'}
  Assert-True ($script:menuDiagFailure.kind -ceq $case.kind -and $script:menuForegroundShows -eq $case.shows -and
   $script:menuForegroundCheckpoints -eq $case.checkpoints -and $script:menuStoredEpoch -ceq $case.tick) ('Menu activation lost its no-retry or input epoch contract: '+$case.name)
 }
 $script:menuForegroundTick=10;$script:menuForegroundCheckpoints=0;$script:menuStoredEpoch=$null
 function Show-SSEWindow { $script:menuForegroundTick++;throw 'Synthetic activation error' }
 $activationError=$null
-try{Enter-SSEMenuForeground ([IntPtr]11)}catch{$activationError=$_.Exception.Message}
+try{Enter-SSEPopupForeground ([IntPtr]11)}catch{$activationError=$_.Exception.Message}
 Assert-True ($activationError -ceq 'Synthetic activation error' -and $script:menuStoredEpoch -eq 10 -and
  $script:menuForegroundCheckpoints -eq 1) 'Activation exception lost the original failure or input epoch.'
 Write-Output 'Menu foreground: exact activation, inherited input epoch, refused activation and no retry passed.'

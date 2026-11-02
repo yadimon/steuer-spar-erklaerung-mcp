@@ -201,6 +201,8 @@ export function registerUiTools(registry: McpRegistry): void {
         "Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und " +
         "Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); " +
         "jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. " +
+        "Zum Oeffnen wird das gebundene SSE-Fenster aktiviert. Ein mit name angefordertes Menue bleibt " +
+        "offen und im Vordergrund, damit der folgende Aufruf denselben Popup lesen oder bedienen kann. " +
         "Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner " +
         "und Druckfunktionen - sonst waeren sie unerreichbar. " +
         "Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close.",

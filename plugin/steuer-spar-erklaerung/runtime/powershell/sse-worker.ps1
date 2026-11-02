@@ -12176,23 +12176,25 @@ function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArgum
   }
 }
 
-function Enter-SSEMenuForeground([IntPtr]$MainHwnd) {
-  # Qt can briefly open and immediately dismiss a menu requested from a
-  # background application. Prove activation before Expand, without a retry.
-  $epoch=Get-SSELastInputTick
-  if($null -eq $epoch){Fail 'Eingabe-Epoche vor der Menueaktivierung ist unlesbar.' 'interference'}
+function Enter-SSEPopupForeground([IntPtr]$MainHwnd, $ExpectedInputTick=$null) {
+  # A background Qt popup can be dismissed or change the OS input epoch during
+  # activation. Activate first; never adopt a new epoch after opening it.
+  $epoch=$(if($null -ne $ExpectedInputTick){$ExpectedInputTick}else{Get-SSELastInputTick})
+  if($null -eq $epoch -or -not (Test-SSELastInputUnchanged $epoch)){
+    Fail 'Eingabe-Epoche vor der Popup-Aktivierung ist unlesbar oder geaendert.' 'interference'
+  }
   $foregroundReady=$false
   try{$foregroundReady=Show-SSEWindow $MainHwnd}
   finally{
     # Keep the request's original epoch even when activation fails or throws;
     # cleanup must not adopt input observed during acquisition as its own.
-    Set-SSEForegroundLeaseInputCheckpoint $epoch -Context 'menu-foreground'
+    Set-SSEForegroundLeaseInputCheckpoint $epoch -Context 'popup-foreground'
   }
   if(-not $foregroundReady -or [SW]::GetForegroundWindow() -ne $MainHwnd){
-    Fail 'Das gebundene Hauptfenster konnte fuer die Menueoeffnung nicht aktiviert werden.' 'foreground-failed'
+    Fail 'Das gebundene Hauptfenster konnte fuer die Popup-Oeffnung nicht aktiviert werden.' 'foreground-failed'
   }
   if(-not (Test-SSELastInputUnchanged $epoch)){
-    Fail 'Fremde Eingabe waehrend der Menueaktivierung; kein Menue geoeffnet.' 'interference'
+    Fail 'Eingabemarke waehrend der Popup-Aktivierung geaendert; kein Popup geoeffnet.' 'interference'
   }
 }
 
@@ -15807,6 +15809,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
       Fail 'Fremde Benutzereingabe unmittelbar vor der Auswahl erkannt. NICHT geaendert.' 'interference'
     }
+    if ($guardUserInput) {
+      Enter-SSEPopupForeground $hwnd $inputBaseline
+      # Activation can replace a Qt widget. Rebind the original RID/AID and
+      # prior value before asking that exact live element to expand.
+      $element = Get-LiveElement $hwnd $combo.rid $combo.aid
+      $vp = $null
+      if (-not $element -or [string]$element.Current.AutomationId -cne [string]$combo.aid -or
+          -not $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
+          [string]$vp.Current.Value -cne $expectedCurrent -or (Get-CurrentHeading $hwnd) -cne $expectedPage) {
+        Fail 'ComboBox-Bindung, Vorwert oder Seite nach der Aktivierung geaendert. NICHT geaendert.' 'precondition-failed'
+      }
+      if (-not (Test-SSELastInputUnchanged $inputBaseline)) {
+        Fail 'Eingabemarke nach der ComboBox-Aktivierung geaendert. NICHT geaendert.' 'interference'
+      }
+    }
     $ec = $null
     if (-not $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$ec)) {
       Fail 'ComboBox bietet kein ExpandCollapsePattern.' 'no-expand-pattern'
@@ -16034,23 +16051,40 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($directOptionClick) {
           # Punkt und Identitaet kommen aus der unmittelbar vor dem Klick frisch
           # gelesenen Option: Typ, Name und RuntimeId muessen noch zum Baumlauf
-          # passen, sonst wird nichts geklickt. Eine Bindung des Klickpunkts per
-          # FromPoint ist hier nicht moeglich: Nach dem Anheben des Hauptfensters
-          # liefert FromPoint am Optionspunkt gemessen den Seiteninhalt unter
-          # dem Popup, waehrend der Klick selbst die offene Option waehlt. Sie
-          # wuerde also jeden Direktklick verweigern. Die Wurzelpruefung des
-          # Klickpunkts und der anschliessende Readback bleiben.
+          # passen, sonst wird nichts geklickt. Qt kann die Liste als eigenes
+          # Popup-Fenster darstellen; dann gelten dieselben PID-, Klassen-,
+          # Listen- und Geometrienachweise wie im virtualisierten Weg.
           $optionNode = Convert-ExactElementToNode $option
           if (-not $optionNode -or -not $optionNode.on -or [string]$optionNode.type -cne 'ListItem' -or
-              [string]$optionNode.name -cne [string]$matches[0].name -or [string]$optionNode.rid -cne [string]$matches[0].rid) {
+              [string]$optionNode.name -cne [string]$matches[0].name -or [string]$optionNode.rid -cne [string]$matches[0].rid -or
+              [string]$optionNode.aid -cne [string]$matches[0].aid) {
             try { $ec.Collapse() } catch { }
             Fail "Option '$wanted' hat sich vor dem Klick veraendert. NICHT geklickt." 'stale'
           }
+          $optionClickWindow=$hwnd
+          $optionList=$null
+          $optionObstruction=Get-SSEPointObstruction $hwnd ([int]($optionNode.x+$optionNode.w/2)) ([int]($optionNode.y+$optionNode.h/2))
+          if(-not $optionObstruction.isBoundTarget){
+            $optionLists=@($expanded.nodes | Where-Object {
+              $_.type -ceq 'List' -and $_.on -and $_.aid -and $_.aid.StartsWith($prefix,[StringComparison]::Ordinal) -and
+              $optionNode.x -ge $_.x -and $optionNode.y -ge $_.y -and
+              ($optionNode.x+$optionNode.w) -le ($_.x+$_.w) -and ($optionNode.y+$optionNode.h) -le ($_.y+$_.h)
+            })
+            $optionPopup=[IntPtr][int64]$optionObstruction.hitRoot
+            if($optionLists.Count -ne 1 -or
+                -not (Test-SSEComboPopupRoot $optionObstruction $optionLists[0] $targetPid $optionPopup)){
+              Fail 'Option liegt nicht im gebundenen Hauptfenster oder seinem exakten Qt-Popup. NICHT geklickt.' 'obstructed'
+            }
+            $optionList=$optionLists[0]
+            $optionClickWindow=$optionPopup
+          }
           $optionBinding = [pscustomobject]@{
+            mainHwnd=$hwnd;clickHwnd=$optionClickWindow;processId=$targetPid;expectedPage=$expectedPage;expectedCurrent=$expectedCurrent
             comboRid=$combo.rid; comboAid=$combo.aid
             optionRid=$matches[0].rid; optionAid=$matches[0].aid; optionName=$matches[0].name
+            listRid=$(if($optionList){$optionList.rid}else{$null});listAid=$(if($optionList){$optionList.aid}else{$null})
           }
-          $null = Click-VerifiedPoint $hwnd $optionNode $inputBaseline `
+          $null = Click-VerifiedPoint $optionClickWindow $optionNode $inputBaseline `
             -BeforeClickCheck ${function:Test-SSEComboOptionPoint} -BeforeClickBinding $optionBinding
         } else {
           $null = Click-VerifiedPoint $hwnd $matches[0]
@@ -24619,7 +24653,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $wunsch = [string](Arg $a 'name')
     if ((Arg $a 'alle' $false) -eq $true) {
       if ($wunsch) { Fail 'alle=true liest jedes Hauptmenue; name ist dann nicht erlaubt.' 'bad-args' }
-      Enter-SSEMenuForeground $hwnd
+      Enter-SSEPopupForeground $hwnd
       $baum = @(Read-SSEMenuTree $hwnd $targetPid)
       Emit ([pscustomobject]@{
         ok = $true; anzahl = $baum.Count; menues = @($baum | ForEach-Object { $_.name }); baum = $baum
@@ -24636,7 +24670,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         hinweis = "Mit name='Datei' oeffnen und die Eintraege lesen." })
     }
     if (Test-Versand $wunsch) { Fail "GESPERRT: Menue '$wunsch'." 'blocked' }
-    Enter-SSEMenuForeground $hwnd
+    Enter-SSEPopupForeground $hwnd
     $null = Open-SSEMenuByName $hwnd $wunsch
     # Inventar und Klick verwenden dieselben vollstaendig gelesenen Popups.
     # Ein virtueller Eintrag im Hauptbaum beweist kein klickbares Menue.
