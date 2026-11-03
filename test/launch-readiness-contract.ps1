@@ -3,7 +3,7 @@ $path=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$errors)
 if(@($errors).Count){throw 'Worker syntax is invalid.'}
-foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates')){
+foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates','Get-SSEDesktopStartWindowState')){
   $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if($definition.Count -ne 1){throw "Productive helper '$name' is absent."}
   . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -90,6 +90,24 @@ $result=Run-Probe -Frames @() -HasCase $false -Budget 1500 -WindowSource {
 Assert ($result.outcome -ceq 'deadline' -and $result.windows.Count -eq 0 -and $result.mainWindowUnstable) 'Wide generic startup window escaped the unstable loaded-case deadline as a prompt.'
 
 $source=[IO.File]::ReadAllText($path)
+$smallProduct=Window 30 500 ($product+' startup question')
+$desktopState=Get-SSEDesktopStartWindowState @($smallProduct) $true
+Assert ($desktopState.mainCandidates.Count -eq 0 -and $desktopState.dialogWindows.Count -eq 1) 'A compact product-titled question became the case main window.'
+$desktopState=Get-SSEDesktopStartWindowState @($smallProduct) $false
+Assert ($desktopState.mainCandidates.Count -eq 0 -and $desktopState.dialogWindows.Count -eq 1) 'A compact product-titled question escaped the no-case dialog inventory.'
+$desktopState=Get-SSEDesktopStartWindowState @($generic) $true
+Assert ($desktopState.mainCandidates.Count -eq 0) 'A generic startup window was published before the requested case loaded.'
+$desktopState=Get-SSEDesktopStartWindowState @($generic,(Window 20)) $true
+Assert ($desktopState.mainCandidates.Count -eq 1 -and $desktopState.mainCandidates[0].hwnd -eq 20) 'Loaded case binding disagreed with the main-window resolver.'
+Assert $desktopState.ready 'A unique unblocked case window was not ready.'
+$desktopState=Get-SSEDesktopStartWindowState @((Window 20),$smallProduct) $true
+Assert ($desktopState.mainCandidates.Count -eq 1 -and $desktopState.dialogWindows.Count -eq 1 -and -not $desktopState.ready) 'A compact startup question beside the main window was reported ready.'
+$minimizedGeneric=Window 40 200 'Steuerprogramm';$minimizedGeneric.minimiert=$true
+$desktopState=Get-SSEDesktopStartWindowState @($minimizedGeneric) $true
+Assert ($desktopState.mainCandidates.Count -eq 0 -and $desktopState.dialogWindows.Count -eq 1 -and -not $desktopState.ready) 'A compact generic startup question disappeared from the dialog inventory when minimized.'
+$minimizedProduct=Window 50 200 $product;$minimizedProduct.minimiert=$true
+$desktopState=Get-SSEDesktopStartWindowState @($minimizedProduct) $true
+Assert ($desktopState.mainCandidates.Count -eq 1 -and $desktopState.dialogWindows.Count -eq 0 -and $desktopState.ready) 'An otherwise qualified minimized case lost the normal main-window binding.'
 $probeText=$probe[0].Item2.Extent.Text
 Assert ($probeText -notmatch 'Start-Process|Stop-Process|SendKeys|SetForegroundWindow') 'Readiness polling introduced a process or input mutation.'
 Assert ($probeText -match 'while \(\(\$probeTimer.ElapsedMilliseconds \+ 1000\) -lt \$probeBudgetMs\)') 'Readiness polling lost its original absolute budget and handover reserve.'

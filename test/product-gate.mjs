@@ -680,7 +680,8 @@ try {
     liveWriteJourneySource.includes('sse_ui_state", { hwnd }'),
   "sse_launch trennt Start und frischen Readback nicht oder liefert kein explizit weiterverwendbares Start-HWND.");
   assert(workerOpBlock("desktop_start").includes("bindingMode='desktop-launch-window'") &&
-    workerOpBlock("desktop_start").includes("$_.title -match 'SteuerSparErklärung'") &&
+    workerOpBlock("desktop_start").includes("Get-SSEDesktopStartWindowState $fenster ([bool]$caseIdentity)") &&
+    workerOpBlock("desktop_start").includes("if ($startupState.ready)") &&
     workerOpBlock("desktop_start").includes("blockedByDialog=[bool]($startupDialogWindows.Count)") &&
     serverSource.includes("instance: r.instance") &&
     hiddenDesktopLifecycleSource.includes("state1.instance?.hwnd") &&

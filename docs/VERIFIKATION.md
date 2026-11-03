@@ -225,6 +225,7 @@ Baumlauf ausgegeben werden.
 
 Der optionale native `desktop_start` hat zusätzlich einen realen Win32-Test mit
 einem eigenen synthetischen Prozess. Er prüft Hauptfenster und Startdialog,
+einschließlich eines kompakten Produkttitel-Dialogs beim Start mit Fallreferenz,
 vorhandene Desktops, fremde und beschädigte Marker, Startup-Timeout, frühen
 Prozessausstieg, Abbruch des nativen Helfers und den öffentlichen HTTP-Weg mit
 Ressourcenreferenz. Die produktive Helferdatei akzeptiert keine synthetische

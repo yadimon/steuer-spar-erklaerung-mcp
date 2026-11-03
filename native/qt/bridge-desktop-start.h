@@ -128,11 +128,12 @@ static Json nativeDesktopStart(const Json &request) {
         if (WaitForSingleObject(owner.value, 0) != WAIT_TIMEOUT || WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT)
             throw DiscoveryError("launch", "Process ownership changed before marker handoff");
         // Prepare the complete reply before making the process persistent. Lost transport after handoff is an unknown outcome.
+        const bool ready = mains.size() == 1 && dialogs.empty();
         Json result = {{"ok", true}, {"desktop", name}, {"pid", info.dwProcessId}, {"startPid", info.dwProcessId},
             {"wartesekunden", elapsed() / 1000.0}, {"kommandozeile", narrow(command)}, {"fenster", windows}, {"product", product},
-            {"ready", mains.size() == 1}, {"blockedByDialog", !dialogs.empty()}, {"dialogWindows", dialogs}, {"instance", nullptr},
+            {"ready", ready}, {"blockedByDialog", !dialogs.empty()}, {"dialogWindows", dialogs}, {"instance", nullptr},
             {"loaderBuildIdentity", SSE_BRIDGE_BUILD_PREFIX SSE_BRIDGE_SOURCE_DIGEST}};
-        if (mains.size() == 1) result["instance"] = {{"pid", info.dwProcessId}, {"hwnd", mains[0].at("hwnd")},
+        if (ready) result["instance"] = {{"pid", info.dwProcessId}, {"hwnd", mains[0].at("hwnd")},
             {"title", mains[0].at("title")}, {"bindingMode", "desktop-launch-window"}};
         job.handoff();
         return result;

@@ -262,8 +262,11 @@ die Cleanup-Felder. Ein verlorener oder abgebrochener Antwortweg kann
 `outcomeUnknown: true` liefern und wird nie automatisch wiederholt.
 Vor einem weiteren Start ist dann `desktop_status` zu prüfen.
 
-`ready` bezeichnet wie bisher ein eindeutig erkanntes Hauptfenster; Startdialoge
-werden separat zurückgegeben. Das ist keine Zusage, dass der komplette Fall bereits
+`ready` setzt ein eindeutig erkanntes Hauptfenster ohne erkannten Startdialog
+voraus. Ein kompakter Dialog mit Produkttitel wird auch beim Start mit Fallreferenz
+nicht als Hauptfenster gebunden. Startdialoge stehen separat in `dialogWindows`;
+bei einer solchen Blockade bleiben `ready: false` und `instance: null`.
+Das ist keine Zusage, dass der komplette Fall bereits
 geladen ist. Der Messweg trennt Helferstart, SSE-Ladezeit und Antwortabschluss.
 Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Für die
 Produktabnahme sind zusätzlich Start, frischer Qt-Seiten-Readback und normales

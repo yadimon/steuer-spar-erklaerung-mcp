@@ -23,8 +23,9 @@ int wmain(int argc, wchar_t **argv) {
     WNDCLASSW definition{}; definition.lpfnWndProc = fixtureWindow; definition.hInstance = GetModuleHandleW(nullptr);
     definition.lpszClassName = L"SseNativeStartFixture";
     if (!RegisterClassW(&definition)) return 5;
-    const bool dialog = mode == L"-mdialog";
-    const auto title = dialog ? L"Steuerprogramm" : L"SteuerSparErklärung – synthetic startup";
+    const bool productDialog = mode == L"-mproductdialog";
+    const bool dialog = mode == L"-mdialog" || productDialog;
+    const auto title = dialog && !productDialog ? L"Steuerprogramm" : L"SteuerSparErklärung – synthetic startup";
     const auto window = CreateWindowW(definition.lpszClassName, title, WS_OVERLAPPEDWINDOW, 0, 0,
         dialog ? 500 : 1200, dialog ? 300 : 800, nullptr, nullptr, definition.hInstance, nullptr);
     if (!window) return 6;

@@ -4621,6 +4621,22 @@ function Get-SSEMainWindowCandidates($Windows) {
   } | Sort-Object { $_.w * $_.h } -Descending)
 }
 
+# A requested case does not turn a compact startup question into a main window.
+function Get-SSEDesktopStartWindowState($Windows, [bool]$HasCase) {
+  $windows = @($Windows | Where-Object { $null -ne $_ })
+  $eligible = @($windows)
+  if ($HasCase) {
+    $eligible = @($windows | Where-Object { $_.title -match 'SteuerSparErklärung' })
+  }
+  $main = @(Get-SSEMainWindowCandidates $eligible)
+  $dialogs = @($windows | Where-Object {
+    ($_.title -match 'SteuerSparErklärung' -and $_.w -lt 900 -and -not $_.minimiert) -or
+    ($_.title -eq 'Steuerprogramm' -and $_.w -lt 900) -or
+    ($_.title -and $_.title -notmatch 'SteuerSparErklärung|Steuer-Spar-Tipps' -and $_.title -ne 'Steuerprogramm')
+  })
+  [pscustomobject]@{ mainCandidates=@($main); dialogWindows=@($dialogs); ready=($main.Count -eq 1 -and $dialogs.Count -eq 0) }
+}
+
 # Strenge Hauptfensterbindung fuer fallbezogene Leseoperationen. Ein breites
 # Qt-Hilfsfenster ist kein Hauptfenster; mehrere Faelle duerfen ohne explizites
 # HWND niemals vermischt werden. Ein minimiertes, eindeutig gebundenes Fenster
@@ -20633,22 +20649,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       while ($gewartet -lt $timeoutSec) {
         Start-Sleep -Milliseconds 500; $gewartet += 0.5
         $fenster = @(Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid))
-        # Windows PowerShell 5.1 unwraps a singleton emitted through $(if ...)
-        # to a scalar PSCustomObject; its missing Count then looks exactly like
-        # zero windows. Assign each branch as an explicit array instead.
-        if ($caseIdentity) {
-          $mainCandidates = @($fenster | Where-Object { $_.title -match 'SteuerSparErklärung' } |
-            Sort-Object { $_.w * $_.h } -Descending)
-        } else {
-          $mainCandidates = @(Get-SSEMainWindowCandidates $fenster)
-        }
+        $startupState = Get-SSEDesktopStartWindowState $fenster ([bool]$caseIdentity)
+        $mainCandidates = @($startupState.mainCandidates)
         # Ein kompakter Startdialog kann den geladenen Fall blockieren. Er ist
         # kein Hauptfenster, muss aber nach gesetztem Eigentumsmarker gezielt
         # mit sse_dialog_list/sse_dialog_answer erreichbar bleiben.
-        $startupDialogWindows = @($fenster | Where-Object {
-          ($_.title -eq 'Steuerprogramm' -and $_.w -lt 900) -or
-          ($_.title -and $_.title -notmatch 'SteuerSparErklärung|Steuer-Spar-Tipps' -and $_.title -ne 'Steuerprogramm')
-        })
+        $startupDialogWindows = @($startupState.dialogWindows)
         if ($mainCandidates.Count -or $startupDialogWindows.Count) { break }
       }
       if (-not $mainCandidates.Count -and -not $startupDialogWindows.Count) {
@@ -20697,7 +20703,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if ($pi.hProcess -ne [IntPtr]::Zero) { [DSK]::CloseHandle($pi.hProcess) | Out-Null }
       [DSK]::CloseDesktop($d) | Out-Null
     }
-    $instance = $(if ($mainCandidates.Count -eq 1) {
+    $instance = $(if ($startupState.ready) {
       [pscustomobject]@{
         pid=[int]$mainCandidates[0].pid; hwnd=[int64]$mainCandidates[0].hwnd
         title=[string]$mainCandidates[0].title; bindingMode='desktop-launch-window'

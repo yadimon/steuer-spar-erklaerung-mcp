@@ -75,6 +75,15 @@ try {
   assert.equal(dialog.ready, false); assert.equal(dialog.blockedByDialog, true); assert.equal(dialog.dialogWindows.length, 1);
   await cleanup(dialog.pid);
 
+  const productDialogCase = join(temporary, "product-dialog.json");
+  writeFileSync(productDialogCase, "{}");
+  const productDialog = (await raw({ ...baseRequest(), startMode: "productdialog", casePath: productDialogCase })).value;
+  assert.equal(productDialog.ok, true); ownedPids.add(productDialog.pid);
+  assert.equal(productDialog.ready, false); assert.equal(productDialog.instance, null);
+  assert.equal(productDialog.blockedByDialog, true); assert.equal(productDialog.dialogWindows.length, 1);
+  assert(productDialog.dialogWindows[0].title.includes("SteuerSparErklärung"));
+  await cleanup(productDialog.pid);
+
   const probe = join(temporary, "timeout.json");
   writeFileSync(probe, "{}");
   const timedOut = (await raw({ ...baseRequest(), startMode: "hang", waitMs: 250, casePath: probe })).value;
