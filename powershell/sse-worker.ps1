@@ -21451,7 +21451,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # Ein bekanntes Seitenobjekt kann eine Praefix-Ueberschrift haben
           # ('Sonstige Werbungskosten/Fahrten Eva'); dann entscheidet ohne
           # exakten Titel dieselbe Regel wie auf der Zielseite.
-          $titelRegel = $(if ($knownTarget) { { param($titel) Test-KnownPageHeading $titel $knownTarget.page } } else { $null })
+          # Ein blosser Zaehler bindet auch in Suchtreffern keine Seitenart.
+          $titelRegel = $(if ($knownTarget -and
+              [string]$knownTarget.page.headingPrefix -notmatch '^[1-9][0-9]*\.\s*$') {
+            { param($titel) Test-KnownPageHeading $titel $knownTarget.page }
+          } else { $null })
           $genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel
           $treffer = @(Get-SSEContainerDescendants $tt.nodes 'DialogSearchResultsTableView' 'DataItem' 'Table' |
             Where-Object { [string]$_.name })

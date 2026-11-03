@@ -166,7 +166,8 @@ export async function executeQtNativeGoto(
         } while (performance.now() < deadline);
         if (!findContainerNode(snapshot.nodes, "DialogSearchResultsTableView", "Table"))
           throw new GotoError("The search result table did not become ready.");
-        const hit = selectSearchHit(snapshot.nodes, target, page);
+        const searchPage = page && !/^[1-9][0-9]*\.\s*$/u.test(String(page.headingPrefix ?? "")) ? page : undefined;
+        const hit = selectSearchHit(snapshot.nodes, target, searchPage);
         path.push(`Suche nach '${target}'`);
         if (hit) {
           phase = "search-hit";

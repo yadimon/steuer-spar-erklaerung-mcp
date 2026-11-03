@@ -18,8 +18,8 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "d16f5fbeb18cf6890354f4db3afbed8d7933690c2ec890467d5441aae065b7a0",
-      "size": 1774275
+      "sha256": "30c4352d3e8c0915ba3bef0df0477a79aa01828e619e0b15c174342b9c6a4f51",
+      "size": 1774395
     },
     {
       "path": "dist/mcp.js",
@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "8c20e52385db1416265b613506845397e8764045df8a2455c587770448130390",
-      "size": 1637248
+      "sha256": "c8e57b2de0e559133911e810808324c3553be32e71def0bf2322a43be132cf3c",
+      "size": 1637437
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -173,8 +173,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "5aa18a7f977045e1ebe6196f83fe8fd1d466fd8d90c8a584d5b91f6472ed6c70",
-      "size": 142607
+      "sha256": "1c27d9e8d8af376a499a9e38e1b3a7408b70cc9b2ad6820f8e908817effdd710",
+      "size": 142747
     },
     {
       "path": "profiles/2025/profile.json",

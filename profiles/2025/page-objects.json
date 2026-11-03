@@ -325,6 +325,7 @@
     },
     "gew.innergem_erwerb_13b_einfuhr": {
       "heading": "Innergem. Erwerb, § 13b UStG und Einfuhr",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "fields": {},
       "tables": {
         "kostenkategorie_13b": {

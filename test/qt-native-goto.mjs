@@ -121,13 +121,14 @@ function fixture(options = {}) {
   let current = options.start ?? "Start page", searchOpen = false, term = "", reads = 0, targetReads = 0, incompleteNativeReads = 0;
   let pendingReadObserved = false, pageGeneration = 0, queuedSearchReads = 0;
   const actions = [], trace = [], route = [...(options.landings ?? ["Target page"])];
+  const readyHeading = options.readyHeading ?? "Target page";
   const nodes = () => {
     const { nodes: value, add } = builder();
     const header = add("Group", "", "main.ClientFrameSSE.ClientHeader");
-    if (!searchOpen || current === "Target page") add("Text", current, "main.ClientFrameSSE.ClientHeader.QLabel", header);
+    if (!searchOpen || current === readyHeading) add("Text", current, "main.ClientFrameSSE.ClientHeader.QLabel", header);
     const nav = add("Tree", "", "main.NavWidgetSSE", -1, { x: 10, y: 100, w: 240, h: 500 });
     if (options.visibleTarget) add("TreeItem", options.navigationName ?? "Target page", "main.NavWidgetSSE", nav, { x: 20, y: 150 });
-    if (current === "Target page") {
+    if (current === readyHeading) {
       targetReads++;
       if (targetReads > (options.incompleteReads ?? 0)) add("Edit", "", "main.requiredField", -1, { val: "17,00", ro: false });
     }
@@ -140,7 +141,8 @@ function fixture(options = {}) {
       add("Button", "Suche schließen", "main.searchClose");
       if (!options.pendingSearch) {
         const table = add("Table", "", "main.DialogSearchResultsTableView");
-        if (!options.noHit) add("DataItem", "Target page", "main.DialogSearchResultsTableView", table, { x: 80, y: 200 });
+        if (!options.noHit) (options.searchRows ?? ["Target page"]).forEach((title, index) =>
+          add("DataItem", title, "main.DialogSearchResultsTableView", table, { x: 80, y: 200 + index * 25 }));
       }
     }
     if (options.rematerializePages) value.forEach(node => { node.rid = `42.42.4.${pageGeneration * 1000 + node.i + 1}`; });
@@ -269,6 +271,45 @@ const ordinalTree = fixture({ visibleTarget: true, navigationName: "1. Reise", p
 await ordinalTree.run({ maxSteps: 1 });
 assert.equal(ordinalTree.actions.filter(action => action.action === "activate-navigation-item").length, 0,
   "A bare ordinal prefix must not select a tree item of another page kind");
+const assetPageId = "gew.anlagevermoegen_wirtschaftsgut";
+const catalogAsset = profile.pageObjectsCatalog.pages[assetPageId];
+assert.equal(catalogAsset.headingPrefix, "1. ");
+assert(Object.keys(catalogAsset.fields).length > 0, "The real asset page requires a semantic field binding");
+const ordinalSearchResults = [];
+for (const wrongTitle of ["1. Reise", "1. Fahrzeug"]) {
+  const subject = fixture({ profile, searchRows: [wrongTitle], activationHeading: wrongTitle, deadEnd: true });
+  const result = await subject.run({ pageId: assetPageId, maxSteps: 1 });
+  ordinalSearchResults.push({ title: wrongTitle, ok: result.ok, kind: result.kind,
+    actions: subject.actions.map(action => ({ action: action.action, name: action.expectedName })), trace: subject.trace });
+}
+assert.deepEqual(ordinalSearchResults.map(result => result.actions.filter(action => action.action === "activate-table-cell")),
+  [[], []], `A bare ordinal must not activate another page kind: ${JSON.stringify(ordinalSearchResults)}`);
+for (const result of ordinalSearchResults) {
+  assert.equal(result.ok, false, result.title);
+  assert.equal(result.kind, "dead-end", result.title);
+  assert.deepEqual(result.actions, [{ action: "replace-edit-text", name: "" }, { action: "press", name: "" },
+    { action: "press", name: "Suche schließen" }], `${result.title}: the search must run and close without selecting a foreign title`);
+}
+const exactOrdinalSearch = fixture({ profile, searchRows: ["1. "], activationHeading: "1. ", deadEnd: true });
+const exactOrdinalResult = await exactOrdinalSearch.run({ pageId: assetPageId, maxSteps: 1 });
+assert.equal(exactOrdinalResult.ok, false);
+assert.equal(exactOrdinalResult.kind, "navigation-blocked", "An exact search row alone cannot replace the asset field readiness proof");
+assert.deepEqual(exactOrdinalSearch.actions.map(action => ({ action: action.action, name: action.expectedName })),
+  [{ action: "replace-edit-text", name: "" }, { action: "press", name: "" },
+    { action: "activate-table-cell", name: "1. " }, { action: "press", name: "Suche schließen" }],
+  "The exact literal row remains selectable once; unproved page readiness cannot replay it or start paging");
+const exactSearch = fixture({ searchRows: ["Other page", "Target page"] });
+assert.equal((await exactSearch.run()).erreicht, true);
+assert.deepEqual(exactSearch.actions.filter(action => action.action === "activate-table-cell").map(action => action.expectedName), ["Target page"],
+  "The unique exact title remains bound to its own search row");
+const namedDynamicSearchProfile = { ...dynamicProfile, pageObjectsCatalog: { ...dynamicProfile.pageObjectsCatalog,
+  pages: { ...dynamicProfile.pageObjectsCatalog.pages,
+    "synthetic.target": { ...dynamicPage, navigationTreeItemName: "Target group" } } } };
+const dynamicSearch = fixture({ profile: namedDynamicSearchProfile, searchRows: ["Target page: Example"],
+  activationHeading: "Target page: Example", readyHeading: "Target page: Example" });
+assert.equal((await dynamicSearch.run()).erreicht, true);
+assert.deepEqual(dynamicSearch.actions.filter(action => action.action === "activate-table-cell").map(action => action.expectedName), ["Target page: Example"],
+  "A nonordinal dynamic search family remains valid even with a different explicit tree label");
 const unchangedTree = fixture({ visibleTarget: true, noActivation: true });
 const treeFailure = await unchangedTree.run();
 assert.equal(treeFailure.ok, false); assert.equal(treeFailure.outcomeUnknown, true);

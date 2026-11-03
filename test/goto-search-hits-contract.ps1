@@ -184,9 +184,8 @@ $gotoClause = @(@($ast.FindAll({
   $node -is [Management.Automation.Language.SwitchStatementAst] -and
   @($node.Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" }).Count -eq 1
 }, $true))[0].Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" })[0].Item2.Extent.Text
-Assert-True ($gotoClause.Contains('$titelRegel = $(if ($knownTarget) { { param($titel) Test-KnownPageHeading $titel $knownTarget.page } } else { $null })') -and
-  $gotoClause.Contains('$genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel')) `
-  'goto gibt die Seitenobjektregel nicht nur fuer bekannte Ziele an die Trefferauswahl.'
+Assert-True ($gotoClause.Contains('$genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel')) `
+  'goto uebergibt die ermittelte Titelregel nicht an die produktive Trefferauswahl.'
 
 # The search activation flag predates closing the search panel. Execute the
 # actual success block: a stale flag must never publish success for another
@@ -196,6 +195,56 @@ $gotoBody = @(@($ast.FindAll({
   $node -is [Management.Automation.Language.SwitchStatementAst] -and
   @($node.Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" }).Count -eq 1
 }, $true))[0].Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" })[0].Item2
+
+# Execute the actual dispatcher rule assignment and its actual selector call.
+# A bare ordinal identifies neither an asset nor another page family.
+$ruleAssignments = @($gotoBody.FindAll({ param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $node.Left.Extent.Text -ceq '$titelRegel'
+}, $true))
+$hitAssignments = @($gotoBody.FindAll({ param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $node.Left.Extent.Text -ceq '$genau' -and
+  $node.Right.Extent.Text -ceq 'Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel'
+}, $true))
+Assert-True ($ruleAssignments.Count -eq 1 -and $hitAssignments.Count -eq 1) 'Die produktive Suchregel und Auswahl sind nicht eindeutig.'
+Assert-True ([object]::ReferenceEquals($ruleAssignments[0].Parent, $hitAssignments[0].Parent)) 'Suchregel und Auswahl gehoeren nicht zum selben produktiven Ablauf.'
+$statements = @($ruleAssignments[0].Parent.Statements)
+Assert-True ([array]::IndexOf($statements, $hitAssignments[0]) -eq [array]::IndexOf($statements, $ruleAssignments[0]) + 1) `
+  'Zwischen Suchregel und Auswahl darf kein anderer Ablauf die Bindung ersetzen.'
+$headingPredicate = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-KnownPageHeading'
+}, $true))
+Assert-True ($headingPredicate.Count -eq 1) 'Die produktive Titelpruefung fehlt.'
+. ([scriptblock]::Create($headingPredicate[0].Extent.Text))
+$ruleAssignment = [scriptblock]::Create($ruleAssignments[0].Extent.Text)
+$hitAssignment = [scriptblock]::Create($hitAssignments[0].Extent.Text)
+function Invoke-GotoSearchSelection($Page, [string]$Target, $Nodes, [switch]$FreeTarget) {
+  $knownTarget = $(if ($FreeTarget) { $null } else { [pscustomobject]@{ page=$Page } }); $ziel=$Target
+  $tt=[pscustomobject]@{nodes=$Nodes}; $titelRegel=$null; $genau=$null
+  . $ruleAssignment
+  Assert-True (-not $FreeTarget -or $null -eq $titelRegel) 'Ein freies Ziel erhielt eine Seitenobjektregel.'
+  . $hitAssignment
+  $genau
+}
+$catalog = Get-Content -LiteralPath (Join-Path $root 'profiles\2025\page-objects.json') -Raw | ConvertFrom-Json
+$assetPage = $catalog.pages.'gew.anlagevermoegen_wirtschaftsgut'
+Assert-True ($assetPage.headingPrefix -ceq '1. ') 'Der reale Katalog-Gegenfall fuer einen blossen Zaehler fehlt.'
+$ordinalRows = SearchPage '1. ' @((Row @('1. Reise', 'A')), (Row @('1. Fahrzeug: Synthetic', 'B')))
+Assert-True ($null -eq (Invoke-GotoSearchSelection $assetPage '1. ' $ordinalRows)) `
+  'Ein blosser Zaehler akzeptierte eine Suchzeile einer anderen Seitenart.'
+Assert-True ((Invoke-GotoSearchSelection ([pscustomobject]@{heading=$prefix;headingPrefix=$prefix}) $prefix $personList).y -eq 302) `
+  'Die produktive Regel verlor den ersten gebundenen dynamischen Titel.'
+Assert-True ((Invoke-GotoSearchSelection $catalog.pages.'gew.fahrzeug' 'Fahrzeug' `
+  (SearchPage 'Fahrzeug' @((Row @('2. Fahrzeug: Synthetic', 'A'))))).name -ceq '2. Fahrzeug: Synthetic') `
+  'Eine katalogisierte nummerierte Seitenart wurde abgewiesen.'
+Assert-True ((Invoke-GotoSearchSelection $assetPage '1. ' (SearchPage '1. ' @((Row @('1. ', 'A'))))).name -ceq '1. ') `
+  'Der unveraenderte zeichengenaue Titelpfad wurde blockiert.'
+Assert-True ($null -eq (Invoke-GotoSearchSelection $null $prefix $personList -FreeTarget)) `
+  'Ein freies Ziel akzeptierte einen dynamischen Praefixtitel ohne Katalogbindung.'
+Assert-True ((Invoke-GotoSearchSelection $null $prefix $exactFirst -FreeTarget).y -eq 277) `
+  'Ein freies Ziel muss weiterhin nur seine exakte Titelzelle auswaehlen.'
+
 $activatedBlocks = @($gotoBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.IfStatementAst] -and
