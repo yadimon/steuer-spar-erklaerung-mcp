@@ -114,21 +114,35 @@ static Json nativeDesktopStart(const Json &request) {
         caseFile.reset();
         if (ResumeThread(thread.value) == MAXDWORD) throw DiscoveryError("launch", "Could not resume the owned SSE process");
         Json windows = Json::array(), mains = Json::array(), dialogs = Json::array();
+        LaunchMainWindowStability stability;
+        bool ready = false;
         for (;;) {
             if (WaitForSingleObject(owner.value, 0) != WAIT_TIMEOUT) throw DiscoveryError("aborted", "Native launch owner exited before handoff");
             if (WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT) throw DiscoveryError("launch", "Owned SSE process exited during startup");
             windows = launchWindows(desktop.value, info.dwProcessId);
             auto candidates = launchCandidates(windows, withCase); mains = std::move(candidates.first); dialogs = std::move(candidates.second);
-            if (!mains.empty() || !dialogs.empty()) break;
-            if (elapsed() >= timeout) throw DiscoveryError("startup-timeout", "Owned SSE process produced no verified startup window before its deadline");
+            if (stability.observe(mains, dialogs) && elapsed() < timeout) {
+                auto checkpoint = launchWindows(desktop.value, info.dwProcessId);
+                const auto unchanged = sameLaunchWindowSet(windows, checkpoint);
+                windows = std::move(checkpoint);
+                candidates = launchCandidates(windows, withCase); mains = std::move(candidates.first); dialogs = std::move(candidates.second);
+                if (unchanged && elapsed() < timeout) { ready = true; break; }
+                stability.reset();
+            }
+            // A compact Win32 surface may be a transient splash or a persistent question.
+            // Neither proves readiness; preserve a pending window only at the original deadline.
+            if (elapsed() >= timeout) {
+                if (mains.empty() && dialogs.empty())
+                    throw DiscoveryError("startup-timeout", "Owned SSE process produced no verified startup window before its deadline");
+                break;
+            }
             HANDLE waits[] = {process.value, owner.value};
-            WaitForMultipleObjects(2, waits, FALSE, static_cast<DWORD>(std::min(25.0, std::max(1.0, timeout - elapsed()))));
+            WaitForMultipleObjects(2, waits, FALSE, static_cast<DWORD>(std::min(250.0, std::max(1.0, timeout - elapsed()))));
         }
         writeNativeMarker(markerPath, owned);
         if (WaitForSingleObject(owner.value, 0) != WAIT_TIMEOUT || WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT)
             throw DiscoveryError("launch", "Process ownership changed before marker handoff");
         // Prepare the complete reply before making the process persistent. Lost transport after handoff is an unknown outcome.
-        const bool ready = mains.size() == 1 && dialogs.empty();
         Json result = {{"ok", true}, {"desktop", name}, {"pid", info.dwProcessId}, {"startPid", info.dwProcessId},
             {"wartesekunden", elapsed() / 1000.0}, {"kommandozeile", narrow(command)}, {"fenster", windows}, {"product", product},
             {"ready", ready}, {"blockedByDialog", !dialogs.empty()}, {"dialogWindows", dialogs}, {"instance", nullptr},

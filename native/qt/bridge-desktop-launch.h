@@ -69,6 +69,22 @@ static std::pair<Json, Json> launchCandidates(const Json &windows, bool withCase
     }
     return {loaded.empty() ? generic : loaded, dialogs};
 }
+struct LaunchMainWindowStability {
+    Json signature = nullptr;
+    unsigned consecutive = 0;
+    void reset() { signature = nullptr; consecutive = 0; }
+    bool observe(const Json &mains, const Json &dialogs) {
+        if (mains.size() != 1 || !dialogs.empty() || mains[0].at("hung").get<bool>()) { reset(); return false; }
+        if (signature != mains[0]) { signature = mains[0]; consecutive = 1; return false; }
+        return ++consecutive >= 3;
+    }
+};
+static bool sameLaunchWindowSet(Json before, Json after) {
+    const auto byHandle = [](const Json &a, const Json &b) { return a.at("hwnd").get<std::uint64_t>() < b.at("hwnd").get<std::uint64_t>(); };
+    std::sort(before.begin(), before.end(), byHandle);
+    std::sort(after.begin(), after.end(), byHandle);
+    return before == after;
+}
 static std::wstring launchPath(const Json &request, const char *key) {
     const auto value = request.at(key).get<std::string>();
     if (value.empty() || value.size() > 32768 || value.find_first_of("\"\r\n\t") != std::string::npos || value.find('\0') != std::string::npos)

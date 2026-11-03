@@ -4637,6 +4637,37 @@ function Get-SSEDesktopStartWindowState($Windows, [bool]$HasCase) {
   [pscustomobject]@{ mainCandidates=@($main); dialogWindows=@($dialogs); ready=($main.Count -eq 1 -and $dialogs.Count -eq 0) }
 }
 
+function Wait-SSEDesktopStartWindowState([scriptblock]$ReadWindows, [bool]$HasCase, [int]$TimeoutMs) {
+  $timer=[Diagnostics.Stopwatch]::StartNew()
+  $stability=[pscustomobject]@{signature=$null;consecutive=0}
+  $ready=$false
+  while ($true) {
+    $windows=@(& $ReadWindows | Where-Object { $null -ne $_ })
+    $state=Get-SSEDesktopStartWindowState $windows $HasCase
+    $unblockedCandidates=@()
+    if (-not $state.dialogWindows.Count) { $unblockedCandidates=@($state.mainCandidates) }
+    $stable=Test-SSELaunchMainWindowStable $stability $unblockedCandidates
+    if ($stable -and $timer.ElapsedMilliseconds -lt $TimeoutMs) {
+      $checkpoint=@(& $ReadWindows | Where-Object { $null -ne $_ })
+      $fields=@('pid','hwnd','title','cls','x','y','w','h','minimiert','hung')
+      $before=@($windows | Sort-Object hwnd | Select-Object $fields) | ConvertTo-Json -Compress
+      $after=@($checkpoint | Sort-Object hwnd | Select-Object $fields) | ConvertTo-Json -Compress
+      $windows=$checkpoint
+      $state=Get-SSEDesktopStartWindowState $windows $HasCase
+      if ($before -ceq $after -and $timer.ElapsedMilliseconds -lt $TimeoutMs) { $ready=$true;break }
+      $stability.signature=$null;$stability.consecutive=0
+    }
+    # Win32 title/geometry alone cannot distinguish a splash from a question.
+    # Keep observing the same owned process until ready or the original deadline.
+    if ($timer.ElapsedMilliseconds -ge $TimeoutMs) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(250,[Math]::Max(1,$TimeoutMs-$timer.ElapsedMilliseconds)))
+  }
+  [pscustomobject]@{
+    windows=@($windows);mainCandidates=@($state.mainCandidates);dialogWindows=@($state.dialogWindows)
+    ready=$ready;elapsedMs=$timer.ElapsedMilliseconds
+  }
+}
+
 # Strenge Hauptfensterbindung fuer fallbezogene Leseoperationen. Ein breites
 # Qt-Hilfsfenster ist kein Hauptfenster; mehrere Faelle duerfen ohne explizites
 # HWND niemals vermischt werden. Ein minimiertes, eindeutig gebundenes Fenster
@@ -20645,18 +20676,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     try {
-      $gewartet = 0; $fenster = @(); $mainCandidates = @(); $startupDialogWindows = @()
-      while ($gewartet -lt $timeoutSec) {
-        Start-Sleep -Milliseconds 500; $gewartet += 0.5
-        $fenster = @(Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid))
-        $startupState = Get-SSEDesktopStartWindowState $fenster ([bool]$caseIdentity)
-        $mainCandidates = @($startupState.mainCandidates)
-        # Ein kompakter Startdialog kann den geladenen Fall blockieren. Er ist
-        # kein Hauptfenster, muss aber nach gesetztem Eigentumsmarker gezielt
-        # mit sse_dialog_list/sse_dialog_answer erreichbar bleiben.
-        $startupDialogWindows = @($startupState.dialogWindows)
-        if ($mainCandidates.Count -or $startupDialogWindows.Count) { break }
-      }
+      $startupState=Wait-SSEDesktopStartWindowState {
+        Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid)
+      } ([bool]$caseIdentity) ([int]($timeoutSec*1000))
+      $gewartet=$startupState.elapsedMs/1000.0
+      $fenster=@($startupState.windows)
+      $mainCandidates=@($startupState.mainCandidates)
+      # Persistent startup questions remain reachable after the owned handoff.
+      $startupDialogWindows=@($startupState.dialogWindows)
       if (-not $mainCandidates.Count -and -not $startupDialogWindows.Count) {
         $timeoutHandles = @([DSK]::ListDesktopWindows($d))
         $timeoutExactWindows = @(Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid))

@@ -116,10 +116,10 @@ if(SSE_QT_BUILD_TESTS)
   target_compile_definitions(bridge-start-test PRIVATE QT_NO_KEYWORDS SSE_NATIVE_START_TEST)
   target_include_directories(bridge-start-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
   target_link_libraries(bridge-start-test PRIVATE BCrypt User32 Version Ole32 OleAut32 Uiautomationcore)
-  add_executable(bridge-start-fixture tests/start-fixture.cpp tests/start-fixture.rc)
+  add_executable(bridge-start-fixture WIN32 tests/start-fixture.cpp tests/start-fixture.rc)
   target_compile_options(bridge-start-fixture PRIVATE /permissive- /EHsc /utf-8 /W4)
   target_include_directories(bridge-start-fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
-  target_link_libraries(bridge-start-fixture PRIVATE User32)
+  target_link_libraries(bridge-start-fixture PRIVATE User32 Shell32)
   set_target_properties(bridge-start-test bridge-start-fixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
   add_test(NAME native-desktop-start COMMAND "${NODE_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../test/native-desktop-start-integration.mjs"

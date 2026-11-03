@@ -3,7 +3,7 @@ $path=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$errors)
 if(@($errors).Count){throw 'Worker syntax is invalid.'}
-foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates','Get-SSEDesktopStartWindowState')){
+foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates','Get-SSEDesktopStartWindowState','Wait-SSEDesktopStartWindowState')){
   $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if($definition.Count -ne 1){throw "Productive helper '$name' is absent."}
   . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -31,7 +31,7 @@ function Get-DialogInventory {
   if($Target -ne 7){throw 'Dialog inventory escaped its owned PID.'}
   @($script:dialogs)
 }
-function Start-Sleep {param($Milliseconds) if($Milliseconds -ne 250){throw 'Unexpected polling delay.'}}
+function Start-Sleep {param($Milliseconds) if($Milliseconds -lt 1 -or $Milliseconds -gt 250){throw 'Unexpected polling delay.'}}
 function Run-Probe($Frames,$Dialogs=@(),[bool]$HasCase=$true,[int]$Budget=5000,[scriptblock]$WindowSource=$null){
   $script:frames=$Frames;$script:dialogs=$Dialogs;$script:reads=0;$script:result=$null
   $script:windowSource=$WindowSource
@@ -108,7 +108,56 @@ Assert ($desktopState.mainCandidates.Count -eq 0 -and $desktopState.dialogWindow
 $minimizedProduct=Window 50 200 $product;$minimizedProduct.minimiert=$true
 $desktopState=Get-SSEDesktopStartWindowState @($minimizedProduct) $true
 Assert ($desktopState.mainCandidates.Count -eq 1 -and $desktopState.dialogWindows.Count -eq 0 -and $desktopState.ready) 'An otherwise qualified minimized case lost the normal main-window binding.'
+
+function Run-DesktopProbe($Frames,[bool]$HasCase=$true,[int]$Budget=5000,[scriptblock]$WindowSource=$null){
+  $script:frames=$Frames;$script:reads=0;$script:windowSource=$WindowSource
+  Wait-SSEDesktopStartWindowState {Get-Windows 'SSE'} $HasCase $Budget
+}
+$result=Run-DesktopProbe @(@((Window 10 500 'Steuerprogramm')),@((Window 20)),@((Window 20)),@((Window 20)))
+Assert ($result.ready -and $script:reads -eq 5 -and $result.mainCandidates[0].hwnd -eq 20 -and $result.dialogWindows.Count -eq 0) 'A transient desktop splash was handed off as a dialog instead of waiting for the stable main window.'
+$result=Run-DesktopProbe @(@((Window 10 500 'Steuerprogramm')),@((Window 10)),@((Window 10)),@((Window 10)))
+Assert ($result.ready -and $script:reads -eq 5 -and $result.mainCandidates[0].w -eq 1100) 'An in-place splash transition was not reclassified.'
+$result=Run-DesktopProbe @(@((Window 10)),@((Window 20)),@((Window 20)),@((Window 20)))
+Assert ($result.ready -and $script:reads -eq 5 -and $result.mainCandidates[0].hwnd -eq 20) 'Desktop main-window replacement bypassed the stability proof.'
+$result=Run-DesktopProbe @(@((Window 10)),@(),@((Window 20)),@((Window 20)),@((Window 20)))
+Assert ($result.ready -and $script:reads -eq 6) 'Desktop window disappearance did not reset readiness.'
+$result=Run-DesktopProbe @(@((Window 10)),@((Window 10 1200)),@((Window 10 1200)),@((Window 10 1200)))
+Assert ($result.ready -and $script:reads -eq 5 -and $result.mainCandidates[0].w -eq 1200) 'Desktop resize did not reset readiness.'
+$result=Run-DesktopProbe @(@((Window 10)),@((Window 10 1100 ($product+' case'))),@((Window 10 1100 ($product+' case'))),@((Window 10 1100 ($product+' case'))))
+Assert ($result.ready -and $script:reads -eq 5) 'Desktop title change did not reset readiness.'
+$result=Run-DesktopProbe @(@((Window 10)),@((Window 10)),@((Window 10)),@((Window 20)),@((Window 20)),@((Window 20)),@((Window 20)))
+Assert ($result.ready -and $script:reads -eq 8 -and $result.mainCandidates[0].hwnd -eq 20) 'Desktop final checkpoint published a replaced HWND.'
+$result=Run-DesktopProbe @(@((Window 10)),@((Window 10)),@((Window 10)),@((Window 10),$smallProduct),@((Window 10)),@((Window 10)),@((Window 10)))
+Assert ($result.ready -and $script:reads -eq 8) 'A desktop dialog appearing at the checkpoint bypassed a fresh stability proof.'
+$result=Run-DesktopProbe @(@($hung),@((Window 10)),@((Window 10)),@((Window 10)))
+Assert ($result.ready -and $script:reads -eq 5) 'An unresponsive desktop main window counted toward readiness.'
+$result=Run-DesktopProbe @(@($unknown),@((Window 10)),@((Window 10)),@((Window 10)))
+Assert ($result.ready -and $script:reads -eq 5) 'Unknown desktop responsiveness counted toward readiness.'
+$result=Run-DesktopProbe -Frames (, @($smallProduct)) -Budget 30
+Assert (-not $result.ready -and $result.dialogWindows.Count -eq 1 -and $script:reads -gt 1 -and $result.elapsedMs -ge 30) 'Persistent product dialog was lost or handed off before the original deadline.'
+$result=Run-DesktopProbe -Frames (, @((Window 10),$smallProduct)) -Budget 30
+Assert (-not $result.ready -and $result.mainCandidates.Count -eq 1 -and $result.dialogWindows.Count -eq 1) 'Main plus startup dialog became ready.'
+$result=Run-DesktopProbe -Frames (, @((Window 10),(Window 20))) -Budget 30
+Assert (-not $result.ready -and $result.mainCandidates.Count -eq 2) 'Ambiguous desktop mains selected the first window.'
+$result=Run-DesktopProbe -Frames (, @($hung)) -Budget 30
+Assert (-not $result.ready -and $result.mainCandidates.Count -eq 1) 'Hung desktop main became ready at the deadline.'
+$result=Run-DesktopProbe -Frames @() -Budget 30
+Assert (-not $result.ready -and $result.windows.Count -eq 0 -and $result.elapsedMs -ge 30) 'Windowless desktop lost the bounded timeout state needed for cleanup.'
+$result=Run-DesktopProbe -Frames @() -Budget 30 -WindowSource {param($Read) Window (100+$Read)}
+Assert (-not $result.ready -and $result.mainCandidates.Count -eq 1 -and $result.elapsedMs -ge 30) 'Changing desktop mains escaped the single absolute deadline.'
+$result=Run-DesktopProbe -Frames @() -Budget 30 -WindowSource {
+  param($Read)
+  if($Read -eq 4){[Threading.Thread]::Sleep(40)}
+  Window 10
+}
+Assert (-not $result.ready -and $script:reads -eq 4 -and $result.elapsedMs -ge 30) 'A desktop checkpoint finishing after the deadline still published readiness.'
+$result=Run-DesktopProbe -Frames @(@($generic),@($generic),@($generic)) -HasCase $false
+Assert ($result.ready -and $script:reads -eq 4) 'Desktop generic no-case main failed to stabilize.'
+try {
+  $null=Run-DesktopProbe -Frames @() -WindowSource {param($Read) if($Read -eq 4){throw 'Synthetic desktop checkpoint failure.'};Window 10}
+  throw 'Desktop checkpoint failure was swallowed.'
+} catch {Assert ($_.Exception.Message -ceq 'Synthetic desktop checkpoint failure.') 'Desktop checkpoint failure did not reach owned-process cleanup.'}
 $probeText=$probe[0].Item2.Extent.Text
 Assert ($probeText -notmatch 'Start-Process|Stop-Process|SendKeys|SetForegroundWindow') 'Readiness polling introduced a process or input mutation.'
 Assert ($probeText -match 'while \(\(\$probeTimer.ElapsedMilliseconds \+ 1000\) -lt \$probeBudgetMs\)') 'Readiness polling lost its original absolute budget and handover reserve.'
-Write-Output 'Launch readiness: productive probe preserves HWND/title/geometry across three passive frames, resets on disappearance, and preserves dialogs/ambiguity.'
+Write-Output 'Launch readiness: launch and desktop probes preserve HWND/title/geometry across three passive frames and a fresh checkpoint; desktop splashes remain pending within one deadline.'

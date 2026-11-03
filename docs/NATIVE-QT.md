@@ -262,10 +262,20 @@ die Cleanup-Felder. Ein verlorener oder abgebrochener Antwortweg kann
 `outcomeUnknown: true` liefern und wird nie automatisch wiederholt.
 Vor einem weiteren Start ist dann `desktop_status` zu prüfen.
 
-`ready` setzt ein eindeutig erkanntes Hauptfenster ohne erkannten Startdialog
-voraus. Ein kompakter Dialog mit Produkttitel wird auch beim Start mit Fallreferenz
-nicht als Hauptfenster gebunden. Startdialoge stehen separat in `dialogWindows`;
-bei einer solchen Blockade bleiben `ready: false` und `instance: null`.
+`ready` setzt ein eindeutig erkanntes, nicht als hängend gemeldetes Hauptfenster
+ohne erkannten Startdialog voraus. Drei Beobachtungen im Abstand von 250 ms
+müssen dieselbe Fensteridentität, denselben Titel und dieselbe Geometrie zeigen;
+anschließend bestätigt ein frischer Abgleich den gesamten Fensterbestand.
+Fensterwechsel, Größenänderungen und Startdialoge setzen die Bestätigung zurück.
+Ein kompaktes Startfenster kann Ladebildschirm oder Rückfrage sein. Beide
+Startpfade beobachten deshalb denselben Prozess innerhalb der ursprünglichen
+Startfrist weiter, ohne Eingabe oder erneuten Prozessstart. Bleibt ein solcher
+Kandidat bis zum Fristende bestehen, steht er separat in `dialogWindows`;
+`blockedByDialog: true` beschreibt dabei den noch ungeklärten Startzustand.
+Ein kompakter Produkttitel-Dialog wird auch mit Fallreferenz nicht als Hauptfenster
+gebunden. Bei Dialogen, mehreren Hauptfenstern oder fehlender Stabilitätsbestätigung
+bleiben `ready: false` und `instance: null`. Ohne Hauptfenster- oder Dialogkandidaten
+gilt weiterhin der Startup-Timeout mit überprüfter Bereinigung.
 Das ist keine Zusage, dass der komplette Fall bereits
 geladen ist. Der Messweg trennt Helferstart, SSE-Ladezeit und Antwortabschluss.
 Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Für die

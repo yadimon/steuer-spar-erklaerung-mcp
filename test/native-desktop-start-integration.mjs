@@ -35,6 +35,7 @@ async function until(condition, message) {
   assert(condition(), message);
 }
 function raw(request, loader = testLoader) {
+  console.log(`Synthetic desktop_start: ${request.startMode}`);
   return new Promise((resolveResult, reject) => {
     const child = execFile(loader, ["--stdin"], { windowsHide: true, encoding: "utf8", timeout: 10000 }, (error, stdout, stderr) => {
       helpers.delete(child);
@@ -61,7 +62,7 @@ try {
   const first = (await raw(request)).value;
   assert.equal(first.ok, true, JSON.stringify(first)); ownedPids.add(first.pid);
   assert.equal(first.ready, true); assert.equal(first.blockedByDialog, false);
-  assert(first.wartesekunden < 3); assert.equal(first.instance.pid, first.pid);
+  assert(first.wartesekunden >= 0.5 && first.wartesekunden < 3); assert.equal(first.instance.pid, first.pid);
   assert.deepEqual(readDesktopMarker(markerPath), { schemaVersion: 1, owner: "sse", name: request.desktop, pid: first.pid });
   const active = await raw(baseRequest()); assert.equal(active.value.kind, "desktop-active");
   assert.equal(readDesktopMarker(markerPath).pid, first.pid);
@@ -69,6 +70,36 @@ try {
   const occupied = await raw(request); assert.equal(occupied.value.kind, "desktop-occupied");
   writeFileSync(markerPath, JSON.stringify({ schemaVersion: 1, owner: "sse", name: request.desktop, pid: first.pid }));
   await cleanup(first.pid);
+
+  // Real Win32 transitions on an inactive desktop: replacement and in-place startup frames.
+  for (const startMode of ["splash", "morph", "replace"]) {
+    const transitionProbe = join(temporary, `${startMode}.json`); writeFileSync(transitionProbe, "{}");
+    const transitioned = (await raw({ ...baseRequest(), startMode, casePath: transitionProbe })).value;
+    assert.equal(transitioned.ok, true, JSON.stringify(transitioned)); ownedPids.add(transitioned.pid);
+    const proof = JSON.parse(readFileSync(transitionProbe, "utf8"));
+    assert.equal(proof.phase, "main", "A transient startup frame was handed off before its transition");
+    assert.equal(transitioned.ready, true); assert.equal(transitioned.blockedByDialog, false);
+    assert.equal(transitioned.instance.hwnd, proof.hwnd); assert.equal(transitioned.fenster.length, 1);
+    assert.equal(proof.hwnd === proof.initialHwnd, startMode === "morph");
+    assert(transitioned.wartesekunden >= 0.5 && transitioned.wartesekunden < 3);
+    await cleanup(transitioned.pid);
+  }
+  for (const startMode of ["blocked", "ambiguous"]) {
+    const pending = (await raw({ ...baseRequest(), startMode, waitMs: 750 })).value;
+    assert.equal(pending.ok, true, JSON.stringify(pending)); ownedPids.add(pending.pid);
+    assert.equal(pending.ready, false); assert.equal(pending.instance, null);
+    assert.equal(pending.blockedByDialog, startMode === "blocked");
+    assert.equal(pending.fenster.length, 2); assert(pending.wartesekunden >= 0.75);
+    assert.equal(readDesktopMarker(markerPath).pid, pending.pid);
+    await cleanup(pending.pid);
+  }
+  const splashDialogProbe = join(temporary, "splash-dialog.json"); writeFileSync(splashDialogProbe, "{}");
+  const splashDialog = (await raw({ ...baseRequest(), startMode: "splashdialog", casePath: splashDialogProbe, waitMs: 1500 })).value;
+  assert.equal(splashDialog.ok, true, JSON.stringify(splashDialog)); ownedPids.add(splashDialog.pid);
+  assert.equal(JSON.parse(readFileSync(splashDialogProbe, "utf8")).phase, "dialog");
+  assert.equal(splashDialog.ready, false); assert.equal(splashDialog.instance, null); assert.equal(splashDialog.blockedByDialog, true);
+  assert(splashDialog.dialogWindows[0].title.includes("SteuerSparErklärung")); assert(splashDialog.wartesekunden >= 1.5);
+  await cleanup(splashDialog.pid);
 
   const dialog = (await raw({ ...baseRequest(), startMode: "dialog" })).value;
   assert.equal(dialog.ok, true); ownedPids.add(dialog.pid);
@@ -146,7 +177,7 @@ try {
   const health = await (await fetch(ready.baseUrl + "/healthz")).json();
   await requestApiShutdown({ confirm: true, instanceId: health.instanceId }, { baseUrl: ready.baseUrl, expectedInstanceId: health.instanceId });
   ready = undefined;
-  console.log("OK: native launch handoff, occupied/foreign markers, dialogs, timeout cleanup, killed helper and public API resource binding.");
+  console.log("OK: native stable launch, splash/replacement transitions, persistent dialogs/ambiguity, ownership, timeout cleanup and public API resource binding.");
 } finally {
   if (ready) {
     const health = await (await fetch(ready.baseUrl + "/healthz")).json();

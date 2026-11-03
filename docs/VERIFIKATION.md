@@ -224,8 +224,13 @@ fehlende Vollständigkeitsangabe darf nicht als erfolgreicher vollständiger
 Baumlauf ausgegeben werden.
 
 Der optionale native `desktop_start` hat zusätzlich einen realen Win32-Test mit
-einem eigenen synthetischen Prozess. Er prüft Hauptfenster und Startdialog,
-einschließlich eines kompakten Produkttitel-Dialogs beim Start mit Fallreferenz,
+einem eigenen synthetischen Prozess. Er prüft stabile Hauptfenster, vorübergehende
+Ladebildschirme mit neuer oder gleicher Fensterkennung, Hauptfensterwechsel und
+anhaltende Startdialoge, einschließlich eines kompakten Produkttitel-Dialogs beim
+Start mit Fallreferenz sowie gleichzeitige Hauptfenster und Dialoge oder mehrere
+Hauptfenster. Der PowerShell-Vertrag prüft zusätzlich Titel-/Geometriewechsel,
+Verschwinden, unbekannte Antwortfähigkeit und Änderungen beim Abschlussabgleich.
+Beide prüfen eine begrenzte Startfrist. Der native Test prüft außerdem
 vorhandene Desktops, fremde und beschädigte Marker, Startup-Timeout, frühen
 Prozessausstieg, Abbruch des nativen Helfers und den öffentlichen HTTP-Weg mit
 Ressourcenreferenz. Die produktive Helferdatei akzeptiert keine synthetische
