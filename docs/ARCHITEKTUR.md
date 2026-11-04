@@ -377,6 +377,13 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Evidenz bleiben dadurch gleich: Die gelesene Zeichenfolge durchläuft
   unverändert denselben profilergebundenen Pfad- und Bindungsvertrag; Fehler
   erweitern die Annahmemenge nicht.
+- Der PowerShell-Desktopstart erhält seine äußere Frist erst mit dem Auftrag,
+  nicht beim Vorwärmen. Kalte Workerinitialisierung und Startvorbereitung
+  verbrauchen dieselbe Frist. Vor der Prozessanlage wird das Restbudget erneut
+  geprüft; die Fensterbeobachtung lässt sechs Sekunden für Eigentumsübergabe
+  und verifizierte Bereinigung frei. Zu wenig Zeit beendet den Auftrag vor
+  einem neuen Prozess. Direkte PowerShell-Aufrufe ohne Transportfrist behalten
+  ihre lokale begrenzte Wartezeit.
 - Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
   gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
   einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der

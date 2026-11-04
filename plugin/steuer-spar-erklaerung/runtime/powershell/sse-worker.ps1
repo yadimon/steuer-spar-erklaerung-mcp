@@ -4684,6 +4684,27 @@ function Get-SSEDesktopStartWindowState($Windows, [bool]$HasCase) {
   [pscustomobject]@{ mainCandidates=@($main); dialogWindows=@($dialogs); ready=($main.Count -eq 1 -and $dialogs.Count -eq 0) }
 }
 
+function New-SSEDesktopStartBudget($Arguments, [int]$TimeoutSec, [long]$NowUnixMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) {
+  $timer=[Diagnostics.Stopwatch]::StartNew()
+  $property=$Arguments.PSObject.Properties['__desktopStartDeadlineUnixMs']
+  $remaining=$null
+  if ($null -ne $property) {
+    if ($null -eq $property.Value) { Fail 'Interne Startfrist muss eine sichere ganze Zahl sein.' 'bad-args' }
+    $deadline=Get-SSEBoundedIntegerArg $Arguments '__desktopStartDeadlineUnixMs' 0 1 9007199254740991
+    $remaining=[double]$deadline-$NowUnixMs
+  }
+  [pscustomobject]@{requestedMs=$TimeoutSec*1000;remainingMs=$remaining;timer=$timer}
+}
+function Get-SSEDesktopStartWaitBudget($Budget, [switch]$BeforeStart) {
+  if ($null -eq $Budget.remainingMs) { return [int]$Budget.requestedMs }
+  $remaining=[Math]::Floor($Budget.remainingMs-$Budget.timer.ElapsedMilliseconds)
+  if ($BeforeStart -and $remaining -lt 6500) {
+    Fail 'Nicht genug Zeit fuer einen neuen Desktop-Prozess mit verifiziertem Abschluss; nichts gestartet.' 'startup-deadline' ([pscustomobject]@{mutationStarted=$false;resultingState='unchanged'})
+  }
+  # Complete-FailedDesktopStart kann bis zu fuenf Sekunden auf die eigene PID
+  # warten. Auch bei persistentem Dialog bleibt Zeit fuer Marker und Handles.
+  [int][Math]::Max(0,[Math]::Min($Budget.requestedMs,$remaining-6000))
+}
 function Wait-SSEDesktopStartWindowState([scriptblock]$ReadWindows, [bool]$HasCase, [int]$TimeoutMs) {
   $timer=[Diagnostics.Stopwatch]::StartNew()
   $stability=[pscustomobject]@{signature=$null;consecutive=0}
@@ -20656,6 +20677,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $datei = [string](Arg $a 'file')
     $modus = [string](Arg $a 'mode' 'einur')
     $timeoutSec = [Math]::Max(3, [Math]::Min(90, [int](Arg $a 'timeoutSec' 30)))
+    $startupBudget=New-SSEDesktopStartBudget $a $timeoutSec
+    $null=Get-SSEDesktopStartWaitBudget $startupBudget -BeforeStart
     if (-not (Test-SSEDesktopName $name)) {
       Fail "Ungueltiger Desktopname '$name'. Erlaubt sind 1-64 ASCII-Buchstaben, Ziffern, _ und -." 'bad-args'
     }
@@ -20704,6 +20727,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           "Desktop '$name' existiert bereits und wird nicht uebernommen; Start verweigert."
         }) 'desktop-occupied'
     }
+    $null=Get-SSEDesktopStartWaitBudget $startupBudget -BeforeStart
     $d = [DSK]::CreateDesktop($name, [IntPtr]::Zero, [IntPtr]::Zero, 0, $GENERIC_ALL, [IntPtr]::Zero)
     if ($d -eq [IntPtr]::Zero) {
       Fail "Desktop '$name' liess sich nicht anlegen (Fehler $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))" 'desktop'
@@ -20719,6 +20743,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $null = $cmd.Append(" -m$modus")
     if ($caseIdentity) { $null = $cmd.Append(' "' + $caseIdentity.path + '"') }
     $pi = New-Object DSK+PI
+    $startupAllowed=$false
+    try {
+      $null=Get-SSEDesktopStartWaitBudget $startupBudget -BeforeStart
+      $startupAllowed=$true
+    } finally {
+      if (-not $startupAllowed) { [DSK]::CloseDesktop($d) | Out-Null }
+    }
     $ok = [DSK]::CreateProcess($productIdentity.path, $cmd, [IntPtr]::Zero, [IntPtr]::Zero, $false, 0,
             [IntPtr]::Zero, (Split-Path $productIdentity.path -Parent), [ref]$si, [ref]$pi)
     if (-not $ok) {
@@ -20728,9 +20759,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     try {
+      $startupWaitMs=Get-SSEDesktopStartWaitBudget $startupBudget
       $startupState=Wait-SSEDesktopStartWindowState {
         Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid)
-      } ([bool]$caseIdentity) ([int]($timeoutSec*1000))
+      } ([bool]$caseIdentity) $startupWaitMs
       $gewartet=$startupState.elapsedMs/1000.0
       $fenster=@($startupState.windows)
       $mainCandidates=@($startupState.mainCandidates)

@@ -39371,6 +39371,23 @@ var init_worker_prewarm = __esm({
   }
 });
 
+// src/worker-start-deadline.ts
+function bindDesktopStartDeadline(operation, args, timeoutMs, nowMs = Date.now()) {
+  if (Object.hasOwn(args, deadlineKey)) throw new TypeError("Caller-supplied internal startup deadline is forbidden.");
+  if (operation !== "desktop_start") return args;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 6500 || !Number.isSafeInteger(nowMs) || nowMs < 0 || !Number.isSafeInteger(nowMs + timeoutMs)) {
+    throw new TypeError("Desktop start requires a bounded deadline including verified cleanup.");
+  }
+  return { ...args, [deadlineKey]: nowMs + timeoutMs };
+}
+var deadlineKey;
+var init_worker_start_deadline = __esm({
+  "src/worker-start-deadline.ts"() {
+    "use strict";
+    deadlineKey = "__desktopStartDeadlineUnixMs";
+  }
+});
+
 // src/worker.ts
 import { spawn as spawn2 } from "node:child_process";
 import { createHash as createHash15, randomUUID as randomUUID5 } from "node:crypto";
@@ -39530,6 +39547,11 @@ function refillWarmSpareLater() {
   if (!workerRuntimeFailure) ensureWarmSpare();
 }
 async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
+  try {
+    args = bindDesktopStartDeadline(op, args, timeoutMs);
+  } catch (error62) {
+    throw new WorkerError(error62 instanceof Error ? error62.message : String(error62), "bad-args");
+  }
   const marker = op === "desktop_start" || op === "desktop_status" ? null : resolveDesktopMarkerForOperation(
     DESKTOP_MARKER_PATH,
     op,
@@ -39757,6 +39779,7 @@ var init_worker = __esm({
     init_desktop_marker();
     init_worker_prewarm();
     init_worker_table_capability();
+    init_worker_start_deadline();
     init_worker_operation_policy();
     HERE2 = dirname12(fileURLToPath3(import.meta.url));
     WORKER = join13(HERE2, "..", "powershell", "sse-worker.ps1");

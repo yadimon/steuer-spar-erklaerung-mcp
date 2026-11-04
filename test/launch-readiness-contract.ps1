@@ -3,7 +3,7 @@ $path=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$errors)
 if(@($errors).Count){throw 'Worker syntax is invalid.'}
-foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates','Get-SSEDesktopStartWindowState','Wait-SSEDesktopStartWindowState')){
+foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates','Get-SSEDesktopStartWindowState','New-SSEDesktopStartBudget','Get-SSEDesktopStartWaitBudget','Wait-SSEDesktopStartWindowState')){
   $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if($definition.Count -ne 1){throw "Productive helper '$name' is absent."}
   . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -41,6 +41,84 @@ function Run-Probe($Frames,$Dialogs=@(),[bool]$HasCase=$true,[int]$Budget=5000,[
   $script:result
 }
 function Assert([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
+
+# Actual startup-budget helpers, with a stopped monotonic clock for exact boundaries.
+$budgetArguments=[pscustomobject]@{timeoutSec=90;__desktopStartDeadlineUnixMs=100000}
+$budget=New-SSEDesktopStartBudget $budgetArguments 90 10000
+$budget.timer.Reset()
+Assert ((Get-SSEDesktopStartWaitBudget $budget -BeforeStart) -eq 84000) 'Startup polling consumed its six-second cleanup reserve.'
+$budget.remainingMs-=10000
+Assert ((Get-SSEDesktopStartWaitBudget $budget -BeforeStart) -eq 74000 -and $budgetArguments.timeoutSec -eq 90) 'Preflight time reset the dispatch deadline or rewrote timeoutSec.'
+$budget.remainingMs=6500
+Assert ((Get-SSEDesktopStartWaitBudget $budget -BeforeStart) -eq 500) 'The minimum pre-start deadline lost its cleanup reserve.'
+$budget.remainingMs=6499
+try {$null=Get-SSEDesktopStartWaitBudget $budget -BeforeStart;throw 'Missing deadline refusal'}
+catch {Assert ($_.Exception.Message -clike 'startup-deadline:*') 'An exhausted preflight budget did not fail before start.'}
+$budget.remainingMs=5500
+Assert ((Get-SSEDesktopStartWaitBudget $budget) -eq 0) 'A slow CreateProcess restarted the full wait instead of immediate owned handoff/cleanup.'
+$budget=New-SSEDesktopStartBudget ([pscustomobject]@{__desktopStartDeadlineUnixMs=100000}) 3 10000
+$budget.timer.Reset()
+Assert ((Get-SSEDesktopStartWaitBudget $budget -BeforeStart) -eq 3000) 'A large transport budget extended the caller-requested wait.'
+$localBudget=New-SSEDesktopStartBudget ([pscustomobject]@{}) 30 10000
+Assert ((Get-SSEDesktopStartWaitBudget $localBudget -BeforeStart) -eq 30000) 'Direct PowerShell calls lost their local bounded wait.'
+foreach($invalid in @($null,'100000',0,-1,100000.5,9007199254740992)){
+  try {$null=New-SSEDesktopStartBudget ([pscustomobject]@{__desktopStartDeadlineUnixMs=$invalid}) 30 10000;throw 'Missing invalid deadline refusal'}
+  catch {Assert ($_.Exception.Message -clike 'bad-args:*') 'An invalid internal deadline was coerced into a valid budget.'}
+}
+$desktopStart=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.SwitchStatementAst]},$true) |
+  ForEach-Object {$_.Clauses} | Where-Object {$_.Item1.Extent.Text -ceq "'desktop_start'"})
+Assert ($desktopStart.Count -eq 1) 'Productive desktop start is not unique.'
+$desktopText=$desktopStart[0].Item2.Extent.Text
+$initialBudget=$desktopText.IndexOf('New-SSEDesktopStartBudget')
+Assert ($initialBudget -ge 0 -and $initialBudget -lt $desktopText.IndexOf('Assert-SSEExecutable')) 'Expired startup deadlines reach product or process setup.'
+$lastBudget=$desktopText.IndexOf('Get-SSEDesktopStartWaitBudget $startupBudget -BeforeStart', $desktopText.IndexOf('$pi = New-Object DSK+PI'))
+Assert ($lastBudget -ge 0 -and $lastBudget -lt $desktopText.IndexOf('[DSK]::CreateProcess')) 'Desktop preparation can bypass the last pre-process budget check.'
+Assert ($desktopText.Contains('([bool]$caseIdentity) $startupWaitMs') -and $desktopText.IndexOf('$startupWaitMs=Get-SSEDesktopStartWaitBudget') -gt $desktopText.IndexOf('[DSK]::CreateProcess')) 'The poller restarts timeoutSec instead of using the remaining shared budget.'
+
+# Fail -> productive Emit exits the child rather than throwing. Observe actual
+# handle cleanup across that exit, without creating a desktop or GUI process.
+$guard=@($desktopStart[0].Item2.FindAll({param($node)
+  $node -is [Management.Automation.Language.TryStatementAst] -and
+  $node.Body.Extent.Text -match 'Get-SSEDesktopStartWaitBudget \$startupBudget -BeforeStart'
+},$true))
+Assert ($guard.Count -eq 1) 'Pre-process budget guard is not unique.'
+$childDirectory=Join-Path ([IO.Path]::GetTempPath()) ('sse-start-budget-exit-'+[guid]::NewGuid().ToString('N'))
+$childPath=Join-Path $childDirectory 'exit-contract.ps1'
+$closeLog=Join-Path $childDirectory 'closed.txt'
+$childDefinitions=@('Arg','Get-SSEBoundedIntegerArg','New-SSEDesktopStartBudget','Get-SSEDesktopStartWaitBudget','Fail','Emit') | ForEach-Object {
+  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $_},$true))
+  Assert ($definition.Count -eq 1) 'Child exit contract lost a productive helper.'
+  $definition[0].Extent.Text
+}
+$childHeader=@'
+class DSK {
+  static [string]$Log
+  static [bool] CloseDesktop([IntPtr]$Handle) {
+    if($Handle.ToInt64() -ne 7){throw 'Unowned synthetic handle'}
+    [IO.File]::AppendAllText([DSK]::Log,'closed')
+    return $true
+  }
+}
+'@
+$childSetup=@'
+$ErrorActionPreference='Stop'
+$script:T0=[Diagnostics.Stopwatch]::StartNew()
+[DSK]::Log=$args[0]
+$d=[IntPtr]7
+$startupBudget=New-SSEDesktopStartBudget ([pscustomobject]@{__desktopStartDeadlineUnixMs=1}) 90 10000
+'@
+try {
+  $null=[IO.Directory]::CreateDirectory($childDirectory)
+  [IO.File]::WriteAllText($childPath,($childHeader+"`n"+($childDefinitions -join "`n")+"`n"+$childSetup+"`n"+$guard[0].Extent.Text),[Text.UTF8Encoding]::new($false))
+  $childJson=& (Get-Process -Id $PID).Path -NoLogo -NoProfile -NonInteractive -File $childPath $closeLog
+  Assert ($LASTEXITCODE -eq 0) 'Productive startup deadline did not use its normal exit.'
+  $childResult=$childJson | ConvertFrom-Json
+  Assert ($childResult.kind -ceq 'startup-deadline' -and $childResult.mutationStarted -eq $false) 'Exit test did not reach the real fail-closed startup guard.'
+  Assert ((Test-Path -LiteralPath $closeLog) -and [IO.File]::ReadAllText($closeLog) -ceq 'closed') 'Fail/Emit exit bypassed explicit desktop handle cleanup.'
+} finally {
+  foreach($ownedPath in @($childPath,$closeLog)){if(Test-Path -LiteralPath $ownedPath){Remove-Item -LiteralPath $ownedPath}}
+  if(Test-Path -LiteralPath $childDirectory){Remove-Item -LiteralPath $childDirectory}
+}
 
 $result=Run-Probe @(@((Window 10)),@((Window 20)),@((Window 20)),@((Window 20)))
 Assert ($script:reads -eq 5 -and $result.windows[0].hwnd -eq 20) 'A replaced startup HWND was published before three stable observations and a fresh checkpoint.'
