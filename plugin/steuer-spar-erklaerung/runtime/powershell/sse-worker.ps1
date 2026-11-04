@@ -12652,12 +12652,9 @@ function Open-SSESaveAsDialog([IntPtr]$MainHwnd, [int]$TargetPid) {
       processPreserved=$true; reconciliationRequired=$true; retryable=$false
     })
   }
-  # ExpandCollapse allein ist hinter einem anderen aktiven Programm nicht
-  # verlaesslich. Popup oeffnen, exakt klicken und den nativen Dialog bestaetigen,
-  # bevor Emit die gemeinsame Foreground-Lease wieder freigibt.
-  if (-not (Show-SSEWindow $MainHwnd)) {
-    Fail 'Das gebundene Hauptfenster konnte fuer Speichern unter nicht aktiviert werden.' 'foreground-failed'
-  }
+  # Wie bei menu: exakten Vordergrund und unveraenderte Eingabe pruefen,
+  # TOPMOST vor Expand entfernen und die Lease bis zum Dialognachweis halten.
+  Enter-SSEPopupForeground $MainHwnd
   $null = Open-SSEMenuByName $MainHwnd 'Datei'
   $saveMatches = @(Get-SSEOpenMenuEntryMatches $MainHwnd $TargetPid 'Speichern unter...')
   if ($saveMatches.Count -ne 1) {
