@@ -613,6 +613,12 @@ Latenzgarantie.
   Speicherauftrag bleibt der geänderte Fall offen und
   ungespeichert; Arbeits-/Korrekturkopie, `save_as`, Schließen, Verwerfen oder
   Wechseln sind keine automatischen Sicherheitswege.
+- `save_as` bestätigt zusätzlich zum Zielhash, unveränderten Quellhash und
+  neuen Fensterbezug auch die Fallidentität und den bekannten Versandstatus.
+  Die im Dateikopf genannte Programmversion darf sich beim Speichern ändern.
+  Leerer Text, `-` und `0` sind nur bei nachweislich unversendeten Dateien
+  gleichwertige Versandplatzhalter. Ein echter Versandzeitpunkt muss exakt
+  erhalten bleiben; zwei unbekannte Versandzustände gelten nicht als Nachweis.
 - Eine hashverifizierte Prüffallkopie bleibt für einen ausdrücklich isolierten
   Audit verfügbar. Sie ist nicht der Standard für den bereits geöffneten Fall.
 - UStVA-Frequenz, Monat/Quartal, Kennzeichen und Betragsfelder sind

@@ -3404,6 +3404,32 @@ function Test-SSEImmutableSavedCaseIdentity([Collections.IDictionary]$Before, [C
   return $true
 }
 
+function Test-SSESaveAsCaseIdentity($Before, $After) {
+  if ($null -eq $Before -or $null -eq $After -or $null -eq $Before.header -or $null -eq $After.header -or
+      $Before.transmitted -isnot [bool] -or $After.transmitted -isnot [bool] -or
+      $Before.transmitted -ne $After.transmitted) { return $false }
+  # FileSavedBy ist die Programmversion, keine Fallidentitaet. Optionale
+  # Nullwerte bleiben dagegen typgetreu erhalten und werden nie zu Leertext.
+  foreach ($field in @('FileType','VJahr','Steuernummer','MitElsterVersendetText')) {
+    $left = $Before.header.PSObject.Properties[$field]
+    $right = $After.header.PSObject.Properties[$field]
+    if ($null -eq $left -or $null -eq $right) { return $false }
+    if ($field -in @('FileType','VJahr') -and [string]::IsNullOrWhiteSpace([string]$left.Value)) { return $false }
+    if ($null -eq $left.Value -or $null -eq $right.Value) {
+      if ($null -ne $left.Value -or $null -ne $right.Value) { return $false }
+    } elseif ($left.Value.GetType() -ne $right.Value.GetType() -or $left.Value -cne $right.Value) { return $false }
+  }
+  $beforeTime = $Before.header.ElsterTransferTime
+  $afterTime = $After.header.ElsterTransferTime
+  if ($beforeTime -isnot [string] -or $afterTime -isnot [string]) { return $false }
+  # Nur bekannte Nichtversand-Platzhalter des Parsers sind gleichwertig.
+  # Ein echter Versandzeitpunkt muss unveraendert bleiben.
+  if (-not $Before.transmitted) {
+    return ($beforeTime.Trim() -cin @('', '-', '0') -and $afterTime.Trim() -cin @('', '-', '0'))
+  }
+  return ($beforeTime.Trim() -cnotin @('', '-', '0') -and $beforeTime -ceq $afterTime)
+}
+
 function Test-CaseBinding($Window, [string]$ExpectedPath, [switch]$DecisionOnly) {
   $expectedFull = [IO.Path]::GetFullPath($ExpectedPath)
   $titlePath = Get-CasePathFromTitle ([string]$Window.title)
@@ -17510,9 +17536,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     })[0]
     $targetBinding = Test-CaseBinding $mainAfter $targetPath
     $attachedPath = $targetBinding.titlePath
-    $headerMatches = ($sourceSummary -and $targetSummary -and
-      (($sourceSummary.header | ConvertTo-Json -Compress) -eq ($targetSummary.header | ConvertTo-Json -Compress)) -and
-      $sourceSummary.transmitted -eq $targetSummary.transmitted)
+    $headerMatches = Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary
     $verified = ($targetHash -and $sourceHashAfter -eq $sourceHash -and $targetBinding.ok -and $headerMatches)
     if (-not $verified) {
       Emit ([pscustomobject]@{
