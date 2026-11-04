@@ -385,6 +385,9 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   werden vorheriges Vordergrundfenster und eigener Mauszeiger best effort
   wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
   in API und MCP messbar.
+  Menüklicks aktivieren das Popup nicht erneut. Auch beim zusammengesetzten
+  Speichern-unter-Ablauf und beim ersten Speichern eines neuen Falls bleibt
+  der ursprüngliche Vordergrund- und Cursor-Kontext bis zum Cleanup erhalten.
 - API-Single-Flight bleibt pro Node-Prozess. Zusaetzlich erwirbt jeder
   lock-pflichtige aeussere Worker einen festen `Local\`-Mutex der Windows-
   Sitzung ueber den vorab integritaetsgeprueften nativen Helfer mit

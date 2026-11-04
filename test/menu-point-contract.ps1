@@ -5,7 +5,7 @@ $ast=[Management.Automation.Language.Parser]::ParseFile($worker,[ref]$null,[ref]
 if($parseErrors.Count){throw 'Worker cannot be parsed.'}
 foreach($name in @('Click-VerifiedPoint','Enter-SSEForegroundLease','Exit-SSEForegroundLease',
  'Set-SSEForegroundLeaseInputCheckpoint','Get-SSEInputEpochEvidence','Test-SSELastInputUnchanged',
- 'Set-SSECursorPoint','Assert-SSECursorPoint','Hide-SSETopmost','Test-SSEMenuPointBinding')){
+ 'Set-SSECursorPoint','Assert-SSECursorPoint','Hide-SSETopmost','Test-SSEMenuPointBinding','Enter-SSEPopupForeground')){
  $found=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
  if($found.Count -ne 1){throw ('Actual menu point helper is ambiguous: '+$name)}
  . ([scriptblock]::Create($found[0].Extent.Text))
@@ -47,8 +47,8 @@ public static class SW {
   HoverMessages++;result=IntPtr.Zero;if(OnHoverMessage!=null)OnHoverMessage();return new IntPtr(MessageTimeout?0:1);
  }
  public static IntPtr GetForegroundWindow(){return new IntPtr(Foreground);}
- public static bool IsWindow(IntPtr h){return h.ToInt64()==101?MainAlive:h.ToInt64()==202&&PopupAlive;}
- public static uint GetWindowThreadProcessId(IntPtr h,out int pid){pid=IsWindow(h)?(h.ToInt64()==101?55:(int)PopupPid):0;return pid==0?0u:1u;}
+ public static bool IsWindow(IntPtr h){return h.ToInt64()==909|| (h.ToInt64()==101?MainAlive:h.ToInt64()==202&&PopupAlive);}
+ public static uint GetWindowThreadProcessId(IntPtr h,out int pid){pid=IsWindow(h)?(h.ToInt64()==909?77:h.ToInt64()==101?55:(int)PopupPid):0;return pid==0?0u:1u;}
  public static IntPtr GetAncestor(IntPtr h,int kind){return RedirectRoot&&h.ToInt64()==202?new IntPtr(101):h;}
  public static IntPtr GetWindow(IntPtr h,int kind){return IntPtr.Zero;}
  public static bool GetCursorPos(ref PT p){p.X=CursorX;p.Y=CursorY;if(OnCursorRead!=null)OnCursorRead();return true;}
@@ -62,9 +62,9 @@ public static class MenuPointAE {public static MenuPointElement FromPoint(object
 $script:AE=[MenuPointAE]
 $WLK=[pscustomobject]@{}
 $WLK|Add-Member ScriptMethod GetParent {param($Element) return $null}
-function Get-SSELastInputTick {[SW]::Tick}
+function Get-SSELastInputTick {[uint64][SW]::Tick}
 function Start-Sleep {param($Milliseconds) if($Milliseconds -eq 180 -and $script:foreignAfterInput){[SW]::Tick++}}
-function Set-SSEForegroundWindowCore {param([IntPtr]$Hwnd,[switch]$Topmost) $script:activationCalls++;return $true}
+function Set-SSEForegroundWindowCore {param([IntPtr]$Hwnd,[switch]$Topmost) $script:activationCalls++;$script:activationTargets.Add([long]$Hwnd);[SW]::Foreground=[long]$Hwnd;return $true}
 function Show-SSEWindow {param([IntPtr]$Hwnd) $script:showCalls++;Enter-SSEForegroundLease $Hwnd}
 function Test-SSEWindowIsLockScreen {return $false}
 function Get-SSEWindowClassName([IntPtr]$Window){if($Window -eq [IntPtr]202){return $script:popupClass};return 'Qt692QWindowIcon'}
@@ -84,15 +84,17 @@ function Reset-MenuPoint {
  [SW]::DpiActive=$false
  [SW]::FinalPointReads=0
  $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadowSaveBits'
+ $script:activationTargets=[Collections.Generic.List[long]]::new()
  $script:listedPopup=$true;$script:unobstructed=$true
  $script:foreignAfterInput=$false
 }
 $node=[pscustomobject]@{x=20;y=30;w=100;h=20;rid='4.7';name='BelegManager';type='MenuItem';on=$true}
-function Invoke-MenuPoint([scriptblock]$Before=$null){
+function Invoke-MenuPoint([scriptblock]$Before=$null,[switch]$UseExistingPopupLease,[uint64]$Tick=37){
  $binding=[pscustomobject]@{mainHwnd=101;processId=55;popupHwnd=202}
  $verify={param($Window,$Binding,$X,$Y) Test-SSEMenuPointBinding $Window $Binding}
  if($Before){$verify={param($Window,$Binding,$X,$Y) & $Before $Window $Binding $X $Y;Test-SSEMenuPointBinding $Window $Binding}}
- Click-VerifiedPoint ([IntPtr]202) $node 37 -ForegroundWindow ([IntPtr]101) -RequireForeground -ExpectedRuntimeId '4.7' -ThrowOnFailure -BeforeClickCheck $verify -BeforeClickBinding $binding
+ $reuse=@{};if($UseExistingPopupLease){$reuse.UseExistingPopupLease=$true}
+ Click-VerifiedPoint ([IntPtr]202) $node $Tick -ForegroundWindow ([IntPtr]101) -RequireForeground -ExpectedRuntimeId '4.7' -ThrowOnFailure -BeforeClickCheck $verify -BeforeClickBinding $binding @reuse
 }
 function Check-MenuPoint([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
 function Assert-NoMenuActivation {
@@ -206,6 +208,57 @@ Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'
  [object]::ReferenceEquals($heldWatch,$script:SSE_FOREGROUND_LEASE.watch) -and $script:SSE_FOREGROUND_LEASE.depth -eq 2 -and
  $script:SSE_FOREGROUND_LEASE.lastAcquireRaised) 'An observational menu call adopted or modified an existing lease.'
 Assert-NoMenuActivation
+function Initialize-ParentPopupLease([uint64]$Tick=37) {
+ Reset-MenuPoint
+ [SW]::Foreground=909;[SW]::Tick=$Tick
+ Enter-SSEPopupForeground ([IntPtr]101) $Tick
+ Check-MenuPoint ($script:SSE_FOREGROUND_LEASE.depth -eq 0 -and $script:SSE_FOREGROUND_LEASE.previousForeground -eq 909) 'Popup preparation lost the original user context.'
+}
+foreach($tick in @([uint64]0,[uint64]37)){
+ Initialize-ParentPopupLease $tick
+ $parent=$script:SSE_FOREGROUND_LEASE;$watch=$parent.watch;$cursor=$parent.previousCursor
+ $shows=$script:showCalls;$activations=$script:activationCalls;$positions=[SW]::WindowPosCalls
+ $point=Invoke-MenuPoint -UseExistingPopupLease -Tick $tick
+ Check-MenuPoint ([SW]::MouseCalls -eq 2 -and [SW]::HoverMessages -eq 10 -and
+  $script:showCalls -eq $shows -and $script:activationCalls -eq $activations -and [SW]::WindowPosCalls -eq $positions) 'Compound popup clicked more than once or activated/cleaned up its parent.'
+ Check-MenuPoint ([object]::ReferenceEquals($parent,$script:SSE_FOREGROUND_LEASE) -and [object]::ReferenceEquals($watch,$parent.watch) -and
+  [object]::ReferenceEquals($cursor,$parent.previousCursor) -and $parent.previousForeground -eq 909 -and $parent.rootHwnd -eq 101 -and $parent.targetPid -eq 55 -and
+  $parent.depth -eq 0 -and $parent.acquisitions -eq 1 -and $parent.raises -eq 1 -and $parent.lastOwnedInputTick -eq $tick+1) 'Compound popup replaced its original lease or input checkpoint.'
+ Exit-SSEForegroundLease -Force -Reason 'emit'
+ Check-MenuPoint ([SW]::Foreground -eq 909 -and [SW]::CursorX -eq 7 -and [SW]::CursorY -eq 9 -and $parent.foregroundRestored -and $parent.cursorRestored -and
+  ($script:activationTargets -join ',') -ceq '101,909') 'Compound popup lost the original user foreground/cursor return.'
+}
+foreach($case in @(
+ @{name='no-watch';setup={$script:SSE_FOREGROUND_LEASE.watch=$null}},
+ @{name='different-root';setup={$script:SSE_FOREGROUND_LEASE.rootHwnd=303}},
+ @{name='different-pid';setup={$script:SSE_FOREGROUND_LEASE.targetPid=56}},
+ @{name='nested-depth';setup={$script:SSE_FOREGROUND_LEASE.depth=1}},
+ @{name='missing-epoch';setup={$script:SSE_FOREGROUND_LEASE.lastOwnedInputTick=$null}},
+ @{name='other-epoch';setup={$script:SSE_FOREGROUND_LEASE.lastOwnedInputTick=36}},
+ @{name='other-context';setup={$script:SSE_FOREGROUND_LEASE.lastOwnedInputContext='other-operation'}},
+ @{name='other-raised-window';setup={$null=$script:SSE_FOREGROUND_LEASE.raisedWindows.Add([int64]202)}},
+ @{name='foreign-input';setup={[SW]::Tick=38}},
+ @{name='lost-foreground';setup={[SW]::Foreground=999}}
+)){
+ Initialize-ParentPopupLease;& $case.setup
+ $parent=$script:SSE_FOREGROUND_LEASE;$watch=$parent.watch;$depth=$parent.depth
+ $shows=$script:showCalls;$activations=$script:activationCalls;$positions=[SW]::WindowPosCalls;$caught=$null
+ try{Invoke-MenuPoint -UseExistingPopupLease|Out-Null}catch{$caught=$_}
+ Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0 -and [SW]::CursorMoves -eq 0 -and
+  $script:showCalls -eq $shows -and $script:activationCalls -eq $activations -and [SW]::WindowPosCalls -eq $positions -and
+  [object]::ReferenceEquals($watch,$parent.watch) -and $parent.depth -eq $depth) ('Unsafe parent popup authority was accepted or changed: '+$case.name)
+}
+Reset-MenuPoint
+$caught=$null;try{Click-VerifiedPoint ([IntPtr]202) $node -UseExistingPopupLease -ThrowOnFailure|Out-Null}catch{$caught=$_}
+Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0 -and [SW]::CursorMoves -eq 0) 'Parent lease reuse was silently accepted outside popup mode.'
+Assert-NoMenuActivation
+Initialize-ParentPopupLease
+$script:foreignAfterInput=$true;$caught=$null
+try{Invoke-MenuPoint -UseExistingPopupLease|Out-Null}catch{$caught=$_}
+Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $true -and [SW]::MouseCalls -eq 2) 'A compound popup replayed input or lost its post-click interference evidence.'
+Exit-SSEForegroundLease -Force -Reason 'emit'
+Check-MenuPoint (-not $script:SSE_FOREGROUND_LEASE.cursorRestored -and -not $script:SSE_FOREGROUND_LEASE.foregroundRestored -and
+ ($script:activationTargets -join ',') -ceq '101') 'Compound cleanup restored the original user context over changed input.'
 foreach($missing in @('tick','rid','foreground','check','binding','throw','double-click','prepare','msaa','same-window')){
  Reset-MenuPoint
  $arguments=@{Window=[IntPtr]202;Node=$node;ExpectedInputTick=37;ForegroundWindow=[IntPtr]101;RequireForeground=$true;
@@ -253,7 +306,14 @@ $menuSwitch=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.Swit
  @($n.Clauses|Where-Object{$_.Item1.Extent.Text -ceq "'menu_click'"}).Count -eq 1},$true))
 Check-MenuPoint ($menuSwitch.Count -eq 1) 'Actual menu dispatcher is ambiguous.'
 $menuExtent=@($menuSwitch[0].Clauses|Where-Object{$_.Item1.Extent.Text -ceq "'menu_click'"})[0].Item2.Extent
-Check-MenuPoint ($calls.Count -eq 1 -and $calls[0].Extent.StartOffset -gt $menuExtent.StartOffset -and $calls[0].Extent.EndOffset -lt $menuExtent.EndOffset) 'The popup-only foreground contract spread to unrelated point callers.'
+$saveAs=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Open-SSESaveAsDialog'},$true))
+Check-MenuPoint ($saveAs.Count -eq 1) 'Actual SaveAs helper is ambiguous.'
+$menuCalls=@($calls|Where-Object{$_.Extent.StartOffset -gt $menuExtent.StartOffset -and $_.Extent.EndOffset -lt $menuExtent.EndOffset})
+$saveCalls=@($calls|Where-Object{$_.Extent.StartOffset -gt $saveAs[0].Extent.StartOffset -and $_.Extent.EndOffset -lt $saveAs[0].Extent.EndOffset})
+Check-MenuPoint ($calls.Count -eq 2 -and $menuCalls.Count -eq 1 -and $saveCalls.Count -eq 1) 'The popup foreground contract must be limited to exactly menu_click and SaveAs.'
+$reuseCalls=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Click-VerifiedPoint' -and
+ @($n.CommandElements|Where-Object{$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'UseExistingPopupLease'}).Count -gt 0},$true))
+Check-MenuPoint ($reuseCalls.Count -eq 1 -and $reuseCalls[0].Extent.StartOffset -eq $saveCalls[0].Extent.StartOffset) 'Only the compound SaveAs helper may reuse its prepared parent popup lease.'
 Reset-MenuPoint
 [SW]::Tick=0
 $zeroLease=Enter-SSEForegroundLease ([IntPtr]101) -ObserveOnly -ExpectedInputTick ([uint64]0)

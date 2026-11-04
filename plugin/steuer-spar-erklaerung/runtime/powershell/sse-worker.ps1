@@ -4004,7 +4004,8 @@ function Click-VerifiedPoint(
   $BeforeClickBinding = $null,
   [switch]$ThrowOnFailure,
   [scriptblock]$PrepareTarget = $null,
-  [IntPtr]$ForegroundWindow = [IntPtr]::Zero
+  [IntPtr]$ForegroundWindow = [IntPtr]::Zero,
+  [switch]$UseExistingPopupLease
 ) {
   $popupMode = ($ForegroundWindow -ne [IntPtr]::Zero)
   $foregroundTarget = $(if ($popupMode) { $ForegroundWindow } else { $Window })
@@ -4042,6 +4043,9 @@ function Click-VerifiedPoint(
       & $pointFailure $Message $Kind
     }
   } else { $null })
+  if ($UseExistingPopupLease -and -not $popupMode) {
+    & $pointFailure 'Eine vorbereitete Popup-Lease braucht die vollstaendige Popup-Bindung.' 'precondition-failed'
+  }
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { & $pointFailure 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
     & $pointFailure 'Eigene Eingabe-Epoche vor der Fokusuebernahme verloren. NICHT geklickt.' 'interference'
@@ -4071,14 +4075,31 @@ function Click-VerifiedPoint(
     # Qt-Popups haben nicht zwingend einen Win32-Owner. Das bereits aktive
     # Hauptfenster nur beobachten; jede erneute Aktivierung kann den offenen
     # Menuezustand veraendern. Die Lease behaelt trotzdem den Cursor-Rueckweg.
-    $leaseBefore = $script:SSE_FOREGROUND_LEASE.watch
-    try { $observed = Enter-SSEForegroundLease $foregroundTarget -ObserveOnly -ExpectedInputTick $ExpectedInputTick }
-    catch {
+    if ($UseExistingPopupLease) {
+      # Nur die explizit vorbereitete, abgesenkte Hauptfenster-Lease darf eine
+      # zusammengesetzte Popup-Aktion fortsetzen. Originalkontext nicht ersetzen.
+      $parent = $script:SSE_FOREGROUND_LEASE
+      $mainPid = 0
+      $null = [SW]::GetWindowThreadProcessId($foregroundTarget,[ref]$mainPid)
+      $parentBound = ($parent.watch -is [Diagnostics.Stopwatch] -and $parent.watch.IsRunning -and
+        [int]$parent.depth -eq 0 -and [int64]$parent.rootHwnd -eq [int64]$foregroundTarget -and
+        $mainPid -gt 0 -and [int]$parent.targetPid -eq $mainPid -and [int]$BeforeClickBinding.processId -eq $mainPid -and
+        $parent.raisedWindows.Count -eq 1 -and $parent.raisedWindows.Contains([int64]$foregroundTarget) -and
+        $null -ne $parent.lastOwnedInputTick -and [uint64]$parent.lastOwnedInputTick -eq [uint64]$ExpectedInputTick -and
+        $parent.lastOwnedInputContext -ceq 'popup-foreground' -and
+        (Test-SSELastInputUnchanged $ExpectedInputTick) -and [SW]::GetForegroundWindow() -eq $foregroundTarget)
+      if (-not $parentBound) { & $pointFailure 'Vorbereitete Popup-Lease nicht mehr exakt gebunden. NICHT geklickt.' 'interference' }
+      $foregroundReady = $true
+    } else {
+      $leaseBefore = $script:SSE_FOREGROUND_LEASE.watch
+      try { $observed = Enter-SSEForegroundLease $foregroundTarget -ObserveOnly -ExpectedInputTick $ExpectedInputTick }
+      catch {
+        $focusAttempted = ($null -eq $leaseBefore -and $null -ne $script:SSE_FOREGROUND_LEASE.watch)
+        & $pointFailure 'Beobachtende Vordergrundbindung nicht lesbar. NICHT geklickt.' 'stale'
+      }
       $focusAttempted = ($null -eq $leaseBefore -and $null -ne $script:SSE_FOREGROUND_LEASE.watch)
-      & $pointFailure 'Beobachtende Vordergrundbindung nicht lesbar. NICHT geklickt.' 'stale'
+      $foregroundReady = [bool]$observed
     }
-    $focusAttempted = ($null -eq $leaseBefore -and $null -ne $script:SSE_FOREGROUND_LEASE.watch)
-    $foregroundReady = [bool]$observed
   } else {
     for ($foregroundAttempt = 1; $foregroundAttempt -le $ForegroundAttempts; $foregroundAttempt++) {
       $focusAttempted = $true
@@ -4220,7 +4241,7 @@ function Click-VerifiedPoint(
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $inputTickAfterClick)) {
     & $pointFailure 'Eingabe-Epoche nach dem bereits ausgefuehrten verifizierten Klick geaendert oder nicht lesbar.' 'interference'
   }
-  if ([SW]::IsWindow($foregroundTarget)) { Hide-SSETopmost $foregroundTarget }
+  if (-not $UseExistingPopupLease -and [SW]::IsWindow($foregroundTarget)) { Hide-SSETopmost $foregroundTarget }
   [pscustomobject]@{
     x = $px; y = $py; clickCount = $ClickCount
     inputTickAfterClick=$inputTickAfterClick
@@ -12680,15 +12701,25 @@ function Open-SSESaveAsDialog([IntPtr]$MainHwnd, [int]$TargetPid) {
   }
   # Wie bei menu: exakten Vordergrund und unveraenderte Eingabe pruefen,
   # TOPMOST vor Expand entfernen und die Lease bis zum Dialognachweis halten.
-  Enter-SSEPopupForeground $MainHwnd
+  $inputBaseline = Get-SSELastInputTick
+  if ($null -eq $inputBaseline) { Fail 'Eingabe-Epoche vor Speichern unter nicht lesbar; kein Popup geoeffnet.' 'interference' }
+  Enter-SSEPopupForeground $MainHwnd $inputBaseline
   $null = Open-SSEMenuByName $MainHwnd 'Datei'
   $saveMatches = @(Get-SSEOpenMenuEntryMatches $MainHwnd $TargetPid 'Speichern unter...')
   if ($saveMatches.Count -ne 1) {
     Fail "$($saveMatches.Count) Menueeintraege passen zu 'Speichern unter...'; nichts ausgeloest." $(if ($saveMatches.Count) { 'ambiguous' } else { 'not-found' })
   }
   $match = $saveMatches[0]
-  if (-not $match.node.on) { Fail "Menueeintrag 'Speichern unter...' ist nicht aktiv." 'precondition-failed' }
-  try { $null = Click-VerifiedPoint $match.hwnd $match.node -ThrowOnFailure }
+  if (-not [string]$match.node.rid -or $match.node.on -isnot [bool] -or -not $match.node.on) {
+    Fail "Menueeintrag 'Speichern unter...' ist nicht eindeutig identifiziert und aktiv." 'precondition-failed'
+  }
+  $menuPointBinding = [pscustomobject]@{mainHwnd=[int64]$MainHwnd;processId=$TargetPid;popupHwnd=[int64]$match.hwnd}
+  $menuPointCheck = { param($Window,$Binding,$X,$Y) Test-SSEMenuPointBinding $Window $Binding }
+  try {
+    $null = Click-VerifiedPoint $match.hwnd $match.node $inputBaseline -ThrowOnFailure -RequireForeground `
+      -ForegroundWindow $MainHwnd -ExpectedRuntimeId ([string]$match.node.rid) `
+      -BeforeClickCheck $menuPointCheck -BeforeClickBinding $menuPointBinding -UseExistingPopupLease
+  }
   catch {
     $dispatched = $null
     if ($_.Exception.Data['inputDispatched'] -is [bool]) { $dispatched = $_.Exception.Data['inputDispatched'] }
