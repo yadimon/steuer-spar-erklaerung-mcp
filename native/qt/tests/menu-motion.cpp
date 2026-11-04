@@ -76,6 +76,12 @@ static void deliver(MenuMotion &menu, UINT message, const QPoint &logical, WPARA
 
 static void runCases(QApplication &app) {
     require(QGuiApplication::platformName() == QStringLiteral("windows"), "A real Windows Qt platform is required");
+    // A logically visible animated popup need not yet be the native hit-test target.
+    // This synchronous fixture tests message delivery after the popup is shown.
+    QApplication::setEffectEnabled(Qt::UI_AnimateMenu, false);
+    QApplication::setEffectEnabled(Qt::UI_FadeMenu, false);
+    require(!QApplication::isEffectEnabled(Qt::UI_AnimateMenu) && !QApplication::isEffectEnabled(Qt::UI_FadeMenu),
+        "Menu effects must be disabled for deterministic native hit testing");
     QWidget owner; owner.resize(640, 480); owner.move(80, 80); owner.show();
     MenuMotion menu(&owner); menu.setMinimumWidth(240);
     auto *action = menu.addAction(QStringLiteral("Synthetic menu command"));
