@@ -278,8 +278,12 @@ bleiben `ready: false` und `instance: null`. Ohne Hauptfenster- oder Dialogkandi
 gilt weiterhin der Startup-Timeout mit überprüfter Bereinigung.
 Das ist keine Zusage, dass der komplette Fall bereits
 geladen ist. Der Messweg trennt Helferstart, SSE-Ladezeit und Antwortabschluss.
-Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Für die
-Produktabnahme sind zusätzlich Start, frischer Qt-Seiten-Readback und normales
+Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Bei der
+HWND-Ersetzung mit angefordertem Fall bleibt das erste breite Testfenster
+generisch und damit noch nicht übergabefähig. Ein verspäteter Fixture-Timer
+kann dadurch keinen vorzeitigen Erfolg mit dem alten HWND erzeugen. Der Test
+belegt den Übergang vom noch ungeklärten Startfenster zum neuen Fallfenster.
+Für die Produktabnahme sind zusätzlich Start, frischer Qt-Seiten-Readback und normales
 Beenden mit einer Hersteller-Musterfallkopie über mehrere Zyklen zu prüfen.
 Das ist eine Abnahmeanforderung und kein pauschaler Nachweis aller Startmodi
 oder Dialogzustände.

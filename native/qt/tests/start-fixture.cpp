@@ -54,7 +54,10 @@ static int runFixture(int argc, wchar_t **argv) {
     const bool productDialog = mode == L"-mproductdialog";
     const bool dialog = mode == L"-mdialog" || productDialog;
     const bool splash = mode == L"-msplash" || mode == L"-mmorph" || mode == L"-msplashdialog";
-    const auto title = (dialog && !productDialog) || splash ? L"Steuerprogramm" : L"SteuerSparErklärung – synthetic startup";
+    // A delayed WM_TIMER must not let the first HWND satisfy case readiness.
+    // Keep replacement's first broad frame generic until the new case window.
+    const bool replacement = mode == L"-mreplace";
+    const auto title = (dialog && !productDialog) || splash || replacement ? L"Steuerprogramm" : L"SteuerSparErklärung – synthetic startup";
     const auto window = createFixtureWindow(title, dialog || splash);
     if (!window) return 6;
     primaryWindow = initialWindow = window;

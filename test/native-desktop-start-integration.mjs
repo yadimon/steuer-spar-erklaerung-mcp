@@ -71,7 +71,9 @@ try {
   writeFileSync(markerPath, JSON.stringify({ schemaVersion: 1, owner: "sse", name: request.desktop, pid: first.pid }));
   await cleanup(first.pid);
 
-  // Real Win32 transitions on an inactive desktop: replacement and in-place startup frames.
+  // Real Win32 transitions: pending startup frames replaced or reshaped on an
+  // inactive desktop. With casePath, replacement's first broad generic window
+  // cannot qualify before its timer fires; readiness must bind the new HWND.
   for (const startMode of ["splash", "morph", "replace"]) {
     const transitionProbe = join(temporary, `${startMode}.json`); writeFileSync(transitionProbe, "{}");
     const transitioned = (await raw({ ...baseRequest(), startMode, casePath: transitionProbe })).value;
