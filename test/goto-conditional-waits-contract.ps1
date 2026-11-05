@@ -530,7 +530,7 @@ Write-Output 'goto: exact content scope proves owned identity before/after; adja
 # Blaetterschleife aus. Nur Provider, InvokePattern und Uhr sind inert; weder
 # UIAutomation noch Win32 erhalten einen Fenster- oder Eingabeaufruf.
 $targetFunctions = @{}
-foreach ($name in @('Test-KnownPageHeading','IstZielseite','Get-SSEGotoTargetProof',
+foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite','Get-SSEGotoTargetProof',
     'WarteAufZielseite','WarteAufSeitenwechsel','DrueckeKnopf')) {
   $definitions = @($ast.FindAll({ param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
@@ -606,7 +606,7 @@ function Test-TargetProofBoundary([bool]$Known, [string]$Boundary, [int]$Missing
     caught=$null; readError=[InvalidOperationException]::new('synthetic-provider-read-failure')
     fieldIds=(New-Object Collections.ArrayList)
   }
-  foreach ($name in @('Test-KnownPageHeading','IstZielseite','Get-SSEGotoTargetProof',
+  foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite','Get-SSEGotoTargetProof',
       'WarteAufSeitenwechsel','DrueckeKnopf')) {
     . ([scriptblock]::Create($targetFunctions[$name]))
   }
@@ -804,6 +804,49 @@ foreach ($binding in @('second-field','table')) {
 # The current repeated page has no required fields or focusless table policy;
 # the real readiness predicate therefore keeps its existing immediate proof.
 $targetCatalog=Get-Content -LiteralPath (Join-Path $root 'profiles\2025\page-objects.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+
+# The asset catalog also describes fields absent on older acquisitions.
+# Execute the actual target predicate with exact synthetic provider results:
+# only the explicitly configured binding fields identify this variant.
+function Test-AssetGotoBinding($Page, [string[]]$PresentIds, [bool]$Expected, [bool]$TableReady=$true, [string[]]$ExpectedReads=$null) {
+  foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite')) {
+    . ([scriptblock]::Create($targetFunctions[$name]))
+  }
+  $reads=New-Object Collections.ArrayList; $tableProof=[pscustomobject]@{calls=0}
+  $knownTarget=[pscustomobject]@{page=$Page}; $ziel=[string]$Page.heading
+  function Resolve-KnownFieldNode([IntPtr]$Window,$KnownField) {
+    if ($Window -ne [IntPtr]7) { throw 'Asset binding lost its exact window.' }
+    $ids=@($Page.fields.PSObject.Properties | Where-Object {
+      [string]$_.Value.automationIdRelative -ceq [string]$KnownField.field.automationIdRelative
+    })
+    if ($ids.Count -ne 1) { throw 'Asset binding lost its exact catalog selector.' }
+    $null=$reads.Add($ids[0].Name)
+    if ($PresentIds -ccontains $ids[0].Name) { [pscustomobject]@{rid=$ids[0].Name;type='Edit'} }
+  }
+  function Test-SSEGotoTableReadiness([IntPtr]$Window,[string]$Heading) {
+    if ($Window -ne [IntPtr]7 -or $Heading -cne $ziel) { throw 'Asset table proof lost its binding.' }
+    $tableProof.calls++
+    $TableReady
+  }
+  $result=IstZielseite ([IntPtr]7) $ziel
+  if ($result -ne $Expected -or $tableProof.calls -ne [int]($Expected -or -not $TableReady)) { throw 'Asset variant bypassed field or table readiness.' }
+  if ($null -ne $ExpectedReads -and ($reads -join ',') -cne ($ExpectedReads -join ',')) { throw 'Asset binding resolved optional fields or skipped required fields.' }
+}
+$assetBindingPage=$targetCatalog.pages.'gew.anlagevermoegen_wirtschaftsgut'
+$assetBindingIds=@('bezeichnung','belegnummer','kaufdatum','abschreibung_aktuelles_jahr')
+if (($assetBindingPage.bindingFieldIds -join ',') -cne ($assetBindingIds -join ',')) { throw 'The actual asset binding metadata changed.' }
+Test-AssetGotoBinding $assetBindingPage $assetBindingIds $true $true $assetBindingIds
+Test-AssetGotoBinding $assetBindingPage $assetBindingIds $false $false $assetBindingIds
+foreach ($missingId in $assetBindingIds) {
+  Test-AssetGotoBinding $assetBindingPage @($assetBindingIds | Where-Object {$_ -cne $missingId}) $false
+}
+Test-AssetGotoBinding $assetBindingPage @('foreign1','foreign2','foreign3','foreign4') $false
+$defaultAssetBinding=$assetBindingPage | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$defaultAssetBinding.PSObject.Properties.Remove('bindingFieldIds')
+$allAssetIds=@($defaultAssetBinding.fields.PSObject.Properties | ForEach-Object {$_.Name})
+Test-AssetGotoBinding $defaultAssetBinding $allAssetIds $true $true $allAssetIds
+Test-AssetGotoBinding $defaultAssetBinding $assetBindingIds $false
+
 if (-not $targetCatalog.PSObject.Properties['focuslessCommits'] -or -not $targetCatalog.focuslessCommits -or
     @($targetCatalog.focuslessCommits.PSObject.Properties | Where-Object {$_.Value.controlType -ceq 'DataItem'}).Count -lt 1) {
   throw 'Der reale Katalog muss Tabellenrichtlinien enthalten, damit die Ausnahme fuer wiederkehrende Seiten aussagekraeftig bleibt.'
@@ -813,7 +856,7 @@ if (-not $repeatedPage -or [string]$repeatedPage.heading -notin @(Get-SSERepeate
   throw 'Die reale wiederkehrende Katalogseite fehlt im Blaetterpfad.'
 }
 function Test-RepeatedCatalogFastProof {
-  foreach ($name in @('Test-KnownPageHeading','IstZielseite','Get-SSEGotoTargetProof')) {
+  foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite','Get-SSEGotoTargetProof')) {
     . ([scriptblock]::Create($targetFunctions[$name]))
   }
   . ([scriptblock]::Create($bodyReadiness[0].Extent.Text))

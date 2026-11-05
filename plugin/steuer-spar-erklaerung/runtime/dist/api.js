@@ -20861,6 +20861,13 @@ var init_api_config_values = __esm({
 import { existsSync as existsSync3, readdirSync } from "node:fs";
 import { dirname as dirname3, join as join3, resolve as resolve6 } from "node:path";
 import { fileURLToPath } from "node:url";
+function pageBindingFieldIds(page) {
+  const fields2 = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields) ? page.fields : {};
+  if (!Object.hasOwn(page, "bindingFieldIds")) return Object.keys(fields2);
+  const ids = page.bindingFieldIds;
+  if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length || !ids.every((id) => typeof id === "string" && id.trim().length > 0 && Object.hasOwn(fields2, id))) return null;
+  return ids;
+}
 function resolvePageObjectDefinition(catalog, pageId) {
   if (Object.hasOwn(catalog.pages, pageId)) {
     return { status: "found", page: catalog.pages[pageId] };
@@ -21038,9 +21045,16 @@ var init_product_profiles = __esm({
     pageObjectSchema = external_exports.object({
       heading: external_exports.string().min(1),
       navigationTreeItemName: external_exports.string().regex(/\S/u).optional(),
+      bindingFieldIds: external_exports.array(external_exports.string().regex(/\S/u)).nonempty().optional(),
       fields: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
       tables: external_exports.record(external_exports.string(), pageObjectTableSchema).optional()
-    }).passthrough();
+    }).passthrough().superRefine((page, context) => {
+      if (pageBindingFieldIds(page) === null) context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["bindingFieldIds"],
+        message: "Seitenbindung braucht eindeutige, im Feldkatalog vorhandene Kennungen."
+      });
+    });
     pageObjectsCompatibilitySchema = external_exports.object({
       schemaVersion: external_exports.literal(1),
       product: external_exports.string().min(1),
@@ -29970,6 +29984,7 @@ async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, pr
   const currentHeading = qtNativeKnownHeading(result.nodes, profile, page);
   const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields) ? page.fields : {};
   const fields2 = [];
+  const exactBindingFields = /* @__PURE__ */ new Set();
   const epochFields = [];
   for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
     const definition = rawDefinition;
@@ -29977,6 +29992,7 @@ async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, pr
     const suffix = typeof definition.automationIdSuffix === "string" ? definition.automationIdSuffix : "";
     const controlType2 = typeof definition.controlType === "string" ? definition.controlType : "";
     const exact = relativeAid ? result.nodes.filter((node3) => node3.aid === relativeAid || node3.aid.endsWith(relativeAid)) : [];
+    if (exact.length === 1 && exact[0].type === controlType2) exactBindingFields.add(fieldId);
     const suffixMatches = suffix ? result.nodes.filter((node3) => node3.aid.endsWith(suffix)) : [];
     const candidates = (exact.length ? exact : suffixMatches).filter((node3) => node3.type === controlType2);
     if (candidates.length > 1) return fail4("ambiguous", `Known field '${fieldId}' is not uniquely bound in the native tree.`);
@@ -30005,12 +30021,13 @@ async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, pr
   }
   const dirtyNode = result.nodes.find((node2) => node2.type === "Button" && node2.aid.endsWith(".MainToolBar.tb_sichern"));
   const dirty = dirtyNode?.on ?? null;
+  const bindingIds = pageBindingFieldIds(page);
   return {
     ok: true,
     backend: "qt",
     pageId: args.pageId,
     expectedHeading: String(page.heading),
-    onExpectedPage: knownHeadingMatches(currentHeading, page) && fields2.every((field) => field.present === true),
+    onExpectedPage: knownHeadingMatches(currentHeading, page) && bindingIds !== null && bindingIds.every((id) => exactBindingFields.has(id)),
     heading: currentHeading,
     dirty,
     fields: fields2,
@@ -33330,8 +33347,11 @@ function gotoTargetState(snapshot, profile, target, page) {
   const heading2 = page ? qtNativeKnownHeading(snapshot.nodes, profile, page) : heading(snapshot.nodes, profile);
   const headingMatches = page ? knownHeadingMatches(heading2, page) : heading2 !== null && psEquals(heading2, target);
   if (!headingMatches) return { heading: heading2, headingMatches, ready: false };
-  const fields2 = page?.fields && typeof page.fields === "object" ? Object.values(page.fields) : [];
-  for (const raw of fields2) {
+  const ids = page ? pageBindingFieldIds(page) : [];
+  if (ids === null) return { heading: heading2, headingMatches, ready: false };
+  const fields2 = page?.fields ?? {};
+  for (const id of ids) {
+    const raw = fields2[id];
     const field = raw, relative6 = String(field.automationIdRelative ?? "");
     const matches = relative6 ? snapshot.nodes.filter((node2) => node2.aid.endsWith(relative6)) : [];
     if (matches.length !== 1 || matches[0].type !== field.controlType) return { heading: heading2, headingMatches, ready: false };
@@ -33360,6 +33380,7 @@ var repeatedPagingTitles;
 var init_qt_native_goto_projection = __esm({
   "src/qt-native-goto-projection.ts"() {
     "use strict";
+    init_product_profiles();
     init_qt_native_pages();
     init_qt_native_projections();
     repeatedPagingTitles = ["Innergem. Erwerb, § 13b UStG und Einfuhr", "Abziehbare Vorsteuer", "Vorsteuer aus anderen Rechnungen"];

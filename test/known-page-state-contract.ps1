@@ -49,9 +49,9 @@ foreach ($zustand in @('value', 'enabled', 'readOnly')) {
   }
 }
 
-# Execute only the two actual heading helpers. The worker entry point and its
+# Execute only the actual pure binding and heading helpers. The worker entry point and its
 # UI Automation implementation are never loaded or dispatched by this test.
-foreach ($helperName in @('Get-KnownPageHeading', 'Test-KnownPageHeading')) {
+foreach ($helperName in @('Get-KnownPageHeading', 'Test-KnownPageHeading', 'Test-KnownPageFields')) {
   $helpers = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helperName
@@ -138,4 +138,97 @@ if ($null -ne $missing.heading -or $missing.matches -ne $false) {
 }
 
 Write-Output 'Actual supported innergem heading helpers: exact visible window-bound selector, title and negative cases passed.'
+
+# Execute the actual page-state expression and contiguous write guards. Only
+# field lookup and failure/cleanup boundaries are inert; no worker dispatch,
+# UI Automation, process query or input operation is loaded.
+$statePredicates = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.HashtableAst] -and
+  @($node.KeyValuePairs | Where-Object { $_.Item1.Value -ceq 'onExpectedPage' }).Count -eq 1
+}, $true))
+if ($statePredicates.Count -ne 1) { throw 'Page-state predicate is not unique.' }
+$stateExpression = @($statePredicates[0].KeyValuePairs | Where-Object { $_.Item1.Value -ceq 'onExpectedPage' })[0].Item2
+$stateProof = [scriptblock]::Create($stateExpression.Extent.Text)
+$beforeAssignments = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$knownPageMatches'
+}, $true))
+$liveGuards = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text.StartsWith('$fastKnown -and ') -and
+  $node.Clauses[0].Item1.Extent.Text.Contains('$knownStateLive')
+}, $true))
+if ($beforeAssignments.Count -ne 1 -or $liveGuards.Count -ne 1) { throw 'Write guards are not unique.' }
+$writeBlocks = @{}
+foreach ($entry in @(@{name='before';node=$beforeAssignments[0];target='$node'}, @{name='live';node=$liveGuards[0];target='$liveNode'})) {
+  $siblings = @($entry.node.Parent.Statements)
+  $index = [array]::IndexOf($siblings,$entry.node)
+  if ($index -lt 0 -or $index+3 -ge $siblings.Count -or
+      $siblings[$index+2] -isnot [Management.Automation.Language.AssignmentStatementAst] -or
+      $siblings[$index+2].Left.Extent.Text -cne $entry.target -or
+      $siblings[$index+3] -isnot [Management.Automation.Language.IfStatementAst] -or
+      $siblings[$index+3].Clauses[0].Item1.Extent.Text -cne ('-not ' + $entry.target)) {
+    throw 'The actual contiguous page/target guards changed shape.'
+  }
+  $writeBlocks[$entry.name] = [scriptblock]::Create((@($siblings[$index..($index+3)] | ForEach-Object { $_.Extent.Text }) -join "`n"))
+}
+function Invoke-BindingGuardFixture($Page, $Fields, [bool]$Expected, [bool]$TargetPresent=$true, [string]$TargetId='bezeichnung') {
+  $known=[pscustomobject]@{page=$Page;field=$Page.fields.PSObject.Properties[$TargetId].Value}
+  $heading=[string]$Page.heading; $expectedPage=$heading; $hwnd=[IntPtr]7; $fastKnown=$true
+  $state=[pscustomobject]@{heading=$heading;fields=$Fields;epoch='synthetic'}
+  $knownStateBefore=$state; $knownStateLive=$state; $tracking=$null
+  function Resolve-KnownFieldNode([IntPtr]$Window,$KnownField) {
+    if ($Window -ne [IntPtr]7 -or -not [object]::ReferenceEquals($KnownField,$known)) { throw 'Foreign target lookup.' }
+    if ($TargetPresent) { [pscustomobject]@{rid='synthetic-target';type='Edit'} }
+  }
+  function Resolve-TrackedFieldNode { throw 'Known-field guard used a broad fallback.' }
+  function Close-TrackedResultWindow { $null }
+  function Fail($Message,$Kind) { $error=[InvalidOperationException]::new($Message); $error.Data['kind']=$Kind; throw $error }
+  if ([bool](& $stateProof) -ne $Expected) { throw 'Page-state binding predicate returned the wrong result.' }
+  foreach ($stage in @('before','live')) {
+    $failure=$null
+    try { & $writeBlocks[$stage] } catch { $failure=$_.Exception }
+    $expectedFailure=$(if (-not $Expected) { if ($stage -ceq 'before') {'precondition-failed'} else {'interference'} }
+      elseif (-not $TargetPresent) { if ($stage -ceq 'before') {'not-found'} else {'stale'} } else {$null})
+    if ($expectedFailure) {
+      if (-not $failure -or $failure.Data['kind'] -cne $expectedFailure) { throw "Wrong $stage page/target refusal: $failure" }
+    } elseif ($failure) { throw $failure }
+  }
+}
+$assetPage=$catalog.pages.'gew.anlagevermoegen_wirtschaftsgut'
+$mandatory=@('bezeichnung','belegnummer','kaufdatum','abschreibung_aktuelles_jahr')
+if (($assetPage.bindingFieldIds -join ',') -cne ($mandatory -join ',')) { throw 'The actual asset page binding must name its four stable fields.' }
+$assetFields=@($assetPage.fields.PSObject.Properties | ForEach-Object {
+  [pscustomobject]@{fieldId=$_.Name;present=[bool]($mandatory -ccontains $_.Name)}
+})
+Invoke-BindingGuardFixture $assetPage $assetFields $true
+# An optional target still needs its own successful exact lookup.
+Invoke-BindingGuardFixture $assetPage $assetFields $true $false 'kaufpreis'
+foreach ($missingId in $mandatory) {
+  $missingFields=@($assetFields | ForEach-Object { [pscustomobject]@{fieldId=$_.fieldId;present=[bool]($_.present -and $_.fieldId -cne $missingId)} })
+  Invoke-BindingGuardFixture $assetPage $missingFields $false
+}
+$foreign=@($mandatory | ForEach-Object { [pscustomobject]@{fieldId=('foreign.'+$_);present=$true} })
+Invoke-BindingGuardFixture $assetPage $foreign $false
+Invoke-BindingGuardFixture $assetPage (@($assetFields)+@([pscustomobject]@{fieldId='bezeichnung';present=$true})) $false
+$wrongType=@($assetFields | ForEach-Object { [pscustomobject]@{fieldId=$_.fieldId;present=$(if ($_.fieldId -ceq 'bezeichnung') {'true'} else {$_.present})} })
+Invoke-BindingGuardFixture $assetPage $wrongType $false
+foreach ($invalidIds in @(
+  @{ids=@()}, @{ids=$null}, @{ids='bezeichnung'}, @{ids=@('bezeichnung','bezeichnung')},
+  @{ids=@('foreign')}, @{ids=@('Bezeichnung')}, @{ids=@(' ')}, @{ids=@(7)}
+)) {
+  $invalidPage=$assetPage | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+  $invalidPage.bindingFieldIds=$invalidIds.ids
+  Invoke-BindingGuardFixture $invalidPage $assetFields $false
+}
+$defaultPage=$assetPage | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$defaultPage.PSObject.Properties.Remove('bindingFieldIds')
+$allFields=@($assetFields | ForEach-Object { [pscustomobject]@{fieldId=$_.fieldId;present=$true} })
+Invoke-BindingGuardFixture $defaultPage $allFields $true
+Invoke-BindingGuardFixture $defaultPage $assetFields $false
+foreach ($emptyPage in @([pscustomobject]@{fields=[pscustomobject]@{}},[pscustomobject]@{heading='Table only'})) {
+  if (-not (Test-KnownPageFields $emptyPage @())) { throw 'A default page without fields lost its existing empty binding.' }
+  $emptyPage | Add-Member NoteProperty bindingFieldIds @('bezeichnung')
+  if (Test-KnownPageFields $emptyPage @()) { throw 'An explicit binding without catalog fields was accepted.' }
+}
+Write-Output 'Page binding: actual state/write guards share exact mandatory IDs; optional variants, malformed bindings and missing targets checked without UI.'
 Write-Output 'sse_page_state: Schreibkennungen in der Projektion, Epoch-Hash nur auf Zustand - bestanden'

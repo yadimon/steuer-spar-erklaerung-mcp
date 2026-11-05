@@ -163,9 +163,26 @@ const vehicleCostRegionBindingSchema = z.object({
 const pageObjectSchema = z.object({
   heading: z.string().min(1),
   navigationTreeItemName: z.string().regex(/\S/u).optional(),
+  bindingFieldIds: z.array(z.string().regex(/\S/u)).nonempty().optional(),
   fields: z.record(z.string(), z.unknown()).optional(),
   tables: z.record(z.string(), pageObjectTableSchema).optional(),
-}).passthrough();
+}).passthrough().superRefine((page, context) => {
+  if (pageBindingFieldIds(page) === null) context.addIssue({
+    code: z.ZodIssueCode.custom, path: ['bindingFieldIds'],
+    message: 'Seitenbindung braucht eindeutige, im Feldkatalog vorhandene Kennungen.',
+  });
+});
+
+/** Variant-independent identity fields; absent policy preserves all-field binding. */
+export function pageBindingFieldIds(page: Record<string, unknown>): string[] | null {
+  const fields = page.fields && typeof page.fields === 'object' && !Array.isArray(page.fields)
+    ? page.fields as Record<string, unknown> : {};
+  if (!Object.hasOwn(page, 'bindingFieldIds')) return Object.keys(fields);
+  const ids = page.bindingFieldIds;
+  if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length ||
+      !ids.every(id => typeof id === 'string' && id.trim().length > 0 && Object.hasOwn(fields, id))) return null;
+  return ids as string[];
+}
 
 const pageObjectsCompatibilitySchema = z.object({
   schemaVersion: z.literal(1),

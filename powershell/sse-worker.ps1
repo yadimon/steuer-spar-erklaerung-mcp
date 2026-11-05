@@ -7836,6 +7836,31 @@ function Test-KnownPageHeading([string]$Heading, $Page) {
   $false
 }
 
+# Eine Seitenvariante kann weniger Felder als der gesamte Schreibkatalog
+# besitzen. Nur ausdrueckliche Bindungsfelder bestimmen dann die Seite;
+# das konkret angeforderte Zielfeld wird weiterhin separat frisch gebunden.
+function Test-KnownPageFields($Page, $Fields) {
+  if (-not $Page) { return $false }
+  $bindingProperty = $Page.PSObject.Properties['bindingFieldIds']
+  if (-not $Page.PSObject.Properties['fields'] -or $null -eq $Page.fields) { return [bool](-not $bindingProperty) }
+  $catalogIds = @($Page.fields.PSObject.Properties | ForEach-Object { $_.Name })
+  if ($bindingProperty) {
+    if ($bindingProperty.Value -isnot [Array] -or $bindingProperty.Value.Count -eq 0) { return $false }
+    $requiredIds = @($bindingProperty.Value)
+  } else {
+    $requiredIds = $catalogIds
+  }
+  $seen = @()
+  foreach ($id in $requiredIds) {
+    if ($id -isnot [string] -or [string]::IsNullOrWhiteSpace($id) -or
+        $catalogIds -cnotcontains $id -or $seen -ccontains $id) { return $false }
+    $seen += $id
+    $matches = @($Fields | Where-Object { $_.fieldId -ceq $id })
+    if ($matches.Count -ne 1 -or $matches[0].present -isnot [bool] -or -not $matches[0].present) { return $false }
+  }
+  $true
+}
+
 # Geaendert-Zustand ueber 'Sichern': $true, $false oder $null (unbekannt).
 # Ein unlesbarer Schalter ist nicht 'gesichert' - sonst liefen die
 # Pruefungen, die bei $null abbrechen, ins Leere.
@@ -13555,7 +13580,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{
       ok=$true; pageId=$pageId; expectedHeading=[string]$known.page.heading
       onExpectedPage=[bool]((Test-KnownPageHeading $state.heading $known.page) -and
-        @($state.fields | Where-Object { -not $_.present }).Count -eq 0)
+        (Test-KnownPageFields $known.page $state.fields))
       heading=$state.heading; dirty=$state.dirty; fields=$state.fields; epoch=$state.epoch
       hwnd=[int64]$hwnd
       pid=$(if ($fensterRecord) { [int]$fensterRecord.pid } else { 0 })
@@ -15523,7 +15548,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $heading = $(if ($fastKnown) { $knownStateBefore.heading } else { Get-CurrentHeading $hwnd $beforeTree })
     $knownPageMatches = [bool](
       $known -and (Test-KnownPageHeading $heading $known.page) -and
-      @($knownStateBefore.fields | Where-Object { -not $_.present }).Count -eq 0
+      (Test-KnownPageFields $known.page $knownStateBefore.fields)
     )
     if ($(if ($known) { -not $knownPageMatches } else { $heading -ne $expectedPage })) {
       Fail "Falsche Seite: '$heading', erwartet '$expectedPage'. NICHT geaendert." 'precondition-failed'
@@ -15627,7 +15652,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Complete-SSEPhase $phaseLog 'liveTree'
     $knownStateLive = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
     if ($fastKnown -and (-not (Test-KnownPageHeading $knownStateLive.heading $known.page) -or
-        @($knownStateLive.fields | Where-Object { -not $_.present }).Count -ne 0)) {
+        -not (Test-KnownPageFields $known.page $knownStateLive.fields))) {
       $null = Close-TrackedResultWindow $tracking
       Fail 'Seite wurde vor dem Schreiben geaendert; NICHT geschrieben.' 'interference'
     }
@@ -21260,10 +21285,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         return [bool]($heading -eq $ziel -and (Test-SSEGotoTableReadiness $h $heading))
       }
       if (-not (Test-KnownPageHeading $heading $knownTarget.page)) { return $false }
+      $fields = New-Object System.Collections.ArrayList
+      $bindingProperty = $knownTarget.page.PSObject.Properties['bindingFieldIds']
       foreach ($fieldProperty in @($knownTarget.page.fields.PSObject.Properties)) {
+        if ($bindingProperty -and @($bindingProperty.Value) -cnotcontains $fieldProperty.Name) { continue }
         $fieldKnown = [pscustomobject]@{ page=$knownTarget.page; field=$fieldProperty.Value }
-        if (-not (Resolve-KnownFieldNode $h $fieldKnown)) { return $false }
+        $node = Resolve-KnownFieldNode $h $fieldKnown
+        $null = $fields.Add([pscustomobject]@{ fieldId=$fieldProperty.Name; present=[bool]($null -ne $node) })
+        if (-not $node) { return $false }
       }
+      if (-not (Test-KnownPageFields $knownTarget.page @($fields))) { return $false }
       Test-SSEGotoTableReadiness $h $heading
     }
     function WarteAufUeberschrift {

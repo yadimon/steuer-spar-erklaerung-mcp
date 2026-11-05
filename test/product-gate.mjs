@@ -486,14 +486,14 @@ try {
   "sse_click kann Checkbox/Radio ungebunden aendern oder sse_toggle rollt nach Interferenz blind zurueck.");
   assert(workerSource.includes("function Test-KnownPageHeading") &&
     workerSource.includes("$expectedNumberedDetailPrefix = $expectedNumberedLabel + ': '") &&
-    workerSource.includes("@($knownStateBefore.fields | Where-Object { -not $_.present }).Count -eq 0") &&
+    workerSource.includes("(Test-KnownPageFields $known.page $knownStateBefore.fields)") &&
     catalog.pages?.["gew.anlagevermoegen_wirtschaftsgut"]?.headingPrefix === "1. " &&
     catalog.pages?.["gew.fahrzeug"]?.headingNumberedLabel === "Fahrzeug" &&
     !catalog.pages?.["gew.fahrzeug"]?.headingPrefix &&
     catalog.pages?.["gew.fahrzeug_leasingkosten"]?.fields?.vertragsmonate?.automationIdSuffix === ".Dauer.Dauer.Wert" &&
     catalog.pages?.["gew.fahrzeug_private_nutzung"]?.fields?.bruttolistenpreis?.valueKind === "currency" &&
     catalog.pages?.["gew.fahrzeug_private_nutzung"]?.fields?.nutzungsmonate?.valueKind === "text",
-  "Dynamische Detailseitenkoepfe sind nicht zugleich an Praefix und alle exakten Page-Object-Felder gebunden.");
+  "Dynamische Detailseitenkoepfe sind nicht zugleich an Praefix und profilierte Pflichtfelder gebunden.");
   const saveBlock = workerOpBlock("save");
   assert(workerSource.includes("if ($summaryBefore.transmitted -ne $false)") &&
     saveBlock.includes("$script:SSE_TRANSMITTED_CASE_WARNING = [pscustomobject]@{") &&

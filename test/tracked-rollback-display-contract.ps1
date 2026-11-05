@@ -5,7 +5,7 @@ Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 . (Join-Path $Repo 'powershell/table-values.ps1')
 $errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($WorkerPath,[ref]$null,[ref]$errors)
 if($errors.Count){throw 'Actual worker source parse failed'}
-foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading','Test-SSELastInputUnchanged','Get-SSETrackedCharacterSubstitution')){
+foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading','Test-KnownPageFields','Test-SSELastInputUnchanged','Get-SSETrackedCharacterSubstitution')){
  $f=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));if($f.Count -ne 1){throw 'Actual helper must be unique'}
  . ([scriptblock]::Create($f[0].Extent.Text))
 }
@@ -34,7 +34,10 @@ function Get-SSEPhaseReport {[pscustomobject]@{}}
 function Resolve-BoundWriteWindow {[pscustomobject]@{window=[pscustomobject]@{hwnd=7;pid=100};bindingMode='synthetic'}}
 function Test-Canary {[pscustomobject]@{ok=$true;ms=0}}
 function Get-DialogInventory {}
-function Resolve-SSEPageObject {[pscustomobject]@{pageId='fixture.page';page=[pscustomobject]@{heading='Synthetic page'};field=[pscustomobject]@{label='Synthetic field';valueKind=$script:fixture.valueKind;controlType=$script:fixture.type;automationIdSuffix='Form.Text'}}}
+function Resolve-SSEPageObject {
+ $field=[pscustomobject]@{label='Synthetic field';valueKind=$script:fixture.valueKind;controlType=$script:fixture.type;automationIdSuffix='Form.Text'}
+ [pscustomobject]@{pageId='fixture.page';page=[pscustomobject]@{heading='Synthetic page';fields=[pscustomobject]@{field=$field}};field=$field}
+}
 function New-DisplayNode {
  $name=$script:element.Current.Name
  if($script:fixture.normalizedTreeName){$name=($name -replace "`r|`n|`t",' ').Trim()}

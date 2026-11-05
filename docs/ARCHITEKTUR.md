@@ -537,6 +537,21 @@ fallabhängige Zusatz nicht vorher bekannt ist. Eine bloß ähnlich benannte
 Seite oder eine andere Fahrzeug-Unterseite mit derselben Überschrift reicht
 nicht aus.
 
+Ohne besondere Angabe sind alle Katalogfelder Pflichtfelder der Seitenbindung.
+`bindingFieldIds` kann einen ausdrücklich profilierten, nicht leeren Satz
+vorhandener Feldkennungen festlegen. Bei Wirtschaftsgütern bleiben so ältere
+Anschaffungen erkennbar, deren Formular keine Kaufpreis-/Umsatzsteuergruppe
+anzeigt. Fehlende Variantenfelder bleiben im Readback als `present: false`
+sichtbar und Teil der Epoche. Schreiben benötigt unabhängig von der
+Seitenbindung das konkrete, frisch gebundene und beschreibbare Zielfeld.
+UIA und der native Qt-Pfad verwenden denselben Pflichtfeldsatz.
+
+Eine Katalogkennung belegt nicht, dass die betreffende Formularvariante im
+geöffneten Fall vorhanden ist. Getrennte Bereiche wie die Fahrzeugverwaltung
+können zunächst einen ausdrücklich gewählten Einstieg über den frisch gelesenen
+Navigationsbaum benötigen. Leasing- oder Privatnutzungsfelder werden nicht aus
+einer passenden Überschrift abgeleitet, wenn die konkrete Variante sie nicht zeigt.
+
 Der semantische Worker-Pfad liest Überschrift und Pflichtfelder direkt über
 ihre vollständigen AutomationIds. Er vermeidet den generischen 400-Knoten-Baum
 bei der Start-, Warte- und Zielprüfung, behält aber Suche, linearen Fallback,

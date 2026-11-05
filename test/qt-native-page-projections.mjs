@@ -14,6 +14,7 @@ import { nativeWildcard } from "../dist/qt-native-find.js";
 import { checkerResults, resultDetailsFromNodes, splitWindowScope } from "../dist/qt-native-projections.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { readPositionInventory } from "../dist/position-inventory.js";
+import { gotoTargetState } from "../dist/qt-native-goto-projection.js";
 
 export async function pageProjectionOracle(cases, wildcards = [], receiptFingerprintValue = {}, helpers = []) {
   const temporary = mkdtempSync(join(tmpdir(), "sse-page-oracle-"));
@@ -384,6 +385,55 @@ export async function testNativePageProjections() {
   const absentField = await executeQtNativeKnownPageState(knownSnapshotClient(knownNodes.map(node => node.i === 3
     ? { ...node, aid: "window.ForeignField" } : node)), { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
   assert.equal(absentField.heading, "Synthetic heading"); assert.equal(absentField.onExpectedPage, false);
+  // An older asset has no current purchase-price controls. Keep every field in
+  // the readback, while proving identity with the actual catalog's four anchors.
+  const assetProfile = loadProductProfile('2025');
+  const assetPage = assetProfile.pageObjectsCatalog.pages['gew.anlagevermoegen_wirtschaftsgut'];
+  const bindingIds = ['bezeichnung', 'belegnummer', 'kaufdatum', 'abschreibung_aktuelles_jahr'];
+  assert.deepEqual(assetPage.bindingFieldIds, bindingIds);
+  const assetNodes = [knownNodes[0], knownNodes[1], {
+    ...knownNodes[2], name: '1. Synthetic asset',
+    aid: `window${assetPage.headingAutomationIdRelative}`,
+  }, ...bindingIds.map((id, index) => ({
+    ...knownNodes[3], i: index + 3, rid: `42.42.4.${index + 10}`, y: 100 + index * 30,
+    aid: `window${assetPage.fields[id].automationIdRelative}`, val: 'Synthetic',
+  }))];
+  async function assetState(nodes, page = assetPage) {
+    nodes = nodes.map((node, index) => ({ ...node, i: index }));
+    const selectedProfile = { ...assetProfile, pageObjectsCatalog: { ...assetProfile.pageObjectsCatalog,
+      pages: { ...assetProfile.pageObjectsCatalog.pages, 'gew.anlagevermoegen_wirtschaftsgut': page } } };
+    const state = await executeQtNativeKnownPageState(knownSnapshotClient(nodes),
+      { pageId: 'gew.anlagevermoegen_wirtschaftsgut', hwnd: 42 }, 5000, undefined, selectedProfile);
+    const snapshot = { nodes, windowRect: { x: 0, y: 0, w: 1000, h: 500 } };
+    return { state, ready: gotoTargetState(snapshot, selectedProfile, page.heading, page).ready };
+  }
+  const variant = await assetState(assetNodes);
+  assert.equal(variant.state.onExpectedPage, true); assert.equal(variant.ready, true);
+  assert.equal(variant.state.fields.length, 8);
+  assert.deepEqual(variant.state.fields.filter(f => !f.present).map(f => f.fieldId),
+    ['kaufpreis', 'preisart', 'umsatzsteuersatz', 'vorsteuer']);
+  const suffixOnly = await assetState(assetNodes.map(n => n.i < 3 ? n : {
+    ...n, aid: `window.Unrelated${assetPage.fields[bindingIds[n.i - 3]].automationIdSuffix}`,
+  }));
+  assert.equal(suffixOnly.state.fields.filter(f => f.present).length, 4, 'Suffix readback remains informational');
+  assert.equal(suffixOnly.state.onExpectedPage, false); assert.equal(suffixOnly.ready, false);
+  const duplicatePath = await assetState([...assetNodes, {
+    ...assetNodes[3], i: 7, rid: '42.42.4.30', type: 'Text',
+  }]);
+  assert.equal(duplicatePath.state.onExpectedPage, false); assert.equal(duplicatePath.ready, false);
+  for (const id of bindingIds) {
+    const missingAnchor = await assetState(assetNodes.filter(n => n.aid !== `window${assetPage.fields[id].automationIdRelative}`));
+    assert.equal(missingAnchor.state.onExpectedPage, false); assert.equal(missingAnchor.ready, false);
+  }
+  for (const ids of [[], ['unknown'], ['bezeichnung', 'bezeichnung']]) {
+    const invalid = await assetState(assetNodes, { ...assetPage, bindingFieldIds: ids });
+    assert.equal(invalid.state.onExpectedPage, false); assert.equal(invalid.ready, false);
+  }
+  const allFieldsPage = { ...assetPage }; delete allFieldsPage.bindingFieldIds;
+  const withoutPolicy = await assetState(assetNodes, allFieldsPage);
+  assert.equal(withoutPolicy.state.onExpectedPage, false); assert.equal(withoutPolicy.ready, false);
+  const foreignAssetPage = await assetState([knownNodes[0], knownNodes[1], { ...assetNodes[2], name: '1. Fahrzeug' }, knownNodes[3]]);
+  assert.equal(foreignAssetPage.state.onExpectedPage, false); assert.equal(foreignAssetPage.ready, false);
   const missing = await executeQtNativeKnownPageState(knownClient, { pageId: "missing" }, 5000, undefined, knownProfile);
   assert.equal(missing.kind, "not-found");
 
