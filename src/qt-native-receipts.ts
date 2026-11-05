@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import type { QtNativeClient } from "./qt-native-client.js";
-import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { readQtNativeSnapshot, validateQtReceiptTableProof, type QtSnapshotNode, type QtReceiptTableProof } from "./qt-native-snapshot.js";
 import { powershellCompactJson, processWindowInventorySchema, textSha256 } from "./qt-native-projections.js";
 
 export const receiptPolicySchema = z.object({
@@ -23,6 +23,8 @@ export const receiptPolicySchema = z.object({
     searchAutomationIdSuffix: z.string().min(1),
     primaryTextColumn: z.number().int().nonnegative(),
     documentNumberColumn: z.number().int().nonnegative(),
+    modifiedTimestampColumn: z.number().int().nonnegative().optional(),
+    modifiedTimestampHeader: z.string().min(1).optional(),
     draftMarker: z.string().min(1),
   }).strict(),
   controls: z.object({
@@ -69,12 +71,13 @@ function receiptToolAidSuffixes(policy: z.infer<typeof receiptPolicySchema>): st
 
 export async function receiptToolSnapshot(
   client: QtNativeClient, policy: z.infer<typeof receiptPolicySchema>, timeoutMs: number, signal?: AbortSignal,
+  withTableProof = true,
 ) {
   return readQtNativeSnapshot(client, {
     maxNodes: 5000,
     toolTitle: policy.title,
     aidSuffixes: receiptToolAidSuffixes(policy),
-  }, timeoutMs, signal);
+  }, timeoutMs, signal, withTableProof ? { tableProofAidSuffix: policy.list.tableAutomationIdSuffix } : undefined);
 }
 
 export async function receiptDetailSnapshot(
@@ -89,7 +92,7 @@ export async function receiptDetailSnapshot(
       ...Object.values(policy.controls.editableFields).map(field => field.automationIdSuffix),
     ])],
     aidContains: [".widget_detailPanel."],
-  }, timeoutMs, signal);
+  }, timeoutMs, signal, { tableProofAidSuffix: policy.list.tableAutomationIdSuffix });
 }
 
 export async function receiptDirtyState(
@@ -175,12 +178,18 @@ export interface ReceiptListProjection {
   draftCount: number; listFingerprint: string; rowsComplete: boolean; gridProjectionError: string | null;
 }
 
-export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof receiptPolicySchema>): ReceiptListProjection | { error: WorkerResult } {
+export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof receiptPolicySchema>,
+  proof: QtReceiptTableProof | null | undefined): ReceiptListProjection | { error: WorkerResult } {
   const tableSuffix = policy.list.tableAutomationIdSuffix;
   const visible = nodes.filter(node => node.w > 0 && node.h > 0);
   const tables = visible.filter(node => node.type === "Table" && node.aid.endsWith(tableSuffix) && node.on);
   if (tables.length !== 1) return { error: fail("profile-contract", `${tables.length} visible receipt tables found.`) };
   const table = tables[0]!;
+  if (!proof || proof.tableAid !== table.aid || proof.tableRid !== table.rid)
+    return { error: fail("native-contract", "The visible receipt table has no exact complete-model binding.") };
+  validateQtReceiptTableProof(proof);
+  if (proof.complete && proof.columnCount <= Math.max(policy.list.primaryTextColumn, policy.list.documentNumberColumn))
+    return { error: fail("profile-contract", "The complete receipt model lacks a profiled identity column.") };
   const countLabels: QtSnapshotNode[] = [];
   for (const [index, suffix] of policy.list.countLabelAutomationIdSuffixes.entries()) {
     const matches = visible.filter(node => node.aid.endsWith(suffix));
@@ -195,29 +204,23 @@ export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof rece
   const count = Number.parseInt(countMatch.groups.total, 10);
   const headers = visible.filter(node => ["Header", "HeaderItem"].includes(node.type) && node.aid === table.aid)
     .sort((left, right) => left.x - right.x).map(node => node.name);
-  const groups = new Map<number, QtSnapshotNode[]>();
-  for (const node of visible.filter(candidate => candidate.type === "DataItem"
-    && candidate.aid === table.aid && candidate.y >= table.y)) {
-    const group = groups.get(node.y) ?? [];
-    group.push(node);
-    groups.set(node.y, group);
-  }
-  const rows = [...groups.entries()].sort(([left], [right]) => left - right).map(([, group], offset) => {
-    const cells = group.sort((left, right) => left.x - right.x).map(node => ({
-      name: node.name,
-      rid: node.rid,
-      selected: node.selected,
-      toggleState: toggleState(node),
-      x: node.x,
-      y: node.y,
-      w: node.w,
-      h: node.h,
-    }));
-    const named = cells.filter(cell => cell.name);
-    const rowRid = (named[0] ?? cells[0])!.rid;
+  const modelCells = new Map(proof.rows.flatMap(row => row.rids.map((rid, column) => [rid, row.names[column]!] as const)));
+  const visibleCells = nodes.filter(node => node.type === "DataItem" && node.aid === table.aid);
+  if (proof.complete && (new Set(visibleCells.map(node => node.rid)).size !== visibleCells.length
+    || visibleCells.some(node => modelCells.get(node.rid) !== node.name)))
+    return { error: fail("native-contract", "The visible receipt cells contradict the complete model.") };
+  const byRid = new Map(visibleCells.map(node => [node.rid, node]));
+  const rows = proof.rows.map((row, offset) => {
+    const cells = row.names.map((name, column) => {
+      const rid = row.rids[column]!, node = byRid.get(rid);
+      return { name, rid, selected: node?.selected ?? null, toggleState: node ? toggleState(node) : null,
+        x: node?.x ?? -1, y: node?.y ?? -1, w: node?.w ?? 0, h: node?.h ?? 0 };
+    });
+    const primary = cells[policy.list.primaryTextColumn]!;
+    const rowRid = primary.rid;
     const names = cells.map(cell => cell.name);
     const index = offset + 1;
-    const primaryText = named[0]?.name ?? "";
+    const primaryText = primary.name;
     const documentNumber = cells.length > policy.list.documentNumberColumn
       ? cells[policy.list.documentNumberColumn]!.name : "";
     return {
@@ -228,7 +231,7 @@ export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof rece
       primaryText,
       documentNumber,
       cells,
-      draft: names.some(name => name.endsWith(policy.list.draftMarker)),
+      draft: primaryText.endsWith(policy.list.draftMarker),
       selected: cells.some(cell => cell.selected === true),
     };
   });
@@ -241,8 +244,9 @@ export function receiptList(nodes: QtSnapshotNode[], policy: z.infer<typeof rece
     rows,
     draftCount: rows.filter(row => row.draft).length,
     listFingerprint,
-    rowsComplete: rows.length === count,
-    gridProjectionError: rows.length === count ? null : "Qt accessibility exposes only the current receipt rows.",
+    rowsComplete: proof.complete && proof.hiddenRows.length === 0 && rows.length === count,
+    gridProjectionError: !proof.complete ? proof.incompleteReason : proof.hiddenRows.length ? "Receipt rows are explicitly hidden."
+      : rows.length !== count ? "The receipt count differs from the complete model." : null,
   };
 }
 
@@ -329,8 +333,7 @@ export function sameSemanticRow(left: ReceiptRow, right: ReceiptRow) {
 /** A closed detail may expose its table before the visible columns are restored. */
 export function sameReceiptListLayout(before: ReceiptListProjection, after: ReceiptListProjection): boolean {
   return before.headers.length > 0 && JSON.stringify(before.headers) === JSON.stringify(after.headers)
-    && before.rows.every(row => row.cells.length === before.headers.length)
-    && after.rows.every(row => row.cells.length === after.headers.length);
+    && new Set([...before.rows, ...after.rows].map(row => row.cells.length)).size <= 1;
 }
 
 export function sameReceiptRows(before: ReceiptRow[], after: ReceiptRow[]): boolean {
@@ -392,7 +395,7 @@ export async function executeQtNativeReceiptManagerList(
   const state = receiptState(tool.nodes, tool.hwnd, parsedPolicy.data);
   if (state.error) return state.error;
   if (state.state !== "list") return fail("precondition-failed", `Receipt list requires state 'list', current state is '${state.state}'.`);
-  const list = receiptList(tool.nodes, parsedPolicy.data);
+  const list = receiptList(tool.nodes, parsedPolicy.data, tool.tableProof);
   if ("error" in list) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
@@ -439,8 +442,9 @@ export async function executeQtNativeReceiptManagerList(
     ungespeichert: dirtyState.dirty,
     physicalInputUsed: false,
     hinweis: list.rowsComplete
-      ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten."
-      : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
+      ? "Alle vom BelegManager gezaehlten Zeilen sind im vollstaendigen Qt-Modell enthalten."
+      : `Kein vollstaendiger Belegbestand bestaetigt: ${list.gridProjectionError?.replace(/\.$/u, "")}.`
+        + (list.rows.length === 0 ? " Ohne vollstaendigen Modellnachweis werden keine Zeilen zurueckgegeben." : ""),
     nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs!,
   };
 }

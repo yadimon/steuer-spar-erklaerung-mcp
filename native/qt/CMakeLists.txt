@@ -56,6 +56,15 @@ add_custom_target(native-package ALL
 option(SSE_QT_BUILD_TESTS "Build the owned synthetic Qt fixture and enable the native integration test" OFF)
 if(SSE_QT_BUILD_TESTS)
   enable_testing()
+  add_executable(bridge-menu-motion-test tests/menu-motion.cpp)
+  target_compile_options(bridge-menu-motion-test PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
+  target_compile_definitions(bridge-menu-motion-test PRIVATE QT_NO_KEYWORDS)
+  target_link_libraries(bridge-menu-motion-test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Widgets Qt6::WidgetsPrivate User32)
+  set_target_properties(bridge-menu-motion-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+  add_test(NAME native-menu-motion COMMAND "${CMAKE_COMMAND}" -E env
+    "QT_QPA_PLATFORM=windows" "QT_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::Core>/../plugins"
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>;$ENV{PATH}" "$<TARGET_FILE:bridge-menu-motion-test>")
+  set_tests_properties(native-menu-motion PROPERTIES TIMEOUT 15 RUN_SERIAL TRUE)
   add_executable(bridge-dispatch-fence-test tests/dispatch-fence.cpp)
   target_compile_options(bridge-dispatch-fence-test PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
   set_target_properties(bridge-dispatch-fence-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
@@ -107,10 +116,10 @@ if(SSE_QT_BUILD_TESTS)
   target_compile_definitions(bridge-start-test PRIVATE QT_NO_KEYWORDS SSE_NATIVE_START_TEST)
   target_include_directories(bridge-start-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
   target_link_libraries(bridge-start-test PRIVATE BCrypt User32 Version Ole32 OleAut32 Uiautomationcore)
-  add_executable(bridge-start-fixture tests/start-fixture.cpp tests/start-fixture.rc)
+  add_executable(bridge-start-fixture WIN32 tests/start-fixture.cpp tests/start-fixture.rc)
   target_compile_options(bridge-start-fixture PRIVATE /permissive- /EHsc /utf-8 /W4)
   target_include_directories(bridge-start-fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
-  target_link_libraries(bridge-start-fixture PRIVATE User32)
+  target_link_libraries(bridge-start-fixture PRIVATE User32 Shell32)
   set_target_properties(bridge-start-test bridge-start-fixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
   add_test(NAME native-desktop-start COMMAND "${NODE_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../test/native-desktop-start-integration.mjs"

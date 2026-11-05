@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { callWorker, MAX_WORKER_ARGUMENT_BYTES } from "../dist/worker.js";
+import { bindDesktopStartDeadline } from "../dist/worker-start-deadline.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -20,15 +21,43 @@ const invalidPath = join(invalidRoot, `sse-args-${randomUUID().replaceAll("-", "
 const largeArgs = { payloadParts: Array.from({ length: 200 }, () => "x".repeat(500)) };
 const payload = JSON.stringify(largeArgs);
 
-const run = (path, extra = []) => spawnSync(
+const run = (path, extra = [], operation = "health") => spawnSync(
   powershell,
   ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", worker,
-    "-Op", "health", "-ArgsFile", path, ...extra],
+    "-Op", operation, "-ArgsFile", path, ...extra],
   { cwd: root, encoding: "utf8", windowsHide: true },
 );
 
 try {
-  writeFileSync(argsPath, payload, { encoding: "utf8", flag: "wx" });
+  const callerArgs = { timeoutSec: 90 };
+  assert.deepEqual(bindDesktopStartDeadline("desktop_start", callerArgs, 90_000, 10_000),
+    { timeoutSec: 90, __desktopStartDeadlineUnixMs: 100_000 });
+  assert.deepEqual(callerArgs, { timeoutSec: 90 }, "Transport binding must not change caller arguments");
+  assert.equal(bindDesktopStartDeadline("health", callerArgs, 1), callerArgs);
+  assert.equal(bindDesktopStartDeadline("desktop_start", {}, 90_000, 500_000).__desktopStartDeadlineUnixMs,
+    590_000, "A warmed child's old birth time must not consume its new dispatch deadline");
+  for (const invalid of [0, 6499, 6500.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => bindDesktopStartDeadline("desktop_start", {}, invalid, 10_000), TypeError);
+  }
+  for (const operation of ["desktop_start", "health"]) {
+    assert.throws(() => bindDesktopStartDeadline(operation,
+      { __desktopStartDeadlineUnixMs: 999_999 }, 90_000), TypeError);
+  }
+  await assert.rejects(callWorker("desktop_start", {}, 1000), (error) => error.kind === "bad-args");
+  const workerSource = readFileSync(join(root, "src", "worker.ts"), "utf8");
+  const deadlineBinding = workerSource.indexOf("args = bindDesktopStartDeadline(");
+  assert(deadlineBinding >= 0 && deadlineBinding < workerSource.indexOf("const spare ="),
+    "Reject invalid deadlines before borrowing a ready child");
+  writeFileSync(argsPath, JSON.stringify({
+    exe: "C:\\synthetic\\unavailable-SSE.exe", __desktopStartDeadlineUnixMs: 1,
+  }), { encoding: "utf8", flag: "wx" });
+  const expiredDesktopStart = JSON.parse(run(argsPath, [], "desktop_start").stdout.trim());
+  assert.equal(expiredDesktopStart.kind, "startup-deadline",
+    "An expired startup budget must fail before executable validation or desktop/process creation");
+  assert.equal(expiredDesktopStart.mutationStarted, false);
+  assert.equal(expiredDesktopStart.resultingState, "unchanged");
+
+  writeFileSync(argsPath, payload, "utf8");
   const direct = run(argsPath);
   assert.equal(direct.status, 0, direct.stderr || direct.stdout);
   assert.equal(typeof JSON.parse(direct.stdout.trim()).ok, "boolean");

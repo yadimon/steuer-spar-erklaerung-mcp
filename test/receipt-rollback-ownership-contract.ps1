@@ -28,6 +28,9 @@ function New-Node($Raw,[string]$Rid='42.7.1',[string]$Aid='synthetic.vat.QLineEd
  [pscustomobject]@{rid=$Rid;aid=$Aid;type='Edit';val=$Raw;on=$true;w=80;h=20;ro=$false}
 }
 function Reset-Fixture {
+ $script:updateWatch=New-Object object
+ $script:SSE_FOREGROUND_LEASE=[pscustomobject]@{watch=$script:updateWatch;lastOwnedInputTick=[uint64]1}
+ $script:receiptTick=[uint64]1
  $script:policy=[pscustomobject]@{states=[pscustomobject]@{detail=[pscustomobject]@{requiredAutomationIdSuffixes=@('.state.anchor')}};actions=[pscustomobject]@{};
   controls=[pscustomobject]@{editableFields=[pscustomobject]@{vatRate=$vatPolicy;title=$titlePolicy;note=$notePolicy}}}
  $script:freshAnchors=@(New-Node '' '42.7.8' 'synthetic.state.anchor')
@@ -39,6 +42,7 @@ function Reset-Fixture {
  $script:vat=[pscustomobject]@{name='vatRate';kind='vat-rate';before='0 %';requested='19 %';changed=$true;binding=[pscustomobject]@{name='vatRate';policy=$vatPolicy;node=$script:model['42.7.1']}}
  $script:title=[pscustomobject]@{name='title';kind='text';before='old-title';requested='new-title';changed=$true;binding=[pscustomobject]@{name='title';policy=$titlePolicy;node=$script:model['42.7.2']}}
 }
+function Test-SSELastInputUnchanged($Expected){$null -ne $Expected -and [uint64]$Expected -eq $script:receiptTick}
 function Get-LiveElement($Window,$Rid,$Aid){$script:model[$Rid]}
 function Convert-ExactElementToNode($Element){$Element}
 function Walk-Tree($Window,$MaxNodes,[switch]$WithValues){

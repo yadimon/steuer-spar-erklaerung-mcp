@@ -77,6 +77,41 @@ Ein vorhandener Handler ist deshalb weder eine allgemeine Qt-Freigabe noch ein
 Grund, den bisherigen Worker zu entfernen. Paket- oder Produktänderungen
 benötigen erneut passende Identitäts- und Funktionsnachweise.
 
+### Vollständige Beleglisten
+
+Beleglesungen fordern intern zusätzlich zum sichtbaren Baum einen gebundenen
+Tabellennachweis an. Er liest jede logische Zelle einschließlich verdeckter
+Spalten und Zeilen außerhalb des sichtbaren Bereichs. Öffnen und Schließen der
+Details verändern dadurch keine Fingerprints allein durch das Layout.
+Runtime-IDs und Namen sichtbarer Zellen müssen zum selben Modell passen.
+
+Der Nachweis bewegt weder Fokus noch Auswahl oder Bildlauf und lädt keine
+weiteren Modellzeilen nach. Er ist auf 1.000 Zeilen, 64 Spalten und insgesamt
+20.000 Zellen begrenzt. Nachladbare Modelle, ausdrücklich versteckte Zeilen und
+widersprüchliche Bestandszahlen bestätigen keinen vollständigen Bestand.
+Baum und Tabellennachweis teilen dasselbe Arbeitsbudget. Wird es während des
+gebundenen Zellreads erschöpft, enthält der unvollständige Nachweis keine
+Teilzeilen. Modelländerungssignale verwerfen den laufenden Read. Reine
+BelegManager-Steueraktionen benötigen diesen zusätzlichen Modellread nicht.
+Sichtbare Überschriften bleiben von den vollständigen Modellzellen getrennt.
+Ältere native Pakete ohne diesen Nachweis müssen neu gebaut oder aktualisiert
+werden; ein unvollständiger sichtbarer Baum ersetzt ihn nicht.
+
+Titel, Zeilen-Runtime-ID und Entwurfskennzeichen stammen aus der profilierten
+Titelspalte. Ein Text in einer führenden verborgenen Spalte ersetzt diese
+Identität nicht. Beim nativen Verknüpfen muss nach einem quittierten eigenen
+Checkbox-Commit der bekannte Änderungszeitstempel des exakt gebundenen
+Zielbelegs fortgeschritten sein. Die API prüft dazu die profilierte Spaltenbindung und
+alle anderen Zellen und Zeilen. Checkbox, Zeitstempel und Fußzeile müssen
+gemeinsam bestätigt sein, bevor eine weitere Änderung oder Anwenden beginnt.
+Getrennte Modell-Callbacks werden innerhalb derselben Frist nachgelesen.
+Eine Änderung vor
+dem eigenen Commit oder an einem anderen Beleg bleibt ein Fehler.
+Ausbleibende Bestätigung oder ein verlorenes Ziel nach dem quittierten Commit
+bleiben unbekannt; weder Anwenden noch Abbrechen wird dann nachgeschickt.
+Wiederöffnen muss den bestätigten Zeitstempel unverändert aus dem Speicher
+lesen. Eine weitere Änderung beim Anwenden bestätigt keine Persistenz.
+
 ## Tabellen und geschützte Cursorwege
 
 Gewöhnliches `table_read` liest das gebundene QWidget-/QAbstractItemModel ohne
@@ -227,11 +262,28 @@ die Cleanup-Felder. Ein verlorener oder abgebrochener Antwortweg kann
 `outcomeUnknown: true` liefern und wird nie automatisch wiederholt.
 Vor einem weiteren Start ist dann `desktop_status` zu prüfen.
 
-`ready` bezeichnet wie bisher ein eindeutig erkanntes Hauptfenster; Startdialoge
-werden separat zurückgegeben. Das ist keine Zusage, dass der komplette Fall bereits
+`ready` setzt ein eindeutig erkanntes, nicht als hängend gemeldetes Hauptfenster
+ohne erkannten Startdialog voraus. Drei Beobachtungen im Abstand von 250 ms
+müssen dieselbe Fensteridentität, denselben Titel und dieselbe Geometrie zeigen;
+anschließend bestätigt ein frischer Abgleich den gesamten Fensterbestand.
+Fensterwechsel, Größenänderungen und Startdialoge setzen die Bestätigung zurück.
+Ein kompaktes Startfenster kann Ladebildschirm oder Rückfrage sein. Beide
+Startpfade beobachten deshalb denselben Prozess innerhalb der ursprünglichen
+Startfrist weiter, ohne Eingabe oder erneuten Prozessstart. Bleibt ein solcher
+Kandidat bis zum Fristende bestehen, steht er separat in `dialogWindows`;
+`blockedByDialog: true` beschreibt dabei den noch ungeklärten Startzustand.
+Ein kompakter Produkttitel-Dialog wird auch mit Fallreferenz nicht als Hauptfenster
+gebunden. Bei Dialogen, mehreren Hauptfenstern oder fehlender Stabilitätsbestätigung
+bleiben `ready: false` und `instance: null`. Ohne Hauptfenster- oder Dialogkandidaten
+gilt weiterhin der Startup-Timeout mit überprüfter Bereinigung.
+Das ist keine Zusage, dass der komplette Fall bereits
 geladen ist. Der Messweg trennt Helferstart, SSE-Ladezeit und Antwortabschluss.
-Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Für die
-Produktabnahme sind zusätzlich Start, frischer Qt-Seiten-Readback und normales
+Synthetische Prozess-/Desktop- und HTTP-Tests prüfen den Startvertrag. Bei der
+HWND-Ersetzung mit angefordertem Fall bleibt das erste breite Testfenster
+generisch und damit noch nicht übergabefähig. Ein verspäteter Fixture-Timer
+kann dadurch keinen vorzeitigen Erfolg mit dem alten HWND erzeugen. Der Test
+belegt den Übergang vom noch ungeklärten Startfenster zum neuen Fallfenster.
+Für die Produktabnahme sind zusätzlich Start, frischer Qt-Seiten-Readback und normales
 Beenden mit einer Hersteller-Musterfallkopie über mehrere Zyklen zu prüfen.
 Das ist eine Abnahmeanforderung und kein pauschaler Nachweis aller Startmodi
 oder Dialogzustände.
@@ -824,6 +876,17 @@ oder verwerfen und die eigene Produktinstanz normal schließen. Ein neuer
 Produktstart benötigt erneut frische Fall-, Fenster- und Vorwertprüfungen.
 
 ## Prüfung
+
+Die opt-in CTest-Prüfung `native-menu-motion` verwendet ein echtes Qt-Menü
+auf einem eigenen inaktiven Desktop. Ein bewusst gesetzter alter Cursor-Cache
+reproduziert den wirkungslosen Einzelklick. Zehn verschiedene Bewegungen im
+selben Eintrag müssen anschließend genügend Qt-Mausereignisse und genau eine
+Auslösung durch ein einziges Drücken/Loslassen nachweisen. Drei Durchläufe
+prüfen dieselbe Menügeometrie. Die Fixture sendet native Fensternachrichten,
+bewegt keinen physischen Cursor und wechselt nicht den Eingabedesktop.
+Damit prüft sie den Ereignisweg und den eingesetzten Cache-Zustand; die reale
+Cursor-Rückstellung und der vollständige Produktablauf bleiben getrennte
+Live-Nachweise.
 
 Für interne native Schreibpfade bietet `QtNativeClient.requestAcknowledged`
 eine zusammenhängende Anfrage samt Empfangsbestätigung an. Beide Schritte

@@ -47,10 +47,12 @@ export function registerReceiptTools(registry: McpRegistry): void {
       title: "Belege strukturiert lesen",
       description:
         "Liest die bereits geoeffnete BelegManager-Listenansicht ohne Klick und ohne Fokuswechsel. " +
-        "Das Ergebnis enthaelt den angezeigten Gesamtzaehler, sichtbare Spalten und Zeilen, Entwurfsmarkierungen, " +
+        "Das Ergebnis enthaelt den angezeigten Gesamtzaehler, Spalten und Zeilen, Entwurfsmarkierungen, " +
         "frische Zeilenbindungen sowie einen Listenfingerprint fuer nachfolgende exakt gebundene Aktionen. " +
-        "Wenn Qt nicht alle Belege im UIA-Baum exponiert, wird rowsComplete=false gemeldet; es wird keine " +
-        "Vollstaendigkeit behauptet. Die Listenansicht muss ein Mensch vorher im BelegManager geoeffnet haben; " +
+        "headers benennt sichtbare beschriftete Spalten; rows.cells kann auch unbeschriftete und verborgene " +
+        "Modellspalten enthalten. Beide Arrays nicht nach Index verbinden; primaryText, documentNumber und " +
+        "die Zeilenbindung verwenden. Unlesbare oder widerspruechliche Grid-Daten melden rowsComplete=false. " +
+        "Die Listenansicht muss ein Mensch vorher im BelegManager geoeffnet haben; " +
         "die gesperrte Navigation darf dafuer nicht automatisch aufgerufen werden.",
     },
     (r) => ({

@@ -477,7 +477,12 @@ Qt kann durch einen eigenen Klick oder Löschbefehl einen Zelleditor öffnen,
 den der abwärts gelesene UIA-Baum nicht enthält. Deshalb wird zusätzlich die
 Elternkette des tatsächlich fokussierten Elements geprüft. Nur ein neu
 entstandener, genau gebundener Editor mit unverändertem Zellwert darf einmal
-gezielt abgebrochen werden; unbekannte Editoren bleiben erhalten. Danach
+gezielt abgebrochen werden. Auch ein bereits vorhandener Nr.-Editor darf
+einmal geschlossen werden, wenn Vorwert, vollständiges Modell, Fokus,
+Fenster und Eingabemarke frisch und unverändert bewiesen sind. Ziel und
+Vorbedingungen werden davor geprüft. Andere, geänderte, mehrdeutige oder
+unlesbar positionierte Editoren bleiben erhalten; ein unbestätigtes Schließen
+wird nicht wiederholt. Danach
 werden Modell, Summe, Änderungsmarkierung und Tabellenfokus erneut geprüft.
 
 Nach dem einzigen Löschbefehl müssen genau die Zielzeile fehlen und alle
@@ -1016,6 +1021,21 @@ dynamisch und wird für die jeweils angefragte Operation serialisiert.
 
 Der Operationsvertrag trennt Registrierung von aktueller Interaktionsfreigabe.
 Beim BelegManager ist nur `receipt_manager_list` als `focusless-read` erlaubt.
+Die UIA- und Qt-Listenreader lesen das vollständige Grid auch bei wenigen Belegen;
+eine geöffnete Detailansicht darf verborgene Modellspalten und Belegnummern
+nicht aus der Zeilenbindung entfernen. `headers` enthält die sichtbaren
+beschrifteten Spalten, `rows.cells` zusätzlich unbeschriftete und verborgene
+Modellzellen. Diese Arrays sind keine paarweise Indexzuordnung. Fachliche
+Werte stehen in `primaryText` und `documentNumber`. Unlesbare Zellen,
+mehrdeutige Runtime-IDs oder ein Widerspruch zum Gesamtzähler lassen
+`rowsComplete=false`; sie bestätigen keinen vollständigen Listenfingerprint.
+Der native Nachweis bindet die exakte Tabelle und alle logischen Zellpositionen
+ohne Auswahl, Fokus oder Bildlauf zu verändern. Fehlt er im nativen Paket,
+ist ein Neubau oder Update erforderlich. Widersprechen sichtbare Zellen dem
+Modell, endet der Aufruf mit `native-contract`.
+Vollständige Gridzeilen verwenden die profilierte Titelspalte für Titel,
+Zeilenbindung und Entwurfskennzeichen; führende verborgene Metadaten ändern
+diese Identität nicht.
 Die neun weiteren registrierten Operationen melden in
 `capabilities.operationPolicy` `foreground-required`/`blocked` und liefern bei
 gueltigen Aufrufen denselben nicht wiederholbaren strukturierten Block ueber
@@ -1040,6 +1060,12 @@ Vorbedingung des bestehenden Commit-Primitivs; eine zulässige abweichende
 Anzeigeformatierung wird dadurch nicht als fremder Zahlenwert übernommen.
 Auch die anschließende Rücklesung bleibt an diese Runtime-ID gebunden;
 ein inzwischen ersetztes Feld bestätigt den ursprünglichen Eingriff nicht.
+Der interne Mehrfeldablauf hält dieselbe ursprüngliche Vordergrund-Lease
+über Textfelder, USt-Auswahl, Checkbox und zulässige Rücknahmen. Ein innerer
+Textabschluss gibt diesen ausdrücklich gebundenen äußeren Bereich nicht
+vorzeitig frei. Einzelne Textänderungen geben ihre Lease weiterhin sofort
+frei. Verlorene Lease oder Eingabemarke stoppen Folgeaktionen; ein späterer
+Readback erlaubt keine neue Ausgangsbindung nach einer Teiländerung.
 Die interne Auswahl von `7` oder `19` benötigt zusätzlich die vorhandene
 eigene Lease und deren gespeicherte Eingabemarke. Fenster, ursprüngliche
 Feldbindung und ComboBox müssen vor weiteren Aktionen weiterhin passen.
@@ -1187,6 +1213,51 @@ Dialognachweis oder geht eine folgende Dialoglesung verloren, bleibt der
 Prozess für den Zustandsabgleich erhalten. Die private Bindung ist kein
 öffentliches Argument von `menu_click`.
 `menu` und `menu_click` verwenden dieselbe Suche in den eigenen Menü-Popups.
+Zum Öffnen eines benannten Menüs oder für `alle=true` aktiviert `menu` das
+exakt gebundene Hauptfenster vor `Expand`. Eine reine Menüzeilenlesung ohne
+Namen bleibt passiv. Ein angefordertes einzelnes Popup bleibt nach der
+Antwort offen und im Vordergrund; das Wiederherstellen eines anderen
+Fensters würde es vor dem nächsten Aufruf schließen. `alle=true` klappt die
+Menüs wieder zu. Ein unbestätigtes Öffnen wird nicht wiederholt. Auch bei
+einem Aktivierungsfehler bleibt die ursprüngliche Eingabemarke für die
+Bereinigung maßgeblich.
+`menu_click` bindet den physischen Klick an die frisch gelesene Runtime-ID des
+Menüeintrags und die ursprüngliche Eingabemarke. Bei einem eigenen
+Qt-Popup bleibt das bereits aktive Hauptfenster gebunden; der Klick aktiviert
+weder Popup noch Hauptfenster erneut. Derselbe Prozess, die bekannte
+Popup-Klasse, das vollständige Menüinventar und der tatsächliche Punktnachweis
+sind Pflicht. Die nur beobachtende Vordergrundbindung behält den geschützten
+Cursor-Rückweg; ein Fokus- oder Eingabewechsel erlaubt keinen Klick.
+Vor dem einzigen Klick bereitet der Helfer denselben Menüeintrag mit zehn
+verschiedenen Hover-Punkten innerhalb seiner Fläche vor und endet am
+ursprünglichen Klickpunkt. Damit kann Qt einen Klick auch dann erkennen,
+wenn sein Cursor-Cache noch die Position des vorherigen Menüklicks enthält.
+Jeder Punkt benötigt dieselbe Runtime-ID, Popup- und Eingabebindung; gedrückte
+Maus- oder Modifikatortasten, eine unbestätigte Nachricht oder ein verlorener
+DPI-Rückweg brechen vor dem Klick ab. Die Vorbereitung hat eine eigene
+monotone Frist, sendet keine Maustaste und übernimmt keine neue Eingabemarke.
+Die Frist verhindert einen verspäteten Klick, kann aber einen synchron
+blockierenden UIA-Read nicht vorzeitig unterbrechen.
+Beim katalogisierten
+BelegManager bestätigt erst genau ein Fenster mit passender Prozesskennung,
+Klasse und Titel den Erfolg innerhalb von `waitMs`; es darf weder minimiert
+noch blockiert sein. Menütexte mit Zugriffstasten oder Tastenkürzeln verwenden
+denselben Nachweis. Ein bereits offener BelegManager oder unlesbarer
+Vorherzustand wird vor dem Klick mit `inputDispatched=false` abgewiesen.
+Fehlt dieser Nachweis,
+ist er mehrdeutig oder nicht lesbar, liefert die API nach dem bereits
+gesendeten Klick `postcondition-failed`, `outcomeUnknown=true` und
+`retryable=false`. Sie sendet weder einen zweiten Klick noch eine
+Menübereinigung. Die Wartefrist verwendet eine monotone Uhr.
+Eine vom Punkthelfer verweigerte Aktion übernimmt dessen Sendenachweis:
+`inputDispatched=false` ist bekannt ungesendet; `true` oder ein fehlender
+Nachweis (`null`) erhält einen unbekannten Ausgang. `retryable` bleibt `false`.
+Auch eine sichtbare `combo_select`-Auswahl aktiviert das gebundene Hauptfenster
+vor dem ersten `Expand`. Danach werden derselbe Knoten, AutomationId, Vorwert,
+Seite und die ursprüngliche Eingabemarke erneut geprüft. Liegt die Option in
+einem eigenen Qt-Popup, benötigt der Klick dessen exakte Prozess-, Klassen-,
+Listen- und Geometriebindung; der Hauptfenster-Readback bleibt maßgeblich.
+Eine ungewisse Öffnung oder Auswahl erlaubt keinen zweiten Schreibversuch.
 Ein virtueller Menüeintrag im Hauptbaum oder ein unvollständig gelesener
 Popup-Baum beweist keinen auswählbaren Eintrag.
 Die Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,

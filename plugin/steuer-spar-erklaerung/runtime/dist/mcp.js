@@ -24021,7 +24021,7 @@ var init_version = __esm({
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
     SSE_PLUGIN_NAME = "steuer-spar-erklaerung";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.54";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.55";
   }
 });
 
@@ -44749,7 +44749,7 @@ function registerReceiptTools(registry2) {
     "sse_receipt_manager_list",
     {
       title: "Belege strukturiert lesen",
-      description: "Liest die bereits geoeffnete BelegManager-Listenansicht ohne Klick und ohne Fokuswechsel. Das Ergebnis enthaelt den angezeigten Gesamtzaehler, sichtbare Spalten und Zeilen, Entwurfsmarkierungen, frische Zeilenbindungen sowie einen Listenfingerprint fuer nachfolgende exakt gebundene Aktionen. Wenn Qt nicht alle Belege im UIA-Baum exponiert, wird rowsComplete=false gemeldet; es wird keine Vollstaendigkeit behauptet. Die Listenansicht muss ein Mensch vorher im BelegManager geoeffnet haben; die gesperrte Navigation darf dafuer nicht automatisch aufgerufen werden."
+      description: "Liest die bereits geoeffnete BelegManager-Listenansicht ohne Klick und ohne Fokuswechsel. Das Ergebnis enthaelt den angezeigten Gesamtzaehler, Spalten und Zeilen, Entwurfsmarkierungen, frische Zeilenbindungen sowie einen Listenfingerprint fuer nachfolgende exakt gebundene Aktionen. headers benennt sichtbare beschriftete Spalten; rows.cells kann auch unbeschriftete und verborgene Modellspalten enthalten. Beide Arrays nicht nach Index verbinden; primaryText, documentNumber und die Zeilenbindung verwenden. Unlesbare oder widerspruechliche Grid-Daten melden rowsComplete=false. Die Listenansicht muss ein Mensch vorher im BelegManager geoeffnet haben; die gesperrte Navigation darf dafuer nicht automatisch aufgerufen werden."
     },
     (r) => ({
       pid: r.pid,
@@ -45134,7 +45134,7 @@ function registerUiTools(registry2) {
     "sse_menu",
     {
       title: "[Fallback] Menue oeffnen und lesen",
-      description: "[Fallback] Nur wenn keine passende Spezialoperation existiert, etwa fuer einen sonst nicht abgedeckten Menuebefehl. Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
+      description: "[Fallback] Nur wenn keine passende Spezialoperation existiert, etwa fuer einen sonst nicht abgedeckten Menuebefehl. Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. Zum Oeffnen wird das gebundene SSE-Fenster aktiviert. Ein mit name angefordertes Menue bleibt offen und im Vordergrund, damit der folgende Aufruf denselben Popup lesen oder bedienen kann. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
     },
     (r) => ({
       menue: r.menue,
@@ -45148,7 +45148,7 @@ function registerUiTools(registry2) {
     "sse_menu_click",
     {
       title: "[Fallback] Menueeintrag ausloesen",
-      description: "[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback. Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; Vorher-/Nachher-Dirty-State wird immer gemeldet."
+      description: "[Fallback] Nur fuer einen nicht durch ein Spezialwerkzeug abgedeckten Befehl mit frischem Menue-Readback. Loest einen zuvor mit sse_menu ermittelten Menueeintrag aus. Eintraege, die zu einer Uebermittlung fuehren koennten, sind gesperrt. Lokale Loesch-, Import-, Uebernahme- oder Zuruecksetzbefehle verlangen nach dem Readback zusaetzlich acknowledgeDestructive=true; Bei Erfolg wird der Vorher-/Nachher-Dirty-State gemeldet. Beim BelegManager muss innerhalb von waitMs genau ein gebundenes Fenster erscheinen. Fehlt der Nachweis nach dem Klick, bleibt der Ausgang unbekannt: zuerst lesen, den Klick nicht automatisch wiederholen."
     }
   );
   registerApiTool(

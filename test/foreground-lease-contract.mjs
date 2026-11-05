@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const worker = readFileSync(new URL("../powershell/sse-worker.ps1", import.meta.url), "utf8");
 
@@ -18,7 +19,7 @@ assert(emitRelease >= 0, "Emit erzwingt keine Lease-Freigabe.");
 assert(emitRelease < emit.indexOf("ConvertTo-Json"), "Lease wird erst nach der JSON-Serialisierung freigegeben.");
 assert.match(emit, /focusTelemetry.*Get-SSEForegroundLeaseTelemetry/s);
 
-const enter = functionBlock("Enter-SSEForegroundLease([IntPtr]$Hwnd)");
+const enter = functionBlock("Enter-SSEForegroundLease(");
 for (const required of [
   "$lease.previousForeground = [int64][SW]::GetForegroundWindow()",
   "$lease.previousCursor",
@@ -175,8 +176,13 @@ assert.doesNotMatch(saveAs, /SendWait\('\^%s'\)/u,
 const saveDialog = functionBlock("Open-SSESaveAsDialog(");
 assert(saveAs.indexOf("$sourceBinding = Test-CaseBinding") < saveAs.indexOf("Open-SSESaveAsDialog $hwnd $targetPid"),
   "save_as darf den Fokus erst nach der Quelldateibindung verwenden.");
-assert.match(saveDialog, /if \(-not \(Show-SSEWindow \$MainHwnd\)\)/u);
-assert(saveDialog.indexOf("Show-SSEWindow $MainHwnd") < saveDialog.indexOf("Open-SSEMenuByName $MainHwnd 'Datei'"));
+assert.match(saveDialog, /Enter-SSEPopupForeground \$MainHwnd/u);
+assert(saveDialog.indexOf("Enter-SSEPopupForeground $MainHwnd") < saveDialog.indexOf("Open-SSEMenuByName $MainHwnd 'Datei'"));
+assert(saveDialog.indexOf("$inputBaseline = Get-SSELastInputTick") < saveDialog.indexOf("Enter-SSEPopupForeground $MainHwnd"));
+assert(saveDialog.includes("-UseExistingPopupLease") && saveDialog.includes("-ForegroundWindow $MainHwnd"),
+  "SaveAs darf sein geoeffnetes Popup nicht erneut aktivieren oder die urspruengliche Lease ersetzen.");
+assert(!saveDialog.includes("Show-SSEWindow"),
+  "Speichern unter muss vor Expand dieselbe Popup- und Eingabepruefung wie menu verwenden.");
 assert.match(saveDialog, /Get-SSEOpenMenuEntryMatches \$MainHwnd \$TargetPid 'Speichern unter\.\.\.'/u);
 assert.equal((saveDialog.match(/Click-VerifiedPoint /gu) ?? []).length, 1,
   "Das Oeffnen des Speicherdialogs darf den Menueklick nicht wiederholen.");
@@ -190,14 +196,21 @@ assert.match(menu, /Get-SSEOpenMenuEntryMatches \$hwnd \$targetPid ''/u,
   "Menueinventar und Auswahl muessen denselben Popup-Vertrag nutzen.");
 assert(!menu.includes("catch { }") && !menu.includes("$mainTree"),
   "Ein unlesbares Popup darf nicht durch virtuelle Hauptbaum-Eintraege verdeckt werden.");
+assert(menu.indexOf("Enter-SSEPopupForeground $hwnd") < menu.indexOf("Read-SSEMenuTree $hwnd $targetPid") &&
+  menu.lastIndexOf("Enter-SSEPopupForeground $hwnd") < menu.indexOf("Open-SSEMenuByName $hwnd $wunsch"),
+  "Benannte und vollstaendige Menueinventare brauchen vor Expand ein bestaetigtes Vordergrundfenster.");
+assert(menu.includes("-PreserveForegroundReason 'requested-open-menu'"),
+  "Ein angefordertes offenes Menue darf durch den Emit-Cleanup nicht wieder geschlossen werden.");
 
 // Die echten Worker-Funktionen laufen gegen synthetische Untergrenzen.
 // Keine Fenster, UIA-Provider oder Eingabe werden fuer diese Gegenproben gestartet.
 const program = `${[
+  "Enter-SSEPopupForeground(",
   "Get-SSEMenuPopupWindows(", "Get-SSEOpenMenuEntryMatches(",
   "Open-SSESaveAsDialog(", "Open-SSECaseCreateSaveDialog(",
-].map(functionBlock).join("\n")}
+].map(functionBlock).join("\n").replaceAll("[SW]::", "[SaveAsForegroundContract.Windows]::")}
 $ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition 'using System; namespace SaveAsForegroundContract { public static class Windows { public static IntPtr Foreground; public static IntPtr GetForegroundWindow() { return Foreground; } } }'
 $script:DESKTOP_NAME = $null
 $script:events = [Collections.Generic.List[string]]::new()
 function Check($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
@@ -208,15 +221,43 @@ function Fail($Message, $Kind, $Details) {
   throw $error
 }
 function ConvertTo-MenuLabel([string]$Name) { ($Name -replace ' Strg.*$', '').Trim() }
-function Show-SSEWindow($Window) { $script:events.Add('focus'); $script:foregroundAllowed }
-function Open-SSEMenuByName($Window, $Name) { $script:events.Add('expand') }
+function Get-SSELastInputTick { $script:epochReads++; if ($script:firstEpochUnavailable -and $script:epochReads -eq 1) { $null } else { $script:inputTick } }
+function Test-SSELastInputUnchanged($Tick) { $null -ne $Tick -and $Tick -eq $script:inputTick }
+function Show-SSEWindow($Window) {
+  $script:events.Add('focus'); $script:topmost=$true
+  if (-not $script:foregroundLost) { [SaveAsForegroundContract.Windows]::Foreground=$Window }
+  if ($script:inputChanged) { $script:inputTick++ }
+  $script:foregroundAllowed
+}
+function Set-SSEForegroundLeaseInputCheckpoint($Tick, $CursorPoint, $Context) {
+  $script:events.Add('checkpoint'); $script:checkpoint=$Tick
+}
+function Hide-SSETopmost($Window) { $script:events.Add('hide'); $script:topmost=$false }
+function Open-SSEMenuByName($Window, $Name) {
+  $script:events.Add('expand')
+  Check (-not $script:topmost) 'Popup opened while its main was still TOPMOST'
+  Check ([SaveAsForegroundContract.Windows]::Foreground -eq $Window) 'Popup opened without exact foreground'
+  Check ($script:checkpoint -eq $script:inputTick) 'Popup adopted changed input'
+  if ($script:inputAfterExpand) { $script:inputTick++ }
+}
 function Get-Windows($Application) { @($script:windows) }
 function Walk-Tree($Window, $Limit, $Depth) {
   $script:events.Add('read-popup')
   if ($script:treeThrows) { throw 'Synthetic inaccessible popup' }
   [pscustomobject]@{ nodes=@($script:node); stats=[pscustomobject]@{truncated=$script:truncated;err=$false} }
 }
-function Click-VerifiedPoint($Window, $Node, [switch]$ThrowOnFailure) {
+function Test-SSEMenuPointBinding($Window, $Binding) {
+  $script:bindingCalls++
+  $Window -eq [IntPtr]92 -and $Binding.mainHwnd -eq 91 -and $Binding.processId -eq 51 -and $Binding.popupHwnd -eq 92 -and
+    [SaveAsForegroundContract.Windows]::Foreground -eq [IntPtr]91
+}
+function Click-VerifiedPoint($Window, $Node, $ExpectedInputTick, [switch]$ThrowOnFailure, [switch]$RequireForeground,
+  [IntPtr]$ForegroundWindow, [string]$ExpectedRuntimeId, [scriptblock]$BeforeClickCheck, $BeforeClickBinding, [switch]$UseExistingPopupLease) {
+  Check ($RequireForeground -and $UseExistingPopupLease -and $ForegroundWindow -eq [IntPtr]91 -and $ExpectedRuntimeId -ceq $Node.rid) 'Lost compound popup authority'
+  Check ($null -ne $BeforeClickCheck -and (& $BeforeClickCheck $Window $BeforeClickBinding $null $null)) 'Lost main/popup/process binding'
+  if ($null -eq $ExpectedInputTick -or -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
+    $error=[Exception]::new('Synthetic input changed after Expand');$error.Data['kind']='interference';$error.Data['inputDispatched']=$false;throw $error
+  }
   $script:events.Add('click')
   Check ([bool]$ThrowOnFailure) 'Click failures must carry dispatch evidence'
   if ($script:clickThrows) {
@@ -230,6 +271,9 @@ function Get-CurrentHeading($Window) { $script:heading }
 function Get-CasePathFromTitle($Title) { $script:loadedPath }
 function Reset-Fixture {
   $script:events.Clear(); $script:foregroundAllowed=$true; $script:treeThrows=$false; $script:truncated=$false
+  $script:foregroundLost=$false; $script:inputChanged=$false; $script:inputAfterExpand=$false; $script:inputTick=10; $script:checkpoint=$null; $script:topmost=$false; $script:bindingCalls=0
+  $script:epochReads=0; $script:firstEpochUnavailable=$false
+  [SaveAsForegroundContract.Windows]::Foreground=[IntPtr]99
   $script:clickThrows=$false; $script:clickProof=$null
   $script:heading='Neue Angaben'; $script:loadedPath=$null
   $script:node=[pscustomobject]@{type='MenuItem';name='Speichern unter... Strg+Alt+S';rid='menu.1';on=$true}
@@ -258,16 +302,39 @@ function Expect-Failure($Action, [string]$Kind, [int]$Clicks, [bool]$Unknown=$fa
 Reset-Fixture
 $dialog=Open-SSESaveAsDialog ([IntPtr]91) 51
 Check ($dialog.hwnd -eq 95) 'Dialog must belong to the bound process'
-Check (($script:events -join ',') -ceq 'focus,expand,read-popup,read-popup,click') 'Foreground must precede popup input'
+Check (($script:events -join ',') -ceq 'focus,checkpoint,hide,expand,read-popup,read-popup,click') 'Popup preparation must precede menu input'
+Check ($script:bindingCalls -eq 1) 'SaveAs did not wire its real popup binding callback'
+Reset-Fixture; $script:inputTick=0
+$dialog=Open-SSESaveAsDialog ([IntPtr]91) 51
+Check ($dialog.hwnd -eq 95 -and $script:checkpoint -eq 0) 'Compound SaveAs rejected a valid zero epoch'
+Reset-Fixture; $script:inputAfterExpand=$true
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'interference' 0
+Check ($script:lastFailure.Data['details'].inputDispatched -eq $false -and $script:lastFailure.Data['details'].mutationStarted -eq $false) 'Input after Expand was adopted or replayed'
 Reset-Fixture
 $matches=@(Get-SSEOpenMenuEntryMatches ([IntPtr]91) 51 '')
 Check ($matches.Count -eq 1 -and [int64]$matches[0].hwnd -eq 92) 'Popup duplicates or foreign/main windows included'
 Reset-Fixture; $script:foregroundAllowed=$false
 Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'foreground-failed' 0
-Check (($script:events -join ',') -ceq 'focus') 'Expand ran without foreground'
+Check (($script:events -join ',') -ceq 'focus,checkpoint') 'Expand ran without foreground'
+Reset-Fixture; $script:inputTick=$null
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'interference' 0
+Check ($script:events.Count -eq 0) 'Unreadable input acquired foreground'
+Reset-Fixture; $script:firstEpochUnavailable=$true
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'interference' 0
+Check ($script:events.Count -eq 0 -and $script:epochReads -eq 1) 'An unavailable original epoch was replaced before focus and Expand'
+Reset-Fixture; $script:inputChanged=$true
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'interference' 0
+Check (($script:events -join ',') -ceq 'focus,checkpoint' -and $script:checkpoint -eq 10) 'Changed input was adopted or expanded'
+Reset-Fixture; $script:foregroundLost=$true
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'foreground-failed' 0
+Check (($script:events -join ',') -ceq 'focus,checkpoint') 'Lost foreground expanded the menu'
 Reset-Fixture; $script:windows=@($script:windows | Where-Object {$_.cls -notmatch 'PopupDropShadow|SysShadow'})
 Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'not-found' 0
 Reset-Fixture; $script:node.on=$false
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'precondition-failed' 0
+Reset-Fixture; $script:node.on='true'
+Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'precondition-failed' 0
+Reset-Fixture; $script:node.rid=''
 Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'precondition-failed' 0
 Reset-Fixture; $script:node=@($script:node, [pscustomobject]@{type='MenuItem';name='Speichern unter...';rid='menu.2';on=$true})
 Expect-Failure { Open-SSESaveAsDialog ([IntPtr]91) 51 } 'ambiguous' 0
@@ -337,3 +404,10 @@ assert(topmostCore.includes("Wait-SSEExactForeground $hwnd 150") &&
 process.stdout.write(
   "Foreground-Lease: sofortiger Physical-Cleanup, bounded polling, Cursor/Fokus-Restore und Input-Race vertraglich gebunden.\n",
 );
+const popupContract = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+  "-File", fileURLToPath(new URL("./menu-point-contract.ps1", import.meta.url))], {
+  encoding: "utf8", windowsHide: true, timeout: 60_000, maxBuffer: 1024 * 1024,
+});
+assert.equal(popupContract.error, undefined, "Popup composition contract could not finish.");
+assert.equal(popupContract.status, 0, popupContract.stderr || popupContract.stdout);
+process.stdout.write(popupContract.stdout);

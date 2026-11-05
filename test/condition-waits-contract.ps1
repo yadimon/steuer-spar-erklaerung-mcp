@@ -363,11 +363,34 @@ $mouseDown = @($clickDefinition.Body.FindAll({ param($node)
 }, $true))
 Assert-True ($pointSetters.Count -eq 1 -and $pointChecks.Count -ge 1 -and $mouseDown.Count -eq 1) `
   'Cursorbindung, echte Popup-Callbackaufrufe oder erster mouse-down fehlen oder sind mehrdeutig.'
+$finalPointChecks = @()
 foreach ($pointCheck in $pointChecks) {
-  Assert-True ($pointCheck.Extent.StartOffset -gt $pointSetters[0].Extent.EndOffset -and
-    $pointCheck.Extent.EndOffset -lt $mouseDown[0].Extent.StartOffset) `
-    'Die Popup-Bindung wird nicht unmittelbar vor dem ersten mouse-down geprueft.'
+  $shape = (@($pointCheck.CommandElements | ForEach-Object { $_.Extent.Text }) -join ' ')
+  Assert-True ($pointCheck.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Ampersand) `
+    'Die Popup-Bindung muss als Callback aufgerufen werden.'
+  if ($shape -ceq '$BeforeClickCheck $Window $BeforeClickBinding $px $py') {
+    $finalPointChecks += $pointCheck
+    Assert-True ($pointCheck.Extent.StartOffset -gt $pointSetters[0].Extent.EndOffset -and
+      $pointCheck.Extent.EndOffset -lt $mouseDown[0].Extent.StartOffset) `
+      'Die letzte Popup-Punktbindung wird nicht nach der Cursorpositionierung und vor mouse-down geprueft.'
+  } else {
+    Assert-True ($shape -ceq '$BeforeClickCheck $Window $BeforeClickBinding $null $null' -and
+      $pointCheck.Extent.EndOffset -lt $pointSetters[0].Extent.StartOffset) `
+      'Ein weiterer Popup-Callback hat eine unbekannte Argumentform oder liegt nicht vor der Cursorpositionierung.'
+    $popupGuarded = $false
+    for ($parent = $pointCheck.Parent; $parent -and $parent -ne $clickDefinition; $parent = $parent.Parent) {
+      if ($parent -is [Management.Automation.Language.IfStatementAst]) {
+        foreach ($clause in $parent.Clauses) {
+          if ($clause.Item1.Extent.Text -ceq '$popupMode' -and
+              $pointCheck.Extent.StartOffset -gt $clause.Item2.Extent.StartOffset -and
+              $pointCheck.Extent.EndOffset -lt $clause.Item2.Extent.EndOffset) { $popupGuarded = $true }
+        }
+      }
+    }
+    Assert-True $popupGuarded 'Die fruehe Popup-Bindung darf nur im expliziten Popup-Zweig laufen.'
+  }
 }
+Assert-True ($finalPointChecks.Count -ge 1) 'Die letzte Popup-Punktbindung mit den tatsaechlichen Klickkoordinaten fehlt.'
 Write-Output 'Combo-Punkt: frische Identitaet, sichtbares Popup und gebundene Geometrie vor mouse-down - bestanden'
 
 $popupRootDefinition = @($ast.FindAll({ param($node)

@@ -189,6 +189,7 @@ public class SW {
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RC r);
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
   [DllImport("user32.dll", ExactSpelling=true)] private static extern IntPtr MonitorFromWindow(IntPtr h,uint flags);
   [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
   [return: MarshalAs(UnmanagedType.Bool)]

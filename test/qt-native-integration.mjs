@@ -490,6 +490,50 @@ try {
   await first.command("open-option-tool");
   const optionWindow = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options", withCellStates: true }, 5000);
   const optionTables = optionWindow.nodes.filter(node => node.type === "Table"); assert.equal(optionTables.length, 1);
+  assert.equal(Object.hasOwn(optionWindow, "tableProof"), false, "Generic snapshots must not read the full receipt model");
+  const proofArgs = { tableProofAidSuffix: ".syntheticOptions" };
+  // Bind the exact independently discovered fixture table, without assuming
+  // its QObject path. Hidden and offscreen cells must keep their logical index.
+  proofArgs.tableProofAidSuffix = optionTables[0].aid;
+  const proofWindow = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options", withCellStates: true }, 5000, undefined, proofArgs);
+  const proof = proofWindow.tableProof;
+  assert(proof); assert.equal(proof.complete, true); assert.equal(proof.canFetchMore, false);
+  assert.equal(proof.tableAid, optionTables[0].aid); assert.equal(proof.tableRid, optionTables[0].rid);
+  assert.equal(proof.rowCount, 40); assert.equal(proof.columnCount, 3);
+  assert.deepEqual(proof.hiddenColumns, [1]); assert.deepEqual(proof.hiddenRows, []);
+  assert.equal(proof.rows[39].names[2], "option-39");
+  const proofCells = new Map(proof.rows.flatMap(row => row.rids.map((rid, column) => [rid, row.names[column]])));
+  for (const node of optionWindow.nodes.filter(node => node.type === "DataItem" && node.aid === proof.tableAid))
+    assert.equal(proofCells.get(node.rid), node.name, "Full-model and viewport runtime IDs must identify the same cell");
+  const again = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options", withCellStates: true }, 5000, undefined, proofArgs);
+  assert.deepEqual(again.tableProof, proof, "A passive complete read must keep all logical identities");
+  assert.deepEqual(again.nodes, optionWindow.nodes, "Complete reads must not scroll, select or focus cells");
+  assert.equal((await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options" }, 5000, undefined,
+    { tableProofAidSuffix: ".absentReceiptTable" })).tableProof, null);
+  const fullProof = async () => (await readQtNativeSnapshot(sessions[0].client,
+    { toolTitle: "Synthetic options" }, 5000, undefined, proofArgs)).tableProof;
+  await first.command("hide-option-proof-row");
+  const hiddenProof = await fullProof(); assert.equal(hiddenProof.complete, true);
+  assert.deepEqual(hiddenProof.hiddenRows, [39]); assert.equal(hiddenProof.rows[39].names[2], "option-39");
+  await first.command("show-option-proof-row");
+  await first.command("fetchable-option-proof");
+  const fetchProof = await fullProof(); assert.equal(fetchProof.complete, false); assert.equal(fetchProof.canFetchMore, true);
+  assert.equal(fetchProof.incompleteReason, "model-can-fetch-more"); assert.deepEqual(fetchProof.rows, []);
+  await first.command("complete-option-proof");
+  await first.command("oversized-option-proof");
+  const oversizedProof = await fullProof(); assert.equal(oversizedProof.complete, false);
+  assert.equal(oversizedProof.incompleteReason, "model-dimensions-exceed-bound"); assert.deepEqual(oversizedProof.rows, []);
+  await first.command("restore-option-proof");
+  await first.command("duplicate-option-proof");
+  await assert.rejects(fullProof(), /Receipt table is not unique/u);
+  await first.command("remove-duplicate-option-proof");
+  await first.command("slow-option-proof");
+  const slowProof = await fullProof(); assert.equal(slowProof.complete, false);
+  assert.equal(slowProof.incompleteReason, "read-time-bound"); assert.deepEqual(slowProof.rows, []);
+  await first.command("invalidate-option-proof");
+  await assert.rejects(fullProof(), /model changed during its read/u);
+  await first.command("restore-option-proof");
+  report.checks.push("Complete receipt proofs preserve hidden/offscreen cells and reject fetch-more, size, ambiguity, time and model invalidation without UI actions");
   const optionArgs = { toolTitle: "Synthetic options", expectedRootHwnd: optionWindow.hwnd,
     tableAid: optionTables[0].aid, toggleColumn: 0, labelColumn: 2 };
   const optionsRead = async extra => (await sessions[0].client.request("accessibility_table_options", { ...optionArgs, ...extra }, 5000)).result;

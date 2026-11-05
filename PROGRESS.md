@@ -64,6 +64,18 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   einmal ausgelöst. Fehlende Dialogbelege erhalten den Prozess. Menüinventar
   und Auswahl prüfen dieselben eigenen Popup-Fenster und lehnen unvollständige
   Bäume ab.
+  Der BelegManager-Menüaufruf bestätigt sein Fenster innerhalb einer monotonen
+  Frist, auch bei Menütexten mit Tastenkürzeln. Fehlende Eingabemarken,
+  deaktivierte Einträge und bereits offene Zielfenster erlauben keinen Klick.
+  Fehlender oder verlorener Nachweis nach dem exakt gebundenen Klick
+  bleibt unbekannt und erlaubt weder Wiederholung noch Menübereinigung.
+  Ein offenes Qt-Popup wird bei der Auswahl nicht erneut aktiviert. Seine
+  Prozess-, Klassen-, Inventar- und Punktbindung sowie das bereits aktive
+  Hauptfenster bleiben Pflicht; die Beobachtungsbindung erhält den Cursor-Rückweg.
+  Eine begrenzte Hover-Vorbereitung bleibt im selben Eintrag und verhindert
+  den verlorenen Klick bei veraltetem Qt-Cursor-Cache. Sie behält die
+  ursprüngliche Eingabemarke und sendet selbst keine Maustaste. Die
+  isolierten Helferprüfungen ersetzen die gesonderte reale Abnahme nicht.
 - **Gebundene Navigationsklicks:** die ursprüngliche Eingabemarke und das
   tatsächliche Vordergrundfenster bleiben bis zur letzten Prüfung vor dem
   Mausklick verbindlich. Begrenzte Fokusübernahmen finden vor dem Klick statt.
@@ -101,6 +113,9 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   ersetzen Textanwesenheit und sichtbaren Zeilenrang als Nachweis. Verborgene
   Spalten und Checkboxwerte werden mitgeprüft. Eigene Zelleditoren brauchen
   einen gesonderten Fokus-/Wertnachweis; unbekannte Editoren bleiben erhalten.
+  Ein unveränderter Nr.-Editor darf nach vollständiger Ziel-, Modell-,
+  Fenster- und Eingabeprüfung einmal geschlossen werden, auch wenn er schon
+  vor der Aktivierung vorhanden war. Unlesbare Geometrie erlaubt kein Escape.
   Weder eine unveränderte Summe noch eine ausbleibende beobachtete Wirkung
   erlauben Erfolg, Rollbackbehauptung oder Wiederholung. Ein Undo benötigt
   genau die eigene Einerentfernung und erneut bewiesenen Tabellenfokus.
@@ -143,6 +158,15 @@ produktfreier Lasttest beweist keine GUI-Latenz.
   echte boolesche Checkboxzustände für vollständige Detailwerte und deren
   Fingerprint. Ein lesbares leeres USt-Feld bleibt der gültige Nullsatz;
   unlesbare Werte und bloße Beschriftungen bestätigen ihn nicht.
+  UIA- und Qt-Listenreader binden auch verborgene Grid-Spalten und Belegnummern;
+  die Detailansicht verändert die Datenbindung nicht allein durch ihr Layout.
+  Unlesbare oder doppelt gebundene Zellen ergeben keine vollständige Liste.
+  Native Verknüpfungen bestätigen den profilierten Änderungszeitstempel jeder
+  geänderten Zeile zusammen mit Checkbox und Fußzeile vor dem nächsten Schritt.
+  Verlorene Ziele oder ungültige Antworten nach dem quittierten Klick erlauben
+  weder Anwenden noch Abbrechen.
+  Interne Mehrfeldänderungen behalten ihre ursprüngliche Lease über Text,
+  USt-Auswahl und Checkbox. Einzelne Textabschlüsse bleiben sofort freigegeben.
   Der USt-Auswahlhelfer liest vor seiner No-op-Bestätigung den gebundenen
   Vorwert frisch. Ein fehlendes oder ersetztes Feld und ein abweichender Wert
   erlauben keine Änderung. Ein Clear behält den vorher geprüften Rohwert als

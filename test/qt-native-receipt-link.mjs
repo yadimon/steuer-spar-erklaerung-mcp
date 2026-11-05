@@ -1,3 +1,4 @@
+import { receiptGridFixture } from "./qt-native-receipt-grid-fixture.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -54,7 +55,10 @@ function fixture(options = {}) {
   const persisted = rows.map(row => row.linked), actions = [];
   let staged = [...persisted], managerHwnd = options.alreadyOpen ? 84 : null;
   let opens = 0, state = "start", dirty = false, edited = false, applied = false, transfer = false;
-  let footerLag = false, readCount = 0;
+  let footerLag = false, readCount = 0, listReads = 0;
+  const timestamps = rows.map(() => options.initialFutureTimestamp ? new Date(Date.now() + 60_000).toISOString()
+    : options.initialTimestamp ?? "2025-01-01T00:00:00.000Z"), pendingTimestamps = new Map();
+  let timestampUpdates = 0;
   const nodeBuilder = hwnd => {
     const nodes = [];
     const add = (type, name, aid, extra = {}) => {
@@ -85,12 +89,21 @@ function fixture(options = {}) {
       add("Table", "", "receipt" + policy.list.tableAutomationIdSuffix, { x: 0, y: 100, w: 900, h: 300 });
       add("Text", `MEINE BELEGE (${rows.length + (options.incomplete ? 1 : 0)})`, "receipt" + policy.list.countLabelAutomationIdSuffixes[0]);
       add("Edit", "", "receipt" + policy.list.searchAutomationIdSuffix, { val: "" });
+      for (let column = 0; column < 9; column++) add("Header", column === 6 ? options.wrongModifiedHeader ? "Foreign header" : "Geändert" : "",
+        "receipt" + policy.list.tableAutomationIdSuffix, { x: column * 80, y: 100 });
       rows.forEach((row, rowIndex) => {
         for (let column = 0; column < 9; column++) {
-          const title = options.contentDrift && edited && rowIndex === 1 ? "Foreign receipt" : row.title;
-          add("DataItem", column === 2 ? title + (options.draft ? "*" : "") : column === 8 ? row.document : "",
+          const title = options.targetContentDrift && edited && rowIndex === 0 ? "Foreign target"
+            : options.duplicateTargetAfterEdit && edited && rowIndex === 1 ? rows[0].title
+              : options.contentDrift && edited && rowIndex === 1 ? "Foreign receipt" : row.title;
+          const timestamp = (options.otherModifiedAfterEdit && edited && rowIndex === 1)
+            || (options.modifiedBeforeEdit && listReads >= 2 && rowIndex === 0)
+            ? "2025-01-02T00:00:00.000Z" : timestamps[rowIndex];
+          add("DataItem", column === 2 ? title + (options.draft ? "*" : "") : column === 8
+            ? options.duplicateTargetAfterEdit && edited && rowIndex === 1 ? rows[0].document : row.document
+            : column === 6 ? timestamp : column === 5 ? options.createdAfterEdit && edited ? "Foreign creation" : "Fixed creation" : "",
             "receipt" + policy.list.tableAutomationIdSuffix, { x: column * 80, y: 140 + rowIndex * 30,
-              checked: column === link.rowToggleColumn ? staged[rowIndex] : null });
+              checked: column === link.rowToggleColumn ? options.unreadableToggleAfterEdit && edited ? null : staged[rowIndex] : null });
         }
       });
       const count = (footerLag ? persisted : staged).filter(Boolean).length;
@@ -109,10 +122,16 @@ function fixture(options = {}) {
     add("Button", "Abbrechen", "dialog.cancel");
     return nodes;
   };
-  const activeProfile = options.transfer === "known" ? { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog,
+  let activeProfile = options.transfer === "known" ? { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog,
     windows: { ...profile.pageObjectsCatalog.windows, receiptManager: { ...policy, linkValueTransferDialog: {
       ...policy.linkValueTransferDialog, fingerprints: [receiptLinkDialogFingerprint(policy.linkValueTransferDialog.title, dialogNodes())],
     } } } } } : profile;
+  if (options.noTimestampPolicy) {
+    const list = { ...policy.list }; delete list.modifiedTimestampColumn; delete list.modifiedTimestampHeader;
+    activeProfile = { ...activeProfile, pageObjectsCatalog: { ...activeProfile.pageObjectsCatalog,
+      windows: { ...activeProfile.pageObjectsCatalog.windows,
+        receiptManager: { ...activeProfile.pageObjectsCatalog.windows.receiptManager, list } } } };
+  }
   const inventory = () => {
     const descriptor = (hwnd, title) => ({ hwnd, title, pid: 99, class: "Qt692QWindow", order: hwnd,
       x: 0, y: 0, w: 1000, h: 600, minimized: false, hung: false });
@@ -128,15 +147,24 @@ function fixture(options = {}) {
       if (operation === "window_inventory") return { durationMs: 1, result: inventory() };
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === policy.title, dialog = args.toolTitle === policy.linkValueTransferDialog.title;
+      if (tool && state === "list") {
+        listReads++;
+        for (const [index, pending] of pendingTimestamps) if (--pending.remaining < 0) {
+          timestamps[index] = pending.value; pendingTimestamps.delete(index); timestampUpdates++;
+        }
+      }
       if (tool && options.recreated && edited) managerHwnd += 1;
       const hwnd = tool ? managerHwnd : dialog ? 120 : 42;
       assert(hwnd !== null, "The transaction must not read a closed owned manager");
       const nodes = tool ? toolNodes() : dialog ? dialogNodes() : mainNodes();
+      if (tool && options.malformedSnapshotAfterEdit && edited) nodes[0].x = null;
       const activeModalHwnd = options.foreignModal && edited ? 131 : managerHwnd ?? (transfer ? 120 : 0);
       const modalBlocked = !tool && !dialog && activeModalHwnd !== 0
         && (args.allowedModalTitle !== policy.title || args.allowedModalHwnd !== activeModalHwnd);
       return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd,
-        windowEnabled: true, modalBlocked, activeModalHwnd, nodes, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, exactMatches: {},
+        ...(args.tableProof ? { tableProof: receiptGridFixture(toolNodes()) } : {}),
+        windowEnabled: !(tool && options.obstructedAfterEdit && edited), modalBlocked, activeModalHwnd, nodes,
+        windowRect: { x: 0, y: 0, w: 1000, h: 600 }, exactMatches: {},
         stats: { n: nodes.length, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
           valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 } } };
     },
@@ -160,12 +188,18 @@ function fixture(options = {}) {
         if (options.rejectEdit) return { durationMs: 1, receiptAcknowledged: false, mutationAckMs: 0,
           result: { ok: false, mutationAttempted: false, code: "stale", error: "Old state rejected" } };
         staged[rowIndex] = args.checked; edited = true; footerLag = Boolean(options.footerLag);
+        if (!options.noTimestampUpdate) pendingTimestamps.set(rowIndex, { remaining: options.modifiedLagReads ?? 0,
+          value: options.invalidModified ? "unreadable" : options.backwardModified ? "2024-12-31T00:00:00.000Z"
+            : options.invalidCalendarModified ? "2025-02-30T00:00:00.000Z"
+              : options.staleAdvancingModified ? "2025-01-02T00:00:00.000Z"
+              : new Date(Date.now() + (options.futureModified ? 60_000 : 0)).toISOString() });
         if (options.foreignState) staged[1] = !staged[1];
         if (options.lostAcknowledgment) throw new QtNativeAcknowledgmentError("Acknowledgment lost", "native-ack",
           { ok: true, id: 1, mutationAttempted: true });
       } else if (selected.aid.endsWith(policy.actions.showAllReceipts.automationIdSuffix)) state = "list";
       else if (selected.aid.endsWith(link.applyAutomationIdSuffix)) {
         if (!options.applyNoEffect) persisted.splice(0, persisted.length, ...staged);
+        if (options.rewriteTimestampAfterApply) timestamps[0] = new Date(Date.parse(timestamps[0]) + 1000).toISOString();
         applied = true; dirty = true; managerHwnd = null; transfer = Boolean(options.transfer);
       } else {
         assert(selected.aid.endsWith(link.cancelAutomationIdSuffix));
@@ -177,7 +211,8 @@ function fixture(options = {}) {
   const args = { hwnd: 42, expectedTargetPage: heading, expectedLinkTarget: target, acknowledgeLinkChange: true, waitMs: 100,
     items: [{ expectedReceiptTitle: rows[0].title, expectedDocumentNumber: rows[0].document, linked: !rows[0].linked }] };
   return { actions, persisted, args, get managerHwnd() { return managerHwnd; }, get readCount() { return readCount; },
-    list: () => { const previous = state; state = "list"; const list = receiptList(toolNodes(), policy); state = previous; return list; },
+    get timestampUpdates() { return timestampUpdates; },
+    list: () => { const previous = state; state = "list"; const list = receiptList(toolNodes(), policy, receiptGridFixture(toolNodes())); state = previous; return list; },
     run: overrides => {
       const input = { ...args, ...overrides }; if (input.items === undefined) delete input.items;
       return executeQtNativeOperation("receipt_manager_link", input, { qtNativeClient: client }, 5000, undefined, activeProfile);
@@ -185,6 +220,9 @@ function fixture(options = {}) {
 }
 
 assert(isQtNativeOperation("receipt_manager_link"));
+// Successful queued-callback cases use the normal provider wait budget, not
+// a scheduler-speed assertion. Rejection/deadline cases retain 100 ms below.
+const positiveCallbackWaitMs = 4000;
 for (const options of [{}, { footerLag: true }, { rows: [
   { title: "Synthetic receipt", document: "DOC-1", linked: true },
   { title: "Other receipt", document: "OTHER-1", linked: false },
@@ -192,10 +230,11 @@ for (const options of [{}, { footerLag: true }, { rows: [
   { title: "Synthetic receipt", document: "DOC-1", linked: false },
   { title: "Duplicate other", document: "OTHER-1", linked: false },
   { title: "Duplicate other", document: "OTHER-1", linked: true },
-] }, { transfer: "known" }]) {
+] }, { transfer: "known" }, { modifiedLagReads: 1 }, { modifiedLagReads: 2, footerLag: true }]) {
   const test = fixture(options), before = [...test.persisted];
-  const result = await test.run();
-  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.verified, true);
+  const result = await test.run({ waitMs: positiveCallbackWaitMs });
+  assert.equal(result.ok, true, JSON.stringify({ scenario: "positive-callback-propagation", options, result }));
+  assert.equal(result.verified, true);
   assert.equal(result.persistenceVerified, true); assert.equal(result.applied, true); assert.equal(result.cleanupRequired, false);
   assert.equal(result.dirtyStateUnchangedBeforeApply, true); assert.equal(result.windowIdentitiesUnchanged, true);
   assert.equal(result.physicalInputUsed, false); assert.equal(result.foregroundLeaseUsed, false);
@@ -206,6 +245,41 @@ for (const options of [{}, { footerLag: true }, { rows: [
   assert.equal(test.actions.filter(action => action.aid.endsWith(link.cancelAutomationIdSuffix)).length, 1);
   if (options.transfer) assert.equal(result.applyClick.valueTransferCancelled, true);
 }
+
+for (const { options, expected } of [
+  { options: { modifiedBeforeEdit: true }, expected: { kind: "stale", state: "unknown", unknown: true, cleanup: true,
+    cancels: 0, error: /changed outside this transaction/u } },
+  ...[{ wrongModifiedHeader: true }, { initialTimestamp: "" }, { initialFutureTimestamp: true }].map(options => ({ options,
+    expected: { kind: "profile-contract", state: "cancelled", unknown: false, cleanup: false, cancels: 1,
+      error: /profiled receipt modification timestamp/u } })),
+]) {
+  const test = fixture(options), result = await test.run();
+  assert.equal(result.ok, false, JSON.stringify(options));
+  assert.equal(result.kind, expected.kind); assert.match(result.error, expected.error);
+  assert.equal(result.resultingState, expected.state); assert.equal(result.outcomeUnknown, expected.unknown);
+  assert.equal(result.cleanupRequired, expected.cleanup);
+  assert.equal(test.actions.filter(action => action.aid.endsWith(link.cancelAutomationIdSuffix)).length, expected.cancels);
+  assert.equal(test.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 0);
+  assert.deepEqual(test.persisted, [false, true]);
+  assert.equal(test.actions.filter(action => action.action === "set-table-check-state").length, 0);
+}
+const absentTimestampPolicy = fixture({ noTimestampPolicy: true });
+assert.equal((await absentTimestampPolicy.run()).kind, "invalid-catalog");
+assert.equal(absentTimestampPolicy.readCount, 0); assert.deepEqual(absentTimestampPolicy.actions, []);
+
+// This supported profile exposes milliseconds, including edits in one second.
+// Equal timestamps remain unproven; do not hide them with a fixed one-second wait.
+const actualNow = Date.now, fixedNow = Date.parse("2025-08-01T12:00:00.500Z");
+try {
+  Date.now = () => fixedNow;
+  const subsecond = fixture({ initialTimestamp: "2025-08-01T12:00:00.490Z" });
+  assert.equal((await subsecond.run()).ok, true, "Distinct millisecond stamps within one UTC second must be accepted");
+  const equalStamp = fixture({ initialTimestamp: new Date(fixedNow).toISOString() });
+  const equalResult = await equalStamp.run();
+  assert.equal(equalResult.ok, false); assert.equal(equalResult.outcomeUnknown, true); assert.equal(equalResult.cleanupRequired, true);
+  assert.equal(equalStamp.actions.filter(action => action.action === "set-table-check-state").length, 1);
+  assert(!equalStamp.actions.some(action => action.aid.endsWith(link.applyAutomationIdSuffix) || action.aid.endsWith(link.cancelAutomationIdSuffix)));
+} finally { Date.now = actualNow; }
 
 const noOp = fixture();
 const noOpResult = await noOp.run({ items: [{ expectedReceiptTitle: "Synthetic receipt", linked: false }] });
@@ -233,6 +307,13 @@ assert.equal((await batch.run({ items: [
   { expectedReceiptTitle: "Synthetic receipt", linked: true }, { expectedReceiptTitle: "Other receipt", linked: false },
 ] })).ok, true);
 assert.deepEqual(batch.persisted, [true, false]);
+const timestampBatch = fixture({ modifiedLagReads: 2 });
+const timestampBatchResult = await timestampBatch.run({ waitMs: positiveCallbackWaitMs, items: [
+  { expectedReceiptTitle: "Synthetic receipt", linked: true }, { expectedReceiptTitle: "Other receipt", linked: false },
+] });
+assert.equal(timestampBatchResult.ok, true, JSON.stringify({ scenario: "delayed-timestamp-batch-and-reopen", result: timestampBatchResult }));
+assert.deepEqual(timestampBatch.persisted, [true, false]);
+assert.equal(timestampBatch.timestampUpdates, 2, "Each batch row must publish and bind its own timestamp before the next action");
 assert.equal(batch.actions.filter(action => action.action === "set-table-check-state").length, 2);
 assert.equal(batch.actions.filter(action => action.aid.endsWith(link.applyAutomationIdSuffix)).length, 1);
 
@@ -272,6 +353,11 @@ assert.equal(rejectedResult.cleanupRequired, false); assert.equal(rejectedResult
 assert.equal(rejected.managerHwnd, null); assert.deepEqual(rejected.persisted, [false, true]);
 
 for (const options of [{ lostAcknowledgment: true }, { foreignState: true }, { contentDrift: true },
+  { otherModifiedAfterEdit: true }, { createdAfterEdit: true }, { invalidModified: true },
+  { backwardModified: true }, { invalidCalendarModified: true }, { futureModified: true }, { staleAdvancingModified: true },
+  { targetContentDrift: true }, { duplicateTargetAfterEdit: true }, { noTimestampUpdate: true },
+  { unreadableToggleAfterEdit: true }, { obstructedAfterEdit: true },
+  { malformedSnapshotAfterEdit: true },
   { dirtyDrift: true }, { recreated: true }, { foreignModal: true }, { headingDrift: true }]) {
   const test = fixture(options); const result = await test.run();
   assert.equal(result.ok, false, JSON.stringify(result)); assert.equal(result.cleanupRequired, true);
@@ -281,7 +367,7 @@ for (const options of [{ lostAcknowledgment: true }, { foreignState: true }, { c
     || action.aid.endsWith(link.cancelAutomationIdSuffix)), "Do not apply, replay or cancel an unknown staging state");
   assert.deepEqual(test.persisted, [false, true]);
 }
-for (const options of [{ applyNoEffect: true }, { windowDrift: true }]) {
+for (const options of [{ applyNoEffect: true }, { windowDrift: true }, { rewriteTimestampAfterApply: true }]) {
   const test = fixture(options), result = await test.run();
   assert.equal(result.ok, false); assert.equal(result.verified, false); assert.equal(result.cleanupRequired, true);
   assert.equal(result.persistentApplyStarted, true);

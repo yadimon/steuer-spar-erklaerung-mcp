@@ -104,7 +104,7 @@ export class ReceiptClassificationSession {
     return remaining.length === 0;
   }
   async guardedDetail() {
-    const detail = await this.detailRead(), list = receiptList(detail.nodes, this.policy);
+    const detail = await this.detailRead(), list = receiptList(detail.nodes, this.policy, detail.tableProof);
     if (!this.boundDetail(detail) || "error" in list || !this.listIdentity(list))
       this.error("The seven detail fields, target identity or other complete receipt rows changed.", "stale", this.mutationStarted);
     return detail;
@@ -114,7 +114,7 @@ export class ReceiptClassificationSession {
     const state = receiptState(detail.nodes, detail.hwnd, this.policy);
     if (state.error) this.error(String(state.error.error), String(state.error.kind));
     if (state.state !== "list") this.error("Classification requires the complete receipt list.", "precondition-failed");
-    const list = receiptList(detail.nodes, this.policy);
+    const list = receiptList(detail.nodes, this.policy, detail.tableProof);
     if ("error" in list) this.error(String(list.error.error), String(list.error.kind));
     if (!list.rowsComplete || list.listFingerprint !== this.args.expectedListFingerprint.toUpperCase())
       this.error("The complete receipt list differs from its fresh binding.", "stale");
@@ -139,7 +139,7 @@ export class ReceiptClassificationSession {
         await delay(Math.min(25, Math.max(1, deadline - performance.now())), undefined, { signal: this.signal });
       } while (performance.now() < deadline);
     }
-    const selected = receiptList(detail.nodes, this.policy);
+    const selected = receiptList(detail.nodes, this.policy, detail.tableProof);
     if (!this.boundDetail(detail) || "error" in selected || selected.listFingerprint !== list.listFingerprint)
       this.error("The complete detail/list binding changed before opening the chooser.", "stale");
   }
@@ -261,7 +261,7 @@ export class ReceiptClassificationSession {
       detail = await this.detailRead(); if (exactDetailClose(detail.nodes, this.policy).length === 0) break;
       await delay(Math.min(25, Math.max(1, deadline - performance.now())), undefined, { signal: this.signal });
     } while (performance.now() < deadline);
-    const list = receiptList(detail.nodes, this.policy);
+    const list = receiptList(detail.nodes, this.policy, detail.tableProof);
     const windows = await receiptWindowSet(this.client, this.budget(), this.signal);
     if (windows.error) this.error(String(windows.error.error));
     const dirty = await receiptDirtyState(this.client, this.args.hwnd, this.policy.title, this.budget(), this.signal);

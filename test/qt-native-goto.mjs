@@ -120,14 +120,15 @@ try {
 function fixture(options = {}) {
   let current = options.start ?? "Start page", searchOpen = false, term = "", reads = 0, targetReads = 0, incompleteNativeReads = 0;
   let pendingReadObserved = false, pageGeneration = 0, queuedSearchReads = 0;
-  const actions = [], route = [...(options.landings ?? ["Target page"])];
+  const actions = [], trace = [], route = [...(options.landings ?? ["Target page"])];
+  const readyHeading = options.readyHeading ?? "Target page";
   const nodes = () => {
     const { nodes: value, add } = builder();
     const header = add("Group", "", "main.ClientFrameSSE.ClientHeader");
-    if (!searchOpen || current === "Target page") add("Text", current, "main.ClientFrameSSE.ClientHeader.QLabel", header);
+    if (!searchOpen || current === readyHeading) add("Text", current, "main.ClientFrameSSE.ClientHeader.QLabel", header);
     const nav = add("Tree", "", "main.NavWidgetSSE", -1, { x: 10, y: 100, w: 240, h: 500 });
     if (options.visibleTarget) add("TreeItem", options.navigationName ?? "Target page", "main.NavWidgetSSE", nav, { x: 20, y: 150 });
-    if (current === "Target page") {
+    if (current === readyHeading) {
       targetReads++;
       if (targetReads > (options.incompleteReads ?? 0)) add("Edit", "", "main.requiredField", -1, { val: "17,00", ro: false });
     }
@@ -140,7 +141,8 @@ function fixture(options = {}) {
       add("Button", "Suche schließen", "main.searchClose");
       if (!options.pendingSearch) {
         const table = add("Table", "", "main.DialogSearchResultsTableView");
-        if (!options.noHit) add("DataItem", "Target page", "main.DialogSearchResultsTableView", table, { x: 80, y: 200 });
+        if (!options.noHit) (options.searchRows ?? ["Target page"]).forEach((title, index) =>
+          add("DataItem", title, "main.DialogSearchResultsTableView", table, { x: 80, y: 200 + index * 25 }));
       }
     }
     if (options.rematerializePages) value.forEach(node => { node.rid = `42.42.4.${pageGeneration * 1000 + node.i + 1}`; });
@@ -154,6 +156,8 @@ function fixture(options = {}) {
     request: async operation => {
       if (operation === "window_inventory") return { durationMs: 1, result: inventory() };
       assert.equal(operation, "accessibility_snapshot"); reads++;
+      if (options.snapshotHeadings) current = options.snapshotHeadings[Math.min(reads - 1, options.snapshotHeadings.length - 1)];
+      trace.push({ event: "read", heading: current, actionCount: actions.length });
       if (searchOpen && queuedSearchReads < (options.queuedSearchReads ?? 0)) {
         queuedSearchReads++;
         return { durationMs: 2000, result: { ok: false, code: "GUI_QUEUE_TIMEOUT", error: "Read cancelled before dispatch",
@@ -177,6 +181,7 @@ function fixture(options = {}) {
       const target = nodes().find(node => node.rid === args.rid && node.aid === args.aid);
       assert(target); assert.equal(args.expectedName, target.name);
       actions.push(args);
+      trace.push({ event: "action", name: target.name });
       if (options.rejectAction) return { durationMs: 1, receiptAcknowledged: false,
         result: { ok: false, mutationAttempted: false, code: "stale", error: "Stale target" } };
       if (args.action === "replace-edit-text") { assert.equal(args.expectedValue, term); term = args.value; }
@@ -189,7 +194,7 @@ function fixture(options = {}) {
       return { durationMs: 1, receiptAcknowledged: true, mutationAckMs: 1, result: { ok: true, mutationAttempted: true } };
     },
   };
-  return { actions, get reads() { return reads; }, run: args => executeQtNativeOperation("goto",
+  return { actions, trace, get reads() { return reads; }, run: args => executeQtNativeOperation("goto",
     { pageId: "synthetic.target", hwnd: 42, ...args }, { qtNativeClient: client }, options.timeoutMs ?? 8000, undefined, options.profile ?? knownProfile) };
 }
 assert(isQtNativeOperation("goto"));
@@ -197,6 +202,34 @@ const already = fixture({ start: "Target page" });
 assert.equal((await already.run()).erreicht, true); assert.equal(already.actions.length, 0);
 const delayed = fixture({ start: "Target page", incompleteReads: 2 });
 assert.equal((await delayed.run()).erreicht, true); assert.equal(delayed.actions.length, 0);
+// Seeing the exact target starts a bounded readiness proof, never another
+// navigation strategy when the target disappears before that proof completes.
+const targetDriftCases = [
+  { name: "initial target drift", headings: ["Target page", "Other page"], visibleTarget: true, actions: [], phase: "precondition" },
+  { name: "pre-loop target drift", headings: ["Start page", "Target page", "Other page"], actions: [], phase: "paging" },
+  { name: "post-step target drift", headings: ["Start page", "Start page", "Target page", "Other page"], actions: ["Weiter"], phase: "paging" },
+  { name: "unchanged incomplete target", headings: ["Target page"], visibleTarget: true, actions: [], phase: "precondition" },
+];
+const targetDriftResults = [];
+for (const test of targetDriftCases) {
+  const subject = fixture({ snapshotHeadings: test.headings, visibleTarget: test.visibleTarget, incompleteReads: Infinity });
+  const result = await subject.run({ useSearch: false, maxSteps: 2 });
+  targetDriftResults.push({ name: test.name, ok: result.ok, kind: result.kind, phase: result.phase,
+    mutationAttempted: result.mutationAttempted, outcomeUnknown: result.outcomeUnknown,
+    actions: subject.actions.map(action => action.expectedName), trace: subject.trace, error: result.error });
+}
+assert.deepEqual(targetDriftResults.map(({ name, ok, kind, phase, mutationAttempted, outcomeUnknown, actions }) =>
+  ({ name, ok, kind, phase, mutationAttempted, outcomeUnknown, actions })), targetDriftCases.map(test =>
+  ({ name: test.name, ok: false, kind: "navigation-blocked", phase: test.phase,
+    mutationAttempted: test.actions.length > 0, outcomeUnknown: test.actions.length > 0, actions: test.actions })),
+JSON.stringify(targetDriftResults));
+for (const result of targetDriftResults) {
+  const firstTarget = result.trace.findIndex(entry => entry.event === "read" && entry.heading === "Target page");
+  assert(firstTarget >= 0, result.name);
+  assert.equal(result.trace.slice(firstTarget + 1).filter(entry => entry.event === "action").length, 0,
+    `${result.name}: no further dispatch after the exact target is seen`);
+  assert.match(result.error, /no further navigation dispatched/i, result.name);
+}
 const tree = fixture({ visibleTarget: true });
 assert.equal((await tree.run()).richtung, "Navigationsbaum"); assert.equal(tree.actions.length, 1);
 assert.equal(tree.actions[0].action, "activate-navigation-item");
@@ -238,6 +271,45 @@ const ordinalTree = fixture({ visibleTarget: true, navigationName: "1. Reise", p
 await ordinalTree.run({ maxSteps: 1 });
 assert.equal(ordinalTree.actions.filter(action => action.action === "activate-navigation-item").length, 0,
   "A bare ordinal prefix must not select a tree item of another page kind");
+const assetPageId = "gew.anlagevermoegen_wirtschaftsgut";
+const catalogAsset = profile.pageObjectsCatalog.pages[assetPageId];
+assert.equal(catalogAsset.headingPrefix, "1. ");
+assert(Object.keys(catalogAsset.fields).length > 0, "The real asset page requires a semantic field binding");
+const ordinalSearchResults = [];
+for (const wrongTitle of ["1. Reise", "1. Fahrzeug"]) {
+  const subject = fixture({ profile, searchRows: [wrongTitle], activationHeading: wrongTitle, deadEnd: true });
+  const result = await subject.run({ pageId: assetPageId, maxSteps: 1 });
+  ordinalSearchResults.push({ title: wrongTitle, ok: result.ok, kind: result.kind,
+    actions: subject.actions.map(action => ({ action: action.action, name: action.expectedName })), trace: subject.trace });
+}
+assert.deepEqual(ordinalSearchResults.map(result => result.actions.filter(action => action.action === "activate-table-cell")),
+  [[], []], `A bare ordinal must not activate another page kind: ${JSON.stringify(ordinalSearchResults)}`);
+for (const result of ordinalSearchResults) {
+  assert.equal(result.ok, false, result.title);
+  assert.equal(result.kind, "dead-end", result.title);
+  assert.deepEqual(result.actions, [{ action: "replace-edit-text", name: "" }, { action: "press", name: "" },
+    { action: "press", name: "Suche schließen" }], `${result.title}: the search must run and close without selecting a foreign title`);
+}
+const exactOrdinalSearch = fixture({ profile, searchRows: ["1. "], activationHeading: "1. ", deadEnd: true });
+const exactOrdinalResult = await exactOrdinalSearch.run({ pageId: assetPageId, maxSteps: 1 });
+assert.equal(exactOrdinalResult.ok, false);
+assert.equal(exactOrdinalResult.kind, "navigation-blocked", "An exact search row alone cannot replace the asset field readiness proof");
+assert.deepEqual(exactOrdinalSearch.actions.map(action => ({ action: action.action, name: action.expectedName })),
+  [{ action: "replace-edit-text", name: "" }, { action: "press", name: "" },
+    { action: "activate-table-cell", name: "1. " }, { action: "press", name: "Suche schließen" }],
+  "The exact literal row remains selectable once; unproved page readiness cannot replay it or start paging");
+const exactSearch = fixture({ searchRows: ["Other page", "Target page"] });
+assert.equal((await exactSearch.run()).erreicht, true);
+assert.deepEqual(exactSearch.actions.filter(action => action.action === "activate-table-cell").map(action => action.expectedName), ["Target page"],
+  "The unique exact title remains bound to its own search row");
+const namedDynamicSearchProfile = { ...dynamicProfile, pageObjectsCatalog: { ...dynamicProfile.pageObjectsCatalog,
+  pages: { ...dynamicProfile.pageObjectsCatalog.pages,
+    "synthetic.target": { ...dynamicPage, navigationTreeItemName: "Target group" } } } };
+const dynamicSearch = fixture({ profile: namedDynamicSearchProfile, searchRows: ["Target page: Example"],
+  activationHeading: "Target page: Example", readyHeading: "Target page: Example" });
+assert.equal((await dynamicSearch.run()).erreicht, true);
+assert.deepEqual(dynamicSearch.actions.filter(action => action.action === "activate-table-cell").map(action => action.expectedName), ["Target page: Example"],
+  "A nonordinal dynamic search family remains valid even with a different explicit tree label");
 const unchangedTree = fixture({ visibleTarget: true, noActivation: true });
 const treeFailure = await unchangedTree.run();
 assert.equal(treeFailure.ok, false); assert.equal(treeFailure.outcomeUnknown, true);

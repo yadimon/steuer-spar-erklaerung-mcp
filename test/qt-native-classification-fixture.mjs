@@ -1,3 +1,4 @@
+import { receiptGridFixture, reindexReceiptNodes } from "./qt-native-receipt-grid-fixture.mjs";
 import assert from "node:assert/strict";
 import { executeQtNativeOperation } from "../dist/qt-native-executor.js";
 import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
@@ -70,7 +71,7 @@ export function fixture(options = {}) {
   kind = options.kind ?? "categories"; dlg = policy.classificationDialogs[kind]; chooser = policy.controls.classification[kind]; staged = [...persisted[kind]];
   const activeProfile = { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog, windows: {
     ...profile.pageObjectsCatalog.windows, receiptManager: { ...policy, classificationDialogs: expectedDialogs } } } };
-  const before = receiptList(nodes(), policy); assert(!("error" in before));
+  const before = receiptList(nodes(), policy, receiptGridFixture(nodes())); assert(!("error" in before));
   const args = { rowRid: before.rows[0].rowRid, rowFingerprint: before.rows[0].rowFingerprint,
     expectedListFingerprint: before.listFingerprint, expectedDetailFingerprint: detailBindingFingerprint(values), kind, waitMs: 300 };
   const descriptor = (hwnd, title) => ({ hwnd, title, pid: 99, class: "Qt692QWindow", order: hwnd,
@@ -93,13 +94,15 @@ export function fixture(options = {}) {
     }
     assert.equal(operation, "accessibility_snapshot");
     const tool = request.toolTitle === policy.title, dialog = request.toolTitle === dlg.title;
-    const tree = tool ? nodes() : dialog ? modalNodes() : [{ i: 0, p: -1, d: 0, type: "Button", name: "Speichern",
+    assert.deepEqual(request.tableProof, tool ? { aidSuffix: policy.list.tableAutomationIdSuffix } : undefined,
+      "Only receipt reads request their exact complete-model proof");
+    const tree = tool ? reindexReceiptNodes(nodes().filter(node => !(options.detailHidesColumns && open && node.type === "DataItem" && node.x >= 240))) : dialog ? modalNodes() : [{ i: 0, p: -1, d: 0, type: "Button", name: "Speichern",
       aid: "main.MainToolBar.tb_sichern", rid: "42.42.4.1", x: 0, y: 0, w: 50, h: 20, on: Boolean(options.dirtyDrift && closed),
       val: null, ro: null, checked: null, selected: null, scroll: null }];
     return { durationMs: 1, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
       hwnd: tool ? options.managerDrift && cancelled ? 85 : 84 : dialog ? 120 : 42,
       root: { aid: dialog ? dlg.rootAutomationId : "receipt", name: "" }, windowEnabled: true, modalBlocked: tool && modal,
-      nodes: tree, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, exactMatches: {}, stats: { n: tree.length, err: 0, cyc: 0,
+      ...(request.tableProof ? { tableProof: receiptGridFixture(nodes()) } : {}), nodes: tree, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, exactMatches: {}, stats: { n: tree.length, err: 0, cyc: 0,
         cycleRid: "", cycleName: "", truncated: false, depthLimited: false, valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 } } };
   }, requestAcknowledged: async (operation, request) => {
     assert.equal(operation, "accessibility_action");

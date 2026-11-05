@@ -43,6 +43,7 @@ import { fileURLToPath } from "node:url";
 import { fixtureCaseRef } from "./fixture-case-ref.mjs";
 import { profiledTablePage } from "./profiled-table-page.mjs";
 import { formatCents, parseCents } from "./currency-cents.mjs";
+import { readUstvaViewport, assertUstvaFieldVisible } from "./ustva-viewport.mjs";
 
 const fixture = process.env.SSE_JOURNEY_FIXTURE;
 assert(fixture, "SSE_JOURNEY_FIXTURE mit einer positionierten Wegwerfkopie ist Pflicht.");
@@ -366,6 +367,18 @@ try {
 
   // Sondervorauszahlung 100,00: die Zahllast muss exakt um 10.000 Cent sinken -
   // das ist die fachliche Kontrollsumme dieses Schreibwegs.
+  // Qt can report IsOffscreen=false for a field below its clipped viewport.
+  // Prepare the existing visible-write precondition and prove actual containment.
+  const scrollBeforeSpecial = await call("sse_scroll_page", { mode: "info", hwnd: second.hwnd });
+  const viewportBeforeSpecial = readUstvaViewport(await call("sse_snapshot", {
+    hwnd: second.hwnd, namedOnly: false, maxNodes: 5000,
+  }));
+  assert.equal(scrollBeforeSpecial.scrollbar, viewportBeforeSpecial.overflow);
+  const originalScrollPercent = scrollBeforeSpecial.position ?? 0;
+  assert(Number.isFinite(originalScrollPercent) && originalScrollPercent >= 0 && originalScrollPercent <= 100);
+  const specialViewport = await call("sse_scroll_page", { mode: "percent", vPercent: 100, hwnd: second.hwnd });
+  assert.equal(specialViewport.nachher ?? 0, viewportBeforeSpecial.overflow ? 100 : 0);
+  assertUstvaFieldVisible(await call("sse_snapshot", { hwnd: second.hwnd, namedOnly: false, maxNodes: 5000 }));
   const specialSet = await call("sse_ustva_change_value", {
     field: "special_advance_payment",
     expectedBefore: specialBefore.display,
@@ -381,6 +394,7 @@ try {
     "Die Sondervorauszahlung kam nicht als 100,00 an.");
   assert.equal(ustvaWithSpecial.amounts.settlement.cents, settlementStartCents - 10000,
     `Die Zahllast sank nicht exakt um die Sondervorauszahlung: ${JSON.stringify(ustvaWithSpecial.amounts.settlement)}`);
+  assertUstvaFieldVisible(await call("sse_snapshot", { hwnd: second.hwnd, namedOnly: false, maxNodes: 5000 }));
   const specialRevert = await call("sse_ustva_change_value", {
     field: "special_advance_payment",
     expectedBefore: "100,00",
@@ -396,6 +410,11 @@ try {
     "Die Sondervorauszahlung steht nicht wieder auf 0.");
   assert.equal(ustvaReverted.amounts.settlement.cents, settlementStartCents,
     "Die Zahllast steht nach der Ruecknahme nicht wieder auf dem Ausgangswert.");
+  const restoredViewport = await call("sse_scroll_page", {
+    mode: "percent", vPercent: originalScrollPercent, hwnd: second.hwnd,
+  });
+  assert(Math.abs((restoredViewport.nachher ?? 0) - originalScrollPercent) <= 1,
+    "UStVA viewport did not return to its original scroll position.");
 
   const sectionOpened = await call("sse_ustva_open_section", {
     section: "input_tax", hwnd: second.hwnd,

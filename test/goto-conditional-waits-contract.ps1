@@ -81,13 +81,18 @@ $navigationLoops = @($ast.FindAll({
 }, $true))
 if ($navigationLoops.Count -ne 1) { throw 'Blaetterschleife nicht eindeutig vorhanden.' }
 $navigationLoop = [scriptblock]::Create($navigationLoops[0].Extent.Text)
+$targetProofDefinitions = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-SSEGotoTargetProof'
+}, $true))
+if ($targetProofDefinitions.Count -ne 1) { throw 'Zielbeweis ist nicht eindeutig vorhanden.' }
 
 function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks) {
+  . ([scriptblock]::Create($targetProofDefinitions[0].Extent.Text))
   $script:gotoHeadings = New-Object 'System.Collections.Generic.Queue[string]'
   foreach ($heading in $Headings) { $script:gotoHeadings.Enqueue($heading) }
   $script:gotoClicks = 0
   $script:gotoResult = $null
-  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]7
+  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]7; $knownTarget = $null
   $FOLGE = @()
   $route = Get-SSEGotoRoute -Order $FOLGE -Start 'Startseite' -Target $ziel -MaxSteps 3
   $richtung = $route.direction; $position = $route.startIndex
@@ -519,3 +524,400 @@ if (-not $scopeError -or [SSEUiaTree]::WholeWindowCalls -ne 0 -or $script:scopeL
   throw 'Scoped native failure was replaced by a global fallback.'
 }
 Write-Output 'goto: exact content scope proves owned identity before/after; adjacent cycles stay outside, scoped failures stay closed.'
+
+# Ueberschrift, Felder und Tabelle werden nicht zwingend gleichzeitig fertig.
+# Fuehre die echten Zielhelfer sowie den initialen Erfolgsblock und die echte
+# Blaetterschleife aus. Nur Provider, InvokePattern und Uhr sind inert; weder
+# UIAutomation noch Win32 erhalten einen Fenster- oder Eingabeaufruf.
+$targetFunctions = @{}
+foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite','Get-SSEGotoTargetProof',
+    'WarteAufZielseite','WarteAufSeitenwechsel','DrueckeKnopf')) {
+  $definitions = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+  }.GetNewClosure(), $true))
+  if ($definitions.Count -ne 1) { throw "Zielhelfer ist nicht eindeutig: $name" }
+  $targetFunctions[$name] = $definitions[0].Extent.Text
+}
+function Get-InitialTargetBranch($Tree) {
+  $initialRead = @($Tree.FindAll({ param($node)
+    $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Extent.Text -ceq '$start = AktuelleUeberschrift $hwnd'
+  }, $true))
+  $initialProof = @($Tree.FindAll({ param($node)
+    $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Extent.Text -ceq '$zielBeweis = Get-SSEGotoTargetProof $hwnd $start'
+  }, $true))
+  $initialSuccess = @($Tree.FindAll({ param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Clauses[0].Item1.Extent.Text -ceq '$zielBeweis.bereit -eq $true' -and
+    $node.Extent.Text.Contains("weg=@('schon dort')")
+  }, $true))
+  if ($initialRead.Count -ne 1 -or $initialProof.Count -ne 1 -or $initialSuccess.Count -ne 1) {
+    throw 'Initiale Zielpruefung ist nicht eindeutig vorhanden.'
+  }
+  $parent = $initialRead[0].Parent
+  if ($parent -isnot [Management.Automation.Language.StatementBlockAst] -or
+      -not [object]::ReferenceEquals($parent,$initialProof[0].Parent) -or
+      -not [object]::ReferenceEquals($parent,$initialSuccess[0].Parent)) {
+    throw 'Initialer Read, Beweis und Erfolg muessen im selben Block stehen.'
+  }
+  $statements = @($parent.Statements)
+  $readIndex = [array]::IndexOf($statements,$initialRead[0])
+  $proofIndex = [array]::IndexOf($statements,$initialProof[0])
+  $successIndex = [array]::IndexOf($statements,$initialSuccess[0])
+  $search = @($statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Clauses[0].Item1.Extent.Text -ceq "(Arg `$a 'viaSuche') -ne `$false"
+  })
+  if ($readIndex -lt 0 -or $proofIndex -ne $readIndex+1 -or $successIndex -ne $proofIndex+1 -or
+      $search.Count -ne 1 -or [array]::IndexOf($statements,$search[0]) -le $successIndex) {
+    throw 'Initialer Read, Beweis und Erfolg muessen direkt aufeinander und vor der Suche stehen.'
+  }
+  [scriptblock]::Create((@($initialRead[0].Extent.Text,
+    $initialProof[0].Extent.Text, $initialSuccess[0].Extent.Text) -join "`n"))
+}
+$initialTargetBranch = Get-InitialTargetBranch $ast
+
+# Counterexamples mutate actual source, not a separately reconstructed block.
+# Additional work, reordered reads or a nested proof must not disappear when
+# the test extracts the initial branch.
+$readSite = '$start = AktuelleUeberschrift $hwnd'
+$proofSite = '$zielBeweis = Get-SSEGotoTargetProof $hwnd $start'
+foreach ($mutatedSource in @(
+  $workerSource.Replace($proofSite,('$null = Walk-Tree $hwnd 1' + "`n" + $proofSite)),
+  $workerSource.Replace($readSite,'__INITIAL_READ__').Replace($proofSite,$readSite).Replace('__INITIAL_READ__',$proofSite),
+  $workerSource.Replace($proofSite,('if ($true) { ' + $proofSite + ' }'))
+)) {
+  $mutationErrors=$null
+  $mutatedAst=[Management.Automation.Language.Parser]::ParseInput($mutatedSource,[ref]$null,[ref]$mutationErrors)
+  if ($mutationErrors.Count) { throw 'Der initiale Gegenfall muss gueltigen PowerShell-Code behalten.' }
+  $rejected=$false
+  try { $null=Get-InitialTargetBranch $mutatedAst } catch { $rejected=$true }
+  if (-not $rejected) { throw 'Die Extraktion versteckte eingeschobene, vertauschte oder verschobene initiale Arbeit.' }
+}
+
+function Test-TargetProofBoundary([bool]$Known, [string]$Boundary, [int]$MissingReads=0,
+    [string]$Behavior='ready', [int]$MaximumReads=0, [string]$Binding='field',
+    [string]$TargetHeading='Zielseite', $HeadingDefinition=$null) {
+  $script:targetFixture = [pscustomobject]@{
+    heading=$(if ($Boundary -ceq 'paging') {'Startseite'} elseif ($Boundary -ceq 'foreign') {'Andere Seite'} else {$TargetHeading})
+    reads=0; fields=0; tables=0; invokes=0; waits=0; sleeps=0; requestedBudget=0
+    clock=[pscustomobject]@{ElapsedMilliseconds=[long]0}; emitted=$null; failure=$null; proof=$null
+    caught=$null; readError=[InvalidOperationException]::new('synthetic-provider-read-failure')
+    fieldIds=(New-Object Collections.ArrayList)
+  }
+  foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite','Get-SSEGotoTargetProof',
+      'WarteAufSeitenwechsel','DrueckeKnopf')) {
+    . ([scriptblock]::Create($targetFunctions[$name]))
+  }
+  # Replace only the clock acquisition, preserving the real wait's branches,
+  # polling interval, two consecutive confirmations and exact 1800 ms budget.
+  # This deterministic clock seam is not a wall-clock performance assertion.
+  $clockSite = '$sw = [Diagnostics.Stopwatch]::StartNew()'
+  $waitSource = $targetFunctions['WarteAufZielseite']
+  if ([regex]::Matches($waitSource,[regex]::Escape($clockSite)).Count -ne 1) { throw 'Die Zielpruefung muss genau eine Uhr besitzen.' }
+  $waitSource = $waitSource.Replace($clockSite,'$sw = $script:targetFixture.clock').Replace(
+    'function WarteAufZielseite','function Invoke-ProductiveTargetProofWait')
+  . ([scriptblock]::Create($waitSource))
+  function WarteAufZielseite([IntPtr]$h, [int]$timeoutMs) {
+    $script:targetFixture.waits++; $script:targetFixture.requestedBudget=$timeoutMs
+    $script:targetFixture.clock.ElapsedMilliseconds=0
+    Invoke-ProductiveTargetProofWait $h $timeoutMs
+  }
+  function Assert-InertTarget([IntPtr]$Window) {
+    if ($Window -ne [IntPtr]7) { throw 'Read ausserhalb des inerten Zielfensters.' }
+  }
+  function AktuelleUeberschrift([IntPtr]$Window) {
+    Assert-InertTarget $Window
+    $script:targetFixture.heading
+  }
+  function Get-InertTargetReadiness {
+    $script:targetFixture.reads++
+    if ($MaximumReads -gt 0 -and $script:targetFixture.reads -gt $MaximumReads) {
+      throw 'Zusaetzlicher unbudgetierter Read nach dem Zielbeweis.'
+    }
+    if ($Behavior -ceq 'read-error' -and $script:targetFixture.reads -eq 2) {
+      throw $script:targetFixture.readError
+    }
+    if ($Behavior -ceq 'drift' -and $script:targetFixture.reads -eq 2) {
+      $script:targetFixture.heading='Andere Seite'
+    }
+    $Behavior -notin @('missing','drift') -and $script:targetFixture.reads -gt $MissingReads
+  }
+  function Resolve-KnownFieldNode([IntPtr]$Window, $KnownField) {
+    Assert-InertTarget $Window
+    $fieldId=[string]$KnownField.field.automationIdRelative
+    if ($fieldId -cne 'synthetic.required' -and
+        -not ($Binding -in @('second-field','table') -and $fieldId -ceq 'synthetic.first')) { throw 'Fremde Feldbindung.' }
+    $script:targetFixture.fields++
+    $null=$script:targetFixture.fieldIds.Add($fieldId)
+    if ($Binding -ceq 'table' -or $fieldId -ceq 'synthetic.first' -or (Get-InertTargetReadiness)) {
+      [pscustomobject]@{rid=$fieldId;type='Edit'}
+    }
+  }
+  function Test-SSEGotoTableReadiness([IntPtr]$Window, [string]$Heading) {
+    Assert-InertTarget $Window
+    if ($Heading -cne $TargetHeading) { throw 'Fremde Ueberschrift erhielt eine Tabellenpruefung.' }
+    $script:targetFixture.tables++
+    if ($Known -and $Binding -cne 'table') { return $true }
+    Get-InertTargetReadiness
+  }
+  function Start-Sleep([int]$Milliseconds) {
+    $script:targetFixture.sleeps++
+    $script:targetFixture.clock.ElapsedMilliseconds += $Milliseconds
+  }
+  function AktiverBlaetterknopf([IntPtr]$Window, [string]$Name) {
+    Assert-InertTarget $Window
+    if ($Name -cne 'Weiter') { throw 'Nicht erwarteter Blaetterknopf.' }
+    $pattern=[pscustomobject]@{}
+    $pattern | Add-Member ScriptMethod Invoke {
+      $script:targetFixture.invokes++
+      if ($script:targetFixture.invokes -gt 1) { throw 'Die erreichte Zielseite wurde erneut verlassen.' }
+      $script:targetFixture.heading=$(if ($Behavior -ceq 'wrong-heading') {'Nachbarseite'} else {$TargetHeading})
+    }
+    $button=[pscustomobject]@{pattern=$pattern}
+    $button | Add-Member ScriptMethod GetCurrentPattern { param($Identifier)
+      if ($Identifier.ProgrammaticName -cne 'InvokePatternIdentifiers.Pattern') { throw 'Nicht erwartetes InvokePattern.' }
+      $this.pattern
+    }
+    $button
+  }
+  function Get-Windows { throw 'Globale Fensterabfrage im inerten Zielmodell.' }
+  function Emit($Result) { $script:targetFixture.emitted=$Result; throw 'target-proof-emitted' }
+  function Fail($Message,$Kind,$Details) {
+    $script:targetFixture.failure=[pscustomobject]@{kind=$Kind;message=$Message;details=$Details}
+    throw 'target-proof-refused'
+  }
+  $fields=[ordered]@{}
+  if ($Binding -in @('second-field','table')) { $fields['first']=[pscustomobject]@{automationIdRelative='synthetic.first'} }
+  $fields['required']=[pscustomobject]@{automationIdRelative='synthetic.required'}
+  $page=[ordered]@{heading=$TargetHeading;fields=[pscustomobject]$fields}
+  if ($HeadingDefinition) {
+    # Project only real heading rules; required bindings remain synthetic.
+    foreach ($name in @('heading','headingPrefix','headingNumberedLabel')) {
+      $property=$HeadingDefinition.PSObject.Properties[$name]
+      if ($property) { $page[$name]=$property.Value }
+    }
+  }
+  $knownTarget=$(if ($Known) {
+    [pscustomobject]@{pageId='synthetic.target';page=[pscustomobject]$page}
+  } else {$null})
+  $ziel=$(if ($HeadingDefinition -and $page['headingNumberedLabel']) {$page['headingNumberedLabel']}
+    elseif ($HeadingDefinition -and $page['headingPrefix']) {$page['headingPrefix']} else {$TargetHeading})
+  $pageId=$(if ($Known) {'synthetic.target'} else {''}); $hwnd=[IntPtr]7; $gotoPid=3131
+  $FOLGE=@('Startseite',$ziel,'Nachbarseite')
+  $route=Get-SSEGotoRoute -Order $FOLGE -Start 'Startseite' -Target $ziel -MaxSteps 3
+  $richtung=$route.direction; $position=$route.startIndex; $verbraucht=0; $stillstand=0
+  $gesehenWege=@{}; $eintragsKontext=''
+  $weg=New-Object Collections.ArrayList; $besucht=New-Object Collections.ArrayList
+  try {
+    if ($Boundary -ceq 'initial') { & $initialTargetBranch }
+    elseif ($Boundary -ceq 'foreign') { $script:targetFixture.proof=Get-SSEGotoTargetProof $hwnd $script:targetFixture.heading }
+    else { & $navigationLoop }
+  } catch {
+    if ($_.Exception.Message -notin @('target-proof-emitted','target-proof-refused')) {
+      if (-not [object]::ReferenceEquals($_.Exception,$script:targetFixture.readError)) { throw }
+      $script:targetFixture.caught=$_.Exception
+    }
+  }
+  $script:targetFixture
+}
+
+foreach ($known in @($true,$false)) {
+  foreach ($boundary in @('initial','preloop','paging')) {
+    $expectedInvokes=$(if ($boundary -ceq 'paging') {1} else {0})
+    $ready=Test-TargetProofBoundary $known $boundary 0 'ready' 1
+    if ($ready.emitted.erreicht -ne $true -or $ready.reads -ne 1 -or $ready.waits -ne 0 -or
+        $ready.invokes -ne $expectedInvokes -or ($expectedInvokes -eq 0 -and $ready.sleeps -ne 0)) {
+      throw "Sofort fertiges Ziel bekam eine Wartezeit oder erneute Navigation: $known/$boundary"
+    }
+    $delayed=Test-TargetProofBoundary $known $boundary 2 'ready' 4
+    if ($delayed.emitted.erreicht -ne $true -or $delayed.emitted.ueberschrift -cne 'Zielseite' -or
+        $delayed.invokes -ne $expectedInvokes -or $delayed.reads -ne 4 -or $delayed.waits -ne 1 -or
+        $delayed.requestedBudget -ne 1800) {
+      throw "Verzoegerte Feld-/Tabellenbindung verliess das Ziel oder verlor ihren Beweis: $known/$boundary"
+    }
+    foreach ($behavior in @('missing','drift')) {
+      $blocked=Test-TargetProofBoundary $known $boundary 2 $behavior
+      if ($null -ne $blocked.emitted -or $blocked.failure.kind -cne 'navigation-blocked' -or
+          $blocked.failure.details.weg.Count -lt 2 -or $blocked.invokes -ne $expectedInvokes -or
+          $blocked.waits -ne 1 -or $blocked.requestedBudget -ne 1800 -or $blocked.clock.ElapsedMilliseconds -ne 1800) {
+        throw "Unfertiges oder verlorenes Ziel erlaubte Navigation: $known/$boundary/$behavior"
+      }
+      if ($behavior -ceq 'drift') {
+        if ($blocked.failure.details.ueberschrift -cne 'Andere Seite' -or
+            $blocked.failure.message -notmatch 'hat sich.*geaendert' -or
+            $blocked.failure.message -match 'Zielueberschrift ist sichtbar') {
+          throw 'Ein verlorenes Ziel wurde als weiterhin sichtbare Zielueberschrift beschrieben.'
+        }
+      } elseif ($blocked.failure.message -notmatch 'Felder oder Tabellen.*nicht vollstaendig gebunden') {
+        throw 'Eine unvollstaendige Bindung verlor ihre konkrete Diagnose.'
+      }
+    }
+    $readError=Test-TargetProofBoundary $known $boundary 2 'read-error'
+    if (-not [object]::ReferenceEquals($readError.caught,$readError.readError) -or
+        $null -ne $readError.emitted -or $readError.invokes -ne $expectedInvokes -or
+        $readError.waits -ne 1 -or $readError.requestedBudget -ne 1800) {
+      throw "Urspruenglicher Providerfehler wurde ersetzt oder loeste weitere Navigation aus: $known/$boundary"
+    }
+  }
+  $foreign=Test-TargetProofBoundary $known 'foreign'
+  if ($foreign.proof.bereit -ne $false -or $foreign.reads -ne 0 -or $foreign.tables -ne 0 -or
+      $foreign.fields -ne 0 -or $foreign.waits -ne 0 -or $foreign.sleeps -ne 0) {
+    throw 'Eine fremde Ueberschrift startete eine teure Zielpruefung.'
+  }
+  $wrong=Test-TargetProofBoundary $known 'paging' 0 'wrong-heading'
+  if ($null -ne $wrong.emitted -or $wrong.failure.kind -cne 'not-found' -or
+      $wrong.invokes -ne 1 -or $wrong.waits -ne 0 -or $wrong.reads -ne 0) {
+    throw 'Die Zielbereitschaft umging die bestehende Richtung-/Landungspruefung.'
+  }
+}
+
+# A known page must resolve every field before its table. In particular, the
+# first field being ready cannot stand in for a second field or for the body.
+foreach ($binding in @('second-field','table')) {
+  foreach ($boundary in @('initial','preloop','paging')) {
+    $expectedInvokes=$(if ($boundary -ceq 'paging') {1} else {0})
+    foreach ($behavior in @('ready','missing')) {
+      $bound=Test-TargetProofBoundary $true $boundary 2 $behavior 0 $binding
+      if ($bound.invokes -ne $expectedInvokes -or $bound.waits -ne 1 -or $bound.requestedBudget -ne 1800 -or
+          $bound.fields -ne 2*$bound.reads -or $bound.fieldIds.Count -ne $bound.fields) {
+        throw "Eine bekannte Zielpruefung uebersprang ein Feld oder ihre Wartezeit: $boundary/$binding/$behavior"
+      }
+      for ($index=0; $index -lt $bound.fieldIds.Count; $index++) {
+        $expectedField=$(if ($index % 2 -eq 0) {'synthetic.first'} else {'synthetic.required'})
+        if ($bound.fieldIds[$index] -cne $expectedField) { throw 'Nicht alle bekannten Felder wurden in jeder Zielpruefung gelesen.' }
+      }
+      $expectedTables=$(if ($binding -ceq 'table') {$bound.reads} elseif ($behavior -ceq 'ready') {2} else {0})
+      if ($bound.tables -ne $expectedTables) { throw 'Die bekannte Zielpruefung uebersprang die Tabelle oder las sie vor den Feldern.' }
+      if ($behavior -ceq 'ready') {
+        if ($bound.emitted.erreicht -ne $true -or $bound.reads -ne 4) { throw 'Ein spaeteres Feld oder eine spaetere Tabelle wurde nicht stabil bestaetigt.' }
+      } elseif ($null -ne $bound.emitted -or $bound.failure.kind -cne 'navigation-blocked' -or
+          $bound.clock.ElapsedMilliseconds -ne 1800) {
+        throw 'Ein dauerhaft fehlendes Folgefeld oder eine fehlende Tabelle erlaubte weitere Navigation.'
+      }
+    }
+  }
+}
+
+# Use the actual catalog for its repeated heading, not an invented binding.
+# The current repeated page has no required fields or focusless table policy;
+# the real readiness predicate therefore keeps its existing immediate proof.
+$targetCatalog=Get-Content -LiteralPath (Join-Path $root 'profiles\2025\page-objects.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+
+# The asset catalog also describes fields absent on older acquisitions.
+# Execute the actual target predicate with exact synthetic provider results:
+# only the explicitly configured binding fields identify this variant.
+function Test-AssetGotoBinding($Page, [string[]]$PresentIds, [bool]$Expected, [bool]$TableReady=$true, [string[]]$ExpectedReads=$null) {
+  foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite')) {
+    . ([scriptblock]::Create($targetFunctions[$name]))
+  }
+  $reads=New-Object Collections.ArrayList; $tableProof=[pscustomobject]@{calls=0}
+  $knownTarget=[pscustomobject]@{page=$Page}; $ziel=[string]$Page.heading
+  function Resolve-KnownFieldNode([IntPtr]$Window,$KnownField) {
+    if ($Window -ne [IntPtr]7) { throw 'Asset binding lost its exact window.' }
+    $ids=@($Page.fields.PSObject.Properties | Where-Object {
+      [string]$_.Value.automationIdRelative -ceq [string]$KnownField.field.automationIdRelative
+    })
+    if ($ids.Count -ne 1) { throw 'Asset binding lost its exact catalog selector.' }
+    $null=$reads.Add($ids[0].Name)
+    if ($PresentIds -ccontains $ids[0].Name) { [pscustomobject]@{rid=$ids[0].Name;type='Edit'} }
+  }
+  function Test-SSEGotoTableReadiness([IntPtr]$Window,[string]$Heading) {
+    if ($Window -ne [IntPtr]7 -or $Heading -cne $ziel) { throw 'Asset table proof lost its binding.' }
+    $tableProof.calls++
+    $TableReady
+  }
+  $result=IstZielseite ([IntPtr]7) $ziel
+  if ($result -ne $Expected -or $tableProof.calls -ne [int]($Expected -or -not $TableReady)) { throw 'Asset variant bypassed field or table readiness.' }
+  if ($null -ne $ExpectedReads -and ($reads -join ',') -cne ($ExpectedReads -join ',')) { throw 'Asset binding resolved optional fields or skipped required fields.' }
+}
+$assetBindingPage=$targetCatalog.pages.'gew.anlagevermoegen_wirtschaftsgut'
+$assetBindingIds=@('bezeichnung','belegnummer','kaufdatum','abschreibung_aktuelles_jahr')
+if (($assetBindingPage.bindingFieldIds -join ',') -cne ($assetBindingIds -join ',')) { throw 'The actual asset binding metadata changed.' }
+Test-AssetGotoBinding $assetBindingPage $assetBindingIds $true $true $assetBindingIds
+Test-AssetGotoBinding $assetBindingPage $assetBindingIds $false $false $assetBindingIds
+foreach ($missingId in $assetBindingIds) {
+  Test-AssetGotoBinding $assetBindingPage @($assetBindingIds | Where-Object {$_ -cne $missingId}) $false
+}
+Test-AssetGotoBinding $assetBindingPage @('foreign1','foreign2','foreign3','foreign4') $false
+$defaultAssetBinding=$assetBindingPage | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$defaultAssetBinding.PSObject.Properties.Remove('bindingFieldIds')
+$allAssetIds=@($defaultAssetBinding.fields.PSObject.Properties | ForEach-Object {$_.Name})
+Test-AssetGotoBinding $defaultAssetBinding $allAssetIds $true $true $allAssetIds
+Test-AssetGotoBinding $defaultAssetBinding $assetBindingIds $false
+
+if (-not $targetCatalog.PSObject.Properties['focuslessCommits'] -or -not $targetCatalog.focuslessCommits -or
+    @($targetCatalog.focuslessCommits.PSObject.Properties | Where-Object {$_.Value.controlType -ceq 'DataItem'}).Count -lt 1) {
+  throw 'Der reale Katalog muss Tabellenrichtlinien enthalten, damit die Ausnahme fuer wiederkehrende Seiten aussagekraeftig bleibt.'
+}
+$repeatedPage=$targetCatalog.pages.'gew.innergem_erwerb_13b_einfuhr'
+if (-not $repeatedPage -or [string]$repeatedPage.heading -notin @(Get-SSERepeatedPagingTitles)) {
+  throw 'Die reale wiederkehrende Katalogseite fehlt im Blaetterpfad.'
+}
+function Test-RepeatedCatalogFastProof {
+  foreach ($name in @('Test-KnownPageHeading','Test-KnownPageFields','IstZielseite','Get-SSEGotoTargetProof')) {
+    . ([scriptblock]::Create($targetFunctions[$name]))
+  }
+  . ([scriptblock]::Create($bodyReadiness[0].Extent.Text))
+  function Get-SSEPageObjects { $targetCatalog }
+  function Resolve-KnownFieldNode { throw 'Die reale wiederkehrende Katalogseite bekam eine erfundene Feldbindung.' }
+  function Get-SSEMainContentTree { throw 'Die reale wiederkehrende Katalogseite bekam eine erfundene Tabellenbindung.' }
+  function WarteAufZielseite { throw 'Eine sofort fertige wiederkehrende Katalogseite bekam eine neue Wartezeit.' }
+  function Fail { throw 'Die reale wiederkehrende Katalogseite wurde unberechtigt abgewiesen.' }
+  $knownTarget=[pscustomobject]@{pageId='gew.innergem_erwerb_13b_einfuhr';page=$repeatedPage}
+  $ziel=[string]$repeatedPage.heading
+  $proof=Get-SSEGotoTargetProof ([IntPtr]7) $ziel
+  if ($proof.bereit -ne $true -or $proof.ueberschrift -cne $ziel -or $proof.runden.Count -ne 0) {
+    throw 'Die reale wiederkehrende Katalogseite verlor ihren sofortigen Zielbeweis.'
+  }
+}
+Test-RepeatedCatalogFastProof
+
+# Prefixes and numbered labels deliberately describe heading families. Use
+# those actual catalog definitions with synthetic field lag: a family match
+# must wait for binding and cannot become proof merely because fields lag.
+$prefixPage=$targetCatalog.pages.'est.sonstige_werbungskosten_fahrten'
+$numberedPage=$targetCatalog.pages.'gew.fahrzeug'
+if (-not $prefixPage.headingPrefix -or -not $numberedPage.headingNumberedLabel) {
+  throw 'Die realen Katalogregeln fuer Praefix und nummerierte Ueberschrift fehlen.'
+}
+foreach ($family in @(
+  [pscustomobject]@{page=$prefixPage;heading=([string]$prefixPage.headingPrefix + ': Synthetischer Eintrag')},
+  [pscustomobject]@{page=$numberedPage;heading=('2. ' + [string]$numberedPage.headingNumberedLabel + ': Synthetischer Eintrag')}
+)) {
+  if ($family.heading -ceq [string]$family.page.heading) { throw 'Die Familienpruefung muss einen nicht-exakten Seitentitel verwenden.' }
+  foreach ($boundary in @('initial','preloop','paging')) {
+    $expectedInvokes=$(if ($boundary -ceq 'paging') {1} else {0})
+    foreach ($behavior in @('ready','missing')) {
+      $familyProof=Test-TargetProofBoundary $true $boundary 2 $behavior 0 'field' $family.heading $family.page
+      if ($familyProof.invokes -ne $expectedInvokes -or $familyProof.waits -ne 1 -or $familyProof.requestedBudget -ne 1800) {
+        throw 'Ein passender Familientitel erlaubte weitere Navigation statt einer begrenzten Bindungspruefung.'
+      }
+      if ($behavior -ceq 'ready') {
+        if ($familyProof.emitted.erreicht -ne $true -or $familyProof.emitted.ueberschrift -cne $family.heading -or
+            $familyProof.reads -ne 4 -or $familyProof.fields -ne 4 -or $familyProof.tables -ne 2) {
+          throw 'Ein Familientitel verlor seinen stabilen Feldbeweis oder die tatsaechliche Zielueberschrift.'
+        }
+      } elseif ($null -ne $familyProof.emitted -or $familyProof.failure.kind -cne 'navigation-blocked' -or
+          $familyProof.failure.details.ueberschrift -cne $family.heading -or
+          $familyProof.failure.message -notmatch 'Felder oder Tabellen.*nicht vollstaendig gebunden' -or
+          $familyProof.clock.ElapsedMilliseconds -ne 1800) {
+        throw 'Ein Familientitel ohne erforderliche Feldbindung wurde angenommen oder als fremder Titel behandelt.'
+      }
+    }
+  }
+}
+
+# If a required binding is ever present for a repeated heading, incomplete
+# identity must refuse safely; repeating navigation cannot disambiguate it.
+foreach ($boundary in @('initial','preloop','paging')) {
+  $repeated=Test-TargetProofBoundary $true $boundary 2 'missing' 0 'field' ([string]$repeatedPage.heading)
+  $expectedInvokes=$(if ($boundary -ceq 'paging') {1} else {0})
+  if ($null -ne $repeated.emitted -or $repeated.failure.kind -cne 'navigation-blocked' -or
+      $repeated.invokes -ne $expectedInvokes -or $repeated.waits -ne 1 -or
+      $repeated.requestedBudget -ne 1800 -or $repeated.clock.ElapsedMilliseconds -ne 1800) {
+    throw 'Eine wiederkehrende Ueberschrift mit fehlender erforderlicher Bindung erlaubte weitere Navigation.'
+  }
+}
+Write-Output 'goto: initial, vor/nach Invoke warten nur erreichte Feld-/Tabellenziele ab; Frist, Fehler und Landungsregeln bleiben erhalten.'

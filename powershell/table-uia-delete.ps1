@@ -269,18 +269,62 @@ function Assert-SSEUiaDeleteSelection {
   if(-not $current -or -not $current.Current.HasKeyboardFocus){throw 'The actual current model row is not the selected deletion row.'}
 }
 
+function Get-SSEUiaDeleteNumberEditorCoordinate {
+  param($State)
+  if($State.editors.Count -ne 1){throw 'Activation did not create exactly one editor.'}
+  $current=$State.editors[0].Current;$bounds=$current.BoundingRectangle
+  if($current.ControlType -ne [Windows.Automation.ControlType]::Edit -or
+      $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or $bounds.IsEmpty -or $bounds.Width -le 0 -or $bounds.Height -le 0){
+    throw 'The activation editor is not a visible text editor.'
+  }
+  foreach($number in @($bounds.X,$bounds.Y,$bounds.Width,$bounds.Height)){
+    if($number -isnot [double] -or [double]::IsNaN($number) -or [double]::IsInfinity($number)){throw 'The number editor geometry is unavailable.'}
+  }
+  $cells=@($State.tree.nodes|Where-Object{$_.type -ceq 'DataItem' -and $_.p -eq $State.root.i -and
+    [Math]::Abs($_.x-$bounds.X) -le 2 -and [Math]::Abs($_.y-$bounds.Y) -le 2 -and
+    [Math]::Abs($_.w-$bounds.Width) -le 2 -and [Math]::Abs($_.h-$bounds.Height) -le 2})
+  if($cells.Count -ne 1){throw 'The activation editor has no unique observed cell.'}
+  $coordinate=Resolve-SSEGridCellCoordinate $State.scan ([string]$cells[0].rid)
+  if(-not $coordinate -or -not $State.scan.headers[$coordinate.column].visible -or
+      [string]$State.scan.headers[$coordinate.column].name -cnotin @('Nr.','Nr')){
+    throw 'The activation editor is not the exact visible Nr. cell.'
+  }
+  $coordinate
+}
+
 function Close-SSEUiaDeleteOwnEditor {
-  param($Binding,$Before,$Clicked,[int]$Row,[int]$Column,[int]$RemovedRow=-1)
+  param($Binding,$Before,$Clicked,[int]$Row,[int]$Column,[int]$RemovedRow=-1,[switch]$ExistingNumberEditor)
+  if($ExistingNumberEditor){
+    # Nr. delegates can survive the preceding read/navigation request. Only
+    # the exact unchanged focused number cell is eligible; this is no general
+    # permission to cancel a pre-existing user editor.
+    $numberCell=Get-SSEUiaDeleteNumberEditorCoordinate $Before
+    if($RemovedRow -ge 0 -or $numberCell.row -ne $Row -or $numberCell.column -ne $Column -or
+        $Clicked.editors.Count -ne 1 -or [SW]::GetForegroundWindow() -ne $Binding.hwnd -or
+        ($Before.editors[0].GetRuntimeId() -join '.') -cne ($Clicked.editors[0].GetRuntimeId() -join '.')){
+      throw 'The existing number editor has no exact unchanged foreground binding.'
+    }
+  }
   $exactRemoval=[bool]($RemovedRow -ge 0 -and (Get-SSEGridDeleteOutcome $Before.model $Clicked.model $RemovedRow) -ceq 'deleted-exact')
   $unchanged=[bool]($Before.model.key -ceq $Clicked.model.key -and $Before.dirty -eq $Clicked.dirty -and (Test-SSEScalarEqual $Before.summary $Clicked.summary))
-  if($Before.editors.Count -ne 0 -or $Clicked.editors.Count -ne 1 -or
+  if($Before.editors.Count -ne $(if($ExistingNumberEditor){1}else{0}) -or $Clicked.editors.Count -ne 1 -or
       ($RemovedRow -ge 0 -and -not $exactRemoval) -or ($RemovedRow -lt 0 -and -not $unchanged) -or
-      -not (Test-SSEUiaDeleteEditorAgreement $Before.inputState $Before.editors) -or
+      -not (Test-SSEUiaDeleteEditorAgreement $Before.inputState $Before.editors -AllowOwnEditor:$ExistingNumberEditor) -or
       -not (Test-SSEUiaDeleteEditorAgreement $Clicked.inputState $Clicked.editors -AllowOwnEditor)){
     throw 'An editor cancellation requires exactly one new editor and the unchanged complete model.'
   }
   $editor=$Clicked.editors[0];$current=$editor.Current;$focus=[Windows.Automation.AutomationElement]::FocusedElement
   $target=Get-SSEUiaDeleteCell $Clicked $Binding.processId $Row $Column;$bounds=$target.Current.BoundingRectangle
+  foreach($rectangle in @($current.BoundingRectangle,$bounds)){
+    if($rectangle.IsEmpty -isnot [bool] -or $rectangle.IsEmpty -or $rectangle.Width -le 0 -or $rectangle.Height -le 0){
+      throw 'The bound editor or cell geometry is unavailable.'
+    }
+    foreach($number in @($rectangle.X,$rectangle.Y,$rectangle.Width,$rectangle.Height)){
+      if($number -isnot [double] -or [double]::IsNaN($number) -or [double]::IsInfinity($number)){
+        throw 'The bound editor or cell geometry is unavailable.'
+      }
+    }
+  }
   $value=$null;$cell=$Clicked.scan.cells[$Row*$Clicked.scan.columns+$Column]
   if(-not $focus -or $current.ControlType -ne [Windows.Automation.ControlType]::Edit -or -not $current.HasKeyboardFocus -or
       [int]$current.ProcessId -ne $Binding.processId -or ($focus.GetRuntimeId() -join '.') -cne ($editor.GetRuntimeId() -join '.') -or
@@ -291,7 +335,7 @@ function Close-SSEUiaDeleteOwnEditor {
       -not $editor.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern,[ref]$value) -or
       $value.Current.IsReadOnly -isnot [bool] -or $value.Current.IsReadOnly -or [string]$value.Current.Value -cne [string]$cell.name -or
       -not $target.Current.HasKeyboardFocus -or $cell.semantic.type -cne 'text'){
-    throw 'The new editor is not the exact unchanged own clicked cell.'
+    throw 'The new editor is not the exact unchanged own bound cell.'
   }
   if(-not $exactRemoval){Assert-SSEUiaDeleteSelection $Clicked $Binding.processId $Row $Column -SelectionOnly}
   if(-not (Test-SSEUiaDeleteEpoch $Binding) -or [string]$value.Current.Value -cne [string]$cell.name -or
@@ -299,6 +343,7 @@ function Close-SSEUiaDeleteOwnEditor {
     throw 'The owned editor lost its final cancellation epoch.'
   }
   if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The input epoch changed during the final editor proof; no Escape was sent.'}
+  $Binding.transaction.touched=$true
   [Windows.Forms.SendKeys]::SendWait('{ESC}')
   $Binding.transaction.epoch=Get-SSELastInputTick
   Set-SSEForegroundLeaseInputCheckpoint $Binding.transaction.epoch -Context 'uia-delete-cancel-own-editor'
@@ -354,7 +399,7 @@ function Invoke-SSEUiaTableDelete {
   }.GetNewClosure()
   try {
     if($null -eq $transaction.epoch -or @($transaction.windows.windows|Where-Object{$_.role -cne 'main'}).Count){throw 'The deletion requires an exact unobstructed input epoch.'}
-    $initial=Read-SSEUiaDeleteState $binding
+    $initial=Read-SSEUiaDeleteState $binding -AllowOwnEditor
     if(-not (Test-SSEScalarEqual $initial.summary $binding.expectedBefore)){throw 'The summary differs from the required precondition.'}
     $binding.summaryAid=$initial.summaryAid;$binding.tableAid=$initial.root.aid
     $matches=@($initial.scan.cells|Where-Object{
@@ -370,6 +415,12 @@ function Invoke-SSEUiaTableDelete {
     if(-not (Test-SSEUiaDeleteBudget $binding.watch.ElapsedMilliseconds $binding.maxReadMs 8 $binding.maxRawMs)){
       throw 'Fuer Vorbereitung und vollstaendigen Readback bleibt zu wenig Zeit; Loeschung nicht begonnen.'
     }
+    if($initial.editors.Count){
+      $transaction.phase='initial-editor'
+      $numberCell=Get-SSEUiaDeleteNumberEditorCoordinate $initial
+      $initial=Close-SSEUiaDeleteOwnEditor $binding $initial $initial $numberCell.row $numberCell.column -ExistingNumberEditor
+      $transaction.phase='initial'
+    }
     $transaction.phase='activation'
     if(-not (& $binding.guard)){throw 'The activation input epoch changed.'}
     $transaction.touched=$true
@@ -380,9 +431,19 @@ function Invoke-SSEUiaTableDelete {
     $activatedWindows=Get-SSEInteractionWindowSet $ProcessId $Hwnd
     if(@($activatedWindows.windows|Where-Object{$_.role -cne 'main'}).Count -or $activatedWindows.windows.Count -ne 1){throw 'A blocking window appeared during activation.'}
     $transaction.windows=$activatedWindows
-    $active=Read-SSEUiaDeleteState $binding
+    $active=Read-SSEUiaDeleteState $binding -AllowOwnEditor
     if($active.model.key -cne $initial.model.key -or $active.dirty -ne $initial.dirty -or
         -not (Test-SSEScalarEqual $active.summary $initial.summary)){throw 'The complete model changed while activating the window.'}
+    if($active.editors.Count){
+      # Qt can create a Nr. delegate when our foreground activation restores
+      # the current cell. Initial state proved no editor, and the unchanged
+      # input epoch, exact table and complete model still belong to this call.
+      if($active.root.rid -cne $initial.root.rid -or $active.root.aid -cne $initial.root.aid){
+        throw 'The table identity changed during activation; no editor was cancelled.'
+      }
+      $activationCell=Get-SSEUiaDeleteNumberEditorCoordinate $active
+      $active=Close-SSEUiaDeleteOwnEditor $binding $initial $active $activationCell.row $activationCell.column
+    }
     $sourceReason=$null;$positionNameProof=$null
     if(-not (Test-SSETableFocusedSource $Hwnd $ProcessId $active.tree $active.root.aid $active.root.rid `
         -AllowPositionNameSource -FailureReason ([ref]$sourceReason) -PositionNameProof ([ref]$positionNameProof))){

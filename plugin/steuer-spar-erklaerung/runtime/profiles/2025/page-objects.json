@@ -115,6 +115,8 @@
         "searchAutomationIdSuffix": ".widget_mainWindowInfoBar.frame_container.lineEdit_suche",
         "primaryTextColumn": 2,
         "documentNumberColumn": 8,
+          "modifiedTimestampColumn": 6,
+          "modifiedTimestampHeader": "Geändert",
         "draftMarker": "*"
       },
       "controls": {
@@ -323,6 +325,7 @@
     },
     "gew.innergem_erwerb_13b_einfuhr": {
       "heading": "Innergem. Erwerb, § 13b UStG und Einfuhr",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "fields": {},
       "tables": {
         "kostenkategorie_13b": {
@@ -399,6 +402,7 @@
       }
     },
     "gew.anlagevermoegen_wirtschaftsgut": {
+      "bindingFieldIds": ["bezeichnung", "belegnummer", "kaufdatum", "abschreibung_aktuelles_jahr"],
       "heading": "1. Wirtschaftsgut",
       "headingPrefix": "1. ",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",

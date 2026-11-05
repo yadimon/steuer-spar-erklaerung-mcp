@@ -377,6 +377,13 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Evidenz bleiben dadurch gleich: Die gelesene Zeichenfolge durchläuft
   unverändert denselben profilergebundenen Pfad- und Bindungsvertrag; Fehler
   erweitern die Annahmemenge nicht.
+- Der PowerShell-Desktopstart erhält seine äußere Frist erst mit dem Auftrag,
+  nicht beim Vorwärmen. Kalte Workerinitialisierung und Startvorbereitung
+  verbrauchen dieselbe Frist. Vor der Prozessanlage wird das Restbudget erneut
+  geprüft; die Fensterbeobachtung lässt sechs Sekunden für Eigentumsübergabe
+  und verifizierte Bereinigung frei. Zu wenig Zeit beendet den Auftrag vor
+  einem neuen Prozess. Direkte PowerShell-Aufrufe ohne Transportfrist behalten
+  ihre lokale begrenzte Wartezeit.
 - Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
   gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
   einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der
@@ -385,6 +392,9 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   werden vorheriges Vordergrundfenster und eigener Mauszeiger best effort
   wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
   in API und MCP messbar.
+  Menüklicks aktivieren das Popup nicht erneut. Auch beim zusammengesetzten
+  Speichern-unter-Ablauf und beim ersten Speichern eines neuen Falls bleibt
+  der ursprüngliche Vordergrund- und Cursor-Kontext bis zum Cleanup erhalten.
 - API-Single-Flight bleibt pro Node-Prozess. Zusaetzlich erwirbt jeder
   lock-pflichtige aeussere Worker einen festen `Local\`-Mutex der Windows-
   Sitzung ueber den vorab integritaetsgeprueften nativen Helfer mit
@@ -527,6 +537,21 @@ fallabhängige Zusatz nicht vorher bekannt ist. Eine bloß ähnlich benannte
 Seite oder eine andere Fahrzeug-Unterseite mit derselben Überschrift reicht
 nicht aus.
 
+Ohne besondere Angabe sind alle Katalogfelder Pflichtfelder der Seitenbindung.
+`bindingFieldIds` kann einen ausdrücklich profilierten, nicht leeren Satz
+vorhandener Feldkennungen festlegen. Bei Wirtschaftsgütern bleiben so ältere
+Anschaffungen erkennbar, deren Formular keine Kaufpreis-/Umsatzsteuergruppe
+anzeigt. Fehlende Variantenfelder bleiben im Readback als `present: false`
+sichtbar und Teil der Epoche. Schreiben benötigt unabhängig von der
+Seitenbindung das konkrete, frisch gebundene und beschreibbare Zielfeld.
+UIA und der native Qt-Pfad verwenden denselben Pflichtfeldsatz.
+
+Eine Katalogkennung belegt nicht, dass die betreffende Formularvariante im
+geöffneten Fall vorhanden ist. Getrennte Bereiche wie die Fahrzeugverwaltung
+können zunächst einen ausdrücklich gewählten Einstieg über den frisch gelesenen
+Navigationsbaum benötigen. Leasing- oder Privatnutzungsfelder werden nicht aus
+einer passenden Überschrift abgeleitet, wenn die konkrete Variante sie nicht zeigt.
+
 Der semantische Worker-Pfad liest Überschrift und Pflichtfelder direkt über
 ihre vollständigen AutomationIds. Er vermeidet den generischen 400-Knoten-Baum
 bei der Start-, Warte- und Zielprüfung, behält aber Suche, linearen Fallback,
@@ -613,6 +638,12 @@ Latenzgarantie.
   Speicherauftrag bleibt der geänderte Fall offen und
   ungespeichert; Arbeits-/Korrekturkopie, `save_as`, Schließen, Verwerfen oder
   Wechseln sind keine automatischen Sicherheitswege.
+- `save_as` bestätigt zusätzlich zum Zielhash, unveränderten Quellhash und
+  neuen Fensterbezug auch die Fallidentität und den bekannten Versandstatus.
+  Die im Dateikopf genannte Programmversion darf sich beim Speichern ändern.
+  Leerer Text, `-` und `0` sind nur bei nachweislich unversendeten Dateien
+  gleichwertige Versandplatzhalter. Ein echter Versandzeitpunkt muss exakt
+  erhalten bleiben; zwei unbekannte Versandzustände gelten nicht als Nachweis.
 - Eine hashverifizierte Prüffallkopie bleibt für einen ausdrücklich isolierten
   Audit verfügbar. Sie ist nicht der Standard für den bereits geöffneten Fall.
 - UStVA-Frequenz, Monat/Quartal, Kennzeichen und Betragsfelder sind

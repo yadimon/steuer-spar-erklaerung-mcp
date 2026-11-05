@@ -244,6 +244,18 @@ try {
     .pageObjectsCatalog.pages["gew_erfass.steuernummer_finanzamt"].navigationTreeItemName,
   " Angaben zum Finanzamt ", "Der Katalog darf exakte Qt-Namen nicht normalisieren.");
   const checkerPolicies = profile.pageObjectsCatalog.checkerStartBindings;
+  const asset = pageObjects.pages['gew.anlagevermoegen_wirtschaftsgut'];
+  const bindingFields = ['bezeichnung', 'belegnummer', 'kaufdatum', 'abschreibung_aktuelles_jahr'];
+  asset.bindingFieldIds = bindingFields;
+  writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, 'utf8');
+  assert.deepEqual(loadProductProfile('2025', navigationCatalogRoot)
+    .pageObjectsCatalog.pages['gew.anlagevermoegen_wirtschaftsgut'].bindingFieldIds, bindingFields);
+  for (const invalid of [[], ['bezeichnung', 'bezeichnung'], ['unknown'], 'bezeichnung', [false]]) {
+    asset.bindingFieldIds = invalid;
+    writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, 'utf8');
+    assert.throws(() => loadProductProfile('2025', navigationCatalogRoot), /bindingFieldIds/);
+  }
+  asset.bindingFieldIds = bindingFields;
   for (const invalidBindings of [
     [checkerPolicies[0], checkerPolicies[0]],
     [checkerPolicies[0], { ...checkerPolicies[1], documentTypes: ["ESt"] }],

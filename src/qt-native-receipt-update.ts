@@ -171,7 +171,7 @@ export async function executeQtNativeReceiptManagerUpdate(
   const state = receiptState(before.nodes, before.hwnd, policy);
   if (state.error) return state.error;
   if (state.state !== "list") return fail("precondition-failed", "Receipt update requires the receipt list state.");
-  const listBefore = receiptList(before.nodes, policy);
+  const listBefore = receiptList(before.nodes, policy, before.tableProof);
   if ("error" in listBefore) return listBefore.error;
   if (!listBefore.rowsComplete) return fail("native-incomplete", "Receipt update requires the complete counted receipt list.");
   if (listBefore.listFingerprint !== args.expectedListFingerprint.toUpperCase()) return fail("stale", "Receipt list fingerprint changed; no action dispatched.");
@@ -218,7 +218,7 @@ export async function executeQtNativeReceiptManagerUpdate(
     if (!detailIdentityMatches(valuesBefore, rowBefore, policy)) throw new ReceiptUpdateError("Receipt detail belongs to another row.", "stale");
     if (detailBindingFingerprint(valuesBefore) !== args.expectedDetailFingerprint.toUpperCase()) {
       const restored = await closeDetail(detail);
-      const list = receiptList(restored.nodes, policy);
+      const list = receiptList(restored.nodes, policy, restored.tableProof);
       const unchanged = !("error" in list) && list.rowsComplete && list.listFingerprint === listBefore.listFingerprint;
       return { ok: false, kind: "stale", error: "Receipt detail fingerprint changed; no receipt fields were edited.",
         ...common(), detailClosed: true, cleanupRequired: !unchanged, verified: false };
@@ -248,7 +248,7 @@ export async function executeQtNativeReceiptManagerUpdate(
     const requestedMatch = fields.every(field => equalValue(field, valuesAfter![field], args.values[field] ?? valuesBefore![field]));
     if (!requestedMatch) throw new ReceiptUpdateError("Final receipt detail readback differs from the requested transaction.", "postcondition-failed", true);
     let restored = await closeDetail(detail);
-    let listAfter = receiptList(restored.nodes, policy);
+    let listAfter = receiptList(restored.nodes, policy, restored.tableProof);
     const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
     const listReady = (list: ReceiptListProjection) => {
       const identity = reboundRow(list, valuesAfter!, policy);
@@ -259,7 +259,7 @@ export async function executeQtNativeReceiptManagerUpdate(
       && performance.now() < deadline) {
       await delay(Math.min(25, Math.max(1, deadline - performance.now())), undefined, { signal });
       restored = await detailRead();
-      listAfter = receiptList(restored.nodes, policy);
+      listAfter = receiptList(restored.nodes, policy, restored.tableProof);
     }
     if ("error" in listAfter) throw new ReceiptUpdateError(String(listAfter.error.error ?? "Final receipt list is unreadable."));
     const identity = reboundRow(listAfter, valuesAfter, policy);
@@ -332,7 +332,7 @@ export async function executeQtNativeReceiptManagerUpdate(
     if (rollback.complete && valuesBefore) {
       try {
         const restored = await closeDetail(await detailRead());
-        const list = receiptList(restored.nodes, policy);
+        const list = receiptList(restored.nodes, policy, restored.tableProof);
         const dirty = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
         const windows = await receiptWindowSet(client, budget(), signal);
         if (!dirty.error) nativeDurationMs += dirty.durationMs!;

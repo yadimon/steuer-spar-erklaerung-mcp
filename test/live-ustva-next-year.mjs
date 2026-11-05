@@ -1,10 +1,11 @@
 /**
  * Opt-in Live-Nachweis fuer die Gewinn-Erfassung des Folgejahres.
  *
- * Der Test liest ausschliesslich eine bereits vom Aufrufer bereitgestellte
- * Wegwerfkopie. Er speichert nicht, ruft ELSTER nicht auf und beweist am Ende
- * Bytegleichheit. Das Produktprofil 2025 muss die Kopie als GewErfass2026 im
- * Startmodus einurvor oeffnen und die UStVA 2026 semantisch ausgeben.
+ * Der Test liest eine bereits vom Aufrufer bereitgestellte Wegwerfkopie und
+ * wechselt nach verifizierter Sicherung den UStVA-Zeitraum und wieder zurueck.
+ * Er speichert nicht, ruft ELSTER nicht auf und beweist am Ende Bytegleichheit.
+ * Das Produktprofil 2025 muss die Kopie als GewErfass2026 im Startmodus
+ * einurvor oeffnen und die UStVA 2026 semantisch ausgeben.
  *
  * Voraussetzung:
  *   SSE_NEXT_YEAR_USTVA_FIXTURE=<GewErfass2026-Kopie im SSE_CASE_DIR>
@@ -92,13 +93,70 @@ try {
     stateBeforeRead.ungespeichert,
     "ustva_read hat den Aenderungszustand gegenueber der bereits geoeffneten UStVA-Seite verschlechtert.",
   );
+  assert.equal((await call("sse_make_working_copy", {
+    sourceRef: caseRef,
+    targetRef: "backups:next-year-before-period.GewErfass2026",
+    expectedSourceHash: originalHash,
+  })).verified, true);
+  const selectors = { monthly: "month", quarterly: "quarter" };
+  const alternatives = {
+    month: { preferred: "october", other: "november" },
+    quarter: { preferred: "q4", other: "q3" },
+  };
+  const selector = selectors[overview.period.frequency];
+  assert(selector, "UStVA-Folgejahr muss einen bekannten Zeitraumselektor liefern.");
+  assert.equal(typeof overview.period.key, "string");
+  const alternate = overview.period.key === alternatives[selector].preferred
+    ? alternatives[selector].other : alternatives[selector].preferred;
+  const binding = {
+    hwnd: instance.hwnd, expectedPage: heading,
+    expectedCaseRef: caseRef, expectedCaseHash: originalHash,
+  };
+  assert.equal((await call("sse_ustva_select_period", {
+    ...binding, selector, expectedCurrent: overview.period.key, value: alternate,
+  })).verified, true);
+  const changed = await call("sse_ustva_read", { hwnd: instance.hwnd });
+  assert.equal(changed.taxYear, 2026);
+  assert.equal(changed.period.key, alternate);
+  assert.deepEqual(changed.effects, { savePerformed: false, submissionPerformed: false });
+  assert.equal((await call("sse_ustva_select_period", {
+    ...binding, selector, expectedCurrent: alternate, value: overview.period.key,
+  })).verified, true);
+  const restored = await call("sse_ustva_read", { hwnd: instance.hwnd });
+  assert.deepEqual(restored.period, overview.period);
+  assert.deepEqual(restored.amounts, overview.amounts);
+  assert.deepEqual(restored.effects, overview.effects);
+  // Exercise both period dimensions, including the monthly October workflow,
+  // independently of the fixture's original reporting frequency.
+  let periodState=restored;
+  for(const plan of [
+    {frequency:"monthly",selector:"month",value:"october"},
+    {frequency:"quarterly",selector:"quarter",value:"q4"},
+    {frequency:overview.period.frequency,selector,value:overview.period.key},
+  ]) {
+    assert.equal((await call("sse_ustva_select_period", {
+      ...binding,selector:"frequency",expectedCurrent:periodState.period.frequency,value:plan.frequency,
+    })).verified,true);
+    periodState=await call("sse_ustva_read",{hwnd:instance.hwnd});
+    assert.equal(periodState.period.frequency,plan.frequency);
+    assert.equal((await call("sse_ustva_select_period", {
+      ...binding,selector:plan.selector,expectedCurrent:periodState.period.key,value:plan.value,
+    })).verified,true);
+    periodState=await call("sse_ustva_read",{hwnd:instance.hwnd});
+    assert.equal(periodState.taxYear,2026);
+    assert.equal(periodState.period.key,plan.value);
+    assert.deepEqual(periodState.effects,overview.effects);
+  }
+  assert.deepEqual(periodState.period,overview.period);
+  assert.deepEqual(periodState.amounts,overview.amounts);
+  assert.equal(sha256(), originalHash, "Zeitraumwechsel hat den Fall ungefragt gespeichert.");
   await call("sse_close", {
     pid: instance.pid,
     hwnd: instance.hwnd,
     discardChanges: true,
   }, 120_000);
   instance = null;
-  assert.equal(sha256(), originalHash, "Read-only UStVA-Nachweis hat die Wegwerfkopie veraendert.");
+  assert.equal(sha256(), originalHash, "UStVA-Nachweis hat die Wegwerfkopie auf Datentraeger veraendert.");
 
   process.stdout.write(JSON.stringify({
     ok: true,
@@ -109,6 +167,9 @@ try {
     pageKind: overview.pageKind,
     navigationMarkedDirty: stateAfterLaunch.ungespeichert === false && stateBeforeRead.ungespeichert === true,
     readDirtyStateUnchanged: stateAfterRead.ungespeichert === stateBeforeRead.ungespeichert,
+    periodChangeRestored: true,
+    testedPeriod: alternate,
+    monthlyOctoberAndQuarterlyQ4: true,
     unchanged: true,
     submissionBlocked: overview.transmission?.blockedByApi === true,
   }) + "\n");

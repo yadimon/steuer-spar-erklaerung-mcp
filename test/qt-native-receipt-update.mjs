@@ -1,3 +1,4 @@
+import { receiptGridFixture } from "./qt-native-receipt-grid-fixture.mjs";
 import assert from "node:assert/strict";
 import { executeQtNativeOperation, isQtNativeOperation } from "../dist/qt-native-executor.js";
 import { detailBindingFingerprint, receiptEditableValues, receiptList, receiptPolicySchema, sameReceiptListLayout,
@@ -107,7 +108,7 @@ function fixture(options = {}) {
     }
     return nodes;
   };
-  const before = receiptList(makeNodes(), policy);
+  const before = receiptList(makeNodes(), policy, receiptGridFixture(makeNodes()));
   assert(!("error" in before));
   const args = { rowRid: before.rows[0].rowRid, rowFingerprint: before.rows[0].rowFingerprint,
     expectedListFingerprint: before.listFingerprint, expectedDetailFingerprint: detailBindingFingerprint(beforeValues),
@@ -135,7 +136,7 @@ function fixture(options = {}) {
         hwnd: tool ? options.managerWindowDrift && open ? 85 : 84 : 42,
         windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
         modalBlocked: Boolean(options.modalAfterClose && closed || options.modalAfterEdit && actions.some(item => item.action === "replace-edit-text")),
-        exactMatches: {}, nodes, stats: { n: nodes.length, err: 0, cyc: 0, cycleRid: "", cycleName: "",
+        ...(args.tableProof ? { tableProof: receiptGridFixture(makeNodes()) } : {}), exactMatches: {}, nodes, stats: { n: nodes.length, err: 0, cyc: 0, cycleRid: "", cycleName: "",
           truncated: false, depthLimited: false, valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 } } };
     },
     requestAcknowledged: async (operation, args) => {
@@ -220,7 +221,7 @@ assert.equal(missingColumnResult.cleanupRequired, true);
 assert.equal(missingColumnResult.rollback.attempted, false);
 assert.equal(missingColumns.actions.filter(action => action.action === "press").length, 1);
 
-const fullList = receiptList(valueProjection(), policy);
+const fullList = receiptList(valueProjection(), policy, null);
 assert("error" in fullList, "The field-only projection must not act as a receipt list");
 const layout = { headers: ["Title", "Amount"], rows: [{ cells: [{ name: "A" }, { name: "1" }] }] };
 assert.equal(sameReceiptListLayout(layout, structuredClone(layout)), true);

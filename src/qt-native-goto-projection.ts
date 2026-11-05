@@ -1,4 +1,4 @@
-import type { ProductProfile } from "./product-profiles.js";
+import { pageBindingFieldIds, type ProductProfile } from "./product-profiles.js";
 import { knownHeadingMatches, qtNativeContentBounds, qtNativeHeading, qtNativeKnownHeading } from "./qt-native-pages.js";
 import { containerDescendants, findContainerNode, psEquals } from "./qt-native-projections.js";
 import type { QtSnapshotNode, readQtNativeSnapshot } from "./qt-native-snapshot.js";
@@ -120,13 +120,16 @@ export function summaryFromNodes(snapshot: GotoSnapshot, label: string, occurren
   return [...unique.values()].sort((a, b) => a.y - b.y)[occurrence - 1] ?? null;
 }
 
-/** Heading, all exact known fields, and every profiled table/sum must belong to this same complete read. */
+/** Heading, exact identity fields, and every profiled table/sum belong to this same complete read. */
 export function gotoTargetState(snapshot: GotoSnapshot, profile: ProductProfile, target: string, page?: GotoPage) {
   const heading = page ? qtNativeKnownHeading(snapshot.nodes, profile, page) : qtNativeHeading(snapshot.nodes, profile);
   const headingMatches = page ? knownHeadingMatches(heading, page) : heading !== null && psEquals(heading, target);
   if (!headingMatches) return { heading, headingMatches, ready: false };
-  const fields = page?.fields && typeof page.fields === "object" ? Object.values(page.fields) : [];
-  for (const raw of fields) {
+  const ids = page ? pageBindingFieldIds(page) : [];
+  if (ids === null) return { heading, headingMatches, ready: false };
+  const fields = (page?.fields ?? {}) as Record<string, unknown>;
+  for (const id of ids) {
+    const raw = fields[id];
     const field = raw as Record<string, unknown>, relative = String(field.automationIdRelative ?? "");
     const matches = relative ? snapshot.nodes.filter(node => node.aid.endsWith(relative)) : [];
     if (matches.length !== 1 || matches[0]!.type !== field.controlType) return { heading, headingMatches, ready: false };

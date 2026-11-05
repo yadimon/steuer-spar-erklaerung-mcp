@@ -62,12 +62,28 @@ static std::pair<Json, Json> launchCandidates(const Json &windows, bool withCase
         const auto isSse = launchContains(title, L"SteuerSparErklärung");
         const auto isGeneric = _wcsicmp(title.c_str(), L"Steuerprogramm") == 0;
         const auto large = window.at("w").get<int>() >= 900 || window.at("minimiert").get<bool>();
-        if (isSse && (withCase || large)) loaded.push_back(window);
+        if (isSse && large) loaded.push_back(window);
         if (!withCase && isGeneric && large) generic.push_back(window);
-        if ((isGeneric && window.at("w").get<int>() < 900)
+        if ((isSse && !large) || (isGeneric && window.at("w").get<int>() < 900)
             || (!title.empty() && !isSse && !launchContains(title, L"Steuer-Spar-Tipps") && !isGeneric)) dialogs.push_back(window);
     }
     return {loaded.empty() ? generic : loaded, dialogs};
+}
+struct LaunchMainWindowStability {
+    Json signature = nullptr;
+    unsigned consecutive = 0;
+    void reset() { signature = nullptr; consecutive = 0; }
+    bool observe(const Json &mains, const Json &dialogs) {
+        if (mains.size() != 1 || !dialogs.empty() || mains[0].at("hung").get<bool>()) { reset(); return false; }
+        if (signature != mains[0]) { signature = mains[0]; consecutive = 1; return false; }
+        return ++consecutive >= 3;
+    }
+};
+static bool sameLaunchWindowSet(Json before, Json after) {
+    const auto byHandle = [](const Json &a, const Json &b) { return a.at("hwnd").get<std::uint64_t>() < b.at("hwnd").get<std::uint64_t>(); };
+    std::sort(before.begin(), before.end(), byHandle);
+    std::sort(after.begin(), after.end(), byHandle);
+    return before == after;
 }
 static std::wstring launchPath(const Json &request, const char *key) {
     const auto value = request.at(key).get<std::string>();

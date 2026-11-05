@@ -212,3 +212,73 @@ Assert-True (-not (Test-SSEImmutableSavedCaseIdentity $beforeIdentity $null)) 'E
 $afterIdentity.Remove('VJahr')
 Assert-True (-not (Test-SSEImmutableSavedCaseIdentity $beforeIdentity $afterIdentity)) 'Ein fehlendes Steuerjahr wurde akzeptiert.'
 Write-Output 'Speicherbindung: exakt gebundener Prozess und HWND, eigene Rueckfragen, editierbare Steuernummer und unveraenderlicher Uebermittlungsstatus bestanden.'
+
+# SaveAs must accept a producer update and equivalent unsent markers without
+# accepting changed case identity, unknown transmission or a changed timestamp.
+$saveAsIdentityDefinition = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Test-SSESaveAsCaseIdentity'
+}, $true))
+Assert-True ($saveAsIdentityDefinition.Count -eq 1) 'Der semantische SaveAs-Identitaetsvergleich fehlt.'
+Invoke-Expression $saveAsIdentityDefinition[0].Extent.Text
+$headerAssignment = @($saveAsBody.Statements | Where-Object {
+  $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$headerMatches'
+})
+Assert-True ($headerAssignment.Count -eq 1) 'SaveAs muss seinen tatsaechlichen Kopfvergleich pruefen.'
+$compareSaveAsHeaders = [scriptblock]::Create($headerAssignment[0].Extent.Text)
+function New-SaveAsSummary {
+  [pscustomobject]@{
+    header=[pscustomobject]@{FileType='GewErfass';VJahr='2026';Steuernummer='';FileSavedBy='example producer';ElsterTransferTime='-';MitElsterVersendetText=''}
+    transmitted=$false
+  }
+}
+foreach ($beforeMarker in @('', '-', '0')) {
+  foreach ($afterMarker in @('', '-', '0')) {
+    $sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+    $sourceSummary.header.ElsterTransferTime=$beforeMarker
+    $targetSummary.header.ElsterTransferTime=$afterMarker
+    $targetSummary.header.FileSavedBy='updated example producer'
+    . $compareSaveAsHeaders
+    Assert-True $headerMatches 'SaveAs verwarf Versionswechsel oder gleichwertige unversendete Marker.'
+  }
+}
+foreach ($field in @('FileType','VJahr','Steuernummer','MitElsterVersendetText')) {
+  $sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+  $targetSummary.header.$field='changed'
+  Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) "SaveAs akzeptierte eine Aenderung von $field."
+}
+foreach ($field in @('FileType','VJahr')) {
+  foreach ($value in @($null, '', '   ')) {
+    $sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+    $sourceSummary.header.$field=$value; $targetSummary.header.$field=$value
+    Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Fehlende Identitaet wurde als Gleichheit behandelt.'
+  }
+}
+$sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+$sourceSummary.transmitted='unknown'; $targetSummary.transmitted='unknown'
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Unbekannt gleich unbekannt verifizierte SaveAs.'
+$sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+$sourceSummary.transmitted=$true; $targetSummary.transmitted=$true
+$sourceSummary.header.ElsterTransferTime='2025-01-01 12:00:00'; $targetSummary.header.ElsterTransferTime=$sourceSummary.header.ElsterTransferTime
+Assert-True (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary) 'Ein unveraenderter bekannter Versandnachweis wurde verworfen.'
+$targetSummary.header.ElsterTransferTime='2025-01-02 12:00:00'
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Ein geaenderter Versandzeitpunkt wurde normalisiert.'
+$targetSummary.transmitted=$false
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Ein geaenderter Versandstatus wurde akzeptiert.'
+$sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+$sourceSummary.header.Steuernummer=$null
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Null wurde zum leeren Text umgewandelt.'
+$targetSummary.header.Steuernummer=$null
+Assert-True (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary) 'Gleichermassen fehlende optionale Angaben muessen erhalten bleiben.'
+$targetSummary.header.VJahr=2026
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Unterschiedliche skalare Typen wurden gleichgesetzt.'
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $null)) 'Eine fehlende Zielzusammenfassung wurde akzeptiert.'
+$sourceSummary=New-SaveAsSummary; $targetSummary=New-SaveAsSummary
+$targetSummary.header.ElsterTransferTime=$null
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Ein fehlender Transfermarker wurde als leerer Marker behandelt.'
+$targetSummary.header.ElsterTransferTime='unknown marker'
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Ein unbekannter Marker wurde als Nichtversand normalisiert.'
+$targetSummary=New-SaveAsSummary; $targetSummary.header.PSObject.Properties.Remove('VJahr')
+Assert-True (-not (Test-SSESaveAsCaseIdentity $sourceSummary $targetSummary)) 'Ein fehlendes Identitaetsfeld wurde akzeptiert.'
+Write-Output 'SaveAs: Produzent und Nichtversand-Platzhalter semantisch verglichen, Identitaet und echter Versandnachweis erhalten.'

@@ -48,6 +48,15 @@ function New-FinalNodes([switch]$Before,[switch]$Closed){
  if([VatSelectionFixture]::Mode -ceq 'final-title-only-grid'){
   foreach($node in $nodes){if($node.type -ceq 'DataItem' -and $node.x -eq 100){$node.name=''}}
  }
+ # The bound projector now reads the complete Grid, including the hidden
+ # columns. Model the exact same synthetic records at the native boundary.
+ $gridCells=@($nodes|Where-Object {$_.type -ceq 'DataItem'}|Sort-Object y,x)
+ Assert-True (($gridCells.Count%2) -eq 0) 'Synthetic final Grid must contain complete rows.'
+ [Windows.Automation.GridPattern]::Rows=[int]($gridCells.Count/2)
+ [Windows.Automation.GridPattern]::Values=[string[,]]::new([Windows.Automation.GridPattern]::Rows,2)
+ for($cellIndex=0;$cellIndex -lt $gridCells.Count;$cellIndex++){
+  [Windows.Automation.GridPattern]::Values[[int][Math]::Floor($cellIndex/2),($cellIndex%2)]=$gridCells[$cellIndex].name
+ }
  $nodes
 }
 function Walk-Tree($Window,$MaxNodes,[switch]$WithValues){

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
-import { resolvePageObjectDefinition, type ProductProfile } from "./product-profiles.js";
+import { pageBindingFieldIds, resolvePageObjectDefinition, type ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { MIN_READ_RETRY_BUDGET_MS, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 import { POSITION_OVERVIEW_HEADINGS, readPositionInventory } from "./position-inventory.js";
@@ -134,6 +134,7 @@ export async function executeQtNativeKnownPageState(
   const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields)
     ? page.fields as Record<string, unknown> : {};
   const fields: Array<Record<string, unknown>> = [];
+  const exactBindingFields = new Set<string>();
   const epochFields: Array<{ id: string; value: string | null; enabled: boolean; readOnly: boolean | null; x: number; y: number; w: number; h: number }> = [];
   for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
     const definition = rawDefinition as Record<string, unknown>;
@@ -141,6 +142,9 @@ export async function executeQtNativeKnownPageState(
     const suffix = typeof definition.automationIdSuffix === "string" ? definition.automationIdSuffix : "";
     const controlType = typeof definition.controlType === "string" ? definition.controlType : "";
     const exact = relativeAid ? result.nodes.filter(node => node.aid === relativeAid || node.aid.endsWith(relativeAid)) : [];
+    // A shorter readback selector cannot establish page identity. Count all
+    // exact-path matches before checking type, as native goto does.
+    if (exact.length === 1 && exact[0]!.type === controlType) exactBindingFields.add(fieldId);
     const suffixMatches = suffix ? result.nodes.filter(node => node.aid.endsWith(suffix)) : [];
     const candidates = (exact.length ? exact : suffixMatches).filter(node => node.type === controlType);
     if (candidates.length > 1) return fail("ambiguous", `Known field '${fieldId}' is not uniquely bound in the native tree.`);
@@ -169,12 +173,14 @@ export async function executeQtNativeKnownPageState(
   }
   const dirtyNode = result.nodes.find(node => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
   const dirty = dirtyNode?.on ?? null;
+  const bindingIds = pageBindingFieldIds(page);
   return {
     ok: true,
     backend: "qt",
     pageId: args.pageId,
     expectedHeading: String(page.heading),
-    onExpectedPage: knownHeadingMatches(currentHeading, page) && fields.every(field => field.present === true),
+    onExpectedPage: knownHeadingMatches(currentHeading, page) && bindingIds !== null &&
+      bindingIds.every(id => exactBindingFields.has(id)),
     heading: currentHeading,
     dirty,
     fields,

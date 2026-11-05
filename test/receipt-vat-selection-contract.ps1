@@ -23,9 +23,14 @@ public static class VatSelectionFixture {
 }
 public static class SW {
  public static int MouseCalls;
+ public sealed class PT {public int X,Y;}
+ public static IntPtr Foreground=new IntPtr(8);
+ public static bool GetCursorPos(out PT point){point=new PT();return true;}
+ public static bool SetCursorPos(int x,int y){return true;}
+ public static bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int w,int h,int flags){return true;}
  public static bool IsWindow(IntPtr window){return VatSelectionFixture.WindowAlive;}
  public static uint GetWindowThreadProcessId(IntPtr window,out int owner){owner=VatSelectionFixture.Owner;return 1;}
- public static IntPtr GetForegroundWindow(){return new IntPtr(8);}
+ public static IntPtr GetForegroundWindow(){return Foreground;}
  public static void mouse_event(int flags,int x,int y,int data,IntPtr extra){
   MouseCalls++;
   if(flags==4){VatSelectionFixture.Value=VatSelectionFixture.Wanted+" %";VatSelectionFixture.Tick=10;
@@ -132,6 +137,8 @@ function New-OptionNode([string]$Rid='42.7.3'){
  [pscustomobject]@{rid=$Rid;aid='synthetic.option';type='ListItem';name=([VatSelectionFixture]::Wanted+' %');on=$true;x=20;y=40;w=80;h=20}
 }
 function Reset-Fixture([string]$Mode){
+ [SW]::Foreground=[IntPtr]8
+ $script:UIAElementCache=@{}
  [VatSelectionFixture]::Mode=$Mode;[VatSelectionFixture]::Value='0 %';[VatSelectionFixture]::Rid='42.7.1'
  [VatSelectionFixture]::ComboRid='42.7.2';[VatSelectionFixture]::OptionRid='42.7.3';[VatSelectionFixture]::Tick=1
  [VatSelectionFixture]::Open=$false;[VatSelectionFixture]::WindowAlive=$true;[VatSelectionFixture]::Owner=100
@@ -342,3 +349,65 @@ foreach($wanted in @('7','19')){
  }
 }
 Write-Output 'Receipt VAT selection: actual guards, transient loss, semantic success, real point/checkpoint composition and capture contracts passed.'
+
+# Compose the real foreground lifetime with the real VAT producer. Earlier
+# fixtures deliberately stubbed Show/Hide and could not detect early release
+# by a preceding text commit. Native boundaries remain inert scalar recorders.
+& {
+foreach($name in @('Enter-SSEForegroundLease','Exit-SSEForegroundLease','Complete-SSEPhysicalSection',
+ 'Show-SSEWindow','Hide-SSETopmost','Get-SSEInputEpochEvidence','New-SSECommitResult','Commit-TrackedValue')){
+ $defs=@($actualAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
+ Assert-True ($defs.Count -eq 1) 'Actual foreground lifetime helper ambiguous.'
+ Invoke-Expression $defs[0].Extent.Text
+}
+$initialLease=@($actualAst.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Left.Extent.Text -ceq '$script:SSE_FOREGROUND_LEASE'},$true))
+Assert-True ($initialLease.Count -eq 1) 'Actual foreground lease initializer ambiguous.'
+function Set-SSEForegroundWindowCore($window,[switch]$Topmost){[SW]::Foreground=$window;$true}
+function Test-SSEWindowIsLockScreen {$false}
+function Reset-RealLease {
+ Reset-Fixture 'real-point-success';[VatSelectionFixture]::Wanted='19'
+ Invoke-Expression $initialLease[0].Extent.Text
+ $script:SSE_FOREGROUND_SCOPE_WATCH=$null;$script:SSE_TRACKED_PLAN_INPUT_CONTEXT=$null;$script:DESKTOP_NAME=$null
+ [SW]::Foreground=[IntPtr]7
+ $null=Enter-SSEForegroundLease ([IntPtr]7)
+ Hide-SSETopmost ([IntPtr]7)
+}
+Reset-RealLease
+$watch=$script:SSE_FOREGROUND_LEASE.watch
+$null=Enter-SSEForegroundLease ([IntPtr]7);$script:SSE_FOREGROUND_SCOPE_WATCH=$watch
+foreach($field in @('title','date','documentNumber','amount')){
+ $null=Show-SSEWindow ([IntPtr]7)
+ [VatSelectionFixture]::Tick++
+ Set-SSEForegroundLeaseInputCheckpoint ([VatSelectionFixture]::Tick) -Context ('receipt-text-'+$field)
+ Complete-SSEPhysicalSection ([IntPtr]7)
+ Assert-True ([Object]::ReferenceEquals($watch,$script:SSE_FOREGROUND_LEASE.watch) -and
+  $script:SSE_FOREGROUND_LEASE.depth -eq 1 -and $script:SSE_FOREGROUND_LEASE.releases -eq 0) 'A nested text section released the original receipt lease.'
+}
+$result=Set-SSEReceiptManagerVatRateSelection ([IntPtr]7) 100 $state ([pscustomobject]@{}) $binding '0 %' '19 %' 1
+Assert-True ($result.ok -and [SW]::MouseCalls -eq 2 -and
+ [Object]::ReferenceEquals($watch,$script:SSE_FOREGROUND_LEASE.watch)) 'Text sections followed by actual VAT selection lost the original lease.'
+Exit-SSEForegroundLease -Force -Reason 'emit'
+Assert-True ($null -eq $script:SSE_FOREGROUND_LEASE.watch -and $script:SSE_FOREGROUND_LEASE.releases -eq 1) 'Final receipt cleanup did not release the scope once.'
+foreach($mode in @('standalone','unscoped-depth','stale-scope','unbalanced-depth')){
+ Reset-RealLease
+ $original=$script:SSE_FOREGROUND_LEASE.watch
+ switch($mode){
+  'standalone' {}
+  'unscoped-depth' {$null=Enter-SSEForegroundLease ([IntPtr]7)}
+  'stale-scope' {Exit-SSEForegroundLease -Force -Reason 'emit';$null=Enter-SSEForegroundLease ([IntPtr]7);$script:SSE_FOREGROUND_SCOPE_WATCH=$original}
+  'unbalanced-depth' {$null=Enter-SSEForegroundLease ([IntPtr]7);$script:SSE_FOREGROUND_SCOPE_WATCH=$original;Hide-SSETopmost ([IntPtr]7)}
+ }
+ $null=Show-SSEWindow ([IntPtr]7);Complete-SSEPhysicalSection ([IntPtr]7)
+ Assert-True ($null -eq $script:SSE_FOREGROUND_LEASE.watch) ('Unowned physical scope retained a lease: '+$mode)
+ $result=Set-SSEReceiptManagerVatRateSelection ([IntPtr]7) 100 $state ([pscustomobject]@{}) $binding '0 %' '19 %' 1
+ Assert-True (-not $result.ok -and -not $result.mutationStarted -and [SW]::MouseCalls -eq 0 -and
+  $result.error -ceq 'Urspruengliche Lease oder Fensterbindung der Belegaenderung ist verloren.') 'Lost ownership was replaced before VAT selection.'
+}
+Reset-RealLease
+$acquisitions=$script:SSE_FOREGROUND_LEASE.acquisitions;[VatSelectionFixture]::Tick=9
+$interference=Commit-TrackedValue ([IntPtr]7) $null 'value' 'before' '' 1
+Assert-True ($interference.method -ceq 'interference-inherited-input' -and $interference.interference -and
+ $script:SSE_FOREGROUND_LEASE.acquisitions -eq $acquisitions) 'A text commit adopted a fresh input epoch before checking the inherited checkpoint.'
+Write-Output 'Receipt composition: original lease through text/VAT, standalone cleanup, stale/unbalanced scopes and inherited epoch passed.'
+}

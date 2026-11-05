@@ -65,7 +65,7 @@ export async function executeQtNativeReceiptManagerRead(
   const stateBefore = receiptState(before.nodes, before.hwnd, policy);
   if (stateBefore.error) return stateBefore.error;
   if (stateBefore.state !== "list") return fail("precondition-failed", `Receipt detail requires state 'list', current state is '${stateBefore.state}'.`);
-  const listBefore = receiptList(before.nodes, policy);
+  const listBefore = receiptList(before.nodes, policy, before.tableProof);
   if ("error" in listBefore) return listBefore.error;
   if (listBefore.listFingerprint !== expectedListFingerprint) {
     return fail("stale", "The receipt list changed since receipt_manager_list; no native action was dispatched.");
@@ -153,7 +153,7 @@ export async function executeQtNativeReceiptManagerRead(
         await delay(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
         restored = await receiptDetailSnapshot(client, policy, budget(), signal);
         nativeDurationMs += restored.nativeDurationMs;
-        const candidate = receiptList(restored.nodes, policy);
+        const candidate = receiptList(restored.nodes, policy, restored.tableProof);
         if (!("error" in candidate)) {
           listAfter = candidate;
           if (listRestored(candidate) && receiptDetailFields(restored.nodes).length === 0) break;
