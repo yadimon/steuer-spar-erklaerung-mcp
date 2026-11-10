@@ -245,28 +245,139 @@ Assert-True ($null -eq (Invoke-GotoSearchSelection $null $prefix $personList -Fr
 Assert-True ((Invoke-GotoSearchSelection $null $prefix $exactFirst -FreeTarget).y -eq 277) `
   'Ein freies Ziel muss weiterhin nur seine exakte Titelzelle auswaehlen.'
 
-# Execute the real visible activation branch against a synthetic search UI.
-# Guard preparation and post-input settling separate two single-click calls;
-# only one double-click gesture opens the result within its timing budget.
+# Execute only extracted functions and the visible branch. SW is a managed
+# fake, and Click-VerifiedPoint is replaced; no native UI helpers are loaded.
+foreach($helper in @('Test-SSESearchSnapshotIdentity','Resolve-SSEVisibleSearchActivation',
+  'Prepare-SSESearchHitClick','Test-SSESearchHitBeforeClick','Invoke-SSESearchHitDoubleClick')) {
+  $definition=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helper
+  },$true))
+  Assert-True ($definition.Count -eq 1) "Suchhelper fehlt oder ist mehrdeutig: $helper"
+  . ([scriptblock]::Create($definition[0].Extent.Text))
+}
+Add-Type -TypeDefinition @'
+using System;
+public static class SW {
+  public static int Enters;
+  public static int Restores;
+  public static uint GetCurrentThreadId() { return 7; }
+  public static IntPtr EnterPhysicalDpiContext() { Enters++; return new IntPtr(17); }
+  public static bool RestoreDpiContext(IntPtr previous) { Restores++; return previous == new IntPtr(17); }
+}
+'@
+function SearchLayout([int]$Height=80,[switch]$Reparent) {
+  $frame='Synthetic.Main.SearchSplitter.SearchFrameSSE'
+  $view=$(if($Reparent){'Synthetic.Main.QWidget.SearchResultsView'}else{$frame+'.SearchResultsView'})
+  $table=$view+'.QStackedWidget.DialogSearchResultsTableView'
+  $nodes=@(
+    (Node 0 -1 'Window' 'Synthetic' 0 0 1000 800 'Synthetic.Main'),
+    (Node 1 0 'Group' '' 100 100 600 400 $frame),
+    (Node 2 1 'Group' '' 100 100 600 50 ($frame+'.QWidget')),
+    (Node 4 2 'Edit' '' 110 115 300 25 ($frame+'.QWidget.SearchSSE.QLineEdit')),
+    (Node 3 1 'Group' '' 100 155 600 50 ($frame+'.QWidget')),
+    (Node 5 3 'Button' 'Trefferliste aus-/einklappen' 650 165 25 25 ($frame+'.QWidget.HoverButton')),
+    (Node 6 $(if($Reparent){0}else{1}) 'Group' '' 100 210 600 $Height $view),
+    (Node 7 6 'Group' '' 100 210 600 $Height ($view+'.QStackedWidget')),
+    (Node 8 7 'Table' '' 100 210 600 $Height $table),
+    (Node 9 8 'DataItem' 'Zielseite' 120 275 180 30 $table),
+    (Node 10 8 'DataItem' 'Anderer Ort' 300 275 400 30 $table)
+  )
+  if($Reparent){foreach($node in $nodes | Where-Object {$_.i -ge 6}){$node.rid="73.$($node.i)"}}
+  $nodes
+}
+function SearchSnapshot($Nodes) {
+  $layout=Get-SSESearchHitLayout $Nodes 'Zielseite'
+  [pscustomobject]@{window=[long]4242;processId=123;epoch='synthetic-generation';target='Zielseite';
+    accept=$null;query='Zielseite';layout=$layout;inputTick=19}
+}
+$clipped=Get-SSESearchHitLayout (SearchLayout) 'Zielseite'
+Assert-True ($clipped.hit.on -and -not $clipped.fullyVisible -and
+  $clipped.pointY -eq $clipped.table.y+$clipped.table.h) 'Ein aktivierter, am ganzzahligen Mittelpunkt abgeschnittener Treffer wurde freigegeben.'
+Assert-True ($null -ne (Get-SSESearchExpansionButton $clipped)) 'Doppelte QWidget-IDs verhinderten die eindeutige Bindung ueber Elternindizes.'
+foreach($mode in @('duplicate-button','foreign-frame','wrong-parent')) {
+  $nodes=SearchLayout
+  switch($mode) {
+    'duplicate-button' {$nodes+=Node 11 3 'Button' 'Trefferliste aus-/einklappen' 620 165 25 25 $nodes[5].aid}
+    'foreign-frame' {
+      $nodes+=Node 11 0 'Group' '' 0 0 600 400 'Other.Main.SearchSplitter.SearchFrameSSE'
+      $nodes[4].p=11
+      $nodes[4].aid='Other.Main.SearchSplitter.SearchFrameSSE.QWidget'
+    }
+    'wrong-parent' {$nodes[5].p=2;$nodes[2].p=0}
+  }
+  Assert-True ($null -eq (Get-SSESearchExpansionButton (Get-SSESearchHitLayout $nodes 'Zielseite'))) "Ein ungebundener Schalter wurde akzeptiert: $mode"
+}
+$rounded=SearchLayout 94
+$rounded[9].y=303;$rounded[9].h=1
+Assert-True (-not (Get-SSESearchHitLayout $rounded 'Zielseite').fullyVisible) 'Ein auf die halboffene Zellkante gerundeter Klickpunkt wurde freigegeben.'
+foreach($part in @('query','table')) {
+  $nodes=SearchLayout 170
+  $duplicate=$(if($part -ceq 'query'){Node 11 2 'Edit' '' 110 150 300 25 $nodes[3].aid}else{Node 11 7 'Table' '' 100 210 600 170 $nodes[8].aid})
+  $nodes+=$duplicate
+  Assert-True ($null -eq (Get-SSESearchHitLayout $nodes 'Zielseite')) "Eine mehrdeutige Suchbindung wurde freigegeben: $part"
+}
+
 $visibleActivationBlocks = @($gotoBody.FindAll({ param($node)
   $node -is [Management.Automation.Language.IfStatementAst] -and
   $node.Clauses[0].Item1.Extent.Text -ceq '-not $suchSeiteGeoeffnet -and -not $script:DESKTOP_NAME'
 }, $true))
 Assert-True ($visibleActivationBlocks.Count -eq 1) 'Die sichtbare Suchaktivierung ist nicht eindeutig.'
 $visibleActivationBlock = [scriptblock]::Create($visibleActivationBlocks[0].Extent.Text)
-function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesktop) {
+function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesktop,
+  [string]$Mode='expand',[string]$ClickGuard='') {
   $script:searchClickClock = [long]0
   $script:searchClickTimes = New-Object System.Collections.ArrayList
   $script:searchClickTransactions = New-Object System.Collections.ArrayList
   $script:searchHeadingWaits = New-Object System.Collections.ArrayList
+  $script:searchSnapshots=0;$script:searchExpansions=0;$script:searchFailure=$null
+  $script:searchFresh=$(if($Mode -ceq 'visible'){SearchSnapshot (SearchLayout 170)}else{SearchSnapshot (SearchLayout)})
+  $script:searchAfter=SearchSnapshot (SearchLayout 170 -Reparent)
+  switch($Mode) {
+    'unchanged' {$script:searchAfter=SearchSnapshot (SearchLayout)}
+    'collapse' {$script:searchAfter=SearchSnapshot (SearchLayout 60 -Reparent)}
+    'partial' {$script:searchAfter=SearchSnapshot (SearchLayout 90 -Reparent)}
+    'no-table' {$script:searchAfter=SearchSnapshot @(SearchLayout 170 -Reparent | Where-Object {$_.type -cne 'Table'})}
+    'duplicate-title' {
+      $nodes=SearchLayout 170 -Reparent
+      $nodes+=Node 11 8 'DataItem' 'Zielseite' 120 315 180 30 $nodes[8].aid
+      $script:searchAfter=SearchSnapshot $nodes
+    }
+    'query-rid' {$script:searchAfter.layout.query.rid='73.changed-query'}
+    'generation' {$script:searchAfter.epoch='other-generation'}
+    'no-button' {$script:searchFresh.layout.nodes=@($script:searchFresh.layout.nodes | Where-Object {$_.type -cne 'Button'})}
+    'input-change' {}
+  }
   $script:DESKTOP_NAME = $(if ($HiddenDesktop) { 'synthetic.desktop' } else { $null })
   $hwnd = [IntPtr]4242; $start = 'Startseite'; $ziel = 'Zielseite'
+  $gotoPid=123
   $aktiviert = $false; $suchSeiteGeoeffnet = $false
-  $genau = [pscustomobject]@{rid='42.synthetic-search';name=$ziel;type='DataItem';x=80;y=252;w=238;h=25}
+  $genau = $script:searchFresh.layout.hit;$titelRegel=$null;$nachSuche=$null
   $suchWeg = New-Object System.Collections.ArrayList
+  function Get-SSELastInputTick {19}
+  function Test-SSELastInputUnchanged {param($Tick) $Tick -eq 19 -and -not ($Mode -ceq 'input-change' -and $script:searchExpansions -gt 0)}
+  function Get-SSESearchActivationSnapshot {
+    param($Window,$Target,$Accept,$InputTick)
+    Assert-True ($Window -eq $hwnd -and $Target -ceq $ziel -and $InputTick -eq 19) 'Die frische Suchbindung verlor Fenster, Titel oder Eingabe-Epoche.'
+    $script:searchSnapshots++
+    if(-not $script:searchFresh -or -not $script:searchFresh.layout){throw 'synthetic-layout-unbound'}
+    $script:searchFresh
+  }
+  function Invoke-SSESearchListExpansion {
+    param($Window,$Snapshot,$Button,$InputTick)
+    Assert-True ($script:searchExpansions -eq 0 -and $Button.rid -ceq '42.5') 'Suchliste wurde mehrfach oder ueber einen alten Schalter vergroessert.'
+    $script:searchExpansions++
+    $script:searchFresh=$script:searchAfter
+  }
   function Click-VerifiedPoint {
-    param([IntPtr]$Window, $Node, [int]$ClickCount = 1)
-    Assert-True ($Window -eq $hwnd -and [object]::ReferenceEquals($Node, $genau)) 'Die Suchaktivierung verlor den gebundenen Treffer.'
+    param([IntPtr]$Window,$Node,$ExpectedInputTick,[switch]$RequireForeground,[int]$ClickCount=1,
+      [string]$ExpectedRuntimeId,$BeforeClickBinding,[scriptblock]$PrepareTarget,[scriptblock]$BeforeClickCheck,[switch]$ThrowOnFailure)
+    Assert-True ($Window -eq $hwnd -and [object]::ReferenceEquals($Node,$script:searchFresh.layout.hit) -and
+      $ExpectedRuntimeId -ceq $Node.rid -and $RequireForeground -and $ThrowOnFailure -and $ExpectedInputTick -eq 19 -and
+      $PrepareTarget -and $BeforeClickCheck -and $BeforeClickBinding) 'Der Doppelklick verlor seine frische RID-, Vordergrund- oder Eingabebindung.'
+    if($ClickGuard -ceq 'rid'){$script:searchFresh=SearchSnapshot (SearchLayout 170)}
+    $preparedNode=& $PrepareTarget $Window $BeforeClickBinding $Node $ExpectedInputTick
+    if($ClickGuard -ceq 'geometry'){$script:searchFresh=SearchSnapshot (SearchLayout 170 -Reparent);$script:searchFresh.layout.hit.x++}
+    Assert-True (& $BeforeClickCheck $Window $BeforeClickBinding ([int]($preparedNode.x+$preparedNode.w/2)) ([int]($preparedNode.y+$preparedNode.h/2))) 'synthetic-before-click-blocked'
     $null = $script:searchClickTransactions.Add([pscustomobject]@{hwnd=[int64]$Window;rid=$Node.rid;count=$ClickCount})
     $script:searchClickClock += 100
     for ($index=0; $index -lt $ClickCount; $index++) {
@@ -284,32 +395,50 @@ function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesk
     $Previous
   }
   function IstZielseite { param([IntPtr]$Window, [string]$Heading) $Window -eq $hwnd -and $Heading -ceq $ziel }
-  . $visibleActivationBlock
+  function Fail {param($Message,$Kind,$Details) $script:searchFailure=[pscustomobject]@{kind=$Kind;details=$Details};throw 'search-failed'}
+  try {. $visibleActivationBlock} catch {Assert-True ($_.Exception.Message -ceq 'search-failed') "Unexpected visible search failure: $($_.Exception.Message)"}
   [pscustomobject]@{
     activated=$aktiviert; pageChanged=$suchSeiteGeoeffnet
     transactions=@($script:searchClickTransactions); times=@($script:searchClickTimes); waits=@($script:searchHeadingWaits)
+    expansions=$script:searchExpansions;snapshots=$script:searchSnapshots;failure=$script:searchFailure
   }
 }
 $doubleClick = Test-VisibleSearchActivation 'Zielseite'
 Assert-True ($doubleClick.activated -and $doubleClick.pageChanged) 'Der Suchtreffer wurde nicht innerhalb des synthetischen Doppelklickfensters aktiviert.'
 Assert-True ($doubleClick.transactions.Count -eq 1 -and $doubleClick.transactions[0].count -eq 2 -and
-  $doubleClick.transactions[0].hwnd -eq 4242 -and $doubleClick.transactions[0].rid -ceq '42.synthetic-search') `
+  $doubleClick.transactions[0].hwnd -eq 4242 -and $doubleClick.transactions[0].rid -ceq '73.9' -and
+  $doubleClick.expansions -eq 1 -and $doubleClick.snapshots -eq 4) `
   'Die Suchaktivierung muss eine einzige bewachte Doppelklicktransaktion verwenden.'
 Assert-True ($doubleClick.waits.Count -eq 1 -and $doubleClick.waits[0].timeoutMs -eq 1500 -and
   $doubleClick.waits[0].previous -ceq 'Startseite' -and $doubleClick.waits[0].target -ceq 'Zielseite') `
   'Die Suchaktivierung verlor ihre begrenzte Titel-Gegenprobe.'
 $missingHeading = Test-VisibleSearchActivation ''
-Assert-True (-not $missingHeading.activated -and -not $missingHeading.pageChanged -and $missingHeading.transactions.Count -eq 1) `
+Assert-True (-not $missingHeading.activated -and -not $missingHeading.pageChanged -and $missingHeading.transactions.Count -eq 1 -and
+  $missingHeading.failure.kind -ceq 'navigation-blocked' -and $missingHeading.failure.details.inputDispatched) `
   'Eine fehlende Ueberschrift erlaubte Erfolg oder einen erneuten Klickversuch.'
 $wrongHeading = Test-VisibleSearchActivation 'Andere Seite'
-Assert-True (-not $wrongHeading.activated -and $wrongHeading.pageChanged -and $wrongHeading.transactions.Count -eq 1) `
+Assert-True (-not $wrongHeading.activated -and $wrongHeading.pageChanged -and $wrongHeading.transactions.Count -eq 1 -and
+  $wrongHeading.failure.kind -ceq 'navigation-blocked') `
   'Eine andere Ueberschrift wurde als Ziel akzeptiert oder erneut angeklickt.'
 $hiddenSearch = Test-VisibleSearchActivation 'Zielseite' -HiddenDesktop
 Assert-True (-not $hiddenSearch.activated -and -not $hiddenSearch.pageChanged -and
   $hiddenSearch.transactions.Count -eq 0 -and $hiddenSearch.waits.Count -eq 0) `
   'Der sichtbare Doppelklickpfad bediente einen versteckten Desktop.'
 $script:DESKTOP_NAME = $null
-Write-Output 'goto-Suchaktivierung: eine bewachte Doppelklicktransaktion, begrenzter Readback und negative Gegenfaelle - bestanden'
+$visibleHit=Test-VisibleSearchActivation 'Zielseite' -Mode visible
+Assert-True ($visibleHit.activated -and $visibleHit.expansions -eq 0 -and $visibleHit.transactions.Count -eq 1 -and
+  $visibleHit.transactions[0].rid -ceq '42.9') 'Ein vollstaendig sichtbarer Treffer wurde umgeschaltet oder mit alter Bindung aktiviert.'
+foreach($mode in @('unchanged','collapse','partial','no-table','duplicate-title','query-rid','generation','no-button','input-change')) {
+  $blocked=Test-VisibleSearchActivation 'Zielseite' -Mode $mode
+  Assert-True ($blocked.transactions.Count -eq 0 -and $blocked.expansions -le 1 -and
+    $blocked.failure.kind -ceq 'navigation-blocked') "Unsicheres Layout erlaubte einen Trefferklick oder Weiternavigation: $mode"
+}
+foreach($guard in @('rid','geometry')) {
+  $blocked=Test-VisibleSearchActivation 'Zielseite' -ClickGuard $guard
+  Assert-True ($blocked.transactions.Count -eq 0 -and $blocked.failure.kind -ceq 'navigation-blocked') "Veraltete Klickbindung wurde akzeptiert: $guard"
+}
+Assert-True ([SW]::Enters -gt 0 -and [SW]::Enters -eq [SW]::Restores) 'Physischer DPI-Kontext wurde nicht fuer jeden gemockten Klick zurueckgegeben.'
+Write-Output 'goto-Suchaktivierung: Clipping, einmalige Vergroesserung, frische Bindung, bewachter Doppelklick und fail-closed Gegenfaelle - bestanden'
 
 $activatedBlocks = @($gotoBody.FindAll({
   param($node)

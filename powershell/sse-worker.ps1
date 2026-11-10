@@ -6027,6 +6027,166 @@ function Get-SSESearchFieldNode {
   Get-SSEContainerChild $Tree.nodes (Get-SSEMainWindowSelectors).search 'Edit'
 }
 
+# A fresh, own-root-bound search layout. No click is authorized by on=true:
+# Qt can report an enabled row whose center is outside the result viewport.
+function Get-SSESearchActivationSnapshot {
+  param([IntPtr]$Window,[string]$Target,[scriptblock]$Accept,$InputTick)
+  if($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick)){throw 'Die Suche verlor ihre Eingabe-Epoche.'}
+  $processId=0
+  $null=[SW]::GetWindowThreadProcessId($Window,[ref]$processId)
+  $epoch=[string](Get-SSETablePreparationProcessEpoch $processId)
+  if($processId -le 0 -or -not $epoch){throw 'Die Prozessgeneration der Suche ist nicht gebunden.'}
+  $tree=Walk-BoundTree $Window 4000 5 16 -Strict
+  if(-not $tree.stats -or $tree.stats.truncated -isnot [bool] -or $tree.stats.depthLimited -isnot [bool] -or
+    $tree.stats.truncated -or $tree.stats.depthLimited -or $tree.stats.err -ne 0 -or
+    $tree.stats.cyc -ne 0 -or $tree.stats.valErr -ne 0){throw 'Der Suchbaum ist nicht vollstaendig und fehlerfrei.'}
+  $layout=Get-SSESearchHitLayout $tree.nodes $Target -Accept $Accept
+  if(-not $layout){throw 'Die Suche bindet nicht genau eine Titelzelle, Tabelle und Suchzeile.'}
+  foreach($node in @($layout.table,$layout.hit,$layout.query)) {
+    $element=Get-LiveElement $Window ([string]$node.rid)
+    # An offscreen clipped row may authorize only layout preparation. A hit
+    # that is geometrically ready for input must also be visible to UIA.
+    if(-not $element -or [int]$element.Current.ProcessId -ne $processId -or
+      ($element.Current.IsOffscreen -and ($node.i -ne $layout.hit.i -or $layout.fullyVisible)) -or
+      -not $element.Current.IsEnabled){throw 'Ein Suchziel ist nicht sichtbar oder nicht im gebundenen Prozess.'}
+    $ancestry=Get-SSEUiaOwnRootAncestry $Window $element
+    if($ancestry.bound -ne $true -or $ancestry.complete -ne $true){throw 'Ein Suchziel gehoert nicht nachweislich zum Hauptfenster.'}
+    $fresh=Convert-ExactElementToNode $element
+    if(-not $fresh -or $fresh.type -cne $node.type -or $fresh.aid -cne $node.aid -or
+      $fresh.rid -cne $node.rid -or $fresh.name -cne $node.name -or
+      $fresh.x -ne $node.x -or $fresh.y -ne $node.y -or $fresh.w -ne $node.w -or $fresh.h -ne $node.h){
+      throw 'Die Suchgeometrie hat sich waehrend ihrer Bindung geaendert.'
+    }
+  }
+  $queryElement=Get-LiveElement $Window ([string]$layout.query.rid)
+  $queryPattern=$null
+  if(-not $queryElement -or -not $queryElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$queryPattern) -or
+    [string]$queryPattern.Current.Value -cne $Target){throw 'Der Suchtext ist nicht mehr exakt gebunden.'}
+  $freshPid=0
+  $null=[SW]::GetWindowThreadProcessId($Window,[ref]$freshPid)
+  if($freshPid -ne $processId -or [string](Get-SSETablePreparationProcessEpoch $freshPid) -cne $epoch -or
+    -not (Test-SSELastInputUnchanged $InputTick)){throw 'Fenster-, Prozess- oder Eingabebindung der Suche hat sich geaendert.'}
+  [pscustomobject]@{window=[int64]$Window;processId=$processId;epoch=$epoch;target=$Target;accept=$Accept;
+    query=$Target;layout=$layout;inputTick=$InputTick;windowWriteAttempted=$false}
+}
+
+function Test-SSESearchSnapshotIdentity {
+  param($Before,$After,[switch]$AllowNewTable,[switch]$CompareGeometry)
+  if(-not $Before -or -not $After -or $Before.window -ne $After.window -or
+    $Before.processId -ne $After.processId -or $Before.epoch -cne $After.epoch -or
+    $Before.target -cne $After.target -or $Before.query -cne $After.query -or
+    $Before.layout.query.rid -cne $After.layout.query.rid -or
+    $Before.layout.query.aid -cne $After.layout.query.aid -or $Before.layout.title -cne $After.layout.title){return $false}
+  if(-not $AllowNewTable -and ($Before.layout.table.rid -cne $After.layout.table.rid -or
+    $Before.layout.table.aid -cne $After.layout.table.aid -or $Before.layout.hit.rid -cne $After.layout.hit.rid -or
+    $Before.layout.hit.aid -cne $After.layout.hit.aid)){return $false}
+  if($CompareGeometry){
+    foreach($part in @('table','hit')){foreach($key in @('x','y','w','h')){
+      if($Before.layout.$part.$key -ne $After.layout.$part.$key){return $false}
+    }}
+  }
+  $true
+}
+
+function Invoke-SSESearchListExpansion {
+  param([IntPtr]$Window,$Snapshot,$Button,$InputTick)
+  $fresh=Get-SSESearchActivationSnapshot $Window $Snapshot.target $Snapshot.accept $InputTick
+  $freshButton=Get-SSESearchExpansionButton $fresh.layout
+  if(-not (Test-SSESearchSnapshotIdentity $Snapshot $fresh -CompareGeometry) -or -not $freshButton -or
+    $freshButton.rid -cne $Button.rid -or $freshButton.aid -cne $Button.aid -or
+    $freshButton.x -ne $Button.x -or $freshButton.y -ne $Button.y -or $freshButton.w -ne $Button.w -or $freshButton.h -ne $Button.h){
+    throw 'Der Schalter zum Vergroessern der eigenen Suchliste ist nicht mehr exakt gebunden.'
+  }
+  $element=Get-LiveElement $Window ([string]$freshButton.rid)
+  $ancestry=Get-SSEUiaOwnRootAncestry $Window $element
+  $liveButton=$(if($element){Convert-ExactElementToNode $element}else{$null})
+  if(-not $element -or $element.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button -or
+    [string]$element.Current.Name -cne 'Trefferliste aus-/einklappen' -or $element.Current.IsOffscreen -or
+    -not $element.Current.IsEnabled -or $ancestry.bound -ne $true -or $ancestry.complete -ne $true -or
+    -not $liveButton -or $liveButton.rid -cne $freshButton.rid -or $liveButton.aid -cne $freshButton.aid -or
+    $liveButton.x -ne $freshButton.x -or $liveButton.y -ne $freshButton.y -or
+    $liveButton.w -ne $freshButton.w -or $liveButton.h -ne $freshButton.h -or
+    -not (Test-SSELastInputUnchanged $InputTick)){throw 'Der Suchlistenschalter verlor seine Fenster- oder Eingabebindung.'}
+  $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+
+# The callbacks are private worker dependencies, never caller arguments. They
+# also let the contract exercise the actual one-expansion flow without any UI.
+function Resolve-SSEVisibleSearchActivation {
+  param([IntPtr]$Window,[string]$Target,[scriptblock]$Accept,$InputTick,
+    [scriptblock]$ReadSnapshot,[scriptblock]$ExpandLayout,[int]$ExpectedProcessId)
+  $expanded=$false
+  try {
+    if($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick)){throw 'Die Suche hat keine unveraenderte Eingabe-Epoche.'}
+    $before=& $ReadSnapshot
+    if(-not $before -or $ExpectedProcessId -le 0 -or $before.processId -ne $ExpectedProcessId -or
+      $before.window -ne [int64]$Window -or $before.target -cne $Target -or
+      $before.query -cne $Target -or -not $before.layout){throw 'Die Suchliste ist nicht exakt gebunden.'}
+    if($before.layout.fullyVisible){return [pscustomobject]@{snapshot=$before;expanded=$false}}
+    $button=Get-SSESearchExpansionButton $before.layout
+    if(-not $button){throw 'Der abgeschnittene Treffer hat keinen eindeutig gebundenen Vergroesserungsschalter.'}
+    $expanded=$true
+    & $ExpandLayout $before $button
+    Start-Sleep -Milliseconds 150
+    $after=& $ReadSnapshot
+    if(-not (Test-SSESearchSnapshotIdentity $before $after -AllowNewTable) -or
+      $after.layout.table.h -le $before.layout.table.h -or -not $after.layout.fullyVisible -or
+      -not (Test-SSELastInputUnchanged $InputTick)){
+      throw 'Die einmalige Suchlisten-Vergroesserung hat keinen frisch gebundenen vollstaendig sichtbaren Treffer geliefert.'
+    }
+    [pscustomobject]@{snapshot=$after;expanded=$true}
+  } catch {
+    $_.Exception.Data['layoutExpansionAttempted']=[bool]$expanded
+    throw
+  }
+}
+
+function Prepare-SSESearchHitClick {
+  param([IntPtr]$Window,$Binding,$Node,$InputTick)
+  $fresh=Get-SSESearchActivationSnapshot $Window $Binding.snapshot.target $Binding.snapshot.accept $InputTick
+  if(-not (Test-SSESearchSnapshotIdentity $Binding.snapshot $fresh) -or -not $fresh.layout.fullyVisible){
+    throw 'Der Suchtreffer ist nach der Vordergrunduebernahme nicht mehr exakt und vollstaendig sichtbar.'
+  }
+  $Binding.snapshot=$fresh
+  $Binding.windowWriteAttempted=$false
+  $fresh.layout.hit
+}
+
+function Test-SSESearchHitBeforeClick {
+  param([IntPtr]$Window,$Binding,[int]$X,[int]$Y)
+  $fresh=Get-SSESearchActivationSnapshot $Window $Binding.snapshot.target $Binding.snapshot.accept $Binding.snapshot.inputTick
+  [bool]((Test-SSESearchSnapshotIdentity $Binding.snapshot $fresh -CompareGeometry) -and
+    $fresh.layout.fullyVisible -and $fresh.layout.pointX -eq $X -and $fresh.layout.pointY -eq $Y)
+}
+
+function Invoke-SSESearchHitDoubleClick {
+  param([IntPtr]$Window,$Prepared,$InputTick)
+  $binding=[pscustomobject]@{snapshot=$Prepared.snapshot;windowWriteAttempted=$false}
+  $thread=[SW]::GetCurrentThreadId()
+  $previous=[SW]::EnterPhysicalDpiContext()
+  if($previous -eq [IntPtr]::Zero){throw 'Physischer DPI-Kontext fuer den Suchtreffer ist nicht verfuegbar.'}
+  $inputDispatched=$false
+  try {
+    $result=Click-VerifiedPoint $Window $binding.snapshot.layout.hit $InputTick -RequireForeground -ClickCount 2 `
+      -ExpectedRuntimeId ([string]$binding.snapshot.layout.hit.rid) -BeforeClickBinding $binding `
+      -PrepareTarget ${function:Prepare-SSESearchHitClick} -BeforeClickCheck ${function:Test-SSESearchHitBeforeClick} -ThrowOnFailure
+    $inputDispatched=$true
+    $result
+  } catch {
+    if($_.Exception.Data.Contains('inputDispatched')){$inputDispatched=[bool]$_.Exception.Data['inputDispatched']}
+    throw
+  } finally {
+    if([SW]::GetCurrentThreadId() -ne $thread -or -not [SW]::RestoreDpiContext($previous)){
+      Exit-SSEForegroundLease -Hwnd $Window -Force -PreserveForeground -Reason 'search-dpi-context-unconfirmed'
+      $failure=[InvalidOperationException]::new('Der DPI-Rueckweg nach der Suchaktivierung ist nicht bestaetigt.')
+      $failure.Data['dpiContextUnconfirmed']=$true
+      $failure.Data['reconciliationRequired']=$true
+      $failure.Data['inputDispatched']=[bool]$inputDispatched
+      throw $failure
+    }
+  }
+}
+
 # Grenzen des Arbeitsbereichs bestimmen. NICHT fest verdrahten: das Fenster
 # ist mal 1768, mal 2578 px breit. Links endet der Navigationsbaum (Tree),
 # rechts beginnt die Hilfespalte (Knopf "Eingabehilfe").
@@ -21650,16 +21810,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               }
             }
             if (-not $suchSeiteGeoeffnet -and -not $script:DESKTOP_NAME) {
-              # Sichtbarer Desktop: Qt meldet bei Suchtreffern regelmaessig
-              # erfolgreichen Invoke/Select ohne Seitenwechsel. Direkt hier
-              # den bereits PID-verifizierten Treffer doppelklicken, statt den
-              # Aufrufer zu vier weiteren MCP-Roundtrips (find/rid/click/page)
-              # zu zwingen. Der Erfolg gilt weiterhin nur bei geaenderter bzw.
-              # exakt passender Ueberschrift.
+              # Ein aktivierter Qt-Treffer kann unter dem Tabellenrand liegen.
+              # Erst vollstaendige Geometrie binden, bei nachgewiesenem Clipping
+              # die eigene Liste einmal vergroessern und danach alles neu lesen.
+              $searchInputTick = Get-SSELastInputTick
+              $searchPrepared = $null
+              $searchInputDispatched = $false
+              $searchFailure = $null
               try {
                 # Zwei Einzelaufrufe verbringen dazwischen ihre vollstaendige
                 # Guard-/Settle-Phase und koennen das Doppelklickfenster verpassen.
-                $null = Click-VerifiedPoint $hwnd $genau -ClickCount 2
+                $searchPrepared = Resolve-SSEVisibleSearchActivation $hwnd $ziel $titelRegel $searchInputTick `
+                  -ExpectedProcessId $gotoPid `
+                  -ReadSnapshot { Get-SSESearchActivationSnapshot $hwnd $ziel $titelRegel $searchInputTick } `
+                  -ExpandLayout { param($snapshot,$button) Invoke-SSESearchListExpansion $hwnd $snapshot $button $searchInputTick }
+                $null = Invoke-SSESearchHitDoubleClick $hwnd $searchPrepared $searchInputTick
+                $searchInputDispatched = $true
                 # Solange die Suchseite offen ist, ist die Formularueberschrift
                 # nicht im UIA-Baum. Ein einzelner Readback nach fester
                 # Wartezeit hat den Seitenaufbau gelegentlich verpasst und den
@@ -21670,9 +21836,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 $nachSuche = WarteAufUeberschrift $hwnd $start $ziel 1500
                 $aktiviert = IstZielseite $hwnd $nachSuche
                 $suchSeiteGeoeffnet = $aktiviert -or ($nachSuche -and $nachSuche -ne $start)
-                $null = $suchWeg.Add("PID-gepruefter Doppelklick -> '$nachSuche'")
+                $null = $suchWeg.Add("Frisch gebundener Doppelklick (Liste vergroessert: $($searchPrepared.expanded)) -> '$nachSuche'")
               } catch {
-                $null = $suchWeg.Add("PID-gepruefter Doppelklick fehlgeschlagen: $($_.Exception.Message)")
+                $searchFailure = $_.Exception
+                if ($searchFailure.Data.Contains('inputDispatched')) {
+                  $searchInputDispatched = [bool]$searchFailure.Data['inputDispatched']
+                }
+                $null = $suchWeg.Add("Suchaktivierung blockiert: $($searchFailure.Message)")
+              }
+              # Ein verspaeteter Suchsprung darf nicht von Weiter/Zurueck
+              # ueberholt werden. Auch eine unklare Vorbereitung wird beendet.
+              if ($searchFailure -or -not $aktiviert) {
+                Fail 'Die Suchaktivierung hat die Zielseite nicht bestaetigt; keine weitere Navigation.' 'navigation-blocked' `
+                  ([pscustomobject]@{ ueberschrift = [string]$nachSuche; weg = @($suchWeg)
+                    inputDispatched = $searchInputDispatched
+                    layoutExpansionAttempted = [bool](($searchPrepared -and $searchPrepared.expanded) -or
+                      ($searchFailure -and $searchFailure.Data['layoutExpansionAttempted'])) })
               }
             }
             if (-not $suchSeiteGeoeffnet -and $script:DESKTOP_NAME) {

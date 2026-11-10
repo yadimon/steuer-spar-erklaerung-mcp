@@ -103,13 +103,13 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "958d94c05992bcbf98f34fccb0edc901fee84485c09977ff2ba1345996069cec",
-      "size": 1646140
+      "sha256": "c288aa73fe48161d2e96fd819ed82d97394bac8fbdd34c9193b54a7f8d13a7c1",
+      "size": 1657470
     },
     {
       "path": "powershell/structure-binding.ps1",
-      "sha256": "cf4ecfc4c5d21018d8c8ae4ae5c1bf135df7ed79a6ed6c9e695e1b076f5a9fce",
-      "size": 8260
+      "sha256": "41e6fd62d2bb72a69c9994bb77156a60af0acc50d12bd595369943aa3d4cb7f4",
+      "size": 12889
     },
     {
       "path": "powershell/table-boolean.ps1",
