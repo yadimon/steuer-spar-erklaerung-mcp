@@ -22385,7 +22385,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # through GetColumnHeaders. Their exact RIDs, logical order, names
           # and physical geometry must match the initial bound tree.
           $rect=$gridHeaders[$column].rect;$expected=$expectedHeaders[$column]
-          if($gridHeaders[$column].name -cne $expected.name -or $gridHeaders[$column].rid -cne $expected.rid -or $rect.empty -or
+          # Normalize only this cross-representation name, exactly like the
+          # snapshot. Raw scan names and their two-observation equality remain.
+          $snapshotHeaderName=([string]$gridHeaders[$column].name -replace "`r|`n|`t",' ').Trim()
+          if($snapshotHeaderName -cne $expected.name -or $gridHeaders[$column].rid -cne $expected.rid -or $rect.empty -or
               [Math]::Abs($rect.x-[double]$expected.x) -gt 1 -or [Math]::Abs($rect.y-[double]$expected.y) -gt 1 -or
               [Math]::Abs($rect.width-[double]$expected.w) -gt 1 -or [Math]::Abs($rect.height-[double]$expected.h) -gt 1) {
             throw 'Grid header name, order or physical geometry changed.'

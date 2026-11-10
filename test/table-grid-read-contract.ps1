@@ -626,3 +626,66 @@ $unknownEditor.nodes+=[pscustomobject]@{i=5;p=0;type='Custom';name='';aid='Synth
 $unknownRead=Invoke-FormReadFixture $true $unknownEditor
 Assert (-not $unknownRead.snapshot.navigationBinding.editorFree) 'The new scoped resolver relaxed the unknown table-editor guard.'
 Write-Output 'Grid scalar root binding: stable across observations, identity/subpixel drift rejected, dedicated bridge, unknown editor still blocked.'
+
+# Compare the actual cross-representation loop against scalar observations.
+# Snapshot names replace each CR/LF/TAB independently and trim the ends; raw
+# model names remain unchanged within both scans and in the public projection.
+$crossLoops=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.ForStatementAst] -and
+  $node.Extent.Text.Contains('Grid header name, order or physical geometry changed.')
+},$true))
+$crossCounts=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '$gridHeaders.Count -ne $expectedHeaders.Count'
+},$true))
+Assert ($crossLoops.Count -eq 1 -and $crossCounts.Count -eq 1) 'The actual Grid/snapshot header comparison is not unique.'
+$crossHeaderGuard=[scriptblock]::Create($crossCounts[0].Extent.Text+"`n"+$crossLoops[0].Extent.Text)
+function Test-CrossHeaderFixture($Raw,$Expected) {
+  $gridHeaders=@($Raw);$expectedHeaders=@($Expected)
+  try {. $crossHeaderGuard} catch {return $false}
+  $true
+}
+function New-CrossHeaderFixture {
+  [pscustomobject]@{
+    raw=@(
+      [pscustomobject]@{name="Für`r`n2099";rid='Header.1';rect=[pscustomobject]@{empty=$false;x=10.0;y=20.0;width=90.0;height=30.0}},
+      [pscustomobject]@{name='Betrag';rid='Header.2';rect=[pscustomobject]@{empty=$false;x=100.0;y=20.0;width=80.0;height=30.0}}
+    )
+    expected=@(
+      [pscustomobject]@{name='Für  2099';rid='Header.1';x=10;y=20;w=90;h=30},
+      [pscustomobject]@{name='Betrag';rid='Header.2';x=100;y=20;w=80;h=30}
+    )
+  }
+}
+$cross=New-CrossHeaderFixture
+Assert (Test-CrossHeaderFixture $cross.raw $cross.expected) 'Cross-representation header comparison rejected independently normalized CR/LF with identical identity/geometry.'
+$cross.raw[0].name=" `tFür`r`n2099  "
+Assert (Test-CrossHeaderFixture $cross.raw $cross.expected) 'Cross-representation names did not retain the snapshot trim semantics.'
+$cross.raw[0].name="Für`t`t2099"
+Assert (Test-CrossHeaderFixture $cross.raw $cross.expected) 'Cross-representation names did not replace each TAB independently.'
+foreach($case in @('name','case','single-space','rid','order','count','empty','x','y','width','height')) {
+  $cross=New-CrossHeaderFixture
+  switch($case) {
+    'name' {$cross.raw[0].name="Für`r`n2100"}
+    'case' {$cross.raw[0].name="für`r`n2099"}
+    'single-space' {$cross.raw[0].name='Für 2099'}
+    'rid' {$cross.raw[0].rid='Header.other'}
+    'order' {$cross.raw=@($cross.raw[1],$cross.raw[0])}
+    'count' {$cross.raw=@($cross.raw[0])}
+    'empty' {$cross.raw[0].rect.empty=$true}
+    'x' {$cross.raw[0].rect.x+=2}
+    'y' {$cross.raw[0].rect.y+=2}
+    'width' {$cross.raw[0].rect.width+=2}
+    'height' {$cross.raw[0].rect.height+=2}
+  }
+  Assert (-not (Test-CrossHeaderFixture $cross.raw $cross.expected)) ('Cross-representation header guard was relaxed: '+$case)
+}
+$cross=New-CrossHeaderFixture;$cross.raw[0].rect.x+=1
+Assert (Test-CrossHeaderFixture $cross.raw $cross.expected) 'The existing one-pixel geometry boundary was changed.'
+$rawNames=Copy-Scan $scan;$rawNames.headers[0].name="Für`r`n2099"
+$rawProjection=Project $rawNames
+Same $rawProjection.kopf[0] "Für`r`n2099" 'Public Grid projection normalized a raw model header.'
+$rawChanged=Copy-Scan $rawNames;$rawChanged.headers[0].name='Für  2099';$rawRejected=$false
+try {$null=ConvertTo-SSEGridTableProjection $rawNames $rawChanged 1000} catch {$rawRejected=$true}
+Assert $rawRejected 'Different raw header names between two scans were accepted after snapshot-style normalization.'
+Write-Output 'Grid/snapshot header comparison: identical snapshot normalization, exact names/case/RID/order/geometry guards, raw model names preserved.'
