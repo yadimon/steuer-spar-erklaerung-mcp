@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { executeLaunchOperation } from "../dist/launch-executor.js";
+import { readGuiLaunchJob, withVisibleGuiLaunchGuard } from "../dist/gui-launch-lifetime.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-launch-orchestration-"));
 const config = {
@@ -50,6 +53,117 @@ function assertPreserved(result, pid, processStillRunning = null) {
 }
 
 try {
+  for (const emitError of [false, true]) {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    let kills = 0, unrefs = 0;
+    child.kill = () => { kills++; return false; };
+    child.unref = () => { unrefs++; };
+    await assert.rejects(readGuiLaunchJob(undefined, {
+      timeoutMs: 5, cleanupMs: 5,
+      spawnProcess: (executable, args, options) => {
+        assert(executable.endsWith("gui-launch-lifetime.exe"));
+        assert.deepEqual(args, []);
+        assert.equal(options.detached, true);
+        assert.equal(options.windowsHide, true);
+        if (emitError) setImmediate(() => child.emit("error", new Error("synthetic spawn failure without close")));
+        return child;
+      },
+    }), /exit remains unproven/u);
+    assert.equal(kills, 1, "Unproven cleanup must not retry termination.");
+    assert.equal(unrefs, 1);
+    assert.equal(child.stdout.destroyed, true);
+    assert.equal(child.stderr.destroyed, true);
+    assert.equal(child.stdout.listenerCount("data"), 0);
+    child.emit("error", new Error("late synthetic error"));
+  }
+  {
+    let clock = 0, remaining, starts = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, undefined,
+      async (budget) => { starts++; remaining = budget; return { ok: true }; },
+      async () => { clock = 2_000; return { ok: true, inJob: false, limitFlags: 0 }; },
+      { timeoutMs: 30_000, now: () => clock });
+    assert.equal(result.ok, true); assert.equal(starts, 1); assert.equal(remaining, 28_000);
+  }
+  {
+    let clock = 0, starts = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, undefined,
+      async () => { starts++; return { ok: true }; },
+      async () => { clock = 27_000; return { ok: true, inJob: false, limitFlags: 0 }; },
+      { timeoutMs: 30_000, now: () => clock });
+    assert.equal(result.ok, false); assert.equal(result.mutationStarted, false); assert.equal(starts, 0);
+  }
+  {
+    const nativeObservation = await readGuiLaunchJob();
+    assert.equal(nativeObservation.ok, true);
+    assert.equal(typeof nativeObservation.inJob, "boolean");
+    assert(Number.isSafeInteger(nativeObservation.limitFlags));
+    const workerSource = readFileSync("src/worker.ts", "utf8");
+    assert(workerSource.indexOf("return withVisibleGuiLaunchGuard(op, desk, signal,") >
+      workerSource.indexOf("const markerAllowsWarmSpare ="));
+    assert(workerSource.indexOf("return withVisibleGuiLaunchGuard(op, desk, signal,") <
+      workerSource.indexOf("const spare = !desk"));
+  }
+  for (const flags of [0x2000, 0x2800]) {
+    let starts = 0, probes = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, undefined,
+      async () => { starts++; return { ok: true }; },
+      async () => { probes++; return { ok: true, inJob: true, limitFlags: flags }; });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "launch-error");
+    assert.equal(result.mutationStarted, false);
+    assert.equal(result.resultingState, "unchanged");
+    assert.equal(result.retryable, false);
+    assert.equal(starts, 0, "A kill-on-close host must not reach a GUI worker.");
+    assert.equal(probes, 1);
+  }
+  for (const value of [null, {}, { ok: false }, { ok: true, inJob: false, limitFlags: 8192 },
+    { ok: true, inJob: true, limitFlags: -1 }, { ok: true, inJob: true, limitFlags: 0, extra: true }]) {
+    let starts = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, undefined,
+      async () => { starts++; return { ok: true }; }, async () => value);
+    assert.equal(result.ok, false);
+    assert.equal(result.mutationStarted, false);
+    assert.equal(starts, 0);
+  }
+  {
+    let starts = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, undefined,
+      async () => { starts++; return { ok: true }; }, async () => { throw new Error("Query failed or timed out"); });
+    assert.equal(result.ok, false);
+    assert.equal(result.resultingState, "unchanged");
+    assert.equal(starts, 0);
+  }
+  for (const flags of [0, 0x1800, 0x3000]) {
+    let starts = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, undefined,
+      async () => { starts++; return { ok: true, pid: 4100 }; },
+      async () => ({ ok: true, inJob: flags !== 0, limitFlags: flags }));
+    assert.equal(result.pid, 4100);
+    assert.equal(starts, 1);
+  }
+  for (const [operation, desktop] of [["health", null], ["launch", "ValidatedPrivateDesktop"]]) {
+    let starts = 0, probes = 0;
+    await withVisibleGuiLaunchGuard(operation, desktop, undefined,
+      async () => { starts++; return { ok: true }; }, async () => { probes++; throw new Error("unexpected probe"); });
+    assert.equal(starts, 1);
+    assert.equal(probes, 0, "Other operations and the validated private desktop keep their existing path.");
+  }
+  {
+    const controller = new AbortController(); let starts = 0, probes = 0;
+    controller.abort();
+    const result = await withVisibleGuiLaunchGuard("launch", null, controller.signal,
+      async () => { starts++; return { ok: true }; }, async () => { probes++; return {}; });
+    assert.equal(result.kind, "aborted"); assert.equal(starts, 0); assert.equal(probes, 0);
+  }
+  {
+    const controller = new AbortController(); let starts = 0;
+    const result = await withVisibleGuiLaunchGuard("launch", null, controller.signal,
+      async () => { starts++; return { ok: true }; }, async () => {
+        controller.abort(); return { ok: true, inJob: false, limitFlags: 0 };
+      });
+    assert.equal(result.kind, "aborted"); assert.equal(result.mutationStarted, false); assert.equal(starts, 0);
+  }
   {
     let calls = 0;
     const execute = createApiExecutor(config, async () => {

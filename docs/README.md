@@ -1,7 +1,10 @@
 # Dokumentation
 
-Der Nutzerstandard ist das selbstenthaltene Agent Plugin. Ältere Release Notes beschreiben ihren damaligen Stand und sind keine
-aktuelle Installationsanweisung.
+Für Codex ist direktes npm-MCP mit automatisch installierter API und separat
+installiertem Skill der empfohlene Einstieg. Die Codex-Plugin-Empfehlung ist
+wegen des bekannten 64-000-Bytes-Metadatenbudgets vorläufig ausgesetzt; für
+Claude Code bleibt das Agent Plugin unterstützt. Ältere Release Notes
+beschreiben ihren damaligen Stand und sind keine aktuelle Installationsanweisung.
 
 ## Einstieg
 
@@ -31,7 +34,7 @@ aktuelle Installationsanweisung.
 - [Sicherheitsrichtlinie](../SECURITY.md) — Support-, Melde- und
   Betriebsgrenze.
 
-## Fortgeschrittene Nutzung
+## Pakete und weiterführende Nutzung
 
 - [API-Paket](../packages/api/README.md) — direkte HTTP-/CLI-Nutzung ohne
   Agent Plugin;
@@ -39,7 +42,7 @@ aktuelle Installationsanweisung.
 - [Abgleichvorlage](ABGLEICH-BEISPIEL.md) — strukturierter Vergleich mit
   einer externen Belegaufstellung.
 
-Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
+Das MCP-Paket ist der empfohlene Codex-Einstieg; API-only ist ein eigener Integrationsweg.
 
 ## Für Mitwirkende
 

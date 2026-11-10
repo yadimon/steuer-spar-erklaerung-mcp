@@ -28,23 +28,23 @@ for (const feature of [
   assert(readme.includes(feature), `README-Feature fehlt: ${feature}`);
 }
 
-const codexInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes";
+const codexInstall = "npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest";
 const codexActivate = "codex plugin add steuer-spar-erklaerung@plugins-cli --json";
 const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes";
-assert(readme.includes(codexInstall), "Codex-Plugin-Quickstart fehlt.");
-assert(readme.includes(codexActivate), "Target-native Codex-Aktivierung fehlt.");
+assert(readme.includes(codexInstall), "Direkter Codex-npm-MCP-Quickstart fehlt.");
 assert(readme.includes(claudeInstall), "Claude-Code-Plugin-Quickstart fehlt.");
 const codexSection = readme.slice(readme.indexOf("### Codex"), readme.indexOf("### Claude Code"));
 const claudeSection = readme.slice(readme.indexOf("### Claude Code"), readme.indexOf("## Erster Auftrag"));
-assert(codexSection.indexOf(codexInstall) < codexSection.indexOf(codexActivate),
-  "Codex muss erst mit plugins@1 klonen und danach target-nativ aktiviert werden.");
-assert(codexSection.includes("codex plugin list --json")
-  && codexSection.includes("`not installed`")
-  && codexSection.includes("`installed, enabled`")
-  && codexSection.includes("materialisieren"),
-  "README muss die reale Codex-Zustandsfolge samt Readback-Grenze nennen.");
-assert.doesNotMatch(codexSection, /codex plugin list --json.+(?:installiert|ändert) nichts/isu,
-  "README darf den beobachtet zustandsbildenden Readback nicht als seiteneffektfrei behaupten.");
+assert(codexSection.includes("codex mcp add steuer-spar-erklaerung")
+  && codexSection.includes("--env \"SSE_API_CONFIG=$ApiConfig\" -- $Node $Mcp")
+  && codexSection.includes("Skill Installer")
+  && codexSection.includes("sse_instances"),
+  "Codex braucht direkte MCP-Registrierung, Datenbindung, separaten Skill und echte Werkzeugpruefung.");
+assert(!codexSection.includes(codexActivate) && !codexSection.includes("--target codex"),
+  "Der Codex-Schnellstart darf die vorlaeufig nicht empfohlene Plugin-Installation nicht anweisen.");
+assert(readme.includes("Plugin-Installation vorläufig nicht empfohlen")
+  && readme.includes("64 000 Bytes") && readme.includes("26 von 104"),
+  "Bekannte Codex-Plugin-Grenze muss im Schnellstart sichtbar sein.");
 assert(claudeSection.includes(claudeInstall)
   && claudeSection.includes("`enabled`")
   && claudeSection.includes("User-Scope")
@@ -55,9 +55,9 @@ assert.match(normalized, /plugins@1\.3\.4.+ignoriert den Scope bei Codex/iu);
 assert(readme.includes("keine physische") && readme.includes("Projektisolation"));
 assert(readme.includes("SSE_API_CONFIG"));
 
-assert(normalized.includes("kein `npm install`") && normalized.includes("kein separates API-Terminal"));
+assert(normalized.includes("automatisch installierter API") && normalized.includes("API vor dem Fachauftrag in einem eigenen Terminal starten"));
 assert(normalized.includes("Beim MCP-Start laufen weder npm noch npx") && normalized.includes("kein Netzwerkzugriff"));
-assert.doesNotMatch(readme, /npm\.cmd install --save-exact @yadimon\/steuer-spar-erklaerung-mcp/iu);
+assert(normalized.includes("nicht synchronisierten Laufwerk"));
 assert.doesNotMatch(readme, /npx(?:\.cmd)?\s+(?:-y\s+)?@yadimon\/steuer-spar-erklaerung-(?:mcp|api)/iu);
 assert.doesNotMatch(readme, /OpenCode/iu, "README darf keine OpenCode-Unterstützung behaupten.");
 
@@ -88,4 +88,4 @@ assert.match(readme, /github\.com\/yadimon\/steuer-spar-erklaerung-mcp\/releases
 assert.doesNotMatch(readme, /docs\/releases\/v\d+\.\d+\.\d+(?:-[^)\s]+)?\.md/iu);
 assert.doesNotMatch(readme, /v\d+\.\d+\.\d+-beta\.\d+/iu);
 
-process.stdout.write("README: Plugin-First-Quickstart, Scope-Wahrheit, First run und Sicherheitsgrenzen bestanden\n");
+process.stdout.write("README: direkter Codex-MCP, Plugin-Kompatibilitaetsgrenze, First run und Sicherheitsgrenzen bestanden\n");

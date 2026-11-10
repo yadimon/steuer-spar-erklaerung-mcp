@@ -149,7 +149,11 @@ for (const required of [
 }
 for (const path of api.paths) {
   assert.notEqual(path, "powershell/build-native.ps1", "API-Paket darf den Dev-only Native-Builder nicht enthalten.");
+  assert.notEqual(path, "powershell/build-gui-launch-probe.ps1", "API-Paket darf den Dev-only Probe-Builder nicht enthalten.");
   assert(!/^dist\/(?:index|mcp-(?:main|registry|response|tools))/u.test(path), `API-Paket enthaelt MCP-Runtime: ${path}`);
+}
+for (const required of ["powershell/gui-launch-lifetime.exe", "powershell/gui-launch-lifetime.cs", "powershell/gui-launch-lifetime.sha256"]) {
+  assert(api.paths.has(required), `API-Paket braucht den gebundenen GUI-Lifetime-Probe: ${required}`);
 }
 
 const mcp = dryPack("packages/mcp");

@@ -19,6 +19,9 @@ packages/api/profiles/
 packages/*/LICENSE
 powershell/sse-native.dll
 powershell/sse-native.sha256
+powershell/gui-launch-lifetime.exe
+powershell/gui-launch-lifetime.sha256
+powershell/.gui-launch-lifetime-*
 powershell/.sse-native-*.dll
 powershell/.sse-native-*.sha256
 powershell/.sse-native-*.replace.dll

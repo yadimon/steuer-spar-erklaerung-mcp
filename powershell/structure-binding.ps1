@@ -175,6 +175,101 @@ function Select-SSESearchHit {
   $null
 }
 
+# Pure layout evidence for a search title. Enabled Qt items can extend beyond
+# their visible table; the rounded point used by Click-VerifiedPoint must also
+# remain strictly inside both half-open rectangles.
+function Get-SSESearchAncestor {
+  param([AllowEmptyCollection()]$Nodes,$Node,[string]$AidSuffix,[string]$Type)
+  $byIndex=@{}
+  foreach($entry in @($Nodes)) {
+    $index=[int]$entry.i
+    if($byIndex.ContainsKey($index)){return $null}
+    $byIndex[$index]=$entry
+  }
+  $seen=@{};$current=$Node
+  for($depth=0;$depth -lt 32 -and $current;$depth++) {
+    $index=[int]$current.i
+    if($seen.ContainsKey($index)){return $null}
+    $seen[$index]=$true
+    if($current.type -ceq $Type -and ([string]$current.aid).EndsWith($AidSuffix,[StringComparison]::Ordinal)){return $current}
+    $parent=[int]$current.p
+    $current=$(if($parent -ge 0 -and $byIndex.ContainsKey($parent)){$byIndex[$parent]}else{$null})
+  }
+  $null
+}
+
+function Get-SSESearchHitTitle {
+  param([AllowEmptyCollection()]$Nodes,$Hit,[string]$Target,[scriptblock]$Accept=$null)
+  $inside=@{};$inside[[int]$Hit.i]=$true
+  $accepted=New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+  foreach($node in @($Nodes)) {
+    if([int]$node.i -ne [int]$Hit.i) {
+      if(-not $inside.ContainsKey([int]$node.p)){continue}
+      $inside[[int]$node.i]=$true
+    }
+    if($node.type -cnotin @('DataItem','Text','Hyperlink')){continue}
+    $name=[string]$node.name
+    if($name -ceq $Target){return $name}
+    if($Accept -and $name -and (& $Accept $name)){$null=$accepted.Add($name)}
+  }
+  if($accepted.Count -eq 1){return @($accepted)[0]}
+  $null
+}
+
+function Get-SSESearchHitLayout {
+  param([AllowEmptyCollection()]$Nodes,[string]$Target,[scriptblock]$Accept=$null)
+  $table=Find-SSEContainerNode $Nodes 'DialogSearchResultsTableView' 'Table'
+  $hit=Select-SSESearchHit $Nodes $Target -Accept $Accept
+  $queries=@($Nodes | Where-Object {
+    $_.type -ceq 'Edit' -and ([string]$_.aid).EndsWith('.SearchFrameSSE.QWidget.SearchSSE.QLineEdit',[StringComparison]::Ordinal)
+  })
+  if(-not $table -or -not $hit -or $queries.Count -ne 1){return $null}
+  $query=$queries[0]
+  foreach($node in @($table,$hit,$query)) {
+    if(-not $node.on -or -not [string]$node.rid){return $null}
+    foreach($key in @('x','y','w','h')) {
+      try{$number=[double]$node.$key}catch{return $null}
+      if([double]::IsNaN($number) -or [double]::IsInfinity($number) -or [Math]::Abs($number) -gt 1000000){return $null}
+    }
+    if($node.w -le 0 -or $node.h -le 0){return $null}
+  }
+  $title=Get-SSESearchHitTitle $Nodes $hit $Target -Accept $Accept
+  if(-not $title){return $null}
+  $pointX=[int]($hit.x+$hit.w/2);$pointY=[int]($hit.y+$hit.h/2)
+  $fullyVisible=[bool]($hit.x -ge $table.x -and $hit.y -ge $table.y -and
+    $hit.x+$hit.w -le $table.x+$table.w -and $hit.y+$hit.h -le $table.y+$table.h -and
+    $pointX -ge $hit.x -and $pointX -lt $hit.x+$hit.w -and $pointY -ge $hit.y -and $pointY -lt $hit.y+$hit.h -and
+    $pointX -ge $table.x -and $pointX -lt $table.x+$table.w -and $pointY -ge $table.y -and $pointY -lt $table.y+$table.h)
+  [pscustomobject]@{nodes=@($Nodes);table=$table;hit=$hit;query=$query;title=$title;
+    fullyVisible=$fullyVisible;pointX=$pointX;pointY=$pointY}
+}
+
+function Get-SSESearchExpansionButton {
+  param($Layout)
+  if(-not $Layout){return $null}
+  $nodes=@($Layout.nodes)
+  $buttons=@($nodes | Where-Object {
+    $_.type -ceq 'Button' -and $_.name -ceq 'Trefferliste aus-/einklappen' -and
+    ([string]$_.aid).EndsWith('.SearchSplitter.SearchFrameSSE.QWidget.HoverButton',[StringComparison]::Ordinal)
+  })
+  if($buttons.Count -ne 1){return $null}
+  $button=$buttons[0]
+  if(-not $button.on -or $button.w -le 0 -or $button.h -le 0 -or -not [string]$button.rid){return $null}
+  $frameSuffix='.SearchSplitter.SearchFrameSSE'
+  $tableFrame=Get-SSESearchAncestor $nodes $Layout.table $frameSuffix 'Group'
+  $queryFrame=Get-SSESearchAncestor $nodes $Layout.query $frameSuffix 'Group'
+  $buttonFrame=Get-SSESearchAncestor $nodes $button $frameSuffix 'Group'
+  $parents=@($nodes | Where-Object {[int]$_.i -eq [int]$button.p})
+  if(-not $tableFrame -or -not $queryFrame -or -not $buttonFrame -or $parents.Count -ne 1){return $null}
+  # The two QWidget groups can share an AutomationId. Only their exact parent
+  # indices prove that this button and the table belong to the same frame.
+  $parent=$parents[0]
+  if($tableFrame.i -ne $queryFrame.i -or $tableFrame.i -ne $buttonFrame.i -or
+    $parent.type -cne 'Group' -or [int]$parent.p -ne [int]$tableFrame.i -or
+    $parent.aid -cne ([string]$tableFrame.aid+'.QWidget')){return $null}
+  $button
+}
+
 <#
 Name des ausgewaehlten Navigationsknotens.
 

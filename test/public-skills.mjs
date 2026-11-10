@@ -158,7 +158,7 @@ for (const requirement of [
   "## Update",
   "## Entfernung",
   "## API-Singleton bewusst beenden",
-  "## Fortgeschrittene standalone-Nutzung",
+  "## Weitere standalone-Nutzung",
 ]) {
   assert(installation.includes(requirement), `Installationsvertrag fehlt: ${requirement}`);
 }
@@ -168,17 +168,23 @@ assert(normalizedInstallation.includes("keine physische Projektisolation"));
 assert(normalizedInstallation.includes("kein `node_modules`")
   && normalizedInstallation.includes("weder npm noch npx")
   && normalizedInstallation.includes("keinen Netzwerkdownload"));
-assert.match(normalizedInstallation, /nach dem ersten Befehl.+`not installed`.+target-native.+`installed, enabled`/iu);
-const installationCodexStart = installation.indexOf("### Codex");
-const installationClaudeStart = installation.indexOf("### Claude Code");
-const installationScopeStart = installation.indexOf("### Was die Scopes hier bedeuten");
+assert.match(normalizedInstallation, /`not installed`.+target-native.+`installed, enabled`/iu);
+const installationCodexStart = installation.indexOf("## Codex: direktes MCP + API aus npm");
+const installationClaudeStart = installation.indexOf("## Claude Code: Agent Plugin");
+const installationLegacyStart = installation.indexOf("### Codex-Plugin: bestehende Installationen und Diagnose");
 const installationCodex = installation.slice(installationCodexStart, installationClaudeStart);
-const installationClaude = installation.slice(installationClaudeStart, installationScopeStart);
+const installationClaude = installation.slice(installationClaudeStart, installationLegacyStart);
+const installationLegacy = installation.slice(installationLegacyStart, installation.indexOf("## Client neu laden und First run"));
 const codexClone = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes";
 const codexActivate = "codex plugin add steuer-spar-erklaerung@plugins-cli --json";
 const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes";
-assert(installationCodex.indexOf(codexClone) < installationCodex.indexOf(codexActivate),
-  "Codex-Installation muss als externe plus target-native Stufe dokumentiert sein.");
+assert(installationCodex.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest")
+  && installationCodex.includes("codex mcp add steuer-spar-erklaerung")
+  && !installationCodex.includes(codexClone),
+  "Der empfohlene Codex-Weg muss direktes npm-MCP statt Plugin-Installation verwenden.");
+assert(installationLegacy.includes("kein empfohlener Codex-Schnellstart")
+  && installationLegacy.indexOf(codexClone) < installationLegacy.indexOf(codexActivate),
+  "Die bisherige Plugin-Sequenz muss eindeutig als nicht empfohlener Diagnoseweg abgegrenzt sein.");
 assert(installationClaude.includes(claudeInstall)
   && installationClaude.includes("`Scope: user`")
   && installationClaude.includes("`enabled`")
@@ -190,10 +196,11 @@ assert.match(normalizedInstallation, /Readback.+Cache-\/Konfigurationszustand ma
 assert.doesNotMatch(normalizedInstallation, /codex plugin list --json.+(?:installiert|ändert) nichts/iu,
   "Der Codex-Readback darf nicht als garantiert seiteneffektfrei dokumentiert sein.");
 const installationUpdate = installation.slice(installation.indexOf("## Update"), installation.indexOf("## Entfernung"));
-assert(installationUpdate.includes("plugins@1 add")
-  && installationUpdate.includes(codexActivate)
-  && /Zeigt Codex danach.+nicht als `installed, enabled`/su.test(installationUpdate),
-"Der Updatepfad muss externes add, Codex-Readback und bedingte target-native Aktivierung enthalten.");
+assert(installationUpdate.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest")
+  && installationUpdate.includes("npm.cmd ls @yadimon/steuer-spar-erklaerung-mcp @yadimon/steuer-spar-erklaerung-api")
+  && installationUpdate.includes("MCP und API müssen exakt dieselbe Releaseversion haben")
+  && installationUpdate.includes("--target claude-code --scope user"),
+"Updatepfade muessen versionsgleiches npm-MCP fuer Codex und das zielgenaue Claude-Plugin trennen.");
 assert.match(normalizedInstallation, /claude plugin uninstall steuer-spar-erklaerung@steuer-spar-erklaerung --scope user/iu);
 assert.doesNotMatch(installation, /^\s*(?:npx(?:\.cmd)?\s+[^\r\n]*\s+)?plugins\s+(?:remove|uninstall)\b/gimu,
   "Nicht existente plugins-Kommandos duerfen nicht als Anleitung erscheinen.");
@@ -202,12 +209,21 @@ assert.match(normalizedInstallation, /Niemals Prozesse pauschal nach `node`, `SS
 assert.doesNotMatch(installation, /--target opencode|OpenCode projektlokal/iu);
 
 const readme = readFileSync(join(root, "README.md"), "utf8");
-assert(readme.includes("--target codex --scope project --yes"));
 assert(readme.includes("--target claude-code --scope user --yes"));
-assert(readme.includes("codex plugin add steuer-spar-erklaerung@plugins-cli --json")
-  && readme.includes("`not installed`")
-  && readme.includes("`installed, enabled`"));
-assert.doesNotMatch(readme, /npm\.cmd install --save-exact @yadimon\/steuer-spar-erklaerung-mcp/iu);
+assert(readme.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest")
+  && readme.includes("codex mcp add steuer-spar-erklaerung")
+  && readme.includes("Plugin-Installation vorläufig nicht empfohlen")
+  && readme.includes("64 000 Bytes")
+  && readme.includes("26 von 104"));
+assert(normalizedInstallation.includes("Skill separat installieren")
+  && normalizedInstallation.includes("Niemals die gesamte Plugin-Funktion von Codex")
+  && normalizedInstallation.includes("nicht synchronisiertes Laufwerk"));
+const firstRunInstallation = installation.slice(installation.indexOf("## Client neu laden und First run"),
+  installation.indexOf("## Lokaler API-Singleton"));
+assert(firstRunInstallation.includes("Starte SteuerSparErklärung nicht")
+  && firstRunInstallation.includes("SSE_NOT_RUNNING")
+  && !firstRunInstallation.includes("beide Installationsbefehle"),
+  "First run muss die Einrichtung ohne SSE-Start pruefen und darf nicht zum Codex-Plugin zurueckfuehren.");
 
 for (const reference of [
   "docs/README.md",
@@ -239,21 +255,21 @@ assert(verification.includes("Live-Abdeckung")
 const apiPackageReadme = readFileSync(join(root, "packages", "api", "README.md"), "utf8");
 const mcpPackageReadme = readFileSync(join(root, "packages", "mcp", "README.md"), "utf8");
 const normalizedMcpPackageReadme = mcpPackageReadme.replace(/\s+/gu, " ");
-assert(apiPackageReadme.includes("Nutzerstandard ist das Agent Plugin"));
+assert(apiPackageReadme.includes("Codex: MCP installiert die API automatisch"));
 assert(apiPackageReadme.includes("`--case-dir` öffnet keinen Steuerfall")
   && /keine Dateisystem-Sandbox/u.test(apiPackageReadme));
 assert(apiPackageReadme.includes("$Root = 'C:\\mein-steuer-api'")
   && apiPackageReadme.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-api@latest")
   && apiPackageReadme.includes("& $Node $Api --config $ApiConfig")
   && apiPackageReadme.includes("& $Node $Call discovery --config $ApiConfig"));
-assert(mcpPackageReadme.includes("Empfohlener Weg: Agent Plugin"));
+assert(mcpPackageReadme.includes("Empfohlener Codex-Weg: direktes npm-MCP"));
 assert(normalizedMcpPackageReadme.includes("`sse_preflight`")
-  && normalizedMcpPackageReadme.includes("kein `node_modules`")
+  && normalizedMcpPackageReadme.includes("Skill Installer")
   && normalizedMcpPackageReadme.includes("weder npm noch npx"));
-assert(mcpPackageReadme.includes("codex plugin add steuer-spar-erklaerung@plugins-cli --json")
+assert(mcpPackageReadme.includes("codex mcp add steuer-spar-erklaerung")
   && mcpPackageReadme.includes("--target claude-code --scope user --yes")
   && normalizedMcpPackageReadme.includes("API kennt keine Anmeldung"));
 assert(mcpPackageReadme.includes("vor dirty-fähiger Navigation oder Mutation")
   && mcpPackageReadme.includes("`save` und `save_as` brauchen"));
 
-process.stdout.write("Public Skill: knapper Router, First run, Plugin-Installation und harte Grenzen bestanden\n");
+process.stdout.write("Public Skill: knapper Router, First run, direkte Codex-Installation und harte Grenzen bestanden\n");

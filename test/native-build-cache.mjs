@@ -155,6 +155,9 @@ const manifest = () => JSON.parse(readFileSync(manifestPath, "utf8"));
 
 try {
   copyFileSync(join(root, "powershell", "build-native.ps1"), buildScript);
+  for (const name of ["build-gui-launch-probe.ps1", "gui-launch-lifetime.cs"]) {
+    copyFileSync(join(root, "powershell", name), join(sandbox, name));
+  }
   copyFileSync(join(root, "powershell", "load-native.ps1"), loaderScript);
   copyFileSync(join(root, "powershell", "sse-native.cs"), source);
   writeFileSync(
@@ -184,13 +187,29 @@ try {
 
   assert.match(build(), /^Built powershell\/sse-native\.dll /);
   const firstDllHash = sha256(dll);
+  const probePath = join(sandbox, "gui-launch-lifetime.exe");
+  const probeManifestPath = join(sandbox, "gui-launch-lifetime.sha256");
+  const firstProbeHash = sha256(probePath);
+  assert.equal(JSON.parse(readFileSync(probeManifestPath, "utf8")).exeSha256, firstProbeHash);
   const firstManifest = manifest();
   assert.equal(firstManifest.dllSha256, firstDllHash);
   assertLoadable();
 
   assert.match(build(), /^Reused powershell\/sse-native\.dll /);
   assert.equal(sha256(dll), firstDllHash, "Unveraenderte Quelle muss dasselbe Native-Artefakt behalten.");
+  assert.equal(sha256(probePath), firstProbeHash, "Unchanged GUI probe must retain its checked binary.");
   assertLoadable();
+
+  writeFileSync(probePath, "corrupted GUI lifetime probe", "utf8");
+  assert.match(build(), /^Reused powershell\/sse-native\.dll /);
+  assert.equal(JSON.parse(readFileSync(probeManifestPath, "utf8")).exeSha256, sha256(probePath));
+  assert.notEqual(readFileSync(probePath, "utf8"), "corrupted GUI lifetime probe");
+  writeFileSync(probeManifestPath, JSON.stringify({
+    ...JSON.parse(readFileSync(probeManifestPath, "utf8")), schemaVersion: "1",
+  }));
+  assert.match(build(), /^Reused powershell\/sse-native\.dll /);
+  assert.equal(JSON.parse(readFileSync(probeManifestPath, "utf8")).schemaVersion, 1,
+    "Builder must reject a string version that the runtime rejects.");
 
   appendFileSync(source, "\r\n// cache invalidation fixture\r\n", "utf8");
   assert.match(build(), /^Built powershell\/sse-native\.dll /);

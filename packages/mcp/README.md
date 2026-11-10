@@ -7,50 +7,63 @@ PC-blinder MCP-Wrapper für Windows x64 und SteuerSparErklärung 2025. Er sprich
 per stdio mit dem Agenten und über die lokale SteuerSparErklärung-API;
 Steuerfall- und Dokumentpfade bleiben im API-Prozess.
 
-## Empfohlener Weg: Agent Plugin
+## Empfohlener Codex-Weg: direktes npm-MCP
 
-Das Agent Plugin enthält Skill, MCP, exakt passende API,
-PowerShell-/Native-Runtime, Profile und JavaScript-Dependencies. Im
-Auftragsordner entsteht kein `node_modules`; beim MCP-Start laufen weder npm
-noch npx und es ist kein Netzwerkzugriff nötig.
+**Codex: Plugin-Installation vorläufig nicht empfohlen.** Codex begrenzt die
+Metadaten von MCP-Werkzeugen aus Agent Plugins auf insgesamt **64 000 Bytes**.
+Bei beta55 wurde dadurch ein Katalog mit **26 von 104** verfügbaren Werkzeugen
+reproduziert; auch `sse_preflight` kann fehlen. Die Empfehlung der
+Plugin-Installation für Codex ist deshalb vorübergehend ausgesetzt.
+Direkt registrierte npm-MCP-Verbindungen sind von diesem Plugin-Budget nicht
+betroffen. Das ist eine Grenze dieses Codex-Integrationswegs, keine allgemeine
+Aussage über API, MCP oder andere Clients. Siehe
+[Codex-Quellcode](https://github.com/openai/codex/blob/main/codex-rs/core/src/mcp_tool_exposure.rs)
+und [bekannte Meldung](https://github.com/openai/codex/issues/49758).
 
-`plugins@1.3.4` benötigt Git auf `PATH`, weil es das Plugin-Repository einmalig
-klont. Danach bleibt Node.js 22+ die einzige zusätzliche Plugin-Runtime.
+Für Codex ist das direkte npm-MCP mit automatisch installierter API derselben
+Version derzeit der empfohlene Weg. Installiere die Runtime auf einem lokalen,
+nicht synchronisierten Laufwerk; der Auftragsordner mit den Belegen darf
+getrennt liegen.
 
-Für Codex:
+Bei einer vorhandenen Plugin-Installation zuerst den
+[Umstellungsweg](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md#vorhandenes-codex-plugin-umstellen)
+anwenden und die bestehenden API-Datenbindungen erhalten. Das folgende
+Beispiel richtet eine neue Installation ein.
 
 ```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
-codex plugin add steuer-spar-erklaerung@plugins-cli --json
+$RuntimeRoot = Join-Path $env:USERPROFILE '.local\share\SteuerSparErklaerungMcp'
+New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
+Set-Location $RuntimeRoot
+npm.cmd init -y
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
+
+$Node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+$Mcp = Join-Path $RuntimeRoot 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
+$ApiConfig = Join-Path $RuntimeRoot 'sse-api-config.json'
+codex mcp add steuer-spar-erklaerung --env "SSE_API_CONFIG=$ApiConfig" -- $Node $Mcp
 ```
 
-Zur dokumentierten Installationsstrecke mit `plugins@1.3.4` gehören beide
-Befehle. Der erste registriert Cache und Marketplace; der zweite installiert
-das Plugin im Client. Prüfe den Zustand mit `codex plugin list --json`:
-`not installed` ist kein erfolgreicher Abschluss, erwartet wird
-`installed, enabled`. Diese Statusabfrage ersetzt keinen Installationsschritt
-und kann abhängig von der Clientversion selbst Cache-/Konfigurationszustand
-materialisieren.
+npm installiert die API als exakt versionsgleiche Dependency. Der MCP startet
+sie bei Bedarf im Hintergrund. Für Codex unter Windows die API vor dem
+Fachauftrag in einem eigenen Terminal starten; die
+[Installationsanleitung](../../docs/INSTALLATION.md#api-lebensdauer-bei-codex-unter-windows)
+beschreibt den vom MCP unabhängigen Prozessstart.
+Beim MCP-Start laufen weder npm noch npx und es ist kein Netzwerkzugriff nötig.
+Vorhandene Datenbindungen in einer bestehenden API-Konfiguration beibehalten.
 
-Für Claude Code genügt der eine zielgenaue Installeraufruf:
+Installiere den [Skill](https://github.com/yadimon/steuer-spar-erklaerung-mcp/tree/main/skills/steuer-spar-erklaerung) separat über den
+Skill Installer von Codex aus diesem Repository (Pfad
+`skills/steuer-spar-erklaerung`). Starte danach eine neue Sitzung im
+gewünschten Auftragsordner und prüfe den echten Aufruf von `sse_preflight`
+sowie die Verfügbarkeit von `sse_instances` und des vollständigen Katalogs.
+Die [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md) beschreibt Datenablage,
+Skill-Installation und die Umstellung eines vorhandenen Plugins.
+
+Für Claude Code bleibt das selbstenthaltene Agent Plugin unterstützt:
 
 ```powershell
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
-
-Der Eintrag steht danach mit `Scope: user` als `enabled`; die target-native
-Entfernung gelingt.
-Anschließend den jeweiligen Client neu starten beziehungsweise seine Plugins
-neu laden und das echte Tool `sse_preflight` aufrufen. Die automatische
-Target-Erkennung wird unter Windows nicht empfohlen.
-
-`plugins@1.3.4` ignoriert den Scope bei Codex. Claude Code verwendet bewusst
-den User-Scope; beide Ziele schreiben in clientverwaltete
-Benutzer-Caches/config und bedeuten daher keine physische Projektisolation.
-Details zu getrennten Arbeitsdaten, Update und sicherer Entfernung stehen in der
-[Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md).
 
 ## Vertrag
 
@@ -89,10 +102,10 @@ autoritative, bewusst separat verwaltete Loopback-API und verhindert Fallback
 und Autostart. `SSE_API_CONFIG` wählt optional einen absoluten eigenen
 Arbeitsbereich. Beide Variablen dürfen nicht gleichzeitig gesetzt sein.
 
-## Fortgeschritten: standalone npm-MCP
+## Standalone npm-MCP und eigene Konfiguration
 
-Dieser Weg ist für eigene Clientkonfigurationen und Diagnosen gedacht, nicht
-für den normalen Plugin-Einstieg:
+Der direkte npm-Weg ist für Codex empfohlen. Das folgende Beispiel hält die
+Runtime in einem ausdrücklich gewählten lokalen, nicht synchronisierten Ordner:
 
 ```powershell
 $Root = 'C:\mein-steuer-mcp-standalone'

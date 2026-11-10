@@ -214,7 +214,7 @@ function addThirdPartyNotices(files, pluginPrefix, bundleInputs) {
   }));
 }
 
-function readCheckedNativeArtifacts(source, dllPath, sidecarPath, label) {
+function readCheckedNativeArtifacts(source, dllPath, sidecarPath, label, hashKey = "dllSha256") {
   if (!existsSync(dllPath) || !existsSync(sidecarPath)) {
     return { artifacts: null, reason: `${label} fehlt.` };
   }
@@ -236,41 +236,44 @@ function readCheckedNativeArtifacts(source, dllPath, sidecarPath, label) {
   }
   if (integrity.schemaVersion !== 1 ||
       integrity.sourceSha256 !== sha256(source).toUpperCase() ||
-      integrity.dllSha256 !== sha256(dll).toUpperCase()) {
+      integrity[hashKey] !== sha256(dll).toUpperCase()) {
     return { artifacts: null, reason: `${label} passt nicht zu Quelle, DLL und Sidecar.` };
   }
   const normalizedSidecar = Buffer.from(`${JSON.stringify({
     schemaVersion: integrity.schemaVersion,
     sourceSha256: integrity.sourceSha256,
-    dllSha256: integrity.dllSha256,
+    [hashKey]: integrity[hashKey],
   })}\n`, "utf8");
   return { artifacts: { dll, sidecar: normalizedSidecar }, reason: null };
 }
 
-function useCheckedNativeArtifacts(files, pluginPrefix, { allowLocalFallback = false } = {}) {
-  const source = readFileSync(join(root, "powershell", "sse-native.cs"));
+function useCheckedNativeArtifacts(files, pluginPrefix, { allowLocalFallback = false } = {},
+  stem = "sse-native", extension = "dll", hashKey = "dllSha256") {
+  const source = readFileSync(join(root, "powershell", `${stem}.cs`));
   const trackedDllPath = safeAgentPluginOutputPath(
     root,
-    join(pluginPrefix, "runtime", "powershell", "sse-native.dll"),
+    join(pluginPrefix, "runtime", "powershell", `${stem}.${extension}`),
   );
   const trackedSidecarPath = safeAgentPluginOutputPath(
     root,
-    join(pluginPrefix, "runtime", "powershell", "sse-native.sha256"),
+    join(pluginPrefix, "runtime", "powershell", `${stem}.sha256`),
   );
   const tracked = readCheckedNativeArtifacts(
     source,
     trackedDllPath,
     trackedSidecarPath,
     "Der getrackte Plugin-Native-Build",
+    hashKey,
   );
   let selected = tracked.artifacts;
   let localReason = null;
   if (!selected && allowLocalFallback) {
     const local = readCheckedNativeArtifacts(
       source,
-      join(root, "powershell", "sse-native.dll"),
-      join(root, "powershell", "sse-native.sha256"),
+      join(root, "powershell", `${stem}.${extension}`),
+      join(root, "powershell", `${stem}.sha256`),
       "Der lokale Native-Build",
+      hashKey,
     );
     selected = local.artifacts;
     localReason = local.reason;
@@ -278,8 +281,8 @@ function useCheckedNativeArtifacts(files, pluginPrefix, { allowLocalFallback = f
   if (!selected) {
     throw new Error([tracked.reason, localReason].filter(Boolean).join(" "));
   }
-  files.set(`${pluginPrefix}/runtime/powershell/sse-native.dll`, selected.dll);
-  files.set(`${pluginPrefix}/runtime/powershell/sse-native.sha256`, selected.sidecar);
+  files.set(`${pluginPrefix}/runtime/powershell/${stem}.${extension}`, selected.dll);
+  files.set(`${pluginPrefix}/runtime/powershell/${stem}.sha256`, selected.sidecar);
 }
 
 async function expectedFiles(check) {
@@ -309,11 +312,14 @@ async function expectedFiles(check) {
     `${pluginPrefix}/runtime/powershell`,
     (path) => {
       const name = basename(path);
-      return name !== "build-native.ps1" && !name.startsWith(".sse-native-") &&
-        !["sse-native.dll", "sse-native.sha256"].includes(name);
+      return name !== "build-native.ps1" && name !== "build-gui-launch-probe.ps1" &&
+        !name.startsWith(".sse-native-") && !name.startsWith(".gui-launch-lifetime-") &&
+        !["sse-native.dll", "sse-native.sha256", "gui-launch-lifetime.exe", "gui-launch-lifetime.sha256"].includes(name);
     },
   );
   useCheckedNativeArtifacts(files, pluginPrefix, { allowLocalFallback: !check });
+  useCheckedNativeArtifacts(files, pluginPrefix, { allowLocalFallback: !check },
+    "gui-launch-lifetime", "exe", "exeSha256");
   addProductionProfiles(files, pluginPrefix);
   const license = readFileSync(join(root, "LICENSE"));
   files.set(`${pluginPrefix}/LICENSE`, license);
