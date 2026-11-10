@@ -21,7 +21,7 @@ $cancellationDefinition = @($ast.FindAll({
 }, $true))
 if ($cancellationDefinition.Count -ne 1) { throw 'Sicherer Abbruch fuer Uebermittlungsdialoge ist nicht eindeutig vorhanden.' }
 Invoke-Expression $cancellationDefinition[0].Extent.Text
-foreach ($functionName in @('Test-SSERecoveryPromptWindowCandidate', 'Test-SSERecoveryPromptDescriptor')) {
+foreach ($functionName in @('Test-SSERecoveryPromptWindowCandidate', 'Test-SSERecoveryPromptDescriptor', 'Test-SSEEntryDeletionPromptDescriptor')) {
   $definition = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
@@ -65,6 +65,7 @@ function RecoveryDialog([string]$Text, [string[]]$Buttons = @('Ja', 'Nein')) {
     # gemessenen Unicode-Zeichen deshalb auch dort exakt.
     title = ('SteuerSparErkl' + [char]0x00E4 + 'rung f' + [char]0x00FC + 'r das Steuerjahr 2025')
     cls = 'Qt692QWindowIcon'; w = 518; h = 260; kind = 'qt-dialog'
+    uiaReadOk = $true
     texts = @($Text)
     buttons = @($Buttons | ForEach-Object { [pscustomobject]@{ name = $_; enabled = $true } })
     unsupportedButtons = @()
@@ -92,6 +93,49 @@ Assert-True (-not (Test-SSERecoveryPromptDescriptor (RecoveryDialog $recoveryTex
 $recoveryDialog.buttons[1].enabled = $false
 Assert-True (-not (Test-SSERecoveryPromptDescriptor $recoveryDialog)) `
   'Recovery-Dialog mit deaktiviertem Nein wurde akzeptiert.'
+
+# Execute the actual contiguous production classification guard. No UI entry
+# point or button invocation is loaded by these fixtures.
+$candidateAssignments = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $node.Left.Extent.Text -ceq '$isRecoveryWindowCandidate'
+}, $true))
+Assert-True ($candidateAssignments.Count -eq 1) 'Recovery candidate assignment is not unique.'
+$guardStatements = @($candidateAssignments[0].Parent.Statements)
+$guardIndex = [array]::IndexOf($guardStatements, $candidateAssignments[0])
+Assert-True ($guardStatements[$guardIndex+3] -is [Management.Automation.Language.IfStatementAst]) 'Recovery classification guard is not contiguous.'
+$classificationGuard = [scriptblock]::Create((@($guardStatements[$guardIndex..($guardIndex+3)] | ForEach-Object {$_.Extent.Text}) -join "`n"))
+function Invoke-ClassificationFixture($Dialog, [bool]$Blocked) {
+  function Fail($Message, $Kind) { $failure=[InvalidOperationException]::new($Message); $failure.Data['kind']=$Kind; throw $failure }
+  $failure=$null
+  try { & $classificationGuard } catch { $failure=$_.Exception }
+  Assert-True ([bool]$failure -eq $Blocked) 'Unexpected recovery classification refusal.'
+  if ($Blocked) { Assert-True ($failure.Data['kind'] -ceq 'dialog-unreadable') 'Wrong classification failure.' }
+}
+$deleteText = ('Soll dieser Eintrag wirklich gel' + [char]0x00F6 + 'scht werden? (zum L' + [char]0x00F6 +
+  'schen ohne Nachfrage die STRG-Taste gedr' + [char]0x00FC + 'ckt halten.)')
+$deleteDialog = RecoveryDialog $deleteText
+Assert-True (Test-SSERecoveryPromptWindowCandidate $deleteDialog) 'Fixture must reproduce the title/geometry overlap.'
+Assert-True (-not (Test-SSERecoveryPromptDescriptor $deleteDialog)) 'Deletion is not recovery.'
+Assert-True (Test-SSEEntryDeletionPromptDescriptor $deleteDialog) 'Exact ordinary entry deletion was not recognized.'
+Invoke-ClassificationFixture $deleteDialog $false
+Invoke-ClassificationFixture (RecoveryDialog $recoveryText) $false
+foreach ($driftingDelete in @(
+  (RecoveryDialog ($deleteText+' Zusatz')),
+  (RecoveryDialog ''),
+  (RecoveryDialog $deleteText @('Ja','Nein','Abbrechen')),
+  (RecoveryDialog ($recoveryText+' Zusatz'))
+)) {
+  Assert-True (-not (Test-SSEEntryDeletionPromptDescriptor $driftingDelete)) 'A drifting deletion descriptor was accepted.'
+  Invoke-ClassificationFixture $driftingDelete $true
+}
+$unreadableDelete=RecoveryDialog $deleteText
+$unreadableDelete | Add-Member NoteProperty uiaError 'Synthetic.Type'
+$unreadableDelete | Add-Member NoteProperty msaaReadOk $false
+Invoke-ClassificationFixture $unreadableDelete $true
+$disabledDelete=RecoveryDialog $deleteText
+$disabledDelete.buttons[0].enabled=$false
+Invoke-ClassificationFixture $disabledDelete $true
 
 Assert-True (Test-SSESafeTransmissionDialogCancellation 'Abbrechen') `
   "Der exakte sichere Dialogabbruch 'Abbrechen' wurde gesperrt."

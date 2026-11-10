@@ -126,6 +126,29 @@ keine Voraussetzung für die beauftragte Weiterarbeit am Original.
 
 ## Wo einzelne Belegarten hingehören
 
+### Wirtschaftsgüter vollständig erfassen
+
+Lies vor der Anlage die vorhandene Übersicht vollständig, damit derselbe
+Beleg nicht doppelt erfasst wird. Wähle anschließend den Seitenkatalog für
+den tatsächlich gebundenen Falltyp: `gew.anlagevermoegen_wirtschaftsgut`
+gehört zu `Gew2025`, `gew_erfass.anlagevermoegen_wirtschaftsgut` zu
+`GewErfass2026`. Gleiche Überschriften machen diese Module nicht austauschbar.
+Die Folgejahrseite erkennt auch weitere nummerierte Wirtschaftsgüter.
+
+Eine vollständige Anschaffung braucht den belegten Kaufpreis, Datum und
+Belegbezug sowie die geklärte AfA-/GWG-Behandlung. Isolierte Vorsteuer ist
+kein Nachweis einer fertigen Anlagenbuchung. Gleiche eine schon vorhandene
+separate Vorsteuerzeile kontrolliert ab, wenn die vollständige Anlage dieselbe
+Vorsteuer erzeugt. Berechnete Vorsteuer und Abschreibung nicht überschreiben.
+Ungeklärte Nutzungsdauer oder Abschreibungsmethode nicht erfinden.
+
+Eine bewusst ausgelöste lokale Löschung kann einen eigenen Bestätigungsdialog
+öffnen. Lies ihn mit `sse_dialog_list` und beantworte ausschließlich den frisch
+gebundenen Fingerprint über `sse_dialog_answer`. Die Erkennung dieses Dialogs
+ist keine Erlaubnis, einen ungeklärten Teilstand automatisch zu löschen.
+
+### Laufende Kosten
+
 - **Ladestrom** für ein betriebliches Fahrzeug: `Sonstige Kfz-Kosten` des
   Fahrzeugs, Tabelle `Summe der sonstigen Kfz-Kosten mit Vorsteuerabzug`. Die
   Seite führt daneben eine eigene Summe `Ladestromkosten netto`; prüfe vor dem

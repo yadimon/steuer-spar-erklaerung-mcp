@@ -231,4 +231,55 @@ foreach ($emptyPage in @([pscustomobject]@{fields=[pscustomobject]@{}},[pscustom
   if (Test-KnownPageFields $emptyPage @()) { throw 'An explicit binding without catalog fields was accepted.' }
 }
 Write-Output 'Page binding: actual state/write guards share exact mandatory IDs; optional variants, malformed bindings and missing targets checked without UI.'
+
+# The supported follow-year entry module needs its own document-bound asset
+# page. A Gew page with an identical heading is not its replacement.
+$entryAssetPage=$catalog.pages.'gew_erfass.anlagevermoegen_wirtschaftsgut'
+if (-not $entryAssetPage -or $entryAssetPage.documentType -cne 'GewErfass2026' -or
+    $assetPage.documentType -cne 'Gew2025' -or $entryAssetPage.headingNumberedLabel -cne 'Wirtschaftsgut' -or
+    $entryAssetPage.PSObject.Properties['headingPrefix']) {
+  throw 'Asset pages must retain separate exact document bindings and a bounded numbered entry heading.'
+}
+if (($entryAssetPage.fields | ConvertTo-Json -Depth 30 -Compress) -cne
+    ($assetPage.fields | ConvertTo-Json -Depth 30 -Compress)) {
+  throw 'Entry asset field definitions drifted from the explicitly shared UI controls.'
+}
+Invoke-BindingGuardFixture $entryAssetPage $assetFields $true
+Invoke-BindingGuardFixture $entryAssetPage $foreign $false
+foreach ($title in @('1. Wirtschaftsgut','2. Wirtschaftsgut','12. Wirtschaftsgut: Muster')) {
+  $entryHeading=Invoke-HeadingFixture $entryAssetPage $title
+  if (-not $entryHeading.matches) { throw 'A numbered asset entry was not recognized.' }
+}
+foreach ($title in @('0. Wirtschaftsgut','2. Fahrzeug','1. Andere Seite','2. Wirtschaftsgut Zusatz')) {
+  if ((Invoke-HeadingFixture $entryAssetPage $title).matches) { throw 'A foreign numbered heading was accepted.' }
+}
+
+$typeAssignments=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $node.Left.Extent.Text -ceq '$erwarteterTyp'
+},$true))
+if ($typeAssignments.Count -ne 1) { throw 'Document-type guard assignment is not unique.' }
+$typeStatements=@($typeAssignments[0].Parent.Statements)
+$typeIndex=[array]::IndexOf($typeStatements,$typeAssignments[0])
+if ($typeStatements[$typeIndex+1] -isnot [Management.Automation.Language.IfStatementAst]) {
+  throw 'The actual document-type guard is no longer contiguous.'
+}
+$typeGuard=[scriptblock]::Create((@($typeStatements[$typeIndex..($typeIndex+1)]|ForEach-Object {$_.Extent.Text})-join "`n"))
+function Invoke-DocumentTypeFixture($Page,[string]$CaseSuffix,[bool]$Blocked) {
+  $known=[pscustomobject]@{page=$Page}; $pageId='synthetic.asset'
+  $fensterRecord=[pscustomobject]@{title=('synthetic.'+$CaseSuffix)}
+  function Get-CasePathFromTitle([string]$Title) { $Title }
+  function Fail($Message,$Kind) { $failure=[InvalidOperationException]::new($Message); $failure.Data['kind']=$Kind; throw $failure }
+  $failure=$null
+  try { & $typeGuard } catch { $failure=$_.Exception }
+  if ([bool]$failure -ne $Blocked) { throw 'Document-type guard returned the wrong refusal.' }
+  if ($Blocked -and $failure.Data['kind'] -cne 'mode-mismatch') { throw 'Wrong document-type failure.' }
+}
+Invoke-DocumentTypeFixture $entryAssetPage 'GewErfass2026' $false
+Invoke-DocumentTypeFixture $entryAssetPage 'Gew2025' $true
+Invoke-DocumentTypeFixture $entryAssetPage 'ESt2026' $true
+Invoke-DocumentTypeFixture $entryAssetPage 'GewErfass2025' $true
+Invoke-DocumentTypeFixture $assetPage 'Gew2025' $false
+Invoke-DocumentTypeFixture $assetPage 'GewErfass2026' $true
+Write-Output 'Follow-year assets: exact module separation, real document guard, numbered headings and field bindings checked without UI.'
 Write-Output 'sse_page_state: Schreibkennungen in der Projektion, Epoch-Hash nur auf Zustand - bestanden'

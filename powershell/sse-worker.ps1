@@ -4350,6 +4350,26 @@ function Test-SSERecoveryPromptDescriptor($Dialog) {
   [bool]($text -ceq $expectedText)
 }
 
+# The ordinary entry-deletion confirmation shares the recovery window's title
+# and size. Only its complete, exact descriptor disambiguates it; unreadable
+# or drifting lookalikes must retain the recovery guard.
+function Test-SSEEntryDeletionPromptDescriptor($Dialog) {
+  if (-not (Test-SSERecoveryPromptWindowCandidate $Dialog) -or [string]$Dialog.kind -cne 'qt-dialog') {
+    return $false
+  }
+  if (($Dialog.msaaError -or $Dialog.uiaError) -and -not $Dialog.msaaReadOk) { return $false }
+  if ($Dialog.uiaReadOk -ne $true -and $Dialog.msaaReadOk -ne $true) { return $false }
+  if (@($Dialog.unsupportedButtons).Count) { return $false }
+  $buttons = @($Dialog.buttons)
+  if ($buttons.Count -ne 2 -or
+      @($buttons | Where-Object { $_.name -ceq 'Ja' -and $_.enabled }).Count -ne 1 -or
+      @($buttons | Where-Object { $_.name -ceq 'Nein' -and $_.enabled }).Count -ne 1) {
+    return $false
+  }
+  $text = ((@($Dialog.texts | ForEach-Object { [string]$_ }) -join ' ') -replace '\s+', ' ').Trim()
+  [bool]($text -ceq 'Soll dieser Eintrag wirklich gelöscht werden? (zum Löschen ohne Nachfrage die STRG-Taste gedrückt halten.)')
+}
+
 # Das Online-Update-Angebot von SteuerSparErklaerung erkennen.
 #
 # Es erscheint beim Programmstart, wenn der Hersteller eine neue Version
@@ -14385,7 +14405,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $isRecoveryWindowCandidate = Test-SSERecoveryPromptWindowCandidate $dialog
     $isRecoveryPrompt = Test-SSERecoveryPromptDescriptor $dialog
-    if ($isRecoveryWindowCandidate -and -not $isRecoveryPrompt) {
+    $isEntryDeletionPrompt = Test-SSEEntryDeletionPromptDescriptor $dialog
+    if ($isRecoveryWindowCandidate -and -not $isRecoveryPrompt -and -not $isEntryDeletionPrompt) {
       Fail 'Die Wiederherstellungsfrage ist sichtbar, aber Text oder Schalter entsprechen nicht dem exakten Vertrag; NICHT geklickt.' 'dialog-unreadable'
     }
     $expectedCasePath = [string](Arg $a 'expectedCasePath')

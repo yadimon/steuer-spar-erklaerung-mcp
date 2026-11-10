@@ -1,6 +1,6 @@
 {
   "name": "@yadimon/steuer-spar-erklaerung-mcp",
-  "version": "0.1.0-beta.57",
+  "version": "0.1.0-beta.58",
   "description": "PC-blind MCP wrapper for SteuerSparErklaerung via the local API package",
   "license": "MIT",
   "type": "module",
@@ -50,7 +50,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "@yadimon/steuer-spar-erklaerung-api": "0.1.0-beta.57",
+    "@yadimon/steuer-spar-erklaerung-api": "0.1.0-beta.58",
     "zod": "^4.6.7",
     "zod-to-json-schema": "^3.25.2"
   }

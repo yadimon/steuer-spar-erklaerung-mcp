@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.57",
+  "packageVersion": "0.1.0-beta.58",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.57",
+  "pluginVersion": "0.1.0-beta.58",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,12 +18,12 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "c2b8af8363132796700de94fbd09ef064d442084b6337487c332b76938ebfd0c",
+      "sha256": "4107f64f92eaf1cd3b04c3dadac18ad3ff8217df8d4fcb3bec5011cea6ac576c",
       "size": 1783355
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "88c5da508ba7d791b6a8b27d6cf52e6409e06ed4ff8bc35d680aedc170aa9991",
+      "sha256": "bdae0d7498c0ea8e28a1616245db91c518a48152e1f84d59fc89e8586caf1701",
       "size": 1805903
     },
     {
@@ -103,8 +103,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "8cb2b77205fae0415521d7e55a9e5d636f8332321e4626791a3c2e9184361418",
-      "size": 1664578
+      "sha256": "5fb50c68589841ff77a0005e30b71edadf331ba06f97ee6726ef1b2ac744a731",
+      "size": 1665821
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -188,8 +188,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "e12fd27d3988c44b3769f6fe2e86f69632c0b546d00d7ea0689526be446dbb98",
-      "size": 142848
+      "sha256": "f04235ee3e74633830a9d08df566cacc89d42b6f207168dcc63d940535a96911",
+      "size": 148714
     },
     {
       "path": "profiles/2025/profile.json",
