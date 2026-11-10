@@ -23274,7 +23274,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.55";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.57";
   }
 });
 
@@ -23936,14 +23936,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance23 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance24 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance23, workerProcessCount: 1 },
+      performance: { ...performance24, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error62) {
@@ -39409,13 +39409,160 @@ var init_worker_start_deadline = __esm({
   }
 });
 
-// src/worker.ts
+// src/gui-launch-lifetime.ts
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash15, randomUUID as randomUUID5 } from "node:crypto";
+import { createHash as createHash15 } from "node:crypto";
+import { dirname as dirname12, join as join13 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { performance as performance18 } from "node:perf_hooks";
+async function readGuiLaunchJob(signal, dependencies = {}) {
+  if (signal?.aborted) throw new Error("aborted");
+  const manifest = JSON.parse((await readFileBounded(join13(ROOT, "gui-launch-lifetime.sha256"), 1024)).toString("utf8"));
+  if (manifest?.schemaVersion !== 1 || Object.keys(manifest).sort().join() !== "exeSha256,schemaVersion,sourceSha256") {
+    throw new Error("Invalid GUI lifetime probe manifest.");
+  }
+  for (const [name, expected, maximum] of [
+    ["gui-launch-lifetime.cs", manifest.sourceSha256, 64 * 1024],
+    ["gui-launch-lifetime.exe", manifest.exeSha256, 128 * 1024]
+  ]) {
+    if (typeof expected !== "string" || !/^[A-F0-9]{64}$/u.test(expected) || createHash15("sha256").update(await readFileBounded(join13(ROOT, name), maximum)).digest("hex").toUpperCase() !== expected) {
+      throw new Error("GUI lifetime probe integrity failed.");
+    }
+  }
+  if (signal?.aborted) throw new Error("aborted");
+  return new Promise((resolve17, reject) => {
+    const child = (dependencies.spawnProcess ?? spawn2)(join13(ROOT, "gui-launch-lifetime.exe"), [], {
+      detached: true,
+      windowsHide: true,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let output2 = "", errors = "", failure7, settled = false;
+    let timer;
+    let cleanupTimer;
+    const abort = () => stop("aborted");
+    const settle2 = (error62, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(cleanupTimer);
+      signal?.removeEventListener("abort", abort);
+      child.stdout?.removeListener("data", stdout);
+      child.stderr?.removeListener("data", stderr);
+      child.removeListener("error", onError);
+      child.removeListener("close", onClose);
+      if (error62) {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref();
+        child.on("error", () => {
+        });
+        reject(error62);
+      } else resolve17(value);
+    };
+    const stop = (message) => {
+      if (settled) return;
+      failure7 ??= new Error(message);
+      if (cleanupTimer) return;
+      cleanupTimer = setTimeout(
+        () => settle2(new Error("GUI lifetime probe exit remains unproven.")),
+        dependencies.cleanupMs ?? PROBE_CLEANUP_MS
+      );
+      try {
+        child.kill();
+      } catch {
+      }
+    };
+    const capture2 = (chunk, stderr2) => {
+      if (Buffer.byteLength(output2) + Buffer.byteLength(errors) + chunk.length > MAX_OUTPUT_BYTES) {
+        stop("GUI lifetime probe output exceeds its bound.");
+        return;
+      }
+      if (stderr2) errors += chunk.toString("utf8");
+      else output2 += chunk.toString("utf8");
+    };
+    const stdout = (chunk) => capture2(chunk, false);
+    const stderr = (chunk) => capture2(chunk, true);
+    const onError = (error62) => {
+      failure7 ??= error62;
+      stop("GUI lifetime probe failed.");
+    };
+    const onClose = (code) => {
+      if (failure7 || code !== 0 || errors) {
+        settle2(failure7 ?? new Error("GUI lifetime probe failed."));
+        return;
+      }
+      try {
+        settle2(void 0, JSON.parse(output2));
+      } catch {
+        settle2(new Error("Invalid GUI lifetime probe output."));
+      }
+    };
+    child.stdout?.on("data", stdout);
+    child.stderr?.on("data", stderr);
+    child.once("error", onError);
+    child.once("close", onClose);
+    timer = setTimeout(() => stop("GUI lifetime probe timed out."), dependencies.timeoutMs ?? PROBE_TIMEOUT_MS);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+async function withVisibleGuiLaunchGuard(operation, desktop, signal, startWorker, probe = readGuiLaunchJob, budget) {
+  if (operation !== "launch" || desktop !== null) return startWorker(budget?.timeoutMs);
+  const now = budget?.now ?? (() => performance18.now());
+  const startedAt = now();
+  const refused = (error62) => ({
+    ok: false,
+    kind: signal?.aborted ? "aborted" : "launch-error",
+    error: error62,
+    mutationStarted: false,
+    resultingState: "unchanged",
+    retryable: false
+  });
+  let remainingMs;
+  try {
+    if (signal?.aborted) return refused("SSE-Start vor der Lebensdauerpruefung abgebrochen.");
+    const value = await probe(signal);
+    if (!value || Object.keys(value).sort().join() !== "inJob,limitFlags,ok" || value.ok !== true || typeof value.inJob !== "boolean" || !Number.isSafeInteger(value.limitFlags) || value.limitFlags < 0 || value.limitFlags > 4294967295 || !value.inJob && value.limitFlags !== 0) {
+      return refused("Windows-Jobvererbung ist nicht eindeutig pruefbar; kein SSE-Prozess wurde gestartet.");
+    }
+    const flags = value.limitFlags;
+    if ((flags & 8192) !== 0 && (flags & 4096) === 0) {
+      return refused("Der Windows-Hostjob wuerde eine neu gestartete SSE beim Ende der MCP-Verbindung mit beenden. API vor dem Client separat mit derselben Konfiguration starten und sse_preflight frisch ausfuehren. Kein SSE-Prozess wurde gestartet.");
+    }
+    if (signal?.aborted) return refused("SSE-Start nach der Lebensdauerpruefung abgebrochen.");
+    if (budget) {
+      const elapsedMs = now() - startedAt;
+      remainingMs = Math.floor(budget.timeoutMs - elapsedMs);
+      if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || !Number.isFinite(remainingMs) || remainingMs < MINIMUM_START_RESERVE_MS) {
+        return refused("Nach der Lebensdauerpruefung bleibt keine sichere Startreserve; kein SSE-Prozess wurde gestartet.");
+      }
+    }
+  } catch {
+    return refused("Windows-Jobvererbung konnte nicht sicher gelesen werden; kein SSE-Prozess wurde gestartet.");
+  }
+  return startWorker(remainingMs);
+}
+var ROOT, PROBE_TIMEOUT_MS, MAX_OUTPUT_BYTES, PROBE_CLEANUP_MS, MINIMUM_START_RESERVE_MS;
+var init_gui_launch_lifetime = __esm({
+  "src/gui-launch-lifetime.ts"() {
+    "use strict";
+    init_bounded_files();
+    ROOT = join13(dirname12(fileURLToPath3(import.meta.url)), "..", "powershell");
+    PROBE_TIMEOUT_MS = 1e4;
+    MAX_OUTPUT_BYTES = 4096;
+    PROBE_CLEANUP_MS = 1e3;
+    MINIMUM_START_RESERVE_MS = 5e3;
+  }
+});
+
+// src/worker.ts
+import { spawn as spawn3 } from "node:child_process";
+import { createHash as createHash16, randomUUID as randomUUID5 } from "node:crypto";
 import { closeSync as closeSync3, openSync as openSync3, unlinkSync as unlinkSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-import { dirname as dirname12, join as join13 } from "node:path";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { dirname as dirname13, join as join14 } from "node:path";
 function createWorkerArgumentsFile(args) {
   let bytes;
   try {
@@ -39429,7 +39576,7 @@ function createWorkerArgumentsFile(args) {
       "payload-too-large"
     );
   }
-  const path = join13(tmpdir(), `sse-args-${randomUUID5().replaceAll("-", "")}.json`);
+  const path = join14(tmpdir(), `sse-args-${randomUUID5().replaceAll("-", "")}.json`);
   const descriptor = openSync3(path, "wx", 384);
   let failure7;
   try {
@@ -39465,7 +39612,7 @@ function removeWorkerArgumentsFile(path) {
 function summarizeWorkerDiagnostic(value) {
   if (value.length <= MAX_WORKER_DIAGNOSTIC_CHARACTERS) return value;
   const bytes = Buffer.from(value, "utf8");
-  const digest = createHash15("sha256").update(bytes).digest("hex");
+  const digest = createHash16("sha256").update(bytes).digest("hex");
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
@@ -39580,6 +39727,16 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
   );
   const desk = marker?.name ?? null;
   const markerAllowsWarmSpare = marker?.owner === "sse" && !workerOperationNeedsMarkedDesktop(op);
+  return withVisibleGuiLaunchGuard(
+    op,
+    desk,
+    signal,
+    (remainingMs) => dispatchWorkerOnDesktop(op, args, remainingMs ?? timeoutMs, signal, desk, markerAllowsWarmSpare),
+    void 0,
+    { timeoutMs }
+  );
+}
+async function dispatchWorkerOnDesktop(op, args, timeoutMs, signal, desk, markerAllowsWarmSpare) {
   const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
   let argsFile;
@@ -39639,7 +39796,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
       }
     } else {
       try {
-        child = spawn2(
+        child = spawn3(
           resolveWindowsPowerShell(),
           ["-ExecutionPolicy", "Bypass", ...argv],
           { windowsHide: true, env: tableWorkerEnvironment(transportCapability) }
@@ -39682,7 +39839,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
     const killTree = () => {
       if (settled) return;
       if (process.platform === "win32" && child.pid) {
-        const killer = spawn2(TASKKILL, ["/PID", String(child.pid), "/T", "/F"], {
+        const killer = spawn3(TASKKILL, ["/PID", String(child.pid), "/T", "/F"], {
           windowsHide: true,
           stdio: "ignore"
         });
@@ -39802,10 +39959,11 @@ var init_worker = __esm({
     init_worker_table_capability();
     init_worker_start_deadline();
     init_worker_operation_policy();
-    HERE2 = dirname12(fileURLToPath3(import.meta.url));
-    WORKER = join13(HERE2, "..", "powershell", "sse-worker.ps1");
-    DESKTOP_LAUNCHER = join13(HERE2, "..", "powershell", "run-on-desktop.ps1");
-    TASKKILL = join13(
+    init_gui_launch_lifetime();
+    HERE2 = dirname13(fileURLToPath4(import.meta.url));
+    WORKER = join14(HERE2, "..", "powershell", "sse-worker.ps1");
+    DESKTOP_LAUNCHER = join14(HERE2, "..", "powershell", "run-on-desktop.ps1");
+    TASKKILL = join14(
       process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows",
       "System32",
       "taskkill.exe"
@@ -39865,7 +40023,7 @@ import {
   statSync as statSync5,
   unlinkSync as unlinkSync4
 } from "node:fs";
-import { dirname as dirname13 } from "node:path";
+import { dirname as dirname14 } from "node:path";
 function requirePositiveInteger(value, name) {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new Error(`${name} muss eine positive Ganzzahl sein.`);
@@ -39923,7 +40081,7 @@ function createRotatingJsonlLogger(options) {
     logBytes = 0;
   };
   try {
-    mkdirSync4(dirname13(options.logPath), { recursive: true });
+    mkdirSync4(dirname14(options.logPath), { recursive: true });
     assertRegularFile(previousPath);
     if (existsSync11(previousPath) && statSync5(previousPath).size > options.maxBytes) {
       unlinkSync4(previousPath);
@@ -39979,14 +40137,14 @@ var init_jsonl_logger = __esm({
 });
 
 // src/qt-native-package.ts
-import { createHash as createHash16 } from "node:crypto";
+import { createHash as createHash17 } from "node:crypto";
 import { lstatSync as lstatSync3, realpathSync as realpathSync4 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 function verifiedFile(path, expected, maximumBytes) {
   const info = lstatSync3(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("Native package entries must be regular files.");
   const bytes = readFileBounded(path, maximumBytes);
-  if (createHash16("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
+  if (createHash17("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
   return bytes;
 }
 function loadQtNativePackage(config2, profile) {
@@ -39994,7 +40152,7 @@ function loadQtNativePackage(config2, profile) {
     throw new Error("The selected product profile has no supported native Qt binding.");
   }
   const directory = realpathSync4(config2.directory);
-  const bytes = verifiedFile(join14(directory, "manifest.json"), config2.manifestSha256, 16 * 1024);
+  const bytes = verifiedFile(join15(directory, "manifest.json"), config2.manifestSha256, 16 * 1024);
   const manifest = manifestSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
   const expected = {
     id: profile.id,
@@ -40006,7 +40164,7 @@ function loadQtNativePackage(config2, profile) {
   for (const key of Object.keys(expected)) {
     if (manifest.profile[key] !== expected[key]) throw new Error("Native package compatibility differs from the selected product profile.");
   }
-  const loaderPath = join14(directory, manifest.loader.file), bridgePath = join14(directory, manifest.bridge.file);
+  const loaderPath = join15(directory, manifest.loader.file), bridgePath = join15(directory, manifest.bridge.file);
   verifiedFile(loaderPath, manifest.loader.sha256, 128 * 1024 * 1024);
   verifiedFile(bridgePath, manifest.bridge.sha256, 128 * 1024 * 1024);
   return { directory, loaderPath, bridgePath, manifest };
@@ -40039,7 +40197,7 @@ var init_qt_native_package = __esm({
 });
 
 // src/qt-native-broker.ts
-import { spawn as spawn3 } from "node:child_process";
+import { spawn as spawn4 } from "node:child_process";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { Duplex } from "node:stream";
 import { isAbsolute as isAbsolute8 } from "node:path";
@@ -40134,7 +40292,7 @@ async function startQtNativeBroker(options) {
   if (body.length > 65536) throw new QtNativeTransportError("Native bootstrap exceeds the protocol bound.", "native-request-size");
   const header = Buffer.alloc(4);
   header.writeUInt32LE(body.length);
-  const child = spawn3(nativePackage.loaderPath, ["--broker"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn4(nativePackage.loaderPath, ["--broker"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   let stderrBytes = 0, client, stream;
   child.stderr.on("data", (data) => {
     stderrBytes += data.length;
@@ -40278,9 +40436,9 @@ var init_qt_native_broker = __esm({
 
 // src/native-desktop-status.ts
 import { execFile as execFile2 } from "node:child_process";
-import { createHash as createHash17 } from "node:crypto";
+import { createHash as createHash18 } from "node:crypto";
 import { win32 as win322 } from "node:path";
-import { performance as performance18 } from "node:perf_hooks";
+import { performance as performance19 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
   const status = statusSchema.parse(value), profile = options.profile;
   if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || status.additionalInstances.some((window) => !window.pid || window.pid === marker.pid) || status.windows.length + status.additionalInstances.length > 256 || !status.reachable && (status.windows.length || status.additionalInstances.length))
@@ -40312,7 +40470,7 @@ function parseNativeDesktopStatus(value, marker, options) {
   const running = identity?.supported === true;
   const windows = running ? status.windows.map((window) => ({
     ...window,
-    titleFingerprint: createHash17("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash18("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   })) : [];
   const active = Boolean(marker.pid && running && status.reachable && windows.length);
   return {
@@ -40366,14 +40524,14 @@ async function readNativeStatus(marker, options) {
   });
 }
 async function executeNativeDesktopStatus(options) {
-  const start = performance18.now();
+  const start = performance19.now();
   try {
     if (options.signal?.aborted) throw failure3("Native status cancelled before launch.", "aborted");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4)
       throw failure3("Invalid native status deadline.", "native-deadline");
     const readMarker = options.readMarker ?? (() => readDesktopMarker(desktopMarkerPath()));
     const marker = readMarker();
-    const remaining = Math.floor(options.timeoutMs - (performance18.now() - start));
+    const remaining = Math.floor(options.timeoutMs - (performance19.now() - start));
     if (remaining < 1) throw failure3("Native status deadline exceeded before launch.", "native-timeout");
     const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
       ok: true,
@@ -40391,14 +40549,14 @@ async function executeNativeDesktopStatus(options) {
     };
     if (options.signal?.aborted) throw failure3("Native status cancelled.", "aborted");
     if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure3("Desktop ownership changed during native status.", "native-binding");
-    return { ...result, ms: performance18.now() - start };
+    return { ...result, ms: performance19.now() - start };
   } catch (error62) {
     return {
       ok: false,
       backend: "win32",
       kind: error62 instanceof QtNativeTransportError || error62 instanceof DesktopMarkerError ? error62.kind : "native-contract",
       error: error62 instanceof QtNativeTransportError || error62 instanceof DesktopMarkerError ? error62.message : "Native desktop status failed.",
-      ms: performance18.now() - start
+      ms: performance19.now() - start
     };
   }
 }
@@ -40445,10 +40603,10 @@ var init_native_desktop_status = __esm({
 
 // src/native-desktop-start.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash18 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
-import { performance as performance19 } from "node:perf_hooks";
+import { performance as performance20 } from "node:perf_hooks";
 function localPath(value) {
   const path = win323.normalize(value);
   if (!/^[A-Za-z]:\\/u.test(path) || /["\u0000-\u001f]/u.test(path) || path.length > 32767)
@@ -40493,7 +40651,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   const profile = options.profile;
   const windows = (items) => items.map((window) => ({
     ...window,
-    titleFingerprint: createHash18("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash19("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   }));
   const product = {
     path: result.product.image,
@@ -40529,7 +40687,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   };
 }
 async function executeNativeDesktopStart(options) {
-  const started = performance19.now();
+  const started = performance20.now();
   try {
     if (options.signal?.aborted) throw failure4("aborted", "Desktop start cancelled before launch.");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > MAX_NATIVE_DESKTOP_START_TIMEOUT_MS)
@@ -40537,7 +40695,7 @@ async function executeNativeDesktopStart(options) {
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);
     if (marker && marker.owner !== "sse") throw failure4("desktop-marker-owner", "Desktop belongs to a different controller.");
-    const remaining = Math.floor(options.timeoutMs - (performance19.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance20.now() - started));
     if (remaining < 6500) throw failure4("native-deadline", "Not enough time remains for startup and verified cleanup.");
     const request = {
       mode: "desktop-start",
@@ -40614,7 +40772,7 @@ async function executeNativeDesktopStart(options) {
       });
       child.stdin?.end(body);
     });
-    return { ...result, ms: performance19.now() - started };
+    return { ...result, ms: performance20.now() - started };
   } catch (error62) {
     return {
       ok: false,
@@ -40622,7 +40780,7 @@ async function executeNativeDesktopStart(options) {
       kind: error62 instanceof QtNativeTransportError || error62 instanceof DesktopMarkerError ? error62.kind : "native-contract",
       error: error62 instanceof Error ? error62.message : "Native desktop start failed.",
       outcomeUnknown: error62 instanceof QtNativeTransportError && error62.outcomeUnknown,
-      ms: performance19.now() - started
+      ms: performance20.now() - started
     };
   }
 }
@@ -40683,7 +40841,7 @@ var init_native_desktop_start = __esm({
 
 // src/native-desktop-stop.ts
 import { execFile as execFile4 } from "node:child_process";
-import { performance as performance20 } from "node:perf_hooks";
+import { performance as performance21 } from "node:perf_hooks";
 import { win32 as win324 } from "node:path";
 function parseNativeDesktopStop(value, marker, options) {
   const result = resultSchema2.parse(value);
@@ -40700,7 +40858,7 @@ function parseNativeDesktopStop(value, marker, options) {
   };
 }
 async function executeNativeDesktopStop(options) {
-  const started = performance20.now();
+  const started = performance21.now();
   try {
     if (options.signal?.aborted) throw failure5("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure5("bad-args", "Save and discard cannot both be requested.");
@@ -40711,7 +40869,7 @@ async function executeNativeDesktopStop(options) {
     if (!marker?.pid || marker.owner !== "sse") throw failure5("ownership", "A valid owned SSE desktop marker with PID is required.");
     const image = win324.normalize(options.executable);
     if (!/^[A-Za-z]:\\/u.test(image) || /["\u0000-\u001f]/u.test(image)) throw failure5("bad-args", "An absolute configured executable is required.");
-    const remaining = Math.floor(options.timeoutMs - (performance20.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance21.now() - started));
     if (remaining < 11500) throw failure5("native-deadline", "Insufficient time remains for close ownership checks.");
     const request = {
       mode: "desktop-stop",
@@ -40750,7 +40908,7 @@ async function executeNativeDesktopStop(options) {
       });
       child.stdin?.end(JSON.stringify(request));
     });
-    return { ...result, ms: performance20.now() - started };
+    return { ...result, ms: performance21.now() - started };
   } catch (error62) {
     return {
       ok: false,
@@ -40758,7 +40916,7 @@ async function executeNativeDesktopStop(options) {
       kind: error62 instanceof QtNativeTransportError || error62 instanceof DesktopMarkerError ? error62.kind : "native-contract",
       error: error62 instanceof Error ? error62.message : "Native desktop stop failed.",
       outcomeUnknown: error62 instanceof QtNativeTransportError && error62.outcomeUnknown,
-      ms: performance20.now() - started
+      ms: performance21.now() - started
     };
   }
 }
@@ -40906,7 +41064,7 @@ var init_qt_native_discovery = __esm({
 });
 
 // src/qt-native-runtime.ts
-import { performance as performance21 } from "node:perf_hooks";
+import { performance as performance22 } from "node:perf_hooks";
 function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
   if (!config2.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config2.qtNativeRuntime, profile);
@@ -40952,7 +41110,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
     return binding.desktop === marker?.name && (explicit || marker?.pid == null || binding.pid === marker.pid);
   }
   const left = (deadline, kind = "native-timeout") => {
-    const value = Math.floor(deadline - performance21.now());
+    const value = Math.floor(deadline - performance22.now());
     if (value < 1) throw failure7("Native operation deadline exceeded before dispatch.", kind);
     return value;
   };
@@ -41038,13 +41196,13 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
     }
   }
   async function target(args, deadline, signal) {
-    const settleUntil = Math.min(performance21.now() + NAMED_WINDOW_SETTLE_MS, deadline);
+    const settleUntil = Math.min(performance22.now() + NAMED_WINDOW_SETTLE_MS, deadline);
     for (; ; ) {
       try {
         return await discoverOnce(args, deadline, signal);
       } catch (error62) {
         const settling = typeof args.hwnd === "number" && error62 instanceof QtNativeTransportError && error62.kind === "no-window";
-        if (!settling || signal?.aborted || performance21.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error62;
+        if (!settling || signal?.aborted || performance22.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error62;
       }
       await pause(NAMED_WINDOW_POLL_MS, signal);
     }
@@ -41165,7 +41323,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
     }
   }
   async function desktopLifecycle(timeoutMs, maximum, backend, signal, action) {
-    const started = performance21.now();
+    const started = performance22.now();
     const budget = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, maximum) : 0;
     const deadline = started + budget;
     const beforeDispatchError = (error62) => ({
@@ -41174,7 +41332,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
       kind: error62 instanceof QtNativeTransportError ? error62.kind : "native-retirement-unproven",
       error: error62 instanceof QtNativeTransportError ? error62.message : "Native cleanup failed before desktop submission.",
       outcomeUnknown: false,
-      ms: performance21.now() - started
+      ms: performance22.now() - started
     });
     return withCombinedAbortSignal([signal, shutdown], async (combined) => {
       if (combined.aborted || stopped) return beforeDispatchError(failure7("Native desktop operation cancelled before submission.", "aborted"));
@@ -41187,7 +41345,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
         } catch (error62) {
           return beforeDispatchError(error62);
         }
-        return await action(Math.max(0, Math.floor(deadline - performance21.now())), combined);
+        return await action(Math.max(0, Math.floor(deadline - performance22.now())), combined);
       } finally {
         lifecycleInFlight = false;
         changed();
@@ -41223,7 +41381,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
       }));
     },
     async client(args, timeoutMs, signal) {
-      const deadline = performance21.now() + timeoutMs;
+      const deadline = performance22.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);
@@ -41240,7 +41398,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
     },
     async beforeWorker(timeoutMs, signal) {
       if (stopped) throw failure7("Native runtime is stopping.", "aborted");
-      await withCombinedAbortSignal([signal, shutdown], (combined) => quiesce(performance21.now() + timeoutMs, combined));
+      await withCombinedAbortSignal([signal, shutdown], (combined) => quiesce(performance22.now() + timeoutMs, combined));
     },
     async afterWorker(operation, result, args = {}) {
       if (result.ok !== true || result.outcomeUnknown === true) return;
@@ -41265,7 +41423,7 @@ function createQtNativeRuntime(config2, profile, shutdown, dependencies = {}) {
       stopped = true;
       clear();
       const budget = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, SHUTDOWN_TIMEOUT_MS) : 0;
-      await quiesce(performance21.now() + budget);
+      await quiesce(performance22.now() + budget);
     }
   };
   shutdown.addEventListener("abort", () => {
@@ -41297,7 +41455,7 @@ var init_qt_native_runtime = __esm({
 });
 
 // src/qt-native-worker.ts
-import { performance as performance22 } from "node:perf_hooks";
+import { performance as performance23 } from "node:perf_hooks";
 function withQtNativeLifecycle(worker, native) {
   let active = false;
   return async (operation, args, timeoutMs, signal) => {
@@ -41312,11 +41470,11 @@ function withQtNativeLifecycle(worker, native) {
     active = true;
     try {
       const budget = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-      const started = performance22.now();
+      const started = performance23.now();
       let remaining;
       try {
         await native.beforeWorker(budget, signal);
-        remaining = Math.floor(budget - (performance22.now() - started));
+        remaining = Math.floor(budget - (performance23.now() - started));
         if (remaining < 1) throw new QtNativeTransportError("Worker deadline exceeded before submission.", "native-timeout");
       } catch (error62) {
         return {
@@ -41353,7 +41511,7 @@ __export(api_runtime_exports, {
 });
 import { setMaxListeners } from "node:events";
 import { realpathSync as realpathSync5 } from "node:fs";
-import { dirname as dirname14, isAbsolute as isAbsolute10, join as join15, relative as relative5 } from "node:path";
+import { dirname as dirname15, isAbsolute as isAbsolute10, join as join16, relative as relative5 } from "node:path";
 function installApiShutdown(server, shutdown, log, options = {}) {
   const forceAfterMs = options.forceAfterMs ?? 1e4;
   if (!Number.isFinite(forceAfterMs) || forceAfterMs < 1) {
@@ -41489,8 +41647,8 @@ async function runApiRuntime(configPath, overrides = {}) {
       nativeDesktopStop: native.desktopStop
     } : {}
   );
-  const logDir = join15(dirname14(config2.configPath), "logs");
-  const logPath = join15(logDir, "api.jsonl");
+  const logDir = join16(dirname15(config2.configPath), "logs");
+  const logPath = join16(logDir, "api.jsonl");
   const maxLogBytes = 5 * 1024 * 1024;
   const { log } = createRotatingJsonlLogger({ logPath, maxBytes: maxLogBytes });
   let lifecycle;

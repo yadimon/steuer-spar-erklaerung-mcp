@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.55",
+  "packageVersion": "0.1.0-beta.57",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.55",
+  "pluginVersion": "0.1.0-beta.57",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,12 +18,12 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "10e3d4748dd0dd62d12bc807736b18089fd136169e12d8e4fd1f7f0956d921b0",
-      "size": 1776618
+      "sha256": "c2b8af8363132796700de94fbd09ef064d442084b6337487c332b76938ebfd0c",
+      "size": 1783355
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "97d40c015b0932fbcd331c3331d83d4672466892df862746fa41cbc807d5e751",
+      "sha256": "88c5da508ba7d791b6a8b27d6cf52e6409e06ed4ff8bc35d680aedc170aa9991",
       "size": 1805903
     },
     {
@@ -40,6 +40,21 @@
       "path": "powershell/goto-route.ps1",
       "sha256": "727f4b9d1f8b497e8717689c058f81cdee83800e1133ad5f5b891f79910f2560",
       "size": 10430
+    },
+    {
+      "path": "powershell/gui-launch-lifetime.cs",
+      "sha256": "824c9df56595cd7cf600c96c31b1e89b7823ca78538923c7d159178f5475c179",
+      "size": 1741
+    },
+    {
+      "path": "powershell/gui-launch-lifetime.exe",
+      "sha256": "266dad4e1fb00973e0cfbdbaa5bd9e80e9e9da02f4f3f5586c86c52e80b02b89",
+      "size": 5120
+    },
+    {
+      "path": "powershell/gui-launch-lifetime.sha256",
+      "sha256": "2b2eec2db1ced444e077b6cbaa8351e9bd4912edae8e7e5230deaa76ce391184",
+      "size": 181
     },
     {
       "path": "powershell/instance-identity.ps1",
@@ -88,8 +103,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "d5418362f8cd0efa95f3d34fc4d209430db7e4e1f6ffcb53865623c783860323",
-      "size": 1646067
+      "sha256": "958d94c05992bcbf98f34fccb0edc901fee84485c09977ff2ba1345996069cec",
+      "size": 1646140
     },
     {
       "path": "powershell/structure-binding.ps1",

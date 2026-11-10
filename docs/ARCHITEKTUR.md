@@ -39,11 +39,12 @@ Entstehungsgeschichte einzelner UIA-Lösungen.
 
 ## Produktziel
 
-Ein Windows-Nutzer soll die SteuerSparErklärung nach einer target-spezifischen
-Plugin-Installationsfolge mit einem Agenten prüfen und kontrolliert bearbeiten
-können.
-Node.js 22+ ist die einzige zusätzliche Plugin-Runtime; Git wird nur beim
-einmaligen Klonen benötigt. npm, npx, Python oder PowerShell 7 dürfen beim
+Ein Windows-Nutzer soll die SteuerSparErklärung nach der client-spezifischen
+Installation mit einem Agenten prüfen und kontrolliert bearbeiten können.
+Codex verwendet direkt registriertes npm-MCP mit passender API und separatem
+Skill; für Claude Code bleibt das Agent Plugin unterstützt.
+Node.js 22+ ist die zusätzliche Runtime; Git wird nur beim
+einmaligen Klonen für den Plugin-Installer benötigt. npm, npx, Python oder PowerShell 7 dürfen beim
 MCP-Start nicht benötigt werden. Sichtbar bleibt die SteuerSparErklärung
 selbst; API-, MCP- und Worker-Prozesse dürfen keine schwarzen Konsolenfenster
 öffnen.
@@ -852,7 +853,16 @@ nie geöffnet“ ist deshalb eine Ablaufzusage der Skills, keine API-Sperre.
 
 ### Nutzerstandard
 
-Es gibt genau einen normalen Agentenweg: Das Agent Plugin enthält den Skill,
+Für Codex ist das direkt registrierte npm-MCP mit exakt versionsgleicher
+API-Dependency und separat installiertem Skill der empfohlene Agentenweg.
+Die Runtime liegt auf einem lokalen, nicht synchronisierten Laufwerk;
+`SSE_API_CONFIG` bindet die bestätigten Arbeitsdaten unabhängig davon.
+Die Codex-Plugin-Empfehlung ist vorläufig ausgesetzt: Sein 64-000-Bytes-Budget
+für Agent-Plugin-Metadaten kann Werkzeuge trotz vollständigem `tools/list`
+verbergen. Der Client muss den vollständigen Modellkatalog und den echten
+`sse_preflight` nachweisen. Andere Codex-Plugins bleiben davon unberührt.
+
+Für Claude Code bleibt das Agent Plugin unterstützt. Es enthält den Skill,
 den MCP-Server, die exakt passende API, Windows-PowerShell-/Native-Runtime,
 Profile, Hilfsassets und alle JavaScript-Dependencies. Eine zentrale
 Metadatenquelle erzeugt `plugin.json`, `mcp.json`, Marketplace- und tatsächlich
@@ -866,7 +876,8 @@ MCP-Eintrag startet `node` direkt mit
 Runtime-`npx`, `npm install`, `postinstall` oder Netzwerkdownload ist verboten;
 im Auftragsworkspace wird kein `node_modules` vorausgesetzt.
 
-Externer Plugin-Cache und target-native Registrierung sind bei Codex zwei
+Für bestehende Codex-Plugin-Installationen und Diagnosen bleiben externer
+Plugin-Cache und target-native Registrierung zwei
 getrennte Zustände. Mit Codex CLI 0.151 schreibt `plugins@1.3.4 add` Cache,
 Marketplace und Konfiguration, lässt den Status-Readback
 `codex plugin list --json` aber auf
@@ -910,22 +921,22 @@ API-Prozess.
 Das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-npm-
 Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI,
 PowerShell-/Native-Runtime und Profile; das npm-MCP-Paket hängt exakt von
-derselben Version ab. Diese standalone-Pakete bleiben fortgeschrittene Wege,
-nicht der Plugin-Quickstart. Beide und das Plugin werden aus derselben
-TypeScript-/Profilquelle gebaut. Python und PowerShell 7 gehören nicht zur
+derselben Version ab. Das standalone MCP ist der empfohlene Codex-Einstieg;
+API-only bleibt ein eigener Integrationsweg. Beide und das Plugin werden aus
+derselben TypeScript-/Profilquelle gebaut. Python und PowerShell 7 gehören nicht zur
 Produkt-Runtime; Windows PowerShell 5.1 wird als Windows-Systembestandteil
 genutzt.
 
 ### Betriebsarten
 
-1. **Agent-Plugin-Standard:** Für Codex erst target-spezifisch mit `plugins@1`
-   klonen und danach target-nativ mit `codex plugin add` registrieren; für
-   Claude Code genügt der zielgenaue `plugins@1`-Aufruf. Den jeweiligen
-   Aktivstatus zurücklesen, erst dann den Client neu laden und `sse_preflight`
-   als echtes MCP-Tool ausführen. Der MCP-Start braucht danach nur die
-   gebündelten Dateien und Node.js 22+.
-2. **Standalone MCP:** Das npm-MCP-Paket in einen bewussten Paketordner
-   installieren und target-nativ anbinden.
+1. **Standalone MCP für Codex:** Das npm-MCP-Paket lokal installieren und
+   direkt anbinden. npm installiert die passende API automatisch. Den Skill
+   separat laden und anschließend den vollständigen Werkzeugkatalog und
+   `sse_preflight` im Client prüfen.
+2. **Agent Plugin für Claude Code:** Den zielgenauen `plugins@1`-Aufruf
+   verwenden, Aktivstatus zurücklesen, Client neu laden und `sse_preflight`
+   ausführen. Bestehende Codex-Plugin-Installationen sind dokumentiert, werden
+   wegen der Metadatengrenze aber vorläufig nicht empfohlen.
 3. **Direkte API:** Das API-Paket separat installieren, bewusst im Vordergrund
    starten und CLI/HTTP ohne MCP verwenden.
 
@@ -977,7 +988,8 @@ einen separaten Worker-Adapter.
 ## Erster Start statt Einrichtungsprogramm
 
 Es gibt kein separates Setup-Programm und keine versteckte Systemänderung. Nach
-Plugin-Installation lädt der neu gestartete Client Skill und MCP. Der Skill
+der direkten MCP-Registrierung mit separatem Skill oder einer unterstützten
+Plugin-Installation lädt eine neue Client-Sitzung Skill und MCP. Der Skill
 merkt sich den ursprünglichen Auftrag, ruft `sse_preflight` auf und stellt
 höchstens eine Frage pro Nachricht. Ein bereits eindeutig geöffneter Fall
 gewinnt; andernfalls werden Fall und vollständige Belegquellen bestätigt. Erst

@@ -245,6 +245,72 @@ Assert-True ($null -eq (Invoke-GotoSearchSelection $null $prefix $personList -Fr
 Assert-True ((Invoke-GotoSearchSelection $null $prefix $exactFirst -FreeTarget).y -eq 277) `
   'Ein freies Ziel muss weiterhin nur seine exakte Titelzelle auswaehlen.'
 
+# Execute the real visible activation branch against a synthetic search UI.
+# Guard preparation and post-input settling separate two single-click calls;
+# only one double-click gesture opens the result within its timing budget.
+$visibleActivationBlocks = @($gotoBody.FindAll({ param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '-not $suchSeiteGeoeffnet -and -not $script:DESKTOP_NAME'
+}, $true))
+Assert-True ($visibleActivationBlocks.Count -eq 1) 'Die sichtbare Suchaktivierung ist nicht eindeutig.'
+$visibleActivationBlock = [scriptblock]::Create($visibleActivationBlocks[0].Extent.Text)
+function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesktop) {
+  $script:searchClickClock = [long]0
+  $script:searchClickTimes = New-Object System.Collections.ArrayList
+  $script:searchClickTransactions = New-Object System.Collections.ArrayList
+  $script:searchHeadingWaits = New-Object System.Collections.ArrayList
+  $script:DESKTOP_NAME = $(if ($HiddenDesktop) { 'synthetic.desktop' } else { $null })
+  $hwnd = [IntPtr]4242; $start = 'Startseite'; $ziel = 'Zielseite'
+  $aktiviert = $false; $suchSeiteGeoeffnet = $false
+  $genau = [pscustomobject]@{rid='42.synthetic-search';name=$ziel;type='DataItem';x=80;y=252;w=238;h=25}
+  $suchWeg = New-Object System.Collections.ArrayList
+  function Click-VerifiedPoint {
+    param([IntPtr]$Window, $Node, [int]$ClickCount = 1)
+    Assert-True ($Window -eq $hwnd -and [object]::ReferenceEquals($Node, $genau)) 'Die Suchaktivierung verlor den gebundenen Treffer.'
+    $null = $script:searchClickTransactions.Add([pscustomobject]@{hwnd=[int64]$Window;rid=$Node.rid;count=$ClickCount})
+    $script:searchClickClock += 100
+    for ($index=0; $index -lt $ClickCount; $index++) {
+      $null = $script:searchClickTimes.Add($script:searchClickClock)
+      if ($index+1 -lt $ClickCount) { $script:searchClickClock += 90 }
+    }
+    $script:searchClickClock += 180
+  }
+  function Start-Sleep { param([int]$Milliseconds) $script:searchClickClock += $Milliseconds }
+  function WarteAufUeberschrift {
+    param([IntPtr]$Window, [string]$Previous, [string]$Target, [int]$TimeoutMs)
+    $null = $script:searchHeadingWaits.Add([pscustomobject]@{hwnd=[int64]$Window;previous=$Previous;target=$Target;timeoutMs=$TimeoutMs})
+    if ($script:searchClickTimes.Count -eq 2 -and
+        $script:searchClickTimes[1]-$script:searchClickTimes[0] -le 300) { return $HeadingAfter }
+    $Previous
+  }
+  function IstZielseite { param([IntPtr]$Window, [string]$Heading) $Window -eq $hwnd -and $Heading -ceq $ziel }
+  . $visibleActivationBlock
+  [pscustomobject]@{
+    activated=$aktiviert; pageChanged=$suchSeiteGeoeffnet
+    transactions=@($script:searchClickTransactions); times=@($script:searchClickTimes); waits=@($script:searchHeadingWaits)
+  }
+}
+$doubleClick = Test-VisibleSearchActivation 'Zielseite'
+Assert-True ($doubleClick.activated -and $doubleClick.pageChanged) 'Der Suchtreffer wurde nicht innerhalb des synthetischen Doppelklickfensters aktiviert.'
+Assert-True ($doubleClick.transactions.Count -eq 1 -and $doubleClick.transactions[0].count -eq 2 -and
+  $doubleClick.transactions[0].hwnd -eq 4242 -and $doubleClick.transactions[0].rid -ceq '42.synthetic-search') `
+  'Die Suchaktivierung muss eine einzige bewachte Doppelklicktransaktion verwenden.'
+Assert-True ($doubleClick.waits.Count -eq 1 -and $doubleClick.waits[0].timeoutMs -eq 1500 -and
+  $doubleClick.waits[0].previous -ceq 'Startseite' -and $doubleClick.waits[0].target -ceq 'Zielseite') `
+  'Die Suchaktivierung verlor ihre begrenzte Titel-Gegenprobe.'
+$missingHeading = Test-VisibleSearchActivation ''
+Assert-True (-not $missingHeading.activated -and -not $missingHeading.pageChanged -and $missingHeading.transactions.Count -eq 1) `
+  'Eine fehlende Ueberschrift erlaubte Erfolg oder einen erneuten Klickversuch.'
+$wrongHeading = Test-VisibleSearchActivation 'Andere Seite'
+Assert-True (-not $wrongHeading.activated -and $wrongHeading.pageChanged -and $wrongHeading.transactions.Count -eq 1) `
+  'Eine andere Ueberschrift wurde als Ziel akzeptiert oder erneut angeklickt.'
+$hiddenSearch = Test-VisibleSearchActivation 'Zielseite' -HiddenDesktop
+Assert-True (-not $hiddenSearch.activated -and -not $hiddenSearch.pageChanged -and
+  $hiddenSearch.transactions.Count -eq 0 -and $hiddenSearch.waits.Count -eq 0) `
+  'Der sichtbare Doppelklickpfad bediente einen versteckten Desktop.'
+$script:DESKTOP_NAME = $null
+Write-Output 'goto-Suchaktivierung: eine bewachte Doppelklicktransaktion, begrenzter Readback und negative Gegenfaelle - bestanden'
+
 $activatedBlocks = @($gotoBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.IfStatementAst] -and

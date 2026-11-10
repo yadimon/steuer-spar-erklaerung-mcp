@@ -7,25 +7,29 @@ Lokaler Windows-x64-API-Wrapper für SteuerSparErklärung 2025. Das Paket stellt
 die Desktop-Anwendung über eine ausschließlich an Loopback gebundene HTTP-API
 und eine direkte CLI bereit.
 
-## Nutzerstandard ist das Agent Plugin
+## Codex: MCP installiert die API automatisch
 
-Normale Codex-/Claude-Code-Nutzer installieren nicht dieses Paket separat. Das
-[Agent Plugin](https://github.com/yadimon/steuer-spar-erklaerung-mcp#schnellstart)
-enthält Skill, MCP, exakt diese API-Version, PowerShell-/Native-Runtime,
-Profile und alle JavaScript-Dependencies. Es startet die API als geprüften
-lokalen Singleton, ohne separates Terminal, Runtime-npm/npx oder
-Netzwerkdownload.
+Für Codex ist das direkte npm-Paket
+[`@yadimon/steuer-spar-erklaerung-mcp`](https://www.npmjs.com/package/@yadimon/steuer-spar-erklaerung-mcp)
+der empfohlene Einstieg. npm installiert diese API als exakt versionsgleiche
+Dependency; der MCP-Supervisor startet sie bei Bedarf im Hintergrund. Ein
+separates API-Terminal ist dafür nicht nötig. Der Skill wird separat installiert.
 
-`plugins@1.3.4` benötigt Git auf `PATH`, weil es das Plugin-Repository einmalig
-klont; danach bleibt Node.js 22+ die einzige zusätzliche Plugin-Runtime.
-Bei Codex umfasst die Installation zusätzlich den target-nativen
-`codex plugin add steuer-spar-erklaerung@plugins-cli --json`-Schritt; der
-externe Installer allein registriert das Plugin dort derzeit nicht als
-installiert. Der vollständige, überprüfbare Ablauf steht im
-[Schnellstart](https://github.com/yadimon/steuer-spar-erklaerung-mcp#schnellstart).
+**Codex: Plugin-Installation vorläufig nicht empfohlen.** Codex begrenzt die
+Metadaten von MCP-Werkzeugen aus Agent Plugins auf insgesamt **64 000 Bytes**.
+Bei beta55 wurde dadurch ein Katalog mit **26 von 104** verfügbaren Werkzeugen
+reproduziert; auch `sse_preflight` kann fehlen. Die Empfehlung der
+Plugin-Installation für Codex ist deshalb vorübergehend ausgesetzt.
+Direkt registrierte npm-MCP-Verbindungen sind von diesem Plugin-Budget nicht
+betroffen. Das ist eine Grenze dieses Codex-Integrationswegs, keine allgemeine
+Aussage über API, MCP oder andere Clients. Siehe
+[Codex-Quellcode](https://github.com/openai/codex/blob/main/codex-rs/core/src/mcp_tool_exposure.rs)
+und [bekannte Meldung](https://github.com/openai/codex/issues/49758).
 
-Dieses npm-Paket bleibt für eigene HTTP-/CLI-Integrationen und tiefe Diagnosen
-separat unterstützt.
+Für Claude Code bleibt das selbstenthaltene Agent Plugin unterstützt. Der
+[vollständige Ablauf](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md)
+beschreibt beide Client-Wege und die getrennte Ablage von Runtime und Daten.
+Dieses API-Paket bleibt für eigene HTTP-/CLI-Integrationen separat installierbar.
 
 ## Rolle des Pakets
 
@@ -131,7 +135,7 @@ Nur dann die genaue PID stoppen; niemals einen Prozessname-Sweep ausführen.
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt;
 - Profil 2024 bleibt experimentell und ist für Nutzer nicht freigegeben.
 
-Installation des Agent Plugins steht in der
+Client-spezifische Installation steht in der
 [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md);
 unterstützte Operationen und Verifikation stehen im
 [Repository](https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme).

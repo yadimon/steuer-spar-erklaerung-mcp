@@ -1,9 +1,9 @@
 # Release-Prozess
 
-Dieses Projekt veröffentlicht keinen gehosteten Dienst. Der primäre
-Nutzereinstieg ist das Agent Plugin im Repository. Zwei getrennte npm-Pakete
-bleiben für standalone-Nutzung und als versionsgebundene Releaseartefakte
-erhalten:
+Dieses Projekt veröffentlicht keinen gehosteten Dienst. Codex verwendet
+direkt registriertes npm-MCP mit exakt passender API und separatem Skill;
+Claude Code kann das selbstenthaltene Agent Plugin verwenden. Beide npm-Pakete
+und das Plugin bleiben versionsgebundene Releaseartefakte:
 
 - Agent Plugin mit Skill, MCP, API, Windows-Runtime, Profilen, Assets und
   JavaScript-Dependencies;
@@ -239,18 +239,25 @@ Artefakte geprüft:
 npm run smoke:published
 ```
 
-## 6. Agent Plugin vor der Ankündigung prüfen
+## 6. Client-Installation vor der Ankündigung prüfen
 
-Vor einer öffentlichen Ankündigung wird das Agent Plugin für beide
-dokumentierten Ziele getrennt auf einem frisch aufgesetzten Windows-System mit
-installierter SteuerSparErklärung geprüft: Installation, Aktivierung,
-Werkzeugliste und die target-native Entfernung. Host-Anmeldedaten und
-Host-Caches werden dabei nicht als Nachweis übernommen.
+Vor einer öffentlichen Ankündigung werden die empfohlenen Client-Wege getrennt
+auf einem frisch aufgesetzten Windows-System mit installierter
+SteuerSparErklärung geprüft: Installation, Aktivierung, vollständiger
+Modellkatalog und gezielte Entfernung. Host-Anmeldedaten und Host-Caches werden
+dabei nicht als Installationsnachweis übernommen.
 
-Geprüft werden genau die beiden dokumentierten Installationsbefehle:
+Für Codex den direkten npm-/Skill-Weg der
+[Installationsanleitung](INSTALLATION.md)
+verwenden. Den normalen Start über den gemeinsamen App-Server prüfen;
+ein isolierter Server oder ein direkter MCP-Handshake allein genügt nicht.
+Die Runtime muss für beide Prozesse am selben lokalen Pfad sichtbar sein.
+Auch `sse_preflight` muss im vollständigen Modellkatalog tatsächlich aufrufbar
+sein. Die Codex-Plugin-Empfehlung bleibt wegen des Metadatenbudgets ausgesetzt.
+
+Für Claude Code den zielgenauen Plugin-Aufruf prüfen:
 
 ```powershell
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 

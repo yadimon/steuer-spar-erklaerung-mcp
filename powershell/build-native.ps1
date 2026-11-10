@@ -17,6 +17,8 @@ if ($PSVersionTable.PSEdition -ne 'Desktop' -or
   throw 'Native helper must be built with Windows PowerShell 5.1. Use npm run build:native.'
 }
 
+& (Join-Path $PSScriptRoot 'build-gui-launch-probe.ps1')
+
 $source = Join-Path $PSScriptRoot 'sse-native.cs'
 $target = Join-Path $PSScriptRoot 'sse-native.dll'
 $hashTarget = Join-Path $PSScriptRoot 'sse-native.sha256'

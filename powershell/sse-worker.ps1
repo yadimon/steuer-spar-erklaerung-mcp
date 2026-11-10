@@ -21657,9 +21657,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               # zu zwingen. Der Erfolg gilt weiterhin nur bei geaenderter bzw.
               # exakt passender Ueberschrift.
               try {
-                $null = Click-VerifiedPoint $hwnd $genau
-                Start-Sleep -Milliseconds 120
-                $null = Click-VerifiedPoint $hwnd $genau
+                # Zwei Einzelaufrufe verbringen dazwischen ihre vollstaendige
+                # Guard-/Settle-Phase und koennen das Doppelklickfenster verpassen.
+                $null = Click-VerifiedPoint $hwnd $genau -ClickCount 2
                 # Solange die Suchseite offen ist, ist die Formularueberschrift
                 # nicht im UIA-Baum. Ein einzelner Readback nach fester
                 # Wartezeit hat den Seitenaufbau gelegentlich verpasst und den

@@ -12,6 +12,12 @@ UStVA-Änderung.
    genau den vom Hersteller vorgesehenen Folgejahr-Fall `*.GewErfass2026`
    bedienen. Verwende diese Ausnahme nur für Gewinn-Erfassung/UStVA 2026;
    andere 2026er Fallarten und spätere Jahre bleiben gesperrt.
+   Ermittle vor einer Navigation den vollständigen Seitentitel aus dem Fall,
+   etwa mit `sse_subpages`. `sse_goto` braucht bei Freitext die exakte
+   Überschrift einschließlich Jahr, beispielsweise
+   `Umsatzsteuer-Voranmeldungen 2026`. Die fachliche Kurzform
+   `Umsatzsteuer-Voranmeldung` ist kein passender exakter Titel. Verwende eine
+   `pageId` nur, wenn der Katalog sie tatsächlich liefert; keine Kennung raten.
 3. Lies Fallkopf, Übermittlungsprotokolle und UStVA-Zustand. Ist der Zeitraum
    bereits übermittelt, bereite keinen zweiten Fall und keine Berichtigung ohne
    einen neuen ausdrücklichen Auftrag vor.

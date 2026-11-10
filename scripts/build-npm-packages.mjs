@@ -136,7 +136,8 @@ cpSync(join(root, "powershell"), join(apiRoot, "powershell"), {
   recursive: true,
   filter: (source) => {
     const name = basename(source);
-    return !name.startsWith(".sse-native-") && name !== "build-native.ps1";
+    return !name.startsWith(".sse-native-") && !name.startsWith(".gui-launch-lifetime-") &&
+      name !== "build-native.ps1" && name !== "build-gui-launch-probe.ps1";
   },
 });
 cpSync(join(root, "profiles"), join(apiRoot, "profiles"), { recursive: true });

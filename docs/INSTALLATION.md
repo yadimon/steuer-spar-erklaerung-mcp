@@ -1,378 +1,407 @@
-# Agent Plugin installieren
+# Installation und Client-Anbindung
 
-Der normale Nutzerweg installiert ein selbstenthaltenes Agent Plugin. Es
-liefert gemeinsam und versionsgleich aus:
-
-- den Skill `steuer-spar-erklaerung`;
-- den MCP-Server und seine JavaScript-Dependencies;
-- die lokale API samt CLI;
-- Windows-PowerShell-/Native-Runtime, Produktprofile und Hilfsassets.
-
-Im Arbeitsordner wird kein `node_modules` benötigt. Beim späteren MCP-Start
-laufen weder npm noch npx, es gibt keinen Netzwerkdownload und kein separates
-API-Terminal.
+**Codex: Plugin-Installation vorläufig nicht empfohlen.** Codex begrenzt die
+Metadaten von MCP-Werkzeugen aus Agent Plugins auf insgesamt **64 000 Bytes**.
+Bei beta55 wurde dadurch ein Katalog mit **26 von 104** verfügbaren Werkzeugen
+reproduziert; auch `sse_preflight` kann fehlen. Die Empfehlung der
+Plugin-Installation für Codex ist deshalb vorübergehend ausgesetzt.
+Direkt registrierte npm-MCP-Verbindungen sind von diesem Plugin-Budget nicht
+betroffen. Diese Grenze betrifft den Codex-Integrationsweg; sie belegt keinen
+allgemeinen Fehler der API, des MCP oder anderer Clients. Siehe
+[Codex-Quellcode](https://github.com/openai/codex/blob/main/codex-rs/core/src/mcp_tool_exposure.rs)
+und [bekannte Meldung](https://github.com/openai/codex/issues/49758).
 
 ## Voraussetzungen
 
 - Windows x64;
 - Node.js 22 oder neuer;
-- Git auf `PATH` für das einmalige Klonen durch `plugins@1.3.4`;
 - installierte SteuerSparErklärung 2025;
-- lokal installierter und angemeldeter Codex- oder Claude-Code-Client.
+- lokal installierter Codex- oder Claude-Code-Client auf demselben PC;
+- Git auf `PATH` zusätzlich für den Plugin-Installer `plugins@1.3.4`.
 
-Git ist Installationswerkzeug, nicht Plugin-Runtime. Nach dem erfolgreichen
-Klonen ist neben dem gewählten Agenten und SteuerSparErklärung Node.js 22+ die
-einzige zusätzliche Laufzeitvoraussetzung. Python, PowerShell 7, eine globale
-npm-Paketinstallation und ein Windows-Dienst sind nicht nötig.
-
+Python, PowerShell 7, eine globale npm-Paketinstallation und ein Windows-Dienst
+sind keine Produktvoraussetzungen. Die Windows-Automation verwendet die
+mitgelieferte Runtime und Windows PowerShell 5.1 als Systembestandteil.
 Codex Cloud, Claude im Browser und entfernte Sandboxes können die lokale
-Windows-Anwendung nicht bedienen. OpenCode ist nicht Teil der derzeit
-dokumentierten und getesteten Plugin-Matrix.
+Windows-Anwendung nicht bedienen. OpenCode gehört nicht zur dokumentierten
+und geprüften Client-Matrix.
 
-## Installieren
+## Codex: direktes MCP + API aus npm
 
-Die automatische Zielerkennung von `plugins@1` ist unter Windows nicht
-zuverlässig genug für den Hauptweg. Gib deshalb immer `--target codex` oder
-`--target claude-code` an.
+Installiere das MCP-Paket in einen eigenen Ordner auf einem lokalen, nicht
+synchronisierten Laufwerk. npm installiert die API als exakt versionsgleiche
+Dependency. Den Skill separat installieren oder einen vorhandenen passenden
+Skill weiterverwenden.
 
-### Codex
+Für eine von Desktop-App und normalem Terminal gemeinsam verwendete Runtime
+einen Ordner außerhalb von `AppData` wählen. Windows kann neue Dateien einer
+paketierten Desktop-App unter `AppData` in deren privaten `LocalCache`
+umleiten. Die App sieht dann die Installation am scheinbar normalen Pfad,
+während ein unabhängiger Codex-App-Server dort `MODULE_NOT_FOUND` meldet.
+Der folgende Pfad unter `USERPROFILE` vermeidet diese Umleitung. Siehe
+[Microsoft: AppData-Umleitung bei paketierten Apps](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-behind-the-scenes#appdata-operations-on-windows-10-version-1903-and-later).
 
-```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
-codex plugin add steuer-spar-erklaerung@plugins-cli --json
-```
+### Neue Installation
 
-Beide Installationsbefehle sind für Codex derzeit zwingend. Ein isolierter Lauf
-mit `plugins@1.3.4` und Codex CLI 0.151 zeigte nach dem ersten Befehl zwar
-Cache-, Marketplace- und Konfigurationseinträge, aber im Status-Readback
-`codex plugin list --json`
-noch `not installed`. Erst das target-native
-`codex plugin add steuer-spar-erklaerung@plugins-cli --json` registrierte
-Version und Status als `installed, enabled`. Nur dieser zurückgelesene Zustand
-ist ein erfolgreicher Codex-Installationsnachweis.
-
-Danach den Status zurücklesen; dies ist nicht der vorgesehene
-Installationsschritt:
+Das Beispiel verwendet einen neuen Runtime-Ordner. Bei einer vorhandenen
+Installation zuerst [deren Verbindung und Datenbindungen erhalten](#vorhandenes-codex-plugin-umstellen).
 
 ```powershell
-codex plugin list --json
+$RuntimeRoot = Join-Path $env:USERPROFILE '.local\share\SteuerSparErklaerungMcp'
+New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
+Set-Location $RuntimeRoot
+npm.cmd init -y
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
+
+$Node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+$Mcp = Join-Path $RuntimeRoot 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
+$ApiConfig = Join-Path $RuntimeRoot 'sse-api-config.json'
+codex mcp add steuer-spar-erklaerung --env "SSE_API_CONFIG=$ApiConfig" -- $Node $Mcp
 ```
 
-Bei der beobachteten Codex-0.151-Alpha konnte selbst dieser Readback in einem
-älteren Probe-Home nativen Cache-/Konfigurationszustand materialisieren. Der
-Probe-Home wurde als Evidenz verworfen. Verlass dich deshalb für die
-Installation auf den ausdrücklichen target-nativen `codex plugin add`-Schritt
-und bewerte Statusausgaben nur in einem bekannten Ausgangszustand.
+Der MCP-Eintrag startet die absolute `node.exe` mit dem absoluten MCP-Skript.
+Beim MCP-Start laufen weder npm noch npx und es ist kein Netzwerkzugriff nötig.
+Der Supervisor startet die installierte API bei Bedarf unsichtbar im
+Hintergrund. Der Start öffnet weder SteuerSparErklärung noch einen Steuerfall.
 
-### Claude Code
+### API-Lebensdauer bei Codex unter Windows
+
+Vor einem Fachauftrag ein Terminal außerhalb von Codex öffnen, etwa über das
+Windows-Startmenü. Dort die projektlokale API starten und dieses Terminal offen
+lassen. Ein zweiter Codex-Toolprozess kann weiterhin denselben Killjob erben:
+
+```powershell
+$Api = Join-Path $RuntimeRoot 'node_modules\@yadimon\steuer-spar-erklaerung-api\dist\api-main.js'
+& $Node $Api --config $ApiConfig
+```
+
+Danach Codex in einem zweiten Terminal starten. Dieselbe vorhandene
+API-Konfiguration verwenden; der MCP übernimmt nur die exakt passende
+API-Version und Konfigurationsidentität. Diese Befehle starten noch keine SSE.
+
+Codex 0.167.0 schließt lokale Windows-MCP-Prozessbäume beim Entladen einer
+Verbindung in einem Job ohne Breakaway. Eine automatisch vom MCP gestartete
+API und deren neue SSE können dadurch ebenfalls enden. Node `detached:true`
+garantiert keine unabhängige Lebensdauer innerhalb eines solchen Jobs. Siehe
+[Codex-Prozessverwaltung](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/rmcp-client/src/stdio_server_launcher.rs)
+und [Microsoft: verschachtelte Jobs](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs).
+
+Der sichtbare SSE-Start prüft deshalb die tatsächlich beobachtete
+Jobvererbung vor dem Workerstart. Ein geerbter Kill-on-close-Job ohne stilles
+Breakaway führt zu `launch-error` und `mutationStarted=false`; es startet
+keine SSE. Eine kleine, hashgebundene native Leseprobe vermeidet dabei den
+zusätzlichen libuv-Job normaler Node-Kindprozesse. Dies erkennt den genannten
+Hostfall, beweist aber nicht die Lebensdauer jeder denkbaren äußeren Jobkette.
+Der private Desktop-Start behält seinen vorhandenen expliziten Breakaway-Vertrag.
+
+Läuft bereits eine automatisch gestartete API, keine zweite Instanz auf
+demselben Port starten. Zuerst den gebundenen Status lesen. Einen offenen
+Steuerfall vor dem Wechsel auf ausdrücklichen Auftrag speichern; danach nur
+die bestätigte API-Instanz kontrolliert beenden und die separate API mit
+derselben Konfiguration starten. Keine Prozesse nach Namen beenden und keine
+Schutzprüfung durch wiederholte Starts umgehen.
+
+### Skill separat installieren
+
+Bitte Codex mit seinem Skill Installer, den Skill aus
+[diesem Repository](https://github.com/yadimon/steuer-spar-erklaerung-mcp/tree/main/skills/steuer-spar-erklaerung)
+zu installieren; der Repository-Pfad lautet `skills/steuer-spar-erklaerung`.
+Für einen fest gebundenen Release den zugehörigen Git-Tag statt `main`
+verwenden. Der Skill enthält die Referenzen für Fallbindung, Sicherung,
+Belegbuchungen und Speichern. Das npm-Paket allein installiert keinen Skill.
+
+### Vorhandenes Codex-Plugin umstellen
+
+1. Die bisherige Verbindung in den Plugin-/MCP-Einstellungen lesen; bei einer
+   direkten Registrierung hilft `codex mcp get steuer-spar-erklaerung --json`.
+   Eine vorhandene API-Konfiguration und ihre Fall-, Beleg-, Ergebnis-
+   und Backupbindungen sichern und erhalten. Bei Nutzung des API-Standards
+   unter `%LOCALAPPDATA%\SteuerSparErklaerungApi` diesen nicht unbeabsichtigt
+   durch eine neue leere Konfiguration ersetzen.
+2. Das npm-MCP wie oben auf einem lokalen Laufwerk installieren.
+3. Nur den MCP-Eintrag des Steuer-Plugins deaktivieren, bevor die direkte
+   Verbindung mit demselben Namen registriert wird:
+
+   ```toml
+   [plugins."steuer-spar-erklaerung@plugins-cli".mcp_servers.steuer-spar-erklaerung]
+   enabled = false
+   ```
+
+4. `codex mcp add` mit absoluten Node-/MCP-Pfaden und dem bisherigen
+   `SSE_API_CONFIG`-Wert ausführen. Wurde bisher der API-Standard ohne diesen
+   Wert benutzt, ihn auch bei der direkten Verbindung weglassen.
+5. In einer neuen Sitzung die aktive Verbindung und den vollständigen
+   Werkzeugkatalog wie unter [First run](#client-neu-laden-und-first-run) prüfen.
+
+Der Plugin-Skill kann aktiviert bleiben. Alternativ den Skill separat
+installieren und nur das Steuer-Plugin deaktivieren. Niemals die gesamte
+Plugin-Funktion von Codex als Teil dieser Umstellung ausschalten. Die übrigen
+Plugins und bestehende Steuerfälle bleiben erhalten. Eine daneben vorhandene
+globale npm-Installation ist eine getrennte Installation; `npm uninstall -g`
+repariert keine fehlenden Werkzeuge eines Servers aus dem Plugin-Verzeichnis.
+
+## Daten und Runtime getrennt halten
+
+`node_modules`, npm-Cache und ausführbare Paketdateien gehören auf ein lokales,
+nicht synchronisiertes Laufwerk. Der Auftragsordner mit Fällen und Belegen
+darf getrennt liegen; er muss nicht in den Runtime-Ordner verschoben werden.
+Auf synchronisierten Ordnern und Netzlaufwerken kann npm beim Entpacken mit
+`TAR_ENTRY_ERROR`/`EBADF` scheitern. Auch Exitcode 0 allein ist dort kein
+Installationsnachweis.
+
+Ein absoluter `SSE_API_CONFIG`-Pfad wählt die API-Konfiguration und damit die
+Fall-, Dokument-, Arbeits-, Ergebnis- und Backupbereiche. Eine vorhandene
+Konfiguration im Auftragsordner darf weiterverwendet werden; vor Änderungen
+ihre bestätigten Datenbindungen sichern und lesen. Die Paketdateien bleiben
+auf dem lokalen Laufwerk. `caseDir` öffnet keinen Fall und ist keine
+automatische Fallauswahl.
+
+Ohne eigenen Konfigurationspfad verwendet die API ihren privaten Standard
+unter `%LOCALAPPDATA%\SteuerSparErklaerungApi`. Ein eigener Auftragsordner allein
+bedeutet keine physische Projektisolation der API-Arbeitsdaten.
+`SSE_API_URL` ist nur für eine bewusst separat verwaltete Loopback-API gedacht.
+Beide Variablen dürfen nicht gleichzeitig gesetzt sein.
+
+Bei synchronisierten Falldateien vor Öffnen, Hashen oder Speichern den
+Dateiabgleich abwarten. Eine externe Änderung am Disk-Hash verlangt eine neue
+Fallbindung; ein möglicherweise schon ausgeführter Schreibschritt darf nicht
+blind wiederholt werden.
+
+## Claude Code: Agent Plugin
+
+Das Agent Plugin bleibt für Claude Code unterstützt. Es liefert Skill, MCP,
+exakt passende API, Windows-PowerShell-/Native-Runtime, Profile und
+JavaScript-Dependencies gemeinsam aus. Im Auftragsordner wird kein
+`node_modules` benötigt. Der einmalige Installer darf das Repository mit Git
+von GitHub klonen; die spätere Runtime benötigt keinen Netzwerkdownload.
 
 ```powershell
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
+claude plugin list
 ```
 
-Claude Code benötigt keinen zusätzlichen Codex-Befehl. Dort muss die
-target-native Pluginanzeige nach dem einen `plugins@1 add` den Eintrag mit
-`Scope: user` als `enabled` ausweisen. Der User-Scope ist absichtlich: Mit
-`plugins@1.3.4 --scope project` zeigte Claude Code 2.1.252 zwar einen
-`project`-Eintrag, konnte ihn aber weder aus dem Installationsordner noch aus
-dem Benutzerprofil target-nativ entfernen. Die Wiederholung mit `--scope user`
-ließ sich eindeutig lesen und wieder entfernen.
+Die target-native Anzeige muss den Eintrag mit `Scope: user` als `enabled`
+ausweisen. Claude Code benötigt keinen zusätzlichen Codex-Aktivierungsbefehl.
+Der User-Scope ist absichtlich gewählt: Mit `plugins@1.3.4 --scope project`
+ließ sich der Claude-Eintrag target-nativ nicht zuverlässig entfernen.
 
-Der Installationsaufruf darf GitHub erreichen und verwendet Git auf `PATH`, um
-das Repository zu klonen. Danach ist der MCP-Start offline: `mcp.json` startet
-Node direkt gegen einen Pfad unter `${PLUGIN_ROOT}`. Ein Runtime-Eintrag mit
-`npx @yadimon/steuer-spar-erklaerung-mcp`, `npm install` oder einem
-Postinstall-Download ist fehlerhaft.
+Die automatische Zielerkennung von `plugins@1` ist unter Windows nicht
+zuverlässig. Deshalb `--target claude-code` ausdrücklich setzen. Für einen
+eigenen API-Arbeitsbereich `SSE_API_CONFIG` in der Umgebung des MCP-Servers
+konfigurieren. Die clientverwalteten Plugin-Dateien unter `${PLUGIN_ROOT}`
+nicht patchen; eine spätere Installation kann diesen Cache ersetzen.
 
-### Globales npm-Paket und Plugin sind getrennte Installationen
+### Codex-Plugin: bestehende Installationen und Diagnose
 
-Der Plugin-Weg benötigt weder ein global installiertes API-/MCP-npm-Paket noch
-ein `node_modules` im Auftragsordner. Das Plugin verwendet seine mitgelieferte
-Runtime im clientverwalteten Plugin-Verzeichnis. Eine daneben vorhandene
-globale npm-Installation wird dadurch nicht automatisch verwendet.
-
-Prüfe bei Codex mit `codex mcp get steuer-spar-erklaerung --json`, welchen
-Startbefehl die Konfiguration tatsächlich auswählt. Der Plugin-Weg muss Node
-direkt mit der Plugin-Runtime starten. Der zurückgelesene Befehl beschreibt
-die Konfiguration; er belegt noch nicht den Werkzeugkatalog eines bereits
-laufenden Chats. Die Ausgabe kann private Pfade oder Umgebungswerte enthalten
-und gehört nicht unverändert in ein öffentliches Issue.
-
-Ein `npm uninstall -g` entfernt die separate npm-Installation, repariert aber
-keine fehlenden Werkzeuge eines Servers aus dem Plugin-Verzeichnis. Auch eine
-erneute Installation aus Git ersetzt nicht die Prüfung im Client. Ein neuer
-Auftragsordner benötigt keine zweite Installation desselben Benutzer-Plugins.
-
-### Was die Scopes hier bedeuten
-
-`plugins@1.3.4` ignoriert den Scope bei Codex vollständig. `--scope project`
-ist dort derzeit **keine physische Projektisolation**; der Installer schreibt in
-clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Bei
-Claude Code wird deshalb der tatsächlich funktionierende `--scope user`
-dokumentiert. Beide Wege sind benutzerweit verwaltet; nur der Claude-Weg lässt
-sich mit demselben zurückgelesenen Scope target-nativ entfernen.
-
-Trennung entsteht auf zwei anderen Ebenen:
-
-1. Der Agent wird im gewählten Auftragsordner geöffnet und erhält damit dessen
-   Projekt-/Kontextgrenze.
-2. Strikt getrennte API-Arbeitsdaten verwenden einen eigenen absoluten
-   `SSE_API_CONFIG`-Pfad.
-
-Ohne zweite Maßnahme teilen Installationen desselben Windows-Benutzers den
-sicheren API-Standard unter `%LOCALAPPDATA%\SteuerSparErklaerungApi`. Das ist
-lokal und privat, aber nicht projektisoliert.
-
-## Strikt getrennten Arbeitsbereich wählen
-
-Für einen eigenen Auftrag kann der Client aus einer PowerShell gestartet
-werden, die den absoluten Konfigurationspfad an das Plugin vererbt:
+Die folgenden Befehle beschreiben den bisherigen Plugin-Weg. Wegen des
+Metadatenbudgets sind sie kein empfohlener Codex-Schnellstart:
 
 ```powershell
-$Root = 'C:\mein-steuer-ai'
-New-Item -ItemType Directory -Force -Path $Root | Out-Null
-$env:SSE_API_CONFIG = Join-Path $Root 'sse-api-config.json'
-Set-Location $Root
-
-# Danach genau den bereits installierten Zielclient aus dieser Sitzung starten.
-# Beispiel CLI: codex oder claude
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
+codex plugin add steuer-spar-erklaerung@plugins-cli --json
+codex plugin list --json
 ```
 
-Alternativ kann derselbe absolute Wert target-nativ in die Umgebung des
-installierten MCP-Servers eingetragen werden. Eine vorhandene Clientdatei nur
-additiv ändern und nie pauschal ersetzen. Die Plugin-Dateien unter
-`${PLUGIN_ROOT}` selbst nicht patchen: Eine erneute Installation darf diesen
-Cache ersetzen.
+Der externe Installer kann Cache und Marketplace registrieren, während der
+Client noch `not installed` meldet. Erst die target-native Registrierung
+liefert `installed, enabled`; auch dieser Zustand beweist noch keinen
+vollständigen Modellkatalog. Ein Readback kann bei betroffenen Clientversionen
+selbst Cache-/Konfigurationszustand materialisieren und ersetzt deshalb
+keinen vorgesehenen Installationsschritt.
 
-`SSE_API_CONFIG` wählt die Konfigurationsdatei und damit Ressourcen wie
-`documents`, `results` und `backups`. `SSE_API_URL` ist nur für eine bewusst
-separat verwaltete Loopback-API. Beide Variablen dürfen nicht gleichzeitig
-gesetzt sein.
+`plugins@1.3.4` ignoriert den Scope bei Codex vollständig. Der Installer
+schreibt in clientverwaltete Benutzer-Caches beziehungsweise Konfiguration.
+`--scope project` ist dort keine physische Projektisolation.
 
 ## Client neu laden und First run
 
-Erst nach vollständiger target-nativer Registrierung den Client neu starten
-oder seine Plugins neu laden. Bei Codex heißt das: beide Installationsbefehle
-ausführen und `installed, enabled` zurücklesen. Ein bereits laufender Client
-übernimmt neue Skills und MCP-Server nicht zuverlässig während derselben
-Sitzung.
+Nach direkter MCP-Registrierung und Skill-Installation Codex neu starten oder
+eine neue Sitzung im gewünschten Auftragsordner öffnen. Nach einer
+Claude-Plugin-Installation dessen Aktivstatus zurücklesen und den Client neu
+starten beziehungsweise seine Plugins neu laden. Ein bereits laufender Chat
+übernimmt neue Skills und MCP-Werkzeuge nicht zuverlässig.
 
-Der erste Auftrag soll keine zweite Installation auslösen. Der Skill:
+Die Einrichtung ist erst nach dem Nachweis im Client vollständig:
 
-1. merkt sich den ursprünglichen Auftrag;
-2. ruft das echte MCP-Tool `sse_preflight` auf;
-3. stellt höchstens eine Frage pro Nachricht;
-4. verwendet einen bereits eindeutig geöffneten Fall, andernfalls lässt er
-   Fall und vollständige Belegquellen bestätigen;
-5. gleicht seinen Plan mit dem Auftrag ab und setzt ihn im bereits
-   freigegebenen Umfang fort; nur noch fehlende wesentliche Entscheidungen
-   werden erfragt.
+1. Die aktive Verbindung verwendet den vorgesehenen absoluten Runtime-Pfad
+   und die bestätigte API-Konfiguration. Bei Codex zeigt
+   `codex mcp get steuer-spar-erklaerung --json` die Konfiguration und `/mcp`
+   im TUI die aktiven Server. Ausgaben können private Pfade enthalten und
+   gehören nicht unverändert in öffentliche Issues.
+2. Der vollständige Katalog ist der Modellinstanz tatsächlich zugänglich.
+   Der aktuelle Release registriert 104 MCP-Werkzeuge, darunter
+   `sse_preflight`, `sse_instances`, `sse_make_working_copy` und `sse_save`.
+   Eine reine `tools/list`-Antwort beweist diese Verfügbarkeit noch nicht.
+   Direkte Werkzeuge können außerhalb der verschachtelten Liste `ALL_TOOLS`
+   liegen; ihre Tooldefinitionen ebenfalls beachten.
+3. Das echte MCP-Tool `sse_preflight` antwortet strukturiert. Ein
+   Installerausgang, MCP-Handshake oder Shell-Aufruf von `health` ersetzt
+   diesen Nachweis nicht.
 
-Ein passender erster Prompt ist:
+Ein passender erster Prompt:
 
 ```text
-Prüfe meinen bereits geöffneten Steuerfall 2025 zunächst nur lesend. Beginne
-mit sse_preflight, frage höchstens eine Sache pro Nachricht und speichere,
-schließe oder sende nichts über ELSTER.
+Prüfe nur die Einrichtung mit dem echten MCP-Tool sse_preflight.
+Starte SteuerSparErklärung nicht und öffne oder ändere keinen Steuerfall.
+Melde, ob die Einrichtung bereit ist und welche Laufzeitblocker noch bestehen.
 ```
 
-Technischer Erfolg verlangt, dass der Client den Skill und Server tatsächlich
-auflistet und der echte Tool-Aufruf `sse_preflight` strukturiert antwortet. Ein
-Installerausgang, ein MCP-Handshake oder ein Shell-Aufruf von `health` ersetzt
-diesen Nachweis nicht. Ist SteuerSparErklärung nicht gestartet, kann der
-Preflight korrekt mit einem verständlichen Runtime-Blocker antworten; das ist
-kein Installationsfehler.
+Ist SSE geschlossen, kann der Preflight korrekt `ok=true`, `setupReady=true`
+und `ready=false` mit `SSE_NOT_RUNNING` melden. Das ist kein Installationsfehler
+und keine Erlaubnis, die Anwendung automatisch zu starten.
+
+Beim späteren Fachauftrag merkt sich der Skill den ursprünglichen Auftrag,
+stellt höchstens eine Frage pro Nachricht und bevorzugt einen bereits
+eindeutig geöffneten Fall. Andernfalls werden Fall und vollständige
+Belegquellen bestätigt. Klare Freigaben weiterverwenden; nur fehlende
+wesentliche Entscheidungen klären. Sicherung, Readback und Speicherauftrag
+bleiben erforderlich. Über ELSTER wird niemals gesendet.
 
 ## Lokaler API-Singleton
 
-Der MCP-Supervisor prüft vor dem stdio-Handshake die Loopback-API. Er verwendet
-nur eine Instanz mit passendem Paketnamen, derselben exakten Releaseversion,
-passendem API-Vertrag und passender Ressourcenidentität. Ist der Port frei,
-startet er die im Plugin enthaltene API unsichtbar und lässt sie für spätere
-Clients weiterlaufen. Parallele MCP-Starts konvergieren auf eine Instanz.
+Der MCP-Supervisor verwendet nur eine Loopback-API mit passendem Paketnamen,
+derselben exakten Releaseversion, passendem API-Vertrag und identischer
+Ressourcenbindung. Ist der Port frei, startet er die installierte API
+unsichtbar. Parallele MCP-Starts konvergieren auf dieselbe Instanz; sie darf
+über das Ende eines Clients hinaus weiterlaufen. SSE und Steuerfälle werden
+dabei nicht gestartet.
 
-Ein fremder Portinhaber, eine alte API oder eine unklare Identität wird nicht
-beendet, ersetzt oder umgangen. Der MCP-Start stoppt fail-closed. Nach einem
-Plugin-Update deshalb zuerst alle alten Client-Sitzungen schließen, den alten
-API-Prozess nur nach der unten beschriebenen Identitätsprüfung beenden und den
-Client neu starten.
+Ein fremder Portinhaber, eine alte API oder eine unklare Identität wird weder
+beendet noch ersetzt oder umgangen. Der MCP-Start hält dann fail-closed an.
+`SSE_API_URL` benennt eine autoritative separat verwaltete API und verhindert
+Autostart. Bei `SSE_API_CONFIG` verwaltet der Supervisor die passende API.
 
 ## Update
 
-`plugins@1.3.4` stellt `add`, `discover` und `targets` bereit, aber kein eigenes
-`update`-Kommando. Für Codex zuerst denselben externen `add`-Aufruf wiederholen
-und anschließend den target-nativen Zustand zurücklesen:
+### Direktes npm-MCP für Codex
+
+Im bestehenden lokalen Runtime-Ordner aktualisieren:
 
 ```powershell
-cd C:\mein-steuer-ai
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
+npm.cmd ls @yadimon/steuer-spar-erklaerung-mcp @yadimon/steuer-spar-erklaerung-api
 ```
 
-Danach den Status zurücklesen, nicht als vorgesehenen Installationsschritt:
+MCP und API müssen exakt dieselbe Releaseversion haben. Datenbindungen und
+MCP-Startpfad erhalten; bei einem neuen Runtime-Ordner den absoluten Pfad im
+Client gezielt aktualisieren. Den Skill auf den passenden Release abgleichen.
+Alte Client-Sitzungen vor der Umschaltung beenden. Eine noch laufende alte API
+zuerst eindeutig identifizieren und nur bewusst nach dem folgenden Vertrag
+stoppen. Anschließend eine neue Sitzung starten und den Client-Katalog sowie
+`sse_preflight` erneut prüfen. Ein npm-Exitcode allein beweist kein fertiges
+Client-Update.
 
-```powershell
-codex plugin list --json
-```
+### Claude-Code-Plugin und bestehende Codex-Plugins
 
-Zeigt Codex danach die erwartete Version nicht als `installed, enabled`, den
-target-nativen Schritt erneut ausführen und nochmals zurücklesen:
-
-```powershell
-codex plugin add steuer-spar-erklaerung@plugins-cli --json
-```
-
-Anschließend erneut den Status zurücklesen:
-
-```powershell
-codex plugin list --json
-```
-
-Für Claude Code stattdessen wieder den einzelnen `plugins@1 add`-Befehl mit
-`--target claude-code --scope user` verwenden und dessen target-native Anzeige
-zurücklesen. Der Prüflauf belegt die idempotente Wiederholung derselben
-beta.33; ein Update über zwei Plugin-Versionen ist für diesen ersten
-Agent-Plugin-Release nicht möglich und wird erstmals beim Nachfolger geprüft.
-Ein erfolgreicher Installer-Exitcode allein beweist kein Update. Danach den
-Client neu starten und `sse_preflight` erneut aufrufen.
-Nicht gleichzeitig alte und neue Client-Sitzungen offen lassen; eine alte
-API-Version am Port bleibt absichtlich ein sicherer Stopp.
+`plugins@1.3.4` hat kein eigenes `update`-Kommando. Für Claude Code den
+zielgenauen `plugins@1 add`-Aufruf mit `--target claude-code --scope user`
+wiederholen und Version, Scope und Aktivstatus target-nativ zurücklesen.
+Die Codex-Plugin-Empfehlung bleibt ausgesetzt; bestehende Nutzer auf den
+direkten MCP-Weg umstellen. Ein erfolgreicher Installer-Exitcode allein
+beweist keine Aktualisierung oder vollständige Werkzeugverfügbarkeit.
 
 ## Entfernung
 
-`plugins@1.3.4` besitzt kein `remove`-Kommando. Diese Anleitung erfindet daher
-keinen `plugins remove`- oder `plugins uninstall`-Befehl.
+Die direkte Codex-Verbindung wird mit
+`codex mcp remove steuer-spar-erklaerung` entfernt. Einen separat installierten
+Skill nur auf ausdrücklichen Wunsch ebenfalls entfernen. Der MCP-Eintrag und
+die API-Arbeitsdaten sind getrennt.
 
-Für den verifizierten Codex-Eintrag ist der konkrete target-native Weg:
+Ein bestehendes Steuer-Plugin über den jeweiligen Client entfernen und den
+Status danach zurücklesen:
 
 ```powershell
 codex plugin remove steuer-spar-erklaerung@plugins-cli
-```
-
-Danach den verbliebenen Status zurücklesen:
-
-```powershell
 codex plugin list --json
 ```
 
-Die Entfernung ist erst bestätigt, wenn `codex plugin list --json` genau diesen
-Eintrag nicht mehr als installiert oder aktiviert ausweist. Für den
-zurückgelesenen Eintrag gilt:
+Bei Claude Code zunächst die tatsächliche Plugin-ID und den Scope prüfen:
 
 ```powershell
-cd C:\mein-steuer-ai
 claude plugin list
 claude plugin uninstall steuer-spar-erklaerung@steuer-spar-erklaerung --scope user
 claude plugin list
 ```
 
-Der erste Readback muss Version, `Scope: user` und `Status: enabled` zeigen;
-der zweite darf die Plugin-ID nicht mehr aufführen. Den Befehl im zugehörigen
-Auftragsordner ausführen und bei einer anderen Clientversion ID und Scope
-erneut target-nativ zurücklesen.
+Bei abweichender Clientversion die angezeigte ID und den Scope verwenden.
+`plugins@1.3.4` besitzt kein `remove`-Kommando; keine nicht vorhandenen
+`plugins remove`- oder `plugins uninstall`-Befehle verwenden.
 
-Bietet die installierte Clientversion für den zurückgelesenen Eintrag keine
-Entfernung an, beende den Client und entferne manuell nur:
+Eine Entfernung ist erst bestätigt, wenn die exakte Verbindung beziehungsweise
+Plugin-ID nicht mehr aktiviert oder installiert erscheint. Andere Plugins
+bleiben erhalten. Falls eine manuelle Cache-Bereinigung erforderlich ist,
+zuerst den vom Client referenzierten absoluten Zielpfad prüfen; keine
+übergeordneten Plugin-, Cache- oder Benutzerordner rekursiv löschen.
 
-1. ausschließlich die vom Client beziehungsweise Installationsdatensatz
-   zurückgelesene exakte Plugin-ID aus seiner Clientverwaltung;
-2. den von diesem Eintrag referenzierten exakten Plugin-Cache;
-3. optional den zugehörigen MCP-Eintrag, falls der Client ihn separat führt.
-
-Cachepfade nicht aus dieser Anleitung raten: Der Installer beziehungsweise der
-Client ist für deren reale Lage maßgeblich. Vor jeder manuellen Entfernung den
-aufgelösten absoluten Zielpfad prüfen; keine übergeordneten Cache-, Plugin- oder
-Benutzerordner rekursiv löschen. Nach einem Neustart müssen Skill und
-`sse_preflight` verschwunden sein.
-
-Die Entfernung löscht bewusst **nicht** `%LOCALAPPDATA%\SteuerSparErklaerungApi`,
-einen eigenen `SSE_API_CONFIG`-Arbeitsbereich, Belege, Berichte oder Backups.
-Diese Nutzerdaten nur nach separater Prüfung und ausdrücklichem Auftrag
-entfernen.
+Die Entfernung löscht bewusst nicht `%LOCALAPPDATA%\SteuerSparErklaerungApi`,
+einen eigenen `SSE_API_CONFIG`-Arbeitsbereich, Fälle, Belege, Ergebnisse oder
+Backups. Diese Nutzerdaten nur nach separater Prüfung und ausdrücklichem Auftrag
+entfernen. Ein schon laufender API-Singleton braucht einen eigenen bewussten
+Stopp nach dem folgenden Vertrag.
 
 ## API-Singleton bewusst beenden
 
+Bevorzugt `sse_api_control` verwenden: erst `action=status`, dann für die
+zurückgelesene `instanceId` bewusst `action=shutdown` mit `confirm=true`.
+Annahme und Prozessende getrennt prüfen. Der API-Stopp schließt SSE und den
+Steuerfall nicht. Ein Neustart braucht einen eigenen `action=start`-Auftrag;
+nach einem bewussten Stopp erfolgt kein stiller Neustart.
+
 Niemals Prozesse pauschal nach `node`, `SSE`, Fenstername oder Port beenden.
-Lies zuerst `/healthz` am konfigurierten Loopback-Ziel und prüfe Paketname,
-exakte Version und `processId`. Verifiziere dann genau diese PID mit
-`Get-CimInstance Win32_Process`: Die Kommandozeile muss auf die API innerhalb
-des erwarteten Plugin- oder standalone-Pakets zeigen. Nur bei vollständiger
-Übereinstimmung:
+Ist MCP nicht erreichbar, zuerst `/healthz` am konfigurierten Loopback-Ziel
+lesen und Paketname, exakte Version und `processId` prüfen. Genau diese PID
+mit `Get-CimInstance Win32_Process` verifizieren. Die Kommandozeile muss auf
+die API des erwarteten Pakets zeigen. Nur bei vollständiger Übereinstimmung:
 
 ```powershell
 Stop-Process -Id <VERIFIZIERTE_PROCESS_ID>
 ```
 
 Bei fehlender oder widersprüchlicher Identität nicht beenden. Nach einem
-bewussten Stopp Client/MCP neu starten, `sse_preflight` wiederholen und eine
+bewussten Stopp Client/MCP neu starten und `sse_preflight` wiederholen. Eine
 möglicherweise unterbrochene Mutation niemals automatisch erneut ausführen;
 zuerst den Zustand zurücklesen.
 
-## Cloud-synchronisierte und Netzlaufwerke
-
-Ein Paketordner mit `node_modules` gehört auf ein lokales Laufwerk. Auf
-cloud-synchronisierten Ordnern und Netzlaufwerken scheitert `npm install`
-regelmäßig beim Entpacken (Exit 13, `TAR_ENTRY_ERROR`/`EBADF`), weil der
-Synchronisationsdienst Dateien während des Schreibens sperrt. Der Plugin-Weg
-ist davon nicht betroffen, weil er weder npm noch npx benötigt.
-
-Sollen Fall- oder Belegordner trotzdem in einem synchronisierten Ordner liegen,
-den Arbeitsbereich lokal anlegen und nur die Fall-, Beleg- und Ergebnisordner
-über `SSE_API_CONFIG` auf den synchronisierten Ort zeigen lassen. Eine
-Falldatei, die der Synchronisationsdienst gerade schreibt, kann beim Öffnen,
-Hashen oder Speichern zu `precondition-failed` führen; dann den Abgleich
-abwarten und den Hash erneut lesen.
-
 ## Fehlerbehebung
 
-- **Skill oder `sse_preflight` fehlt:** Client vollständig neu starten und
-  prüfen, ob beim Installieren das Ziel explizit `codex` oder `claude-code`
-  war. Nicht mit automatischer Erkennung wiederholen.
-- **Einige MCP-Werkzeuge sind sichtbar, andere fehlen:** Die Einrichtung ist
-  unvollständig. Prüfe den aktiven MCP-Server und seine Werkzeuge im Client;
-  bei Codex CLI zeigt `/mcp` die aktiven Server. Vergleiche die tatsächlich
-  verfügbaren Namen mit der [MCP-Referenz](API-REFERENZ.md). Prüfe zusätzlich
-  `enabled_tools` und `disabled_tools` in der wirksamen Clientkonfiguration.
-  Serverregistrierung, direkter MCP-Handshake und Werkzeugverfügbarkeit im
-  Chat sind getrennte Prüfungen. Liefert der direkte Server den vollständigen
-  Katalog, während im Chat nur eine Teilmenge ankommt, ist als Nächstes die
-  Werkzeugbereitstellung des Clients zu untersuchen. Eine globale npm-
-  Deinstallation ist dafür kein Nachweis und keine gezielte Reparatur. Bis
-  `sse_preflight` im Chat aufrufbar ist, keine Steuerdaten bearbeiten und keine
-  Shell- oder UI-Ersatzwege verwenden.
-- **MCP versucht npm, npx oder Netzwerk:** Der installierte Runtime-Eintrag ist
-  nicht der Agent-Plugin-1.0-Vertrag. Er muss Node direkt gegen einen
-  `${PLUGIN_ROOT}`-Pfad starten.
-- **Workspace enthält kein `node_modules`:** Das ist im Plugin-Weg korrekt.
-- **Port belegt oder Version falsch:** fremde, alte oder nicht eindeutig
-  identifizierbare API niemals beenden oder übergehen. Alte Clients schließen,
-  Identität prüfen und nur die exakte eigene PID bewusst stoppen.
-- **Arbeitsdaten liegen unter `%LOCALAPPDATA%`:** Das ist der sichere Default.
-  Für physische Trennung einen absoluten `SSE_API_CONFIG`-Pfad an den
-  Clientprozess beziehungsweise dessen MCP-Umgebung geben.
-- **SSE ist nicht gestartet:** Dem stabilen `nextTool` aus `sse_preflight`
-  folgen. Der Preflight selbst startet keinen Steuerfall.
-- **SSE reagiert nicht mehr („Keine Rückmeldung“), der Speicher wächst:**
-  Programme, die Bedienoberflächen per UI Automation auslesen – etwa
-  Computer-Use-Agenten, Bildschirmleser oder Automatisierungswerkzeuge –,
-  können SSE mit einer einzigen Abfrage über große Tabellen lange blockieren.
-  SSE arbeitet eine solche Abfrage zu Ende, auch wenn das andere Programm
-  längst aufgegeben hat. Solche Programme während der Arbeit mit SSE beenden.
-  Hängt SSE bereits, gehen ungesicherte Änderungen beim Beenden verloren.
+- **Skill oder `sse_preflight` fehlt:** In einer neuen Client-Sitzung prüfen,
+  ob der separate Skill und die direkte Verbindung geladen sind. Den
+  konfigurierten Startpfad und die MCP-Statusanzeige kontrollieren. Bei einer
+  Claude-Plugin-Installation das ausdrückliche Target prüfen.
+- **Einige MCP-Werkzeuge sind sichtbar, andere fehlen:** Bei Codex-Agent-Plugins
+  zuerst das 64-000-Bytes-Budget prüfen und zum direkten npm-MCP wechseln.
+  Außerdem `enabled_tools` und `disabled_tools` in der wirksamen
+  Clientkonfiguration prüfen. Serverregistrierung, vollständiger Handshake und
+  Modellverfügbarkeit sind getrennte Nachweise. Bis `sse_preflight` im Client
+  aufrufbar ist, keine Steuerdaten bearbeiten und keine Shell- oder
+  UI-Ersatzwege verwenden. Eine globale npm-Deinstallation repariert diesen
+  Plugin-Budgetfehler nicht.
+- **MCP versucht npm, npx oder Netzwerk:** Der Runtime-Eintrag muss Node direkt
+  gegen das installierte Skript starten. npm beziehungsweise der
+  Plugin-Installer gehören nur in die Installation und Aktualisierung.
+- **Paketdateien fehlen nach npm-Installation:** Den Runtime-Ordner auf ein
+  lokales, nicht synchronisiertes Laufwerk legen. `TAR_ENTRY_ERROR`/`EBADF`
+  nicht wegen eines erfolgreichen Exitcodes übergehen.
+- **Port belegt oder Version falsch:** Fremde, alte oder nicht eindeutig
+  identifizierbare API nicht beenden oder umgehen. Den Singleton-Vertrag
+  anwenden und nur die exakte verifizierte eigene Instanz bewusst stoppen.
+- **SSE ist nicht gestartet:** `SSE_NOT_RUNNING` ist ein Laufzeitblocker.
+  Der Preflight selbst startet keine Anwendung; den ursprünglichen Auftrag
+  und eine eventuell ausstehende Startfreigabe beachten.
+- **SSE reagiert nicht mehr:** Große UI-Automation-Abfragen können die Anwendung
+  lange blockieren, auch nach dem Abbruch des aufrufenden Programms. Fremde
+  UI-Automation während der Arbeit vermeiden. Eine hängende SSE nicht blind
+  beenden; ungesicherte Änderungen und Wiederherstellungszustand zuerst klären.
 
-## Fortgeschrittene standalone-Nutzung
+## Weitere standalone-Nutzung
 
-Eigene HTTP-/CLI-Programme können die API weiterhin separat über npm
-installieren; ein selbst verwalteter MCP kann das MCP-Paket direkt installieren.
-Diese Wege benötigen einen bewussten Paketordner mit `node_modules` und sind
-nicht der Plugin-Quickstart:
+- [Standalone MCP](../packages/mcp/README.md) — direkter Codex-Einstieg und
+  eigener Clientbetrieb;
+- [direkte API und CLI](../packages/api/README.md) — bewusst separat verwaltete
+  HTTP-/CLI-Integration ohne MCP.
 
-- [direkte API und CLI](../packages/api/README.md)
-- [standalone MCP](../packages/mcp/README.md)
-
-Die API beschreibt sich nach dem Start über `/v1/openapi.json`,
-`/v1/operations` und `describe`. Sicherheits- und Fehlerverträge stehen im
+Die API beschreibt sich über `/v1/openapi.json`, `/v1/operations` und
+`describe`. Sicherheits- und Fehlerverträge stehen im
 [API-/MCP-Vertrag](API-MCP-VERTRAG.md).

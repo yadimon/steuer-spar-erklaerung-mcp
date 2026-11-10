@@ -37,6 +37,7 @@ import { bindTableWorkerArguments, createTableWorkerCapability, tableWorkerEnvir
 import { bindDesktopStartDeadline } from "./worker-start-deadline.js";
 import { workerOperationNeedsMarkedDesktop } from "./worker-operation-policy.js";
 import type { ExecutionTelemetry } from "./execution-telemetry.js";
+import { withVisibleGuiLaunchGuard } from "./gui-launch-lifetime.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const WORKER = join(HERE, "..", "powershell", "sse-worker.ps1");
@@ -293,6 +294,16 @@ async function callWorkerUnsynchronised(
   // Reads deshalb ausfuehren. Fehlt eine Reserve, bleibt der konservative
   // Kaltstart auf dem markierten Desktop unveraendert erhalten.
   const markerAllowsWarmSpare = marker?.owner === "sse" && !workerOperationNeedsMarkedDesktop(op);
+
+  return withVisibleGuiLaunchGuard(op, desk, signal,
+    (remainingMs) => dispatchWorkerOnDesktop(op, args, remainingMs ?? timeoutMs, signal, desk, markerAllowsWarmSpare),
+    undefined, { timeoutMs });
+}
+
+async function dispatchWorkerOnDesktop(
+  op: string, args: Record<string, unknown>, timeoutMs: number, signal: AbortSignal | undefined,
+  desk: string | null, markerAllowsWarmSpare: boolean,
+): Promise<WorkerResult> {
 
   // The private plan belongs to this concrete child, including an already
   // warmed spare. Caller environment never supplies the capability.
