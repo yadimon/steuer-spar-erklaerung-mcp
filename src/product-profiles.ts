@@ -162,11 +162,18 @@ const vehicleCostRegionBindingSchema = z.object({
 
 const pageObjectSchema = z.object({
   heading: z.string().min(1),
+  headingNumberedTitle: z.literal(true).optional(),
   navigationTreeItemName: z.string().regex(/\S/u).optional(),
   bindingFieldIds: z.array(z.string().regex(/\S/u)).nonempty().optional(),
   fields: z.record(z.string(), z.unknown()).optional(),
   tables: z.record(z.string(), pageObjectTableSchema).optional(),
 }).passthrough().superRefine((page, context) => {
+  if (page.headingNumberedTitle && (!page.bindingFieldIds || !page.bindingFieldIds.length ||
+      typeof page.headingAutomationIdRelative !== 'string' || !page.headingAutomationIdRelative ||
+      typeof page.documentType !== 'string' || !/^(?:ESt|Gew|GewErfass)[0-9]{4}$/u.test(page.documentType))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['headingNumberedTitle'],
+      message: 'Nummerierte freie Bezeichnungen brauchen exakte Feld-, Ueberschriften- und Dokumentbindung.' });
+  }
   if (pageBindingFieldIds(page) === null) context.addIssue({
     code: z.ZodIssueCode.custom, path: ['bindingFieldIds'],
     message: 'Seitenbindung braucht eindeutige, im Feldkatalog vorhandene Kennungen.',

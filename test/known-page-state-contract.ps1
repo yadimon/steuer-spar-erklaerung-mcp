@@ -236,7 +236,7 @@ Write-Output 'Page binding: actual state/write guards share exact mandatory IDs;
 # page. A Gew page with an identical heading is not its replacement.
 $entryAssetPage=$catalog.pages.'gew_erfass.anlagevermoegen_wirtschaftsgut'
 if (-not $entryAssetPage -or $entryAssetPage.documentType -cne 'GewErfass2026' -or
-    $assetPage.documentType -cne 'Gew2025' -or $entryAssetPage.headingNumberedLabel -cne 'Wirtschaftsgut' -or
+    $assetPage.documentType -cne 'Gew2025' -or $entryAssetPage.headingNumberedTitle -ne $true -or
     $entryAssetPage.PSObject.Properties['headingPrefix']) {
   throw 'Asset pages must retain separate exact document bindings and a bounded numbered entry heading.'
 }
@@ -246,11 +246,11 @@ if (($entryAssetPage.fields | ConvertTo-Json -Depth 30 -Compress) -cne
 }
 Invoke-BindingGuardFixture $entryAssetPage $assetFields $true
 Invoke-BindingGuardFixture $entryAssetPage $foreign $false
-foreach ($title in @('1. Wirtschaftsgut','2. Wirtschaftsgut','12. Wirtschaftsgut: Muster')) {
+foreach ($title in @('1. Wirtschaftsgut','2. Wirtschaftsgut','12. Wirtschaftsgut: Muster','1. Musterstuhl','2. Mustertisch')) {
   $entryHeading=Invoke-HeadingFixture $entryAssetPage $title
   if (-not $entryHeading.matches) { throw 'A numbered asset entry was not recognized.' }
 }
-foreach ($title in @('0. Wirtschaftsgut','2. Fahrzeug','1. Andere Seite','2. Wirtschaftsgut Zusatz')) {
+foreach ($title in @('0. Wirtschaftsgut','Wirtschaftsgut','01. Musterstuhl','2. ','2.Musterstuhl')) {
   if ((Invoke-HeadingFixture $entryAssetPage $title).matches) { throw 'A foreign numbered heading was accepted.' }
 }
 

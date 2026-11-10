@@ -21044,11 +21044,19 @@ var init_product_profiles = __esm({
     });
     pageObjectSchema = external_exports.object({
       heading: external_exports.string().min(1),
+      headingNumberedTitle: external_exports.literal(true).optional(),
       navigationTreeItemName: external_exports.string().regex(/\S/u).optional(),
       bindingFieldIds: external_exports.array(external_exports.string().regex(/\S/u)).nonempty().optional(),
       fields: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
       tables: external_exports.record(external_exports.string(), pageObjectTableSchema).optional()
     }).passthrough().superRefine((page, context) => {
+      if (page.headingNumberedTitle && (!page.bindingFieldIds || !page.bindingFieldIds.length || typeof page.headingAutomationIdRelative !== "string" || !page.headingAutomationIdRelative || typeof page.documentType !== "string" || !/^(?:ESt|Gew|GewErfass)[0-9]{4}$/u.test(page.documentType))) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["headingNumberedTitle"],
+          message: "Nummerierte freie Bezeichnungen brauchen exakte Feld-, Ueberschriften- und Dokumentbindung."
+        });
+      }
       if (pageBindingFieldIds(page) === null) context.addIssue({
         code: external_exports.ZodIssueCode.custom,
         path: ["bindingFieldIds"],
@@ -29948,6 +29956,7 @@ function qtNativeKnownHeading(nodes, profile, page) {
 function knownHeadingMatches(actual, page) {
   if (!actual) return false;
   if (actual === page.heading) return true;
+  if (page.headingNumberedTitle === true && /^[1-9][0-9]*\. \S.*$/u.test(actual)) return true;
   const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
   if (prefix && actual.startsWith(prefix)) return true;
   const numberedLabel = typeof page.headingNumberedLabel === "string" ? page.headingNumberedLabel : "";

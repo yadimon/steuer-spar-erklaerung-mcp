@@ -78,6 +78,7 @@ export function qtNativeKnownHeading(nodes: QtSnapshotNode[], profile: ProductPr
 export function knownHeadingMatches(actual: string | null, page: Record<string, unknown>): boolean {
   if (!actual) return false;
   if (actual === page.heading) return true;
+  if (page.headingNumberedTitle === true && /^[1-9][0-9]*\. \S.*$/u.test(actual)) return true;
   const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
   if (prefix && actual.startsWith(prefix)) return true;
   const numberedLabel = typeof page.headingNumberedLabel === "string" ? page.headingNumberedLabel : "";

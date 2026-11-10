@@ -8022,6 +8022,11 @@ function Get-KnownPageHeading([IntPtr]$Hwnd, $Known) {
 function Test-KnownPageHeading([string]$Heading, $Page) {
   if (-not $Heading -or -not $Page) { return $false }
   if ($Heading -eq [string]$Page.heading) { return $true }
+  $numberedTitleProperty = $Page.PSObject.Properties['headingNumberedTitle']
+  if ($numberedTitleProperty -and $numberedTitleProperty.Value -eq $true -and
+      $Heading -cmatch '^[1-9][0-9]*\. \S.*$') {
+    return $true
+  }
   $numberedLabelProperty = $Page.PSObject.Properties['headingNumberedLabel']
   if ($numberedLabelProperty -and [string]$numberedLabelProperty.Value) {
     $numberedMatch = [regex]::Match($Heading, '^(?<number>[1-9][0-9]*)\. (?<label>.+)$')

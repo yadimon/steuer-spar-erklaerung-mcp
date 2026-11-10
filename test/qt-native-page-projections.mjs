@@ -434,6 +434,17 @@ export async function testNativePageProjections() {
   assert.equal(withoutPolicy.state.onExpectedPage, false); assert.equal(withoutPolicy.ready, false);
   const foreignAssetPage = await assetState([knownNodes[0], knownNodes[1], { ...assetNodes[2], name: '1. Fahrzeug' }, knownNodes[3]]);
   assert.equal(foreignAssetPage.state.onExpectedPage, false); assert.equal(foreignAssetPage.ready, false);
+  const entryAssetPage = assetProfile.pageObjectsCatalog.pages['gew_erfass.anlagevermoegen_wirtschaftsgut'];
+  for (const title of ['1. Wirtschaftsgut', '2. Synthetic chair', '12. Synthetic desk']) {
+    const renamedEntry = await assetState(assetNodes.map(n => n.i === 2 ? { ...n, name: title } : n), entryAssetPage);
+    assert.equal(renamedEntry.state.onExpectedPage, true); assert.equal(renamedEntry.ready, true);
+  }
+  for (const title of ['0. Synthetic', '01. Synthetic', '2. ', '2.Synthetic', 'Synthetic']) {
+    const invalidEntry = await assetState(assetNodes.map(n => n.i === 2 ? { ...n, name: title } : n), entryAssetPage);
+    assert.equal(invalidEntry.state.onExpectedPage, false); assert.equal(invalidEntry.ready, false);
+  }
+  const foreignEntryFields = await assetState([knownNodes[0], knownNodes[1], { ...assetNodes[2], name: '2. Fahrzeug' }, knownNodes[3]], entryAssetPage);
+  assert.equal(foreignEntryFields.state.onExpectedPage, false); assert.equal(foreignEntryFields.ready, false);
   const missing = await executeQtNativeKnownPageState(knownClient, { pageId: "missing" }, 5000, undefined, knownProfile);
   assert.equal(missing.kind, "not-found");
 

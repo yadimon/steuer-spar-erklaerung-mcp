@@ -513,7 +513,7 @@
     "gew_erfass.anlagevermoegen_wirtschaftsgut": {
       "bindingFieldIds": ["bezeichnung", "belegnummer", "kaufdatum", "abschreibung_aktuelles_jahr"],
       "heading": "1. Wirtschaftsgut",
-      "headingNumberedLabel": "Wirtschaftsgut",
+      "headingNumberedTitle": true,
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "GewErfass2026",
       "fields": {
