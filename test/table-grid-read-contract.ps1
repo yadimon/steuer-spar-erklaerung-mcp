@@ -423,3 +423,206 @@ $remaining=@(for($index=0;$index -lt 200;$index++){if($index -ne 150){,$largeRow
 $remainingStates=@(for($index=0;$index -lt 199;$index++){'Off'})
 Same (Get-SSEGridDeleteOutcome (Model (New-Scan $largeRows $largeStates)) (Model (New-Scan $remaining $remainingStates)) 150) 'deleted-exact' 'A virtualized model row was confused with visible rank.'
 Write-Output 'Logical Grid delete policy: complete observed rows, zero values, hidden data, restoration and model coordinates passed.'
+
+# Exercise the actual table_read entry snapshot, not a replacement dispatcher.
+# The existing strict ClientFrame resolver owns its live root/ancestry proof;
+# this scalar fixture supplies its result or its fail-closed null result.
+# All window geometry below is managed fake data, without native imports.
+Add-Type -TypeDefinition @'
+public static class SW {
+ public struct RC {public int L,T,R,B;}
+ public static bool GetWindowRect(System.IntPtr hwnd,ref RC rect) {
+  rect.L=0;rect.T=0;rect.R=1000;rect.B=700;return true;
+ }
+}
+'@
+foreach($helper in @('Get-ContentBounds','LiesZeilen','Test-SSEGridContentBinding')) {
+  $definitions=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helper
+  },$true))
+  Assert ($definitions.Count -eq 1) ('Expected exactly one actual scope consumer: '+$helper)
+  . ([scriptblock]::Create($definitions[0].Extent.Text))
+}
+$comboAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\powershell\table-combobox.ps1'),[ref]$tokens,[ref]$errors)
+Assert ($errors.Count -eq 0) 'Table input-state module cannot be parsed.'
+$inputState=@($comboAst.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-SSETableSnapshotInputState'
+},$true))
+Assert ($inputState.Count -eq 1) 'The actual table input-state proof is missing.'
+. ([scriptblock]::Create($inputState[0].Extent.Text))
+function New-FormReadFixture {
+  $aid='Synthetic.RedThreadContent.ClientFrameSSE.Table'
+  $nodes=@(
+    [pscustomobject]@{i=0;p=-1;type='Table';name='';aid=$aid;rid='Form.0';on=$true;x=70;y=40;w=400;h=150},
+    [pscustomobject]@{i=1;p=0;type='Header';name='Nr.';aid=$aid;rid='Form.1';on=$true;x=80;y=50;w=100;h=20},
+    [pscustomobject]@{i=2;p=0;type='Header';name='Betrag';aid=$aid;rid='Form.2';on=$true;x=180;y=50;w=100;h=20},
+    [pscustomobject]@{i=3;p=0;type='DataItem';name='1';aid=$aid;rid='Form.3';on=$true;x=80;y=80;w=100;h=20},
+    [pscustomobject]@{i=4;p=0;type='DataItem';name='3,00';aid=$aid;rid='Form.4';on=$true;x=180;y=80;w=100;h=20}
+  )
+  [pscustomobject]@{nodes=$nodes;contentBounds=[pscustomobject]@{minX=60;maxX=480};
+    stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0}}
+}
+function Invoke-FormReadFixture([bool]$Grid,$Form,[int]$NavigationCycles=1) {
+  $gridRequested=$Grid;$sumLabel='Gesamt';$sumOccurrence=1
+  $latestTableSnapshot=[pscustomobject]@{tree=$null}
+  $script:formScopeReads=0;$script:fullScopeReads=0;$script:scopeFailure=$null
+  $full=New-FormReadFixture
+  $full.PSObject.Properties.Remove('contentBounds')
+  $full.stats.cyc=$NavigationCycles
+  $full.nodes+= [pscustomobject]@{i=5;p=5;type='Tree';name='';aid='Synthetic.Nav';rid='Nav.1';on=$true;x=-60;y=20;w=130;h=500}
+  function Get-SSEMainContentTree {
+    param($Window,$MaxNodes,[switch]$WithValues)
+    Assert ($Window -eq [IntPtr]4242 -and $MaxNodes -eq 4000 -and $WithValues) 'Grid did not request the exact valued form snapshot.'
+    $script:formScopeReads++
+    $Form
+  }
+  function Walk-BoundTree {
+    param($Window,[switch]$WithValues)
+    Assert ($Window -eq [IntPtr]4242 -and $WithValues) 'The existing cursor snapshot arguments changed.'
+    $script:fullScopeReads++
+    $full
+  }
+  function Get-CurrentHeading {param($Window,$Tree) 'Synthetic page'}
+  function Read-LabeledValueFromTree {
+    param($Tree,$Window,$Label,$Occurrence)
+    [pscustomobject]@{selected=[pscustomobject]@{aid='Synthetic.Form.Sum';rid='Form.Sum'};value='3,00';candidateCount=1}
+  }
+  function Get-SSETableRegion {
+    param($Tree,$Window,$Summary)
+    [pscustomobject]@{ok=$true;cells=@($Tree.nodes | Where-Object {$_.type -ceq 'DataItem'});
+      previousSummaryY=$null;targetSumY=160;scopePrefix='Synthetic.Form';selectionMethod='synthetic-bound-summary'}
+  }
+  function Get-SSETextSha256 {param($Text) 'synthetic-content-hash'}
+  function Read-SSETableCellSemantic {param($Cell) [pscustomobject]@{type='text';value=$Cell.name}}
+  function Fail {param($Message,$Kind) $script:scopeFailure=$Kind;throw 'scope-read-failed'}
+  $snapshot=$null
+  try {$snapshot=LiesZeilen ([IntPtr]4242)} catch {
+    Assert ($_.Exception.Message -ceq 'scope-read-failed') ('Unexpected scope-consumer error: '+$_.Exception.Message)
+  }
+  [pscustomobject]@{snapshot=$snapshot;formReads=$script:formScopeReads;fullReads=$script:fullScopeReads;failure=$script:scopeFailure}
+}
+$formRead=Invoke-FormReadFixture $true (New-FormReadFixture)
+Assert ($formRead.snapshot.navigationBinding.complete -and $formRead.snapshot.navigationBinding.editorFree -and
+  $formRead.formReads -eq 1 -and $formRead.fullReads -eq 0 -and $formRead.snapshot.zeilen.Count -eq 1) `
+  'A complete form beside cyclic navigation did not remain readable without a global walk.'
+Same $formRead.snapshot.kopf @('Nr.','Betrag') 'Scoped header geometry was replaced by window fractions.'
+Same $formRead.snapshot.zeilen @(,@('1','3,00')) 'Scoped cells were dropped by window fractions.'
+foreach($scenario in @('foreign-or-missing-root','missing-bounds','null-bounds','invalid-bounds','missing-stats','cycle','error','value-error','truncated','depth-limited')) {
+  $form=New-FormReadFixture
+  switch($scenario) {
+    'foreign-or-missing-root' {$form=$null}
+    'missing-bounds' {$form.PSObject.Properties.Remove('contentBounds')}
+    'null-bounds' {$form.contentBounds=$null}
+    'invalid-bounds' {$form.contentBounds.maxX=[double]::NaN}
+    'missing-stats' {$form.stats=$null}
+    'cycle' {$form.stats.cyc=1}
+    'error' {$form.stats.err=1}
+    'value-error' {$form.stats.valErr=1}
+    'truncated' {$form.stats.truncated=$true}
+    'depth-limited' {$form.stats.depthLimited=$true}
+  }
+  $refused=Invoke-FormReadFixture $true $form
+  Assert ($null -eq $refused.snapshot -and $refused.failure -ceq 'precondition-failed' -and
+    $refused.formReads -eq 1 -and $refused.fullReads -eq 0) ('Grid scope failed open or used a global fallback: '+$scenario)
+}
+$cursor=Invoke-FormReadFixture $false (New-FormReadFixture) 0
+Assert ($cursor.fullReads -eq 1 -and $cursor.formReads -eq 0 -and $cursor.snapshot.navigationBinding.complete) `
+  'The existing full-window cursor snapshot was changed.'
+$cyclicCursor=Invoke-FormReadFixture $false (New-FormReadFixture) 1
+Assert ($cyclicCursor.fullReads -eq 1 -and $cyclicCursor.formReads -eq 0 -and -not $cyclicCursor.snapshot.navigationBinding.complete) `
+  'The existing cursor completeness guard no longer rejects a global cycle.'
+Write-Output 'Grid entry scope: exact valued form, adjacent navigation cycle excluded, local failures closed, cursor scope unchanged.'
+
+# The unchanged combined guard reports only booleans/counts and an allowlisted
+# editor-state category. Dirty=false is readable and must never be mistaken
+# for a missing dirty-state observation.
+$guardNodes=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text.StartsWith('$null -eq $inputBefore -or $null -eq $dirtyBefore',[StringComparison]::Ordinal) -and
+  $node.Extent.Text.Contains('Read-only Grid requires one exact, editor-free and unobstructed table.')
+},$true))
+Assert ($guardNodes.Count -eq 1) 'The combined Grid precondition is not unique.'
+$gridPrecondition=[scriptblock]::Create($guardNodes[0].Extent.Text)
+function Invoke-GridPreconditionFixture([string]$Scenario) {
+  $inputBefore=19;$dirtyBefore=$false
+  $erst=[pscustomobject]@{tabelleAnzahl=1;navigationBinding=[pscustomobject]@{complete=$true;editorFree=$true};
+    tableRoot=[pscustomobject]@{rid='SYNTHETIC-IDENTITY-MUST-NOT-APPEAR'};editorStateReason='complete-bound-table-without-editor'}
+  $windowsBefore=[pscustomobject]@{windows=@([pscustomobject]@{role='main';title='SYNTHETIC-VALUE-MUST-NOT-APPEAR'})}
+  switch($Scenario) {
+    'input' {$inputBefore=$null}
+    'dirty' {$dirtyBefore=$null}
+    'table-count' {$erst.tabelleAnzahl=2}
+    'incomplete' {$erst.navigationBinding.complete=$false}
+    'editor' {$erst.navigationBinding.editorFree=$false;$erst.editorStateReason='active-table-editor'}
+    'root' {$erst.tableRoot=$null}
+    'windows' {$windowsBefore.windows+=@([pscustomobject]@{role='other';title='SYNTHETIC-VALUE-MUST-NOT-APPEAR'},[pscustomobject]@{role='other';title='SYNTHETIC-VALUE-MUST-NOT-APPEAR'})}
+  }
+  $script:gridGuardFailure=$null
+  function Fail {param($Message,$Kind) $script:gridGuardFailure=[pscustomobject]@{message=$Message;kind=$Kind};throw 'grid-precondition-failed'}
+  try {. $gridPrecondition} catch {Assert ($_.Exception.Message -ceq 'grid-precondition-failed') 'Unexpected diagnostic guard exception.'}
+  $script:gridGuardFailure
+}
+Assert ($null -eq (Invoke-GridPreconditionFixture 'valid')) 'A valid table with dirty=false no longer passes its original guard.'
+foreach($case in @(
+  @('input','inputReadable=False'),@('dirty','dirtyReadable=False'),@('table-count','tableCount=2'),
+  @('incomplete','complete=False'),@('editor','editorFree=False'),@('root','tableRootBound=False'),@('windows','blockingWindowCount=2')
+)) {
+  $failure=Invoke-GridPreconditionFixture $case[0]
+  Assert ($failure.kind -ceq 'precondition-failed' -and $failure.message.Contains($case[1])) ('Grid failure predicate is missing: '+$case[0])
+  Assert ($failure.message -cmatch '\(inputReadable=(True|False); dirtyReadable=(True|False); tableCount=[0-9]+; complete=(True|False); editorFree=(True|False); tableRootBound=(True|False); blockingWindowCount=[0-9]+; editorStateReason=[a-z-]+\)$') `
+    'Grid precondition diagnosis contains fields other than safe booleans/counts/category.'
+  Assert (-not $failure.message.Contains('SYNTHETIC-')) 'Grid precondition diagnosis exposed observed identity or value.'
+}
+$editorForm=New-FormReadFixture
+$editorForm.nodes+=[pscustomobject]@{i=5;p=0;type='Edit';name='SYNTHETIC-EDITOR-VALUE-MUST-NOT-APPEAR';aid='Synthetic.Table.Editor';rid='Form.5';on=$true;x=80;y=80;w=100;h=20}
+$editorRead=Invoke-FormReadFixture $true $editorForm
+Assert (-not $editorRead.snapshot.navigationBinding.editorFree -and $editorRead.snapshot.editorStateReason -ceq 'active-table-editor') `
+  'The internal editor-state category was not preserved from the actual input-state proof.'
+Write-Output 'Grid precondition diagnosis: every negative predicate, readable clean state, safe categories and no observed identities/values.'
+
+$rebindNodes=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '-not $resolved.ok' -and
+  $node.Extent.Text.Contains('Exact fresh Grid table could not be rebound.')
+},$true))
+Assert ($rebindNodes.Count -eq 1) 'The actual Grid rebind failure guard is not unique.'
+$gridRebindGuard=[scriptblock]::Create($rebindNodes[0].Extent.Text)
+function Invoke-GridRebindGuardFixture([bool]$Ok,$Reason) {
+  $resolved=[pscustomobject]@{ok=$Ok;reason=$Reason;element='SYNTHETIC-IDENTITY-MUST-NOT-APPEAR'}
+  try {. $gridRebindGuard} catch {return $_.Exception.Message}
+  $null
+}
+foreach($reason in @('fresh-grid-walk-cycle','fresh-grid-walk-limited','fresh-grid-walk-depth','fresh-grid-walk-error','fresh-grid-element-unbound','fresh-grid-root-unbound')) {
+  Same (Invoke-GridRebindGuardFixture $false $reason) ('Exact fresh Grid table could not be rebound. (reason='+$reason+')') `
+    'Known raw rebind failure category was lost.'
+}
+foreach($unknown in @($null,'fresh-exact-grid-table','fresh-focus-walk-cycle','FRESH-GRID-WALK-CYCLE','SYNTHETIC-VALUE-MUST-NOT-APPEAR')) {
+  Same (Invoke-GridRebindGuardFixture $false $unknown) 'Exact fresh Grid table could not be rebound. (reason=unavailable)' `
+    'Unrecognized raw rebind reason exposed unbounded provider text.'
+}
+Assert ($null -eq (Invoke-GridRebindGuardFixture $true 'fresh-exact-focus-element')) 'The original successful rebind guard changed.'
+Write-Output 'Grid rebind diagnosis: fixed raw failure categories, unknown text withheld, successful guard unchanged.'
+
+$binding=[pscustomobject]@{hwnd=[long]4242;pid=123;windowRid='Window.1';windowAid='Synthetic';rid='Form.1';
+  aid='Synthetic.Form';type='Group';rect=@(60.0,40.0,420.0,300.0)}
+Assert (Test-SSEGridContentBinding $binding (Copy-Scan $binding)) 'Equal scalar form bindings were rejected.'
+foreach($field in @('hwnd','pid','windowRid','windowAid','rid','aid','type','rect')) {
+  $changed=Copy-Scan $binding
+  if($field -ceq 'rect'){$changed.rect[0]+=0.25}else{$changed.$field='changed'}
+  Assert (-not (Test-SSEGridContentBinding $binding $changed)) ('Grid form drift was ignored: '+$field)
+}
+Assert (-not (Test-SSEGridContentBinding $binding $null)) 'A missing final form binding was accepted.'
+$gridCalls=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$resolved' -and
+  $node.Right.Extent.Text.StartsWith('Get-SSEGridReadUncachedTable ',[StringComparison]::Ordinal)
+},$true))
+Assert ($gridCalls.Count -eq 1) 'Grid lost its dedicated scoped raw bridge.'
+$finalRootChecks=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Test-SSEGridContentBinding'
+},$true))
+Assert ($finalRootChecks.Count -eq 1) 'Grid did not compare its fresh form binding after both scans.'
+$unknownEditor=New-FormReadFixture
+$unknownEditor.nodes+=[pscustomobject]@{i=5;p=0;type='Custom';name='';aid='Synthetic.Table.Unknown';rid='Form.5';on=$true;x=80;y=80;w=100;h=20}
+$unknownRead=Invoke-FormReadFixture $true $unknownEditor
+Assert (-not $unknownRead.snapshot.navigationBinding.editorFree) 'The new scoped resolver relaxed the unknown table-editor guard.'
+Write-Output 'Grid scalar root binding: stable across observations, identity/subpixel drift rejected, dedicated bridge, unknown editor still blocked.'

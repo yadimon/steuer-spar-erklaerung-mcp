@@ -89,7 +89,7 @@ function Test-SSENativeSurface {
     SSEAccDocumentNode=@()
     SSEAccDocumentSnapshot=@()
     SSEUiaFreshRawResult=@()
-    SSEUiaFreshRaw=@('Focus','ModelCells')
+    SSEUiaFreshRaw=@('Focus','ModelCells','GridTable')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
     SSEUiaTree=@('Describe','DescribeElement','ToViews','Resolve')
     SSEUiaNode=@()
