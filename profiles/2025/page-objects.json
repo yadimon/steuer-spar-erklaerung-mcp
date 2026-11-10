@@ -510,6 +510,115 @@
         }
       }
     },
+    "gew_erfass.anlagevermoegen_wirtschaftsgut": {
+      "bindingFieldIds": ["bezeichnung", "belegnummer", "kaufdatum", "abschreibung_aktuelles_jahr"],
+      "heading": "1. Wirtschaftsgut",
+      "headingNumberedTitle": true,
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "GewErfass2026",
+      "fields": {
+        "bezeichnung": {
+          "label": "Bezeichnung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.Bezeichnung./.Wirtschaftsgut.Bezeichnung.Text",
+          "automationIdSuffix": ".Wirtschaftsgut.Bezeichnung.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "belegnummer": {
+          "label": "Beleg-Nr.",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.BelegNr./.Wirtschaftsgut.BelegNr.Text",
+          "automationIdSuffix": ".Wirtschaftsgut.BelegNr.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "kaufdatum": {
+          "label": "Kaufdatum",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.Kaufdatum./.Wirtschaftsgut.Kaufdatum.Date",
+          "automationIdSuffix": ".Wirtschaftsgut.Kaufdatum.Date",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "kaufpreis": {
+          "label": "Kaufpreis",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.Kaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.Kaufpreis.Wert",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.Kaufpreis.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "preisart": {
+          "label": "Brutto/Netto",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.BetragNettoOderBrutto",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.BetragNettoOderBrutto",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "umsatzsteuersatz": {
+          "label": "Umsatzsteuersatz",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.UStSatz",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.UStSatz",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "vorsteuer": {
+          "label": "Vorsteuer",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "readOnly": true,
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.VostManuell./.Wirtschaftsgut.KaufpreisVJahr.VostManuell.Vost",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.VostManuell.Vost",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "abschreibung_aktuelles_jahr": {
+          "label": "Abschreibung im aktuellen Veranlagungsjahr",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "readOnly": true,
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Abschreibung./.Abschreibung.AfA",
+          "automationIdSuffix": ".Abschreibung.AfA",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
     "gew.fahrzeug": {
       "heading": "1. Fahrzeug",
       "headingNumberedLabel": "Fahrzeug",
