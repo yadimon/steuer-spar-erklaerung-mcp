@@ -468,7 +468,7 @@ if (-not $scoped -or $scoped.nodes.Count -ne 2 -or $scoped.stats.source -cne 'ca
     -not [object]::ReferenceEquals([SSEUiaTree]::LastRoot,$script:scopePane) -or
     [SSEUiaTree]::MaxNodes -ne 123 -or [SSEUiaTree]::TimeoutMs -ne 7000 -or [SSEUiaTree]::MaxDepth -ne 9 -or
     -not [SSEUiaTree]::WithValues -or -not [SSEUiaTree]::WithScroll -or
-    [GotoScopeAE]::FromHandleCalls -ne 2 -or $script:scopePane.CurrentReads -ne 2 -or
+    [GotoScopeAE]::FromHandleCalls -ne 2 -or $script:scopePane.CurrentReads -ne 4 -or
     $script:WLK.ForbiddenDescents -ne 0) { throw 'Exact scoped snapshot, fresh bounds or before/after proof failed.' }
 
 function Assert-ScopeRejected([string]$Scenario,[scriptblock]$Arrange,[int]$ExpectedSnapshots=0) {

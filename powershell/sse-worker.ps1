@@ -5859,8 +5859,14 @@ function Get-SSEMainContentTree {
         -not (Test-SSEElementIdentity $element $before.rid $fullAid) -or
         -not (Test-SSEElementVisible $element) -or
         -not (Test-SSEMainContentAncestry $Hwnd $element $windowBinding)) { return $null }
+    $beforeRect=$element.Current.BoundingRectangle
+    $plainRect=@([double]$beforeRect.X,[double]$beforeRect.Y,[double]$beforeRect.Width,[double]$beforeRect.Height)
+    if(@($plainRect | Where-Object {[double]::IsNaN($_) -or [double]::IsInfinity($_) -or $_ -lt [int]::MinValue -or $_ -gt [int]::MaxValue}).Count -or
+      $plainRect[2] -le 0 -or $plainRect[3] -le 0){return $null}
     $raw = Get-UiSnapshot $Hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll -RootElement $element
     $after = Convert-ExactElementToNode $element
+    $afterRect=$element.Current.BoundingRectangle
+    $freshRect=@([double]$afterRect.X,[double]$afterRect.Y,[double]$afterRect.Width,[double]$afterRect.Height)
     if (-not $after -or $after.rid -cne $before.rid -or $after.aid -cne $fullAid -or
         -not $after.on -or $after.w -le 0 -or $after.h -le 0 -or
         $after.x -ne $before.x -or $after.y -ne $before.y -or
@@ -5868,11 +5874,14 @@ function Get-SSEMainContentTree {
         -not (Test-SSEElementIdentity $element $before.rid $fullAid) -or
         -not (Test-SSEElementVisible $element) -or
         -not (Test-SSEMainContentAncestry $Hwnd $element $windowBinding)) { return $null }
+    for($edge=0;$edge -lt 4;$edge++){if($freshRect[$edge] -ne $plainRect[$edge]){return $null}}
     $scope = Split-SSEWindowScope $raw.nodes
     [pscustomobject]@{
       nodes = @($scope.own)
       stats = $raw.stats
       fremdeFenster = @($scope.foreign)
+      contentBinding = [pscustomobject]@{hwnd=[int64]$Hwnd;pid=$windowPid;windowRid=$rootRid;windowAid=$rootAid;
+        rid=[string]$after.rid;aid=$fullAid;type=[string]$after.type;rect=@($plainRect)}
       contentBounds = [pscustomobject]@{
         minX = [int]$after.x
         maxX = [int64]$after.x + [int64]$after.w
@@ -6194,6 +6203,22 @@ function Get-ContentBounds {
   param($tree, [IntPtr]$hwnd)
   $r = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r) | Out-Null
   $winX = $r.L; $winW = $r.R - $r.L
+  # A profiled ClientFrame snapshot has already bound both physical edges.
+  # Invalid scope metadata must never fall through to window fractions.
+  if($tree -and $tree.PSObject.Properties['contentBounds']) {
+    $scoped=$tree.contentBounds
+    foreach($edge in @('minX','maxX')) {
+      if(-not $scoped -or -not $scoped.PSObject.Properties[$edge]) {throw 'The bound content geometry is unavailable.'}
+      $value=$scoped.$edge
+      if(($value -isnot [int] -and $value -isnot [long] -and $value -isnot [double]) -or
+        [double]::IsNaN([double]$value) -or [double]::IsInfinity([double]$value) -or
+        [double]$value -lt [int]::MinValue -or [double]$value -gt [int]::MaxValue) {
+        throw 'The bound content geometry is not finite and within the coordinate range.'
+      }
+    }
+    if($scoped.maxX -le $scoped.minX) {throw 'The bound content geometry is empty or inverted.'}
+    return [pscustomobject]@{minX=$scoped.minX;maxX=$scoped.maxX;winX=$winX;winW=$winW;navErkannt=$false}
+  }
   $minX = [int]($winX + $winW * 0.28)      # Rueckfall: Anteil der Fensterbreite
   $maxX = [int]($winX + $winW * 0.79)
   $navTree = @($tree.nodes | Where-Object { $_.type -eq 'Tree' -and $_.w -gt 100 } | Sort-Object x)[0]
@@ -8770,6 +8795,48 @@ function Get-SSETableLiveInputState {
     [pscustomobject]@{ok=$true; editorClosed=$true; reason='exact-table-without-editor'; table=$table;
       focusedType=$focusedType; selectedCount=$selected.Count; selectedRids=@($selectedRids | Sort-Object);keyboardEvidence=$reject.keyboardEvidence}
   } catch { $reject.reason='live-table-provider-error';$reject }
+}
+
+function Test-SSEGridContentBinding {
+  param($Before,$After)
+  if(-not $Before -or -not $After -or @($Before.rect).Count -ne 4 -or @($After.rect).Count -ne 4){return $false}
+  foreach($key in @('hwnd','pid','windowRid','windowAid','rid','aid','type')) {
+    if($Before.$key -cne $After.$key){return $false}
+  }
+  for($edge=0;$edge -lt 4;$edge++){if($Before.rect[$edge] -ne $After.rect[$edge]){return $false}}
+  $true
+}
+
+function Get-SSEGridReadUncachedTable {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Binding,[string]$TableRid,[string]$TableAid)
+  $reject=[pscustomobject]@{ok=$false;element=$null;reason='fresh-grid-root-unbound'}
+  $watch=[Diagnostics.Stopwatch]::StartNew()
+  try {
+    $relativeAid=[string](Arg ((Get-SSEPageObjects).windows.main) 'contentAutomationId' '')
+    if(-not $Binding -or $Binding.hwnd -ne [int64]$Hwnd -or $Binding.pid -ne $ProcessId -or
+      -not $relativeAid -or -not $relativeAid.StartsWith('.',[StringComparison]::Ordinal) -or
+      -not [string]$Binding.windowRid -or -not [string]$Binding.windowAid -or -not [string]$Binding.rid -or
+      $Binding.aid -cne ([string]$Binding.windowAid+$relativeAid) -or $Binding.type -cnotin @('Group','Pane') -or
+      @($Binding.rect).Count -ne 4 -or -not $TableRid -or
+      -not $TableAid.StartsWith(([string]$Binding.aid+'.'),[StringComparison]::Ordinal)){return $reject}
+    foreach($edge in @($Binding.rect)) {
+      if(($edge -isnot [double] -and $edge -isnot [int] -and $edge -isnot [long]) -or
+        [double]::IsNaN([double]$edge) -or [double]::IsInfinity([double]$edge) -or
+        [double]$edge -lt [int]::MinValue -or [double]$edge -gt [int]::MaxValue){return $reject}
+    }
+    if($Binding.rect[2] -le 0 -or $Binding.rect[3] -le 0){return $reject}
+    $content=Find-ExactAutomationElement $Hwnd $relativeAid -VisibleOnly
+    $windowBinding=[pscustomobject]@{rid=$Binding.windowRid;aid=$Binding.windowAid;processId=$ProcessId}
+    if(-not $content -or -not (Test-SSEElementIdentity $content $Binding.rid $Binding.aid) -or
+      -not (Test-SSEElementVisible $content) -or -not (Test-SSEMainContentAncestry $Hwnd $content $windowBinding)){return $reject}
+    $remaining=5000-[int]$watch.ElapsedMilliseconds
+    if($remaining -le 0){$reject.reason='fresh-grid-walk-limited';return $reject}
+    $proof=[SSEUiaFreshRaw]::GridTable($Hwnd,$ProcessId,$content,[string]$Binding.rid,[string]$Binding.aid,
+      [string]$Binding.type,[double]$Binding.rect[0],[double]$Binding.rect[1],[double]$Binding.rect[2],[double]$Binding.rect[3],
+      [string]$Binding.windowRid,[string]$Binding.windowAid,$TableRid,$TableAid,$remaining)
+    if($watch.ElapsedMilliseconds -ge 5000){$reject.reason='fresh-grid-walk-limited';return $reject}
+    [pscustomobject]@{ok=[bool]$proof.Ok;element=$proof.Element;reason=[string]$proof.Reason}
+  } catch {$reject.reason='fresh-grid-walk-error';$reject}
 }
 
 function Get-SSETableReadUncachedElement {
@@ -22095,9 +22162,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $latestTableSnapshot = [pscustomobject]@{ tree=$null }
 
     function LiesZeilen($hwnd) {
-      $t = Walk-BoundTree $hwnd -WithValues
+      if($gridRequested) {
+        # Grid enumeration needs only the exact profiled form. Do not traverse
+        # adjacent navigation or retry a failed global snapshot with less scope.
+        $t=Get-SSEMainContentTree $hwnd 4000 -WithValues
+        if(-not $t -or -not $t.PSObject.Properties['contentBounds'] -or -not $t.contentBounds -or
+          -not $t.stats -or $t.stats.truncated -isnot [bool] -or $t.stats.depthLimited -isnot [bool] -or
+          $t.stats.truncated -or $t.stats.depthLimited -or $t.stats.err -ne 0 -or $t.stats.cyc -ne 0 -or $t.stats.valErr -ne 0) {
+          Fail 'Read-only Grid requires a complete, exactly bound form snapshot.' 'precondition-failed'
+        }
+        try {$bounds=Get-ContentBounds $t $hwnd}
+        catch {Fail 'Read-only Grid requires valid bound form geometry.' 'precondition-failed'}
+      } else {
+        $t = Walk-BoundTree $hwnd -WithValues
+        $bounds = Get-ContentBounds $t $hwnd
+      }
       $latestTableSnapshot.tree = $t
-      $bounds = Get-ContentBounds $t $hwnd
       # Nur Tabellen des eigentlichen Eingabeformulars. Ein geoeffnetes
       # Werte-Info-Fenster gehoert zum selben Prozess und wurde frueher
       # faelschlich in Kopf und Zeilen der Eingabetabelle gemischt.
@@ -22191,6 +22271,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         zeilenMitIdentitaet = @($rowsWithIdentity)
         ersteZelle = $(if ($z.Count) { $z[0] } else { $null })
         tableRoot=$(if ($tableRoots.Count -eq 1) {$tableRoots[0]} else {$null})
+        editorStateReason=$(if ($tableInputState -and [string]$tableInputState.reason -cin @(
+          'table-snapshot-unbound','active-table-editor','complete-bound-table-without-editor')) {
+          [string]$tableInputState.reason
+        } else {'unavailable'})
         cursorAnchorIsNumber=[bool]($firstRowCells.Count -eq $hd.Count -and $firstRowCells.Count -gt 1 -and
           [string]$hd[0].name -cmatch '^Nr\.?$' -and $firstRowCells[0].rid -and $firstRowCells[0].aid)
         tabelleAnzahl = $tableCount; bindung = $binding; error = $readError
@@ -22267,7 +22351,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if($null -eq $inputBefore -or $null -eq $dirtyBefore -or $erst.tabelleAnzahl -ne 1 -or
           -not $erst.navigationBinding.complete -or -not $erst.navigationBinding.editorFree -or -not $erst.tableRoot -or
           @($windowsBefore.windows | Where-Object {$_.role -ne 'main'}).Count) {
-        Fail 'Read-only Grid requires one exact, editor-free and unobstructed table.' 'precondition-failed'
+        Fail (('Read-only Grid requires one exact, editor-free and unobstructed table. ' +
+          '(inputReadable={0}; dirtyReadable={1}; tableCount={2}; complete={3}; editorFree={4}; ' +
+          'tableRootBound={5}; blockingWindowCount={6}; editorStateReason={7})') -f
+          [bool]($null -ne $inputBefore),[bool]($null -ne $dirtyBefore),[int]$erst.tabelleAnzahl,
+          [bool]$erst.navigationBinding.complete,[bool]$erst.navigationBinding.editorFree,[bool]$erst.tableRoot,
+          @($windowsBefore.windows | Where-Object {$_.role -ne 'main'}).Count,[string]$erst.editorStateReason) 'precondition-failed'
       }
       $gridGuard={
         (Test-SSELastInputUnchanged $inputBefore) -and [SW]::IsWindow($hwnd) -and
@@ -22275,8 +22364,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }.GetNewClosure()
       try {
         $gridWatch=[Diagnostics.Stopwatch]::StartNew()
-        $resolved=Get-SSETableReadUncachedElement $hwnd ([int]$main.pid) $erst.navigationBinding.tableRootRid $erst.navigationBinding.tableRootAid 'Table'
-        if(-not $resolved.ok) {throw 'Exact fresh Grid table could not be rebound.'}
+        $gridContentBefore=$latestTableSnapshot.tree.contentBinding
+        $resolved=Get-SSEGridReadUncachedTable $hwnd ([int]$main.pid) $gridContentBefore `
+          $erst.navigationBinding.tableRootRid $erst.navigationBinding.tableRootAid
+        if(-not $resolved.ok) {
+          $rawReason=$(if([string]$resolved.reason -cin @('fresh-grid-walk-cycle','fresh-grid-walk-limited',
+            'fresh-grid-walk-depth','fresh-grid-walk-error','fresh-grid-element-unbound','fresh-grid-root-unbound')) {[string]$resolved.reason} else {'unavailable'})
+          throw ('Exact fresh Grid table could not be rebound. (reason={0})' -f $rawReason)
+        }
         $first=Read-SSEGridTableScan $resolved.element ([int]$main.pid) $erst.navigationBinding.tableRootRid `
           $erst.navigationBinding.tableRootAid $maxSchritte $gridGuard $gridWatch
         $second=Read-SSEGridTableScan $resolved.element ([int]$main.pid) $erst.navigationBinding.tableRootRid `
@@ -22290,7 +22385,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # through GetColumnHeaders. Their exact RIDs, logical order, names
           # and physical geometry must match the initial bound tree.
           $rect=$gridHeaders[$column].rect;$expected=$expectedHeaders[$column]
-          if($gridHeaders[$column].name -cne $expected.name -or $gridHeaders[$column].rid -cne $expected.rid -or $rect.empty -or
+          # Normalize only this cross-representation name, exactly like the
+          # snapshot. Raw scan names and their two-observation equality remain.
+          $snapshotHeaderName=([string]$gridHeaders[$column].name -replace "`r|`n|`t",' ').Trim()
+          if($snapshotHeaderName -cne $expected.name -or $gridHeaders[$column].rid -cne $expected.rid -or $rect.empty -or
               [Math]::Abs($rect.x-[double]$expected.x) -gt 1 -or [Math]::Abs($rect.y-[double]$expected.y) -gt 1 -or
               [Math]::Abs($rect.width-[double]$expected.w) -gt 1 -or [Math]::Abs($rect.height-[double]$expected.h) -gt 1) {
             throw 'Grid header name, order or physical geometry changed.'
@@ -22298,6 +22396,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $after=LiesZeilen $hwnd
         if(-not (& $gridGuard) -or -not $after.navigationBinding.editorFree -or
+            -not (Test-SSEGridContentBinding $gridContentBefore $latestTableSnapshot.tree.contentBinding) -or
             -not (Test-SSETableReadSnapshotBinding $erst $after -BeforeNavigation) -or
             (Get-DirtyStateFast $hwnd) -ne $dirtyBefore -or
             (Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -cne $windowsBefore.fingerprint) {

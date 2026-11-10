@@ -19,15 +19,16 @@ using System.Windows.Automation;
 namespace System.Windows.Automation {
   public sealed class ControlType {
     public static readonly ControlType Window=new ControlType(),Table=new ControlType(),DataGrid=new ControlType(),
-      DataItem=new ControlType(),Button=new ControlType(),Pane=new ControlType();
+      DataItem=new ControlType(),Button=new ControlType(),Pane=new ControlType(),Group=new ControlType();
   }
-  public sealed class FakeRect {public double Width=10,Height=10;}
+  public sealed class FakeRect {public double X,Y,Width=10,Height=10;}
   public sealed class AutomationElement {
     public static AutomationElement Root;
     public static int RootCalls,CurrentCalls,RidCalls,FirstCalls,SiblingCalls;
     public int[] Rid;public string Aid="cells";public int Pid=7,Hwnd=111;
-    public bool Enabled=true,Offscreen,ThrowCurrent,ThrowRid,ThrowFirst,ThrowSibling,ThrowEnabled;
-    public int DelayRidAtCall,DelayRidMs,OwnRidCalls,EnabledCalls,FirstOwnCalls;
+    public bool Enabled=true,Offscreen,ThrowCurrent,ThrowRid,ThrowFirst,ThrowSibling,ThrowEnabled,ThrowParent;
+    public int DelayRidAtCall,DelayRidMs,OwnRidCalls,EnabledCalls,FirstOwnCalls,OwnCurrentCalls;
+    public Action OnCurrent;
     public ControlType Type=ControlType.DataItem;public FakeRect Bounds=new FakeRect();
     public AutomationElement Parent,SiblingOverride;public bool UseSiblingOverride;
     public List<AutomationElement> Children=new List<AutomationElement>();
@@ -44,7 +45,7 @@ namespace System.Windows.Automation {
       public FakeRect BoundingRectangle{get{return element.Bounds;}}
     }
     public AutomationElementInformation Current{get{
-      CurrentCalls++;if(ThrowCurrent)throw new InvalidOperationException("provider");return new AutomationElementInformation(this);
+      CurrentCalls++;OwnCurrentCalls++;if(OnCurrent!=null)OnCurrent();if(ThrowCurrent)throw new InvalidOperationException("provider");return new AutomationElementInformation(this);
     }}
     public int[] GetRuntimeId(){
       RidCalls++;OwnRidCalls++;if(ThrowRid)throw new InvalidOperationException("provider");
@@ -60,6 +61,9 @@ namespace System.Windows.Automation {
   }
   public sealed class TreeWalker {
     public static readonly TreeWalker RawViewWalker=new TreeWalker();
+    public AutomationElement GetParent(AutomationElement element){
+      if(element.ThrowParent)throw new InvalidOperationException("provider");return element.Parent;
+    }
     public AutomationElement GetFirstChild(AutomationElement element){
       AutomationElement.FirstCalls++;element.FirstOwnCalls++;
       if(element.ThrowFirst)throw new InvalidOperationException("provider");return element.Children.Count==0?null:element.Children[0];
@@ -193,7 +197,7 @@ Assert-Result (Model) $true 'fresh-exact-model-cells'
 $AE::Root=$null;Assert-Result (Focus) $false 'fresh-focus-element-unbound'
 # Exercise the actual PowerShell entry points, including diagnostic aggregation.
 $workerAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'),[ref]$null,[ref]$null)
-foreach($name in @('Get-SSETableReadUncachedElement','Get-SSETableReadOnlyModelCells')) {
+foreach($name in @('Get-SSETableReadUncachedElement','Get-SSETableReadOnlyModelCells','Get-SSEGridReadUncachedTable')) {
   $definitions=@($workerAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if($definitions.Count -ne 1) {throw 'Actual fresh resolver entry point is not unique.'}
   . ([scriptblock]::Create($definitions[0].Extent.Text))
@@ -226,3 +230,122 @@ $script:SSE_TABLE_FRESH_RAW_TIMINGS='unavailable'
 $focus=Get-SSETableReadUncachedElement ([IntPtr]111) 7 '2' 'cells' 'DataItem'
 if(-not $focus.ok -or -not [object]::ReferenceEquals($focus.element,$a)) {throw 'Telemetry failure replaced the original proof outcome.'}
 Write-Output 'fresh-raw-resolver-contract: PASS (actual compiled RawView algorithm, strict identity/pruning/limits, passive disabled cells, no actions)'
+
+function New-GridScopeFixture {
+  $root=$AE::Reset()
+  $form=$AE::Add($root,10);$form.Type=$CT::Group;$form.Aid='root.Form'
+  $nav=$AE::Add($root,11);$nav.Aid='root.Navigation';$nav.ThrowFirst=$true
+  $navChild=$AE::Add($nav,11);$navChild.Parent=$nav
+  $table=$AE::Add($form,20);$table.Type=$CT::Table;$table.Aid='root.Form.Table'
+  [pscustomobject]@{window=$root;form=$form;navigation=$nav;table=$table;
+    binding=[pscustomobject]@{hwnd=[long]111;pid=7;windowRid='1';windowAid='root';rid='10';aid='root.Form';type='Group';rect=@(0.0,0.0,10.0,10.0)}}
+}
+function Grid($Fixture,[int]$BudgetMs=5000) {
+  [SSEUiaFreshRaw]::GridTable([IntPtr]111,7,$Fixture.form,'10','root.Form','Group',0,0,10,10,'1','root','20','root.Form.Table',$BudgetMs)
+}
+$fixture=New-GridScopeFixture
+$proof=Grid $fixture
+Assert-Result $proof $true 'fresh-exact-grid-table'
+if(-not [object]::ReferenceEquals($proof.Element,$fixture.table) -or $fixture.navigation.FirstOwnCalls -or $fixture.table.FirstOwnCalls) {
+  throw 'Grid scope entered adjacent navigation or expanded the matched table.'
+}
+$fixture.table.Bounds.Width=23.5;$fixture.table.Bounds.X=1.25
+Assert-Result (Grid $fixture) $true 'fresh-exact-grid-table'
+# The established global resolver still fails on that adjacent provider. Its
+# behavior is deliberately unchanged; Grid alone has the narrower authority.
+Assert-Result (Focus '20' 'root.Form.Table' 'Table') $false ''
+foreach($case in @('missing-window','foreign-window-pid','foreign-window-hwnd','wrong-window-rid','wrong-window-aid',
+  'missing-root','root-rid','root-aid','root-type','root-pid','root-disabled','root-offscreen','root-bounds','root-nan',
+  'root-parent','duplicate-root-aid','root-parent-error','table-rid','table-aid','table-type','table-pid','table-disabled',
+  'table-offscreen','table-bounds','table-parent','duplicate-table-aid','provider-current','provider-first','provider-sibling','local-cycle')) {
+  $fixture=New-GridScopeFixture
+  switch($case) {
+    'missing-window' {$AE::Root=$null}
+    'foreign-window-pid' {$fixture.window.Pid=8}
+    'foreign-window-hwnd' {$fixture.window.Hwnd=222}
+    'wrong-window-rid' {$fixture.window.Rid=@(99)}
+    'wrong-window-aid' {$fixture.window.Aid='other'}
+    'missing-root' {$fixture.form=$null}
+    'root-rid' {$fixture.form.Rid=@(99)}
+    'root-aid' {$fixture.form.Aid='root.Other'}
+    'root-type' {$fixture.form.Type=$CT::DataItem}
+    'root-pid' {$fixture.form.Pid=8}
+    'root-disabled' {$fixture.form.Enabled=$false}
+    'root-offscreen' {$fixture.form.Offscreen=$true}
+    'root-bounds' {$fixture.form.Bounds.Width=11}
+    'root-nan' {$fixture.form.Bounds.X=[double]::NaN}
+    'root-parent' {$fixture.form.Parent=$fixture.navigation}
+    'duplicate-root-aid' {$duplicate=$AE::Add($fixture.window,12);$duplicate.Aid='root.Form'}
+    'root-parent-error' {$fixture.form.ThrowParent=$true}
+    'table-rid' {$fixture.table.Rid=@(99)}
+    'table-aid' {$fixture.table.Aid='root.Form.Other'}
+    'table-type' {$fixture.table.Type=$CT::DataItem}
+    'table-pid' {$fixture.table.Pid=8}
+    'table-disabled' {$fixture.table.Enabled=$false}
+    'table-offscreen' {$fixture.table.Offscreen=$true}
+    'table-bounds' {$fixture.table.Bounds.Width=0}
+    'table-parent' {$fixture.table.Parent=$fixture.window}
+    'duplicate-table-aid' {$duplicate=$AE::Add($fixture.form,21);$duplicate.Aid='root.Form.Table'}
+    'provider-current' {$fixture.form.ThrowCurrent=$true}
+    'provider-first' {$fixture.form.ThrowFirst=$true}
+    'provider-sibling' {$fixture.table.ThrowSibling=$true}
+    'local-cycle' {$branch=$AE::Add($fixture.form,21);$branch.Children.Add($branch)}
+  }
+  $proof=Grid $fixture
+  Assert-Result $proof $false ''
+  if($fixture.navigation.FirstOwnCalls){throw ('Grid rejection entered adjacent navigation: '+$case)}
+}
+foreach($case in @('root-drift','table-drift','raw-depth','raw-nodes','raw-time')) {
+  $fixture=New-GridScopeFixture
+  switch($case) {
+    'root-drift' {$item=$fixture.form;$item.OnCurrent=[Action]({if($item.OwnCurrentCalls -eq 3){$item.Bounds.Width=11}}.GetNewClosure())}
+    'table-drift' {$item=$fixture.table;$item.OnCurrent=[Action]({if($item.OwnCurrentCalls -eq 3){$item.Bounds.Width=11}}.GetNewClosure())}
+    'raw-depth' {
+      $fixture.form.Children.Clear();$parent=$fixture.form
+      for($index=0;$index -lt 16;$index++){$parent=$AE::Add($parent,100+$index);$parent.Aid='root.Form.Level'+$index}
+      $fixture.table=$AE::Add($parent,20);$fixture.table.Type=$CT::Table;$fixture.table.Aid='root.Form.Table'
+    }
+    'raw-nodes' {for($index=0;$index -lt 2048;$index++){$null=$AE::Add($fixture.form,100+$index)}}
+    'raw-time' {$fixture.form.DelayRidAtCall=1;$fixture.form.DelayRidMs=5050}
+  }
+  Assert-Result (Grid $fixture) $false ''
+  if($fixture.navigation.FirstOwnCalls){throw ('Bounded Grid proof entered adjacent navigation: '+$case)}
+}
+$fixture=New-GridScopeFixture;$fixture.form.DelayRidAtCall=1;$fixture.form.DelayRidMs=30
+Assert-Result (Grid $fixture 10) $false 'fresh-grid-walk-limited'
+# Exercise the actual private bridge with the same compiled C# proof. The
+# PowerShell profile resolver is mocked, never attached to a real UIA surface.
+function Arg($Object,$Name,$Default){if($Object.PSObject.Properties[$Name]){$Object.$Name}else{$Default}}
+function Get-SSEPageObjects {[pscustomobject]@{windows=[pscustomobject]@{main=[pscustomobject]@{contentAutomationId='.Form'}}}}
+function Find-ExactAutomationElement {param($Window,$Aid,[switch]$VisibleOnly)
+  if($Window -ne [IntPtr]111 -or $Aid -cne '.Form' -or -not $VisibleOnly){throw 'Unbound profile root request.'}
+  if($script:gridBridgeDelayMs -gt 0){Start-Sleep -Milliseconds $script:gridBridgeDelayMs};$script:gridBridgeRoot}
+function Test-SSEElementIdentity {param($Element,$Rid,$Aid) $Element -and ($Element.GetRuntimeId() -join '.') -ceq $Rid -and $Element.Aid -ceq $Aid}
+function Test-SSEElementVisible {param($Element) $Element.Enabled -and -not $Element.Offscreen}
+function Test-SSEMainContentAncestry {param($Window,$Element,$Binding) $true}
+$script:gridBridgeDelayMs=0
+$fixture=New-GridScopeFixture;$script:gridBridgeRoot=$fixture.form
+$proof=Get-SSEGridReadUncachedTable ([IntPtr]111) 7 $fixture.binding '20' 'root.Form.Table'
+if(-not $proof.ok -or -not [object]::ReferenceEquals($proof.element,$fixture.table)){throw 'Actual Grid-only bridge lost its bound scoped table.'}
+foreach($case in @('no-binding','window','pid','root-aid','root-rid','rectangle','table-aid','unknown-root')) {
+  $fixture=New-GridScopeFixture;$script:gridBridgeRoot=$fixture.form;$binding=$fixture.binding;$aid='root.Form.Table'
+  switch($case) {
+    'no-binding' {$binding=$null}
+    'window' {$binding.hwnd=222}
+    'pid' {$binding.pid=8}
+    'root-aid' {$binding.aid='root.Other'}
+    'root-rid' {$binding.rid='99'}
+    'rectangle' {$binding.rect[2]=11.0}
+    'table-aid' {$aid='root.Other.Table'}
+    'unknown-root' {$script:gridBridgeRoot=$null}
+  }
+  $proof=Get-SSEGridReadUncachedTable ([IntPtr]111) 7 $binding '20' $aid
+  if($proof.ok -or $proof.element -or $fixture.navigation.FirstOwnCalls){throw ('Actual Grid bridge failed open: '+$case)}
+}
+$fixture=New-GridScopeFixture;$script:gridBridgeRoot=$fixture.form;$script:gridBridgeDelayMs=5050
+$proof=Get-SSEGridReadUncachedTable ([IntPtr]111) 7 $fixture.binding '20' 'root.Form.Table'
+if($proof.ok -or $proof.element -or $proof.reason -cne 'fresh-grid-walk-limited' -or $AE::RootCalls){
+  throw 'A slow successful profile lookup acquired a fresh native budget or actionable late table.'
+}
+$script:gridBridgeDelayMs=0
+Write-Output 'fresh-grid-raw-resolver-contract: PASS (actual scoped C#, exact Raw ancestry/siblings, no navigation descent, local guards/drift, private bridge)'

@@ -923,6 +923,166 @@ public static class SSEUiaFreshRaw {
     return Resolve(hwnd, processId, null, aid, null, requested);
   }
 
+  sealed class GridProofFailure : Exception {
+    public readonly string Reason;
+    public GridProofFailure(string reason) { Reason = reason; }
+  }
+
+  sealed class GridBudget {
+    public readonly Stopwatch Watch = Stopwatch.StartNew();
+    public readonly SSEUiaFreshRawResult Result;
+    readonly int Milliseconds;
+    public GridBudget(SSEUiaFreshRawResult result, int milliseconds) { Result = result; Milliseconds = milliseconds; }
+    public void Check() {
+      if (Watch.ElapsedMilliseconds >= Milliseconds || Result.VisitedNodes >= 2048)
+        throw new GridProofFailure("fresh-grid-walk-limited");
+    }
+    public AutomationElement.AutomationElementInformation Read(AutomationElement element, out string rid) {
+      Check(); Result.VisitedNodes++;
+      var current = element.Current; rid = RuntimeId(element); Check();
+      if (string.IsNullOrEmpty(rid)) throw new GridProofFailure("fresh-grid-walk-cycle");
+      return current;
+    }
+  }
+
+  static bool GridRect(AutomationElement.AutomationElementInformation current, double[] expected) {
+    var rectangle = current.BoundingRectangle;
+    double[] values = { rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height };
+    for (int index = 0; index < values.Length; index++) {
+      if (double.IsNaN(values[index]) || double.IsInfinity(values[index]) ||
+          values[index] < int.MinValue || values[index] > int.MaxValue ||
+          (expected != null && values[index] != expected[index])) return false;
+    }
+    return values[2] > 0 && values[3] > 0;
+  }
+
+  // Follow only Raw parents and their direct siblings. Adjacent navigation
+  // descendants are never entered, and equal AIDs cannot select a first match.
+  static int GridAncestry(AutomationElement element, IntPtr hwnd, int processId,
+      string windowRid, string windowAid, string contentRid, string contentAid, GridBudget budget) {
+    var walker = TreeWalker.RawViewWalker;
+    var seen = new HashSet<string>(StringComparer.Ordinal);
+    bool contentSeen = false;
+    for (int depth = 0; depth <= 16 && element != null; depth++) {
+      string rid; var current = budget.Read(element, out rid);
+      string aid = current.AutomationId;
+      if (!seen.Add(rid)) throw new GridProofFailure("fresh-grid-walk-cycle");
+      if (current.ProcessId != processId || string.IsNullOrEmpty(aid))
+        throw new GridProofFailure("fresh-grid-root-unbound");
+      if (rid == contentRid && aid == contentAid) contentSeen = true;
+      if (current.ControlType == ControlType.Window) {
+        if (!contentSeen || rid != windowRid || aid != windowAid ||
+            (long)current.NativeWindowHandle != hwnd.ToInt64() || !current.IsEnabled ||
+            current.IsOffscreen || !GridRect(current, null))
+          throw new GridProofFailure("fresh-grid-root-unbound");
+        budget.Check(); return depth;
+      }
+      if (depth == 16) throw new GridProofFailure("fresh-grid-walk-depth");
+      budget.Check(); var parent = walker.GetParent(element); budget.Check();
+      if (parent == null) throw new GridProofFailure("fresh-grid-root-unbound");
+      string parentRid; var parentCurrent = budget.Read(parent, out parentRid);
+      if (parentCurrent.ProcessId != processId || string.IsNullOrEmpty(parentCurrent.AutomationId) ||
+          !aid.StartsWith(parentCurrent.AutomationId + ".", StringComparison.Ordinal))
+        throw new GridProofFailure("fresh-grid-root-unbound");
+      var siblings = new HashSet<string>(StringComparer.Ordinal);
+      int matches = 0; string matchedRid = "";
+      var sibling = walker.GetFirstChild(parent); budget.Check();
+      while (sibling != null) {
+        string siblingRid; var siblingCurrent = budget.Read(sibling, out siblingRid);
+        if (!siblings.Add(siblingRid)) throw new GridProofFailure("fresh-grid-walk-cycle");
+        budget.Check(); var siblingParent = walker.GetParent(sibling); budget.Check();
+        if (siblingParent == null) throw new GridProofFailure("fresh-grid-root-unbound");
+        string siblingParentRid; var siblingParentCurrent = budget.Read(siblingParent, out siblingParentRid);
+        if (siblingParentRid != parentRid || siblingParentCurrent.AutomationId != parentCurrent.AutomationId ||
+            siblingParentCurrent.ProcessId != processId) throw new GridProofFailure("fresh-grid-root-unbound");
+        if (siblingCurrent.AutomationId == aid) { matches++; matchedRid = siblingRid; }
+        sibling = walker.GetNextSibling(sibling); budget.Check();
+      }
+      if (matches != 1 || matchedRid != rid) throw new GridProofFailure("fresh-grid-root-unbound");
+      element = parent;
+    }
+    throw new GridProofFailure("fresh-grid-root-unbound");
+  }
+
+  static int GridRoot(AutomationElement content, IntPtr hwnd, int processId, string contentRid,
+      string contentAid, string contentType, double[] rectangle, string windowRid, string windowAid, GridBudget budget) {
+    budget.Check(); var window = AutomationElement.FromHandle(hwnd); budget.Check();
+    if (window == null || content == null) throw new GridProofFailure("fresh-grid-root-unbound");
+    string rid; var main = budget.Read(window, out rid);
+    if (rid != windowRid || main.AutomationId != windowAid || main.ProcessId != processId ||
+        main.ControlType != ControlType.Window || (long)main.NativeWindowHandle != hwnd.ToInt64())
+      throw new GridProofFailure("fresh-grid-root-unbound");
+    var current = budget.Read(content, out rid);
+    bool typeBound = contentType == "Group" ? current.ControlType == ControlType.Group :
+      contentType == "Pane" && current.ControlType == ControlType.Pane;
+    if (!typeBound || rid != contentRid || current.AutomationId != contentAid || current.ProcessId != processId ||
+        !current.IsEnabled || current.IsOffscreen || !GridRect(current, rectangle))
+      throw new GridProofFailure("fresh-grid-root-unbound");
+    return GridAncestry(content, hwnd, processId, windowRid, windowAid, contentRid, contentAid, budget);
+  }
+
+  // Passive Grid-only identity proof. The caller separately proves a complete
+  // editor-free form and two complete model observations; this is no census.
+  public static SSEUiaFreshRawResult GridTable(IntPtr hwnd, int processId, AutomationElement content,
+      string contentRid, string contentAid, string contentType, double x, double y, double width, double height,
+      string windowRid, string windowAid, string tableRid, string tableAid, int budgetMs) {
+    var result = new SSEUiaFreshRawResult { Reason = "fresh-grid-element-unbound" };
+    if (hwnd == IntPtr.Zero || processId <= 0 || content == null || string.IsNullOrEmpty(contentRid) ||
+        string.IsNullOrEmpty(contentAid) || string.IsNullOrEmpty(windowRid) || string.IsNullOrEmpty(windowAid) ||
+        string.IsNullOrEmpty(tableRid) || string.IsNullOrEmpty(tableAid) ||
+        !contentAid.StartsWith(windowAid + ".", StringComparison.Ordinal) ||
+        !tableAid.StartsWith(contentAid + ".", StringComparison.Ordinal) ||
+        (contentType != "Group" && contentType != "Pane") || budgetMs < 1 || budgetMs > 5000) return result;
+    var budget = new GridBudget(result, budgetMs);
+    var rectangle = new double[] { x, y, width, height };
+    var stack = new Stack<Entry>();
+    try {
+      int rootDepth = GridRoot(content, hwnd, processId, contentRid, contentAid, contentType,
+        rectangle, windowRid, windowAid, budget);
+      var seen = new HashSet<string>(StringComparer.Ordinal);
+      var walker = TreeWalker.RawViewWalker;
+      stack.Push(new Entry(content, rootDepth));
+      while (stack.Count != 0) {
+        budget.Check(); var entry = stack.Pop();
+        string rid; var current = budget.Read(entry.Element, out rid);
+        if (!seen.Add(rid)) throw new GridProofFailure("fresh-grid-walk-cycle");
+        if (current.ProcessId != processId || current.ControlType == ControlType.Window) continue;
+        if (rid == tableRid && current.AutomationId == tableAid) {
+          if ((current.ControlType != ControlType.Table && current.ControlType != ControlType.DataGrid) ||
+              !current.IsEnabled || current.IsOffscreen || !GridRect(current, null)) return result;
+          var tableRectangle = current.BoundingRectangle;
+          var expectedTable = new double[] {tableRectangle.X, tableRectangle.Y, tableRectangle.Width, tableRectangle.Height};
+          GridAncestry(entry.Element, hwnd, processId, windowRid, windowAid, contentRid, contentAid, budget);
+          GridRoot(content, hwnd, processId, contentRid, contentAid, contentType, rectangle, windowRid, windowAid, budget);
+          var fresh = budget.Read(entry.Element, out rid);
+          if (rid != tableRid || fresh.AutomationId != tableAid || fresh.ProcessId != processId ||
+              (fresh.ControlType != ControlType.Table && fresh.ControlType != ControlType.DataGrid) ||
+              !fresh.IsEnabled || fresh.IsOffscreen || !GridRect(fresh, expectedTable)) return result;
+          GridAncestry(entry.Element, hwnd, processId, windowRid, windowAid, contentRid, contentAid, budget);
+          budget.Check(); result.Ok = true; result.Element = entry.Element; result.FoundNodes = 1;
+          return Reject(result, "fresh-exact-grid-table", stack);
+        }
+        var child = walker.GetFirstChild(entry.Element); budget.Check();
+        if (child != null && entry.Depth >= 16) throw new GridProofFailure("fresh-grid-walk-depth");
+        var siblings = new HashSet<string>(StringComparer.Ordinal);
+        while (child != null) {
+          string childRid; budget.Read(child, out childRid);
+          if (!siblings.Add(childRid)) throw new GridProofFailure("fresh-grid-walk-cycle");
+          budget.Check(); var childParent = walker.GetParent(child); budget.Check();
+          if (childParent == null) throw new GridProofFailure("fresh-grid-root-unbound");
+          string childParentRid; var childParentCurrent = budget.Read(childParent, out childParentRid);
+          if (childParentRid != rid || childParentCurrent.AutomationId != current.AutomationId ||
+              childParentCurrent.ProcessId != processId) throw new GridProofFailure("fresh-grid-root-unbound");
+          if (stack.Count + result.VisitedNodes >= 2048) throw new GridProofFailure("fresh-grid-walk-limited");
+          stack.Push(new Entry(child, entry.Depth + 1));
+          child = walker.GetNextSibling(child); budget.Check();
+        }
+      }
+      return result;
+    } catch (GridProofFailure failure) { return Reject(result, failure.Reason, stack); }
+    catch { return Reject(result, "fresh-grid-walk-error", stack); }
+  }
+
   static SSEUiaFreshRawResult Resolve(IntPtr hwnd, int processId, string rid, string aid,
       string expectedType, HashSet<string> requested) {
     var result = new SSEUiaFreshRawResult();

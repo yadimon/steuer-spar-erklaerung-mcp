@@ -121,4 +121,24 @@ Assert-True ((Get-CaptionMinX $ohne) -eq -8) 'Ohne Navigationsbaum suchte die Be
 # Beschriftungen und duerfen nie in die Suche geraten.
 Assert-True ((Get-CaptionMinX $aufgeklappt) -gt $aufgeklappt.winX) 'Eine erkannte Navigationsspalte wurde in die Beschriftungssuche einbezogen.'
 
+# A strict form scope already measured its edges. Neither window fractions,
+# a navigation node nor a help caption may replace that evidence.
+$scoped=[pscustomobject]@{nodes=@((Baum 0 250),(Marke 'Steuertipps' 800));contentBounds=[pscustomobject]@{minX=-31;maxX=[long]1765}}
+$scopedResult=Get-ContentBounds $scoped $null_
+Assert-True ($scopedResult.minX -eq -31 -and $scopedResult.maxX -eq 1765) 'Gebundene Formulargrenzen wurden durch globale Geometrieschaetzungen ersetzt.'
+foreach($invalidBounds in @(
+  $null,
+  [pscustomobject]@{minX=0},
+  [pscustomobject]@{minX=10;maxX=10},
+  [pscustomobject]@{minX=11;maxX=10},
+  [pscustomobject]@{minX='0';maxX=100},
+  [pscustomobject]@{minX=[double]::NaN;maxX=100},
+  [pscustomobject]@{minX=0;maxX=[double]::PositiveInfinity},
+  [pscustomobject]@{minX=0;maxX=([long][int]::MaxValue+1)}
+)) {
+  $refused=$false
+  try {$null=Get-ContentBounds ([pscustomobject]@{nodes=@();contentBounds=$invalidBounds}) $null_} catch {$refused=$true}
+  Assert-True $refused 'Ungueltige scopedBounds erhielten einen geratenen Inhaltsbereich.'
+}
+
 Write-Output 'Inhaltsbereich: geratene und gemessene linke Grenze unterscheidbar, eingeklappte Navigation zaehlt nicht als Baum, Beschriftungssuche weicht nur der geratenen Grenze aus.'
