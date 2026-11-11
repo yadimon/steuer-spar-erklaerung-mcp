@@ -370,11 +370,10 @@ async function assertReadOnlyOperationSweep(definition, hwnd) {
 /**
  * Springt ueber den Navigationsbaum in einen Hauptzweig.
  *
- * Der Weg ueber die globale Suche ist hier nicht verlaesslich: Der Doppelklick
- * auf den Suchtreffer aktiviert ihn im Vorbereitungszweig reproduzierbar nicht,
- * die Suche schliesst sich wieder auf der Ausgangsseite und `sse_goto` meldet
- * korrekt `not-found`. Der Baumeintrag desselben Namens fuehrt dagegen direkt
- * zur Zweigseite - solange die Suche geschlossen ist, ist er eindeutig.
+ * Dieser vorbereitende Fixture-Weg bindet gezielt den eindeutigen Baumeintrag,
+ * solange die Suche geschlossen ist. Die globale Suchaktivierung hat eigene
+ * goto-Vertraege und getrennte Live-Proben; sie wird hier nicht als zweiter
+ * Navigationsweg nach einer unklaren Aktion ausprobiert.
  */
 async function gotoNavigationBranch(id, hwnd, heading, attempts = 3) {
   // Ein Klick auf einen Navigationseintrag ist wiederholbar: Er waehlt einen

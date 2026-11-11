@@ -249,7 +249,7 @@ Assert-True ((Invoke-GotoSearchSelection $null $prefix $exactFirst -FreeTarget).
 # fake, and Click-VerifiedPoint is replaced; no native UI helpers are loaded.
 foreach($helper in @('Test-SSESearchListIdentity','Resolve-SSESearchResultList',
   'Test-SSESearchSnapshotIdentity','Resolve-SSEVisibleSearchActivation',
-  'Prepare-SSESearchHitClick','Test-SSESearchHitBeforeClick','Invoke-SSESearchHitDoubleClick')) {
+  'Prepare-SSESearchHitClick','Test-SSESearchHitBeforeClick','Invoke-SSESearchHitClick')) {
   $definition=@($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helper
   },$true))
@@ -411,6 +411,7 @@ $visibleActivationBlock = [scriptblock]::Create($visibleActivationBlocks[0].Exte
 function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesktop,
   [string]$Mode='expand',[string]$ClickGuard='') {
   $script:searchClickClock = [long]0
+  $script:searchSimulatedHeading=$null
   $script:searchClickTimes = New-Object System.Collections.ArrayList
   $script:searchClickTransactions = New-Object System.Collections.ArrayList
   $script:searchHeadingWaits = New-Object System.Collections.ArrayList
@@ -458,7 +459,7 @@ function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesk
       [string]$ExpectedRuntimeId,$BeforeClickBinding,[scriptblock]$PrepareTarget,[scriptblock]$BeforeClickCheck,[switch]$ThrowOnFailure)
     Assert-True ($Window -eq $hwnd -and [object]::ReferenceEquals($Node,$script:searchFresh.layout.hit) -and
       $ExpectedRuntimeId -ceq $Node.rid -and $RequireForeground -and $ThrowOnFailure -and $ExpectedInputTick -eq 19 -and
-      $PrepareTarget -and $BeforeClickCheck -and $BeforeClickBinding) 'Der Doppelklick verlor seine frische RID-, Vordergrund- oder Eingabebindung.'
+      $PrepareTarget -and $BeforeClickCheck -and $BeforeClickBinding) 'Der Suchklick verlor seine frische RID-, Vordergrund- oder Eingabebindung.'
     if($ClickGuard -ceq 'rid'){$script:searchFresh=SearchSnapshot (SearchLayout 170)}
     $preparedNode=& $PrepareTarget $Window $BeforeClickBinding $Node $ExpectedInputTick
     if($ClickGuard -ceq 'geometry'){$script:searchFresh=SearchSnapshot (SearchLayout 170 -Reparent);$script:searchFresh.layout.hit.x++}
@@ -467,6 +468,9 @@ function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesk
     $script:searchClickClock += 100
     for ($index=0; $index -lt $ClickCount; $index++) {
       $null = $script:searchClickTimes.Add($script:searchClickClock)
+      # Qt opens the form and collapses the list on the first click. A second
+      # click at the old coordinates lands in the underlying form.
+      $script:searchSimulatedHeading=$(if($index -eq 0){$HeadingAfter}else{'Underlying form page'})
       if ($index+1 -lt $ClickCount) { $script:searchClickClock += 90 }
     }
     $script:searchClickClock += 180
@@ -475,8 +479,7 @@ function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesk
   function WarteAufUeberschrift {
     param([IntPtr]$Window, [string]$Previous, [string]$Target, [int]$TimeoutMs)
     $null = $script:searchHeadingWaits.Add([pscustomobject]@{hwnd=[int64]$Window;previous=$Previous;target=$Target;timeoutMs=$TimeoutMs})
-    if ($script:searchClickTimes.Count -eq 2 -and
-        $script:searchClickTimes[1]-$script:searchClickTimes[0] -le 300) { return $HeadingAfter }
+    if ($script:searchClickTimes.Count -ge 1) {return $script:searchSimulatedHeading}
     $Previous
   }
   function IstZielseite { param([IntPtr]$Window, [string]$Heading) $Window -eq $hwnd -and $Heading -ceq $ziel }
@@ -488,14 +491,14 @@ function Test-VisibleSearchActivation([string]$HeadingAfter, [switch]$HiddenDesk
     expansions=$script:searchExpansions;snapshots=$script:searchSnapshots;failure=$script:searchFailure
   }
 }
-$doubleClick = Test-VisibleSearchActivation 'Zielseite'
-Assert-True ($doubleClick.activated -and $doubleClick.pageChanged) 'Der Suchtreffer wurde nicht innerhalb des synthetischen Doppelklickfensters aktiviert.'
-Assert-True ($doubleClick.transactions.Count -eq 1 -and $doubleClick.transactions[0].count -eq 2 -and
-  $doubleClick.transactions[0].hwnd -eq 4242 -and $doubleClick.transactions[0].rid -ceq '73.9' -and
-  $doubleClick.expansions -eq 1 -and $doubleClick.snapshots -eq 4) `
-  'Die Suchaktivierung muss eine einzige bewachte Doppelklicktransaktion verwenden.'
-Assert-True ($doubleClick.waits.Count -eq 1 -and $doubleClick.waits[0].timeoutMs -eq 1500 -and
-  $doubleClick.waits[0].previous -ceq 'Startseite' -and $doubleClick.waits[0].target -ceq 'Zielseite') `
+$singleClick = Test-VisibleSearchActivation 'Zielseite'
+Assert-True ($singleClick.activated -and $singleClick.pageChanged) 'Ein zweiter Suchklick traf das unter der Liste neu geoeffnete Formular.'
+Assert-True ($singleClick.transactions.Count -eq 1 -and $singleClick.transactions[0].count -eq 1 -and
+  $singleClick.times.Count -eq 1 -and $singleClick.transactions[0].hwnd -eq 4242 -and $singleClick.transactions[0].rid -ceq '73.9' -and
+  $singleClick.expansions -eq 1 -and $singleClick.snapshots -eq 4) `
+  'Die Suchaktivierung muss genau einen frisch gebundenen Klick senden.'
+Assert-True ($singleClick.waits.Count -eq 1 -and $singleClick.waits[0].timeoutMs -eq 1500 -and
+  $singleClick.waits[0].previous -ceq 'Startseite' -and $singleClick.waits[0].target -ceq 'Zielseite') `
   'Die Suchaktivierung verlor ihre begrenzte Titel-Gegenprobe.'
 $missingHeading = Test-VisibleSearchActivation ''
 Assert-True (-not $missingHeading.activated -and -not $missingHeading.pageChanged -and $missingHeading.transactions.Count -eq 1 -and
@@ -508,7 +511,7 @@ Assert-True (-not $wrongHeading.activated -and $wrongHeading.pageChanged -and $w
 $hiddenSearch = Test-VisibleSearchActivation 'Zielseite' -HiddenDesktop
 Assert-True (-not $hiddenSearch.activated -and -not $hiddenSearch.pageChanged -and
   $hiddenSearch.transactions.Count -eq 0 -and $hiddenSearch.waits.Count -eq 0) `
-  'Der sichtbare Doppelklickpfad bediente einen versteckten Desktop.'
+  'Der sichtbare Klickpfad bediente einen versteckten Desktop.'
 $script:DESKTOP_NAME = $null
 $visibleHit=Test-VisibleSearchActivation 'Zielseite' -Mode visible
 Assert-True ($visibleHit.activated -and $visibleHit.expansions -eq 0 -and $visibleHit.transactions.Count -eq 1 -and
@@ -523,7 +526,7 @@ foreach($guard in @('rid','geometry')) {
   Assert-True ($blocked.transactions.Count -eq 0 -and $blocked.failure.kind -ceq 'navigation-blocked') "Veraltete Klickbindung wurde akzeptiert: $guard"
 }
 Assert-True ([SW]::Enters -gt 0 -and [SW]::Enters -eq [SW]::Restores) 'Physischer DPI-Kontext wurde nicht fuer jeden gemockten Klick zurueckgegeben.'
-Write-Output 'goto-Suchaktivierung: Clipping, einmalige Vergroesserung, frische Bindung, bewachter Doppelklick und fail-closed Gegenfaelle - bestanden'
+Write-Output 'goto-Suchaktivierung: Clipping, einmalige Vergroesserung, genau ein bewachter Klick und fail-closed Gegenfaelle - bestanden'
 
 $activatedBlocks = @($gotoBody.FindAll({
   param($node)

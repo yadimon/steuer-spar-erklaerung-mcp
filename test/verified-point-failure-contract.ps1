@@ -4,7 +4,7 @@ $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot
 if($errors.Count){throw 'Worker cannot be parsed.'}
 $function=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Click-VerifiedPoint'},$true))
 if($function.Count -ne 1){throw 'Expected one real physical click helper.'}
-. ([scriptblock]::Create($function[0].Extent.Text))
+. ([scriptblock]::Create($function[0].Extent.Text.Replace('New-Object Windows.Point','New-Object SsePointFixture.Point')))
 Add-Type @'
 using System;
 public static class SW {
@@ -25,6 +25,14 @@ public static class SW {
 public static class SSEAccessible {
  public static long LastWindow;
  public static object DescribeDocumentHit(long hwnd,int x,int y){LastWindow=hwnd;throw new InvalidOperationException("Synthetic bound point read failure.");}
+}
+namespace SsePointFixture {
+ public sealed class Point {public Point(int x,int y){}}
+ public sealed class Element {public int[] GetRuntimeId(){return new int[]{42,Automation.Moved?2:1};}}
+ public static class Automation {
+  public static bool Moved,Throw;
+  public static Element FromPoint(Point point){if(Throw)throw new Exception("Synthetic point read failed");return new Element();}
+ }
 }
 '@
 function Fail($Message,$Kind,$Details) {$script:emitCalls++;throw 'SYNTHETIC_TERMINAL_EMIT'}
@@ -68,6 +76,41 @@ $script:foreignAfterClick=$true;$script:emitCalls=0;[SW]::MouseCalls=0;[SW]::Tic
 try{Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ThrowOnFailure|Out-Null}catch{$caught=$_}
 if(-not $caught -or $caught.Exception.Data['kind'] -cne 'interference' -or $caught.Exception.Data['inputDispatched'] -ne $true -or [SW]::MouseCalls -ne 2 -or $script:emitCalls -ne 0){throw 'Post-click interference lost dispatched input evidence or replayed the click'}
 $script:foreignAfterClick=$false;[SW]::Tick=10
+
+# Run the actual compound dispatcher: a relayout, provider failure or new
+# input after mouse-up must leave the second click undispatched.
+& {
+ $savedAE=$script:AE;$savedWalker=$WLK
+ $script:AE=[SsePointFixture.Automation]
+ $WLK=[pscustomobject]@{}
+ $WLK|Add-Member ScriptMethod GetParent {param($Element) $null}
+ try {
+  foreach($scenario in @('stable','moved','provider','input')){
+   [SW]::Tick=10;[SW]::MouseCalls=0;[SsePointFixture.Automation]::Moved=$false;[SsePointFixture.Automation]::Throw=$false
+   $script:emitCalls=0;$caught=$null;$observed=$null
+   function Start-Sleep {
+    param($Milliseconds)
+    if($Milliseconds -eq 90 -and [SW]::MouseCalls -eq 2){
+     if($scenario -ceq 'moved'){[SsePointFixture.Automation]::Moved=$true}
+     if($scenario -ceq 'provider'){[SsePointFixture.Automation]::Throw=$true}
+     if($scenario -ceq 'input'){[SW]::Tick++}
+    }
+   }
+   try {$observed=Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ClickCount 2 -ExpectedRuntimeId '42.1' -ThrowOnFailure}
+   catch {$caught=$_}
+   if($scenario -ceq 'stable'){
+    if($caught -or [SW]::MouseCalls -ne 4 -or $observed.clickCount -ne 2){throw 'Stable compound target did not receive exactly two clicks.'}
+   }else{
+    $expectedKind=$(if($scenario -ceq 'input'){'interference'}else{'stale'})
+    if(-not $caught -or [SW]::MouseCalls -ne 2 -or $script:emitCalls -ne 0 -or
+      $caught.Exception.Data['kind'] -cne $expectedKind -or $caught.Exception.Data['inputDispatched'] -ne $true){
+      throw "Compound click crossed its post-first-click boundary: $scenario"
+    }
+   }
+  }
+ }finally {$script:AE=$savedAE;$WLK=$savedWalker;[SW]::Tick=10}
+}
+Write-Output 'verified-point-compound: a moved target, unreadable point or input after the first click prevents the second click.'
 
 $script:emitCalls=0;$script:pointerMoves=0;$script:hiddenTopmost=0;[SW]::MouseCalls=0;$caught=$null
 try {Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20;source='msaa-point';name='Synthetic button'}) -RequireForeground -ThrowOnFailure}

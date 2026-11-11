@@ -4232,13 +4232,38 @@ function Click-VerifiedPoint(
     & $pointFailure 'Menue-Hover-Frist abgelaufen. NICHT geklickt.' 'precondition-failed'
   }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
+    if ($clickNumber -gt 1 -and $ExpectedRuntimeId) {
+      # A Qt result can collapse or move after the first mouse-up. Never send
+      # the second half of a double click into the newly exposed form.
+      if (-not (Test-SSELastInputUnchanged $inputTickAfterClick) -or
+          ($RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget) -or
+          -not (Get-SSEPointObstruction $Window $px $py).isBoundTarget) {
+        & $pointFailure 'Bindung nach dem ersten Klick verloren; kein zweiter Klick.' 'interference'
+      }
+      Assert-SSECursorPoint $px $py -OnFailure $cursorFailure
+      $compoundElement=$null;$compoundBound=$false
+      try {$compoundElement=$script:AE::FromPoint((New-Object Windows.Point($px,$py)))} catch {}
+      for($level=0;$level -lt 8 -and $compoundElement;$level++) {
+        if($(try {$compoundElement.GetRuntimeId() -join '.'} catch {''}) -ceq $ExpectedRuntimeId){
+          $compoundBound=$true;break
+        }
+        try {$compoundElement=$WLK.GetParent($compoundElement)} catch {$compoundElement=$null}
+      }
+      if(-not $compoundBound){
+        & $pointFailure 'Klickziel nach dem ersten Klick verschoben oder ersetzt; kein zweiter Klick.' 'stale'
+      }
+      if(-not (Test-SSELastInputUnchanged $inputTickAfterClick) -or
+          ($RequireForeground -and [SW]::GetForegroundWindow() -ne $foregroundTarget)) {
+        & $pointFailure 'Eingabebindung zwischen den Klicks verloren; kein zweiter Klick.' 'interference'
+      }
+    }
     $clickDispatched = $true
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
     [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+    $inputTickAfterClick = Get-SSELastInputTick
+    Set-SSEForegroundLeaseInputCheckpoint $inputTickAfterClick ([pscustomobject]@{ x=$px; y=$py }) -Context 'verified-point-click'
     if ($clickNumber -lt $ClickCount) { Start-Sleep -Milliseconds 90 }
   }
-  $inputTickAfterClick = Get-SSELastInputTick
-  Set-SSEForegroundLeaseInputCheckpoint $inputTickAfterClick ([pscustomobject]@{ x=$px; y=$py }) -Context 'verified-point-click'
   Start-Sleep -Milliseconds 180
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $inputTickAfterClick)) {
     & $pointFailure 'Eingabe-Epoche nach dem bereits ausgefuehrten verifizierten Klick geaendert oder nicht lesbar.' 'interference'
@@ -6058,6 +6083,54 @@ function Get-SSESearchFieldNode {
   Get-SSEContainerChild $Tree.nodes (Get-SSEMainWindowSelectors).search 'Edit'
 }
 
+function Read-SSESearchRegion {
+  param([IntPtr]$Window,[string]$RelativeAid,$WindowBinding)
+  $element=Find-ExactAutomationElement $Window $RelativeAid -VisibleOnly
+  $before=$(if($element){Convert-ExactElementToNode $element}else{$null})
+  $fullAid=[string]$WindowBinding.aid+$RelativeAid
+  if(-not $before -or $before.type -cne 'Group' -or $before.aid -cne $fullAid -or
+    -not $before.on -or $before.w -le 0 -or $before.h -le 0 -or
+    -not (Test-SSEMainContentAncestry $Window $element $WindowBinding)){
+    throw 'Die eigene sichtbare Suchregion ist nicht eindeutig gebunden.'
+  }
+  $tree=Get-UiSnapshot $Window 4000 5 16 -RootElement $element
+  $after=Convert-ExactElementToNode $element
+  if(-not $after -or -not (Test-SSEMainContentAncestry $Window $element $WindowBinding)){
+    throw 'Die Suchregion verlor ihre eigene Fensterbindung.'
+  }
+  foreach($key in @('rid','aid','type','on','x','y','w','h')){
+    if($before.$key -cne $after.$key){throw 'Die Suchregion aenderte sich waehrend ihrer Lesung.'}
+  }
+  [pscustomobject]@{root=$after;tree=$tree;
+    windowKey=([string]$WindowBinding.rid+'|'+[string]$WindowBinding.processId+'|'+[string][int64]$Window)}
+}
+
+# The inline table belongs to SearchFrameSSE; its expanded presentation is a
+# separately parented own SearchResultsView. Read only these exact regions.
+function Get-SSESearchTree {
+  param([IntPtr]$Window,[scriptblock]$ReadRegion=$null)
+  if(-not $ReadRegion){
+    $windowElement=$AE::FromHandle($Window)
+    $current=$windowElement.Current
+    $processId=0;$null=[SW]::GetWindowThreadProcessId($Window,[ref]$processId)
+    $windowBinding=[pscustomobject]@{processId=$processId;aid=[string]$current.AutomationId;
+      rid=($windowElement.GetRuntimeId() -join '.')}
+    if($processId -le 0 -or [int]$current.ProcessId -ne $processId -or
+      [int64]$current.NativeWindowHandle -ne [int64]$Window -or
+      $current.ControlType -ne [System.Windows.Automation.ControlType]::Window -or
+      -not $windowBinding.aid -or -not $windowBinding.rid){throw 'Das Suchfenster ist nicht exakt gebunden.'}
+    $ReadRegion={param($relativeAid) Read-SSESearchRegion $Window $relativeAid $windowBinding}
+  }
+  $frame=& $ReadRegion '.centralWidget.SearchSplitter.SearchFrameSSE'
+  $tree=Merge-SSESearchTreeParts @($frame)
+  $tables=@($tree.nodes|Where-Object {$_.type -ceq 'Table' -and
+    ([string]$_.aid).EndsWith('DialogSearchResultsTableView',[StringComparison]::Ordinal)})
+  if($tables.Count -gt 1){throw 'Die inline Suchliste ist mehrdeutig.'}
+  if($tables.Count -eq 1){return $tree}
+  $expanded=& $ReadRegion '.QWidget.SearchResultsView'
+  Merge-SSESearchTreeParts @($frame,$expanded)
+}
+
 # A fresh, own-root-bound search layout. No click is authorized by on=true:
 # Qt can report an enabled row whose center is outside the result viewport.
 function Get-SSESearchActivationSnapshot {
@@ -6067,7 +6140,7 @@ function Get-SSESearchActivationSnapshot {
   $null=[SW]::GetWindowThreadProcessId($Window,[ref]$processId)
   $epoch=[string](Get-SSETablePreparationProcessEpoch $processId)
   if($processId -le 0 -or -not $epoch){throw 'Die Prozessgeneration der Suche ist nicht gebunden.'}
-  $tree=Walk-BoundTree $Window 4000 5 16 -Strict
+  $tree=Get-SSESearchTree $Window
   if(-not $tree.stats -or $tree.stats.truncated -isnot [bool] -or $tree.stats.depthLimited -isnot [bool] -or
     $tree.stats.truncated -or $tree.stats.depthLimited -or $tree.stats.err -ne 0 -or
     $tree.stats.cyc -ne 0 -or $tree.stats.valErr -ne 0){throw 'Der Suchbaum ist nicht vollstaendig und fehlerfrei.'}
@@ -6240,7 +6313,7 @@ function Test-SSESearchHitBeforeClick {
     $fresh.layout.fullyVisible -and $fresh.layout.pointX -eq $X -and $fresh.layout.pointY -eq $Y)
 }
 
-function Invoke-SSESearchHitDoubleClick {
+function Invoke-SSESearchHitClick {
   param([IntPtr]$Window,$Prepared,$InputTick)
   $binding=[pscustomobject]@{snapshot=$Prepared.snapshot;windowWriteAttempted=$false}
   $thread=[SW]::GetCurrentThreadId()
@@ -6248,7 +6321,7 @@ function Invoke-SSESearchHitDoubleClick {
   if($previous -eq [IntPtr]::Zero){throw 'Physischer DPI-Kontext fuer den Suchtreffer ist nicht verfuegbar.'}
   $inputDispatched=$false
   try {
-    $result=Click-VerifiedPoint $Window $binding.snapshot.layout.hit $InputTick -RequireForeground -ClickCount 2 `
+    $result=Click-VerifiedPoint $Window $binding.snapshot.layout.hit $InputTick -RequireForeground -ClickCount 1 `
       -ExpectedRuntimeId ([string]$binding.snapshot.layout.hit.rid) -BeforeClickBinding $binding `
       -PrepareTarget ${function:Prepare-SSESearchHitClick} -BeforeClickCheck ${function:Test-SSESearchHitBeforeClick} -ThrowOnFailure
     $inputDispatched=$true
@@ -21619,7 +21692,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$erwartet,
         [int]$timeoutMs = 3000
       )
-      # Qt bestaetigt den Doppelklick deutlich vor dem eigentlichen
+      # Qt bestaetigt den Suchklick deutlich vor dem eigentlichen
       # Seitenaufbau. Ein einzelner Readback nach fester Wartezeit lieferte
       # deshalb leer, obwohl die Zielseite kurz danach sichtbar war. Polling
       # beendet sofort bei der Zielseite oder einer echten anderen Seite.
@@ -21965,7 +22038,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               # Auf dem versteckten Desktop ist ein echter Mausklick technisch
               # nicht moeglich. Nur dort die Qt-Patterns versuchen. Auf dem
               # sichtbaren Desktop waren diese gemessen wirkungslos und
-              # kosteten vor jedem sicheren Doppelklick mehrere Sekunden.
+              # kosteten vor jedem sicheren Klick mehrere Sekunden.
               foreach ($pat in @('SelectionItem','Invoke','Invoke','LegacyDefault','Expand')) {
                 if ($suchSeiteGeoeffnet -or -not $ge) { continue }
                 try {
@@ -21990,15 +22063,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $searchInputDispatched = $false
               $searchFailure = $null
               try {
-                # Zwei Einzelaufrufe verbringen dazwischen ihre vollstaendige
-                # Guard-/Settle-Phase und koennen das Doppelklickfenster verpassen.
+                # One click already opens the form and can collapse the list.
+                # A second click at the old point would hit the underlying page.
                 $searchPrepared = Resolve-SSEVisibleSearchActivation $hwnd $ziel $titelRegel $searchInputTick `
                   -ExpectedProcessId $gotoPid `
                   -LayoutAlreadyExpanded:$searchResultListExpanded `
                   -ReadSnapshot { Get-SSESearchActivationSnapshot $hwnd $ziel $titelRegel $searchInputTick } `
                   -ExpandLayout { param($snapshot,$button) Invoke-SSESearchListExpansion $hwnd $snapshot $button $searchInputTick }
                 $searchPrepared.expanded=[bool]($searchPrepared.expanded -or $searchResultListExpanded)
-                $null = Invoke-SSESearchHitDoubleClick $hwnd $searchPrepared $searchInputTick
+                $null = Invoke-SSESearchHitClick $hwnd $searchPrepared $searchInputTick
                 $searchInputDispatched = $true
                 # Solange die Suchseite offen ist, ist die Formularueberschrift
                 # nicht im UIA-Baum. Ein einzelner Readback nach fester
@@ -22010,7 +22083,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 $nachSuche = WarteAufUeberschrift $hwnd $start $ziel 1500
                 $aktiviert = IstZielseite $hwnd $nachSuche
                 $suchSeiteGeoeffnet = $aktiviert -or ($nachSuche -and $nachSuche -ne $start)
-                $null = $suchWeg.Add("Frisch gebundener Doppelklick (Liste vergroessert: $($searchPrepared.expanded)) -> '$nachSuche'")
+                $null = $suchWeg.Add("Frisch gebundener Einzelklick (Liste vergroessert: $($searchPrepared.expanded)) -> '$nachSuche'")
               } catch {
                 $searchFailure = $_.Exception
                 if ($searchFailure.Data.Contains('inputDispatched')) {
@@ -22079,7 +22152,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             if (IstZielseite $hwnd $nachSuchschluss) {
               foreach ($s in $suchWeg) { $null = $weg.Add($s) }
               Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachSuchschluss; schritte = 1
-                richtung = 'Suche/Doppelklick'; weg = @($weg); fokusfrei = $false })
+                richtung = 'Suche'; weg = @($weg); fokusfrei = $false })
             }
             if ($nachSuchschluss -ne $start) { $start = $nachSuchschluss }
           }

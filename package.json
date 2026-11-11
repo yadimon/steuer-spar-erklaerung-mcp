@@ -110,6 +110,7 @@
     "test:live-cold-cycle": "npm run build && node test/run-live-cold-cycle.mjs",
     "test:live-case-create": "npm run build && node test/run-live-case-create.mjs",
     "test:live-income-positions": "npm run build && node test/with-api.mjs node test/live-income-positions.mjs",
+    "test:live-goto-search": "npm run build && node test/with-api.mjs node test/live-goto-search.mjs",
     "test:live-state": "npm run build && node test/run-live-state-journey.mjs",
     "test:live-native-add-update": "npm run build && node test/with-api.mjs node test/live-native-add-update-cycle.mjs",
     "test:live-center": "npm run build && node test/run-live-center.mjs",

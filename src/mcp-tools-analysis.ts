@@ -205,7 +205,8 @@ export function registerAnalysisTools(registry: McpRegistry): void {
       description:
         "Schliesst alle aufgeklappten Detailkarten im globalen Steuerpruefer von unten nach oben " +
         "mit gezielten Klicks. Es werden keine Steuerangaben geaendert. Ob der anschliessende " +
-        "UIA-Snapshot beide Gruppen vollstaendig sieht, steht in 'konsistent'.",
+        "UIA-Snapshot die angekuendigten Eintraege vollstaendig sieht, steht in 'konsistent'. " +
+        "Eine ausgelassene leere Gruppe braucht einen vollstaendigen, fehlerfreien Baum.",
     },
     (r) => ({
       geschlossen: asArray(r.geschlossen),

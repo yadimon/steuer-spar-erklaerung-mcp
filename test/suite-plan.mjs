@@ -84,6 +84,7 @@ export const parallelSteps = Object.freeze([
   psFile("goto-navigation-tree", "test/goto-navigation-tree-contract.ps1"),
   psFile("goto-history-walk", "test/goto-history-walk-contract.ps1"),
   psFile("goto-search-hits", "test/goto-search-hits-contract.ps1"),
+  psFile("goto-search-scope", "test/goto-search-scope-contract.ps1"),
   psFile("condition-waits", "test/condition-waits-contract.ps1"),
   psFile("save-toolbar", "test/save-toolbar-contract.ps1"),
   psFile("uia-state-reads", "test/uia-state-reads-contract.ps1"),
