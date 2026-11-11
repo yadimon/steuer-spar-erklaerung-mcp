@@ -216,16 +216,15 @@ function Get-SSESearchHitTitle {
   $null
 }
 
-function Get-SSESearchHitLayout {
-  param([AllowEmptyCollection()]$Nodes,[string]$Target,[scriptblock]$Accept=$null)
+function Get-SSESearchListLayout {
+  param([AllowEmptyCollection()]$Nodes)
   $table=Find-SSEContainerNode $Nodes 'DialogSearchResultsTableView' 'Table'
-  $hit=Select-SSESearchHit $Nodes $Target -Accept $Accept
   $queries=@($Nodes | Where-Object {
     $_.type -ceq 'Edit' -and ([string]$_.aid).EndsWith('.SearchFrameSSE.QWidget.SearchSSE.QLineEdit',[StringComparison]::Ordinal)
   })
-  if(-not $table -or -not $hit -or $queries.Count -ne 1){return $null}
+  if(-not $table -or $queries.Count -ne 1){return $null}
   $query=$queries[0]
-  foreach($node in @($table,$hit,$query)) {
+  foreach($node in @($table,$query)) {
     if(-not $node.on -or -not [string]$node.rid){return $null}
     foreach($key in @('x','y','w','h')) {
       try{$number=[double]$node.$key}catch{return $null}
@@ -233,6 +232,20 @@ function Get-SSESearchHitLayout {
     }
     if($node.w -le 0 -or $node.h -le 0){return $null}
   }
+  [pscustomobject]@{nodes=@($Nodes);table=$table;query=$query;hit=$null;title=$null;fullyVisible=$false}
+}
+
+function Get-SSESearchHitLayout {
+  param([AllowEmptyCollection()]$Nodes,[string]$Target,[scriptblock]$Accept=$null)
+  $list=Get-SSESearchListLayout $Nodes
+  $hit=Select-SSESearchHit $Nodes $Target -Accept $Accept
+  if(-not $list -or -not $hit -or -not $hit.on -or -not [string]$hit.rid){return $null}
+  foreach($key in @('x','y','w','h')) {
+    try{$number=[double]$hit.$key}catch{return $null}
+    if([double]::IsNaN($number) -or [double]::IsInfinity($number) -or [Math]::Abs($number) -gt 1000000){return $null}
+  }
+  if($hit.w -le 0 -or $hit.h -le 0){return $null}
+  $table=$list.table;$query=$list.query
   $title=Get-SSESearchHitTitle $Nodes $hit $Target -Accept $Accept
   if(-not $title){return $null}
   $pointX=[int]($hit.x+$hit.w/2);$pointY=[int]($hit.y+$hit.h/2)

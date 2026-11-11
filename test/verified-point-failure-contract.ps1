@@ -40,6 +40,9 @@ function Assert-SSECursorPoint {}
 $inputGuard=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSELastInputUnchanged'},$true))
 if($inputGuard.Count -ne 1){throw 'Actual input guard missing'}
 . ([scriptblock]::Create($inputGuard[0].Extent.Text))
+$epochEvidence=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-SSEInputEpochEvidence'},$true))
+if($epochEvidence.Count -ne 1){throw 'Actual input epoch evidence helper missing'}
+. ([scriptblock]::Create($epochEvidence[0].Extent.Text))
 function Set-SSECursorPoint { $script:pointerMoves++ }
 function Start-Sleep { }
 $script:SSE_FOREGROUND_LEASE=[pscustomobject]@{lastAcquireRaised=$false}
@@ -47,6 +50,7 @@ $script:showCalls=0;$script:emitCalls=0;$script:pointerMoves=0;[SW]::MouseCalls=
 try{Click-VerifiedPoint ([IntPtr]111) ([pscustomobject]@{x=10;y=10;w=20;h=20}) 10 -RequireForeground -ThrowOnFailure|Out-Null}catch{$caught=$_}
 if(-not $caught -or $caught.Exception.Data['kind'] -cne 'interference' -or $caught.Exception.Data['inputDispatched'] -ne $false -or
    $script:showCalls -ne 0 -or $script:pointerMoves -ne 0 -or [SW]::MouseCalls -ne 0 -or $script:emitCalls -ne 0){throw 'Lost inherited input was discovered only after raising the click target or moving the pointer'}
+if($caught.Exception.Message -notmatch '"baseline":10,"observed":11' -or $caught.Exception.Message -notmatch '"changed":true') {throw 'Lost input omitted the measured baseline and observed epoch evidence'}
 [SW]::Tick=10
 foreach($throws in @($false,$true)) {
   $script:emitCalls=0;$script:pointerMoves=0;[SW]::MouseCalls=0;$caught=$null

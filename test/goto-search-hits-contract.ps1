@@ -247,7 +247,8 @@ Assert-True ((Invoke-GotoSearchSelection $null $prefix $exactFirst -FreeTarget).
 
 # Execute only extracted functions and the visible branch. SW is a managed
 # fake, and Click-VerifiedPoint is replaced; no native UI helpers are loaded.
-foreach($helper in @('Test-SSESearchSnapshotIdentity','Resolve-SSEVisibleSearchActivation',
+foreach($helper in @('Test-SSESearchListIdentity','Resolve-SSESearchResultList',
+  'Test-SSESearchSnapshotIdentity','Resolve-SSEVisibleSearchActivation',
   'Prepare-SSESearchHitClick','Test-SSESearchHitBeforeClick','Invoke-SSESearchHitDoubleClick')) {
   $definition=@($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helper
@@ -290,6 +291,90 @@ function SearchSnapshot($Nodes) {
   [pscustomobject]@{window=[long]4242;processId=123;epoch='synthetic-generation';target='Zielseite';
     accept=$null;query='Zielseite';layout=$layout;inputTick=19}
 }
+
+# Regression: the collapsed provider exposes unrelated rows only. Execute the
+# actual dispatch block, reveal the target through one bound list expansion,
+# and require a fresh exact selection before the activation branch can run.
+$missingHitBlocks=@($gotoBody.FindAll({param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '-not $genau' -and
+  $node.Extent.Text.Contains('Resolve-SSESearchResultList')
+},$true))
+Assert-True ($missingHitBlocks.Count -eq 1) 'Die Vorbereitung einer nur teilweise exponierten Suchliste fehlt.'
+$missingHitBlock=[scriptblock]::Create($missingHitBlocks[0].Extent.Text)
+function SearchListSnapshot($Nodes) {
+  $snapshot=SearchSnapshot $Nodes
+  if(-not $snapshot.layout){$snapshot.layout=Get-SSESearchListLayout $Nodes}
+  $snapshot|Add-Member -NotePropertyName tree -NotePropertyValue ([pscustomobject]@{nodes=@($Nodes)})
+  $snapshot
+}
+function Test-MissingHitPreparation([string]$Mode='revealed') {
+  $script:listExpansions=0;$script:listReads=0
+  $script:listFresh=SearchListSnapshot @(SearchLayout | Where-Object {$_.i -notin @(9,10)})
+  $script:listAfter=SearchListSnapshot (SearchLayout 170 -Reparent)
+  switch($Mode){
+    'still-absent' {$script:listAfter=SearchListSnapshot @(SearchLayout 170 -Reparent | Where-Object {$_.i -notin @(9,10)})}
+    'duplicate' {
+      $nodes=SearchLayout 170 -Reparent
+      $nodes+=Node 11 8 'DataItem' 'Zielseite' 120 315 180 30 $nodes[8].aid
+      $script:listAfter=SearchListSnapshot $nodes
+    }
+    'already-expanded' {$script:listFresh=SearchListSnapshot @(SearchLayout 170 -Reparent | Where-Object {$_.i -notin @(9,10)})}
+    'query-drift' {$script:listAfter.layout.query.rid='other-query'}
+    'generation-drift' {$script:listAfter.epoch='other-generation'}
+    'window-drift' {$script:listAfter.window=4243}
+    'no-growth' {$script:listAfter=SearchListSnapshot (SearchLayout)}
+    'input-drift' {}
+    'foreign-process' {$script:listFresh.processId=124}
+    'visible' {$script:listFresh=SearchListSnapshot (SearchLayout 170)}
+  }
+  $hwnd=[IntPtr]4242;$gotoPid=123;$ziel='Zielseite';$start='Startseite';$titelRegel=$null
+  $tt=[pscustomobject]@{nodes=@('old observation')};$genau=$null;$searchResultListExpanded=$false
+  function Get-SSELastInputTick {19}
+  function Test-SSELastInputUnchanged($Tick) {$Tick -eq 19 -and -not ($Mode -ceq 'input-drift' -and $script:listExpansions -gt 0)}
+  function Get-SSESearchActivationSnapshot {
+    param($Window,$Target,$Accept,$InputTick,[switch]$AllowMissingHit)
+    Assert-True ($AllowMissingHit -and $Window -eq $hwnd -and $Target -ceq $ziel -and $InputTick -eq 19) 'Die Listenbindung verlor ihre exakten Argumente.'
+    $script:listReads++;$script:listFresh
+  }
+  function Invoke-SSESearchListExpansion {
+    param($Window,$Snapshot,$Button,$InputTick)
+    Assert-True ($script:listExpansions -eq 0 -and $Window -eq $hwnd -and $InputTick -eq 19 -and $Button.rid -ceq '42.5') 'Ungebundene oder wiederholte Listenexpansion.'
+    $script:listExpansions++;$script:listFresh=$script:listAfter
+  }
+  function Fail($Message,$Kind,$Details){throw "$Kind`: $Message"}
+  $failure=$null
+  try{. $missingHitBlock}catch{$failure=$_.Exception.Message}
+  [pscustomobject]@{hit=$genau;tree=$tt;expanded=$searchResultListExpanded;expansions=$script:listExpansions;
+    reads=$script:listReads;failure=$failure;fresh=$script:listFresh}
+}
+$revealed=Test-MissingHitPreparation
+Assert-True (-not $revealed.failure -and $revealed.expanded -and $revealed.expansions -eq 1 -and
+  $revealed.reads -eq 2 -and $revealed.hit.rid -ceq '73.9' -and
+  [object]::ReferenceEquals($revealed.tree,$revealed.fresh.tree)) 'Ein anfangs nicht exponierter Titel wurde nicht aus der einmal vergroesserten frischen Liste gebunden.'
+foreach($mode in @('still-absent','duplicate')){
+  $observation=Test-MissingHitPreparation $mode
+  Assert-True (-not $observation.failure -and $observation.expanded -and $null -eq $observation.hit -and $observation.expansions -eq 1) "Die neue Liste erfand einen eindeutigen Titel: $mode"
+}
+$already=Test-MissingHitPreparation 'already-expanded'
+Assert-True (-not $already.failure -and -not $already.expanded -and $already.expansions -eq 0 -and $null -eq $already.hit) 'Eine bereits vergroesserte Liste wurde erneut umgeschaltet.'
+$visible=Test-MissingHitPreparation 'visible'
+Assert-True (-not $visible.failure -and -not $visible.expanded -and $visible.expansions -eq 0 -and $visible.hit.rid -ceq '42.9') 'Ein inzwischen sichtbarer exakter Treffer erforderte keine weitere Layoutaktion.'
+foreach($mode in @('query-drift','generation-drift','window-drift','no-growth','input-drift','foreign-process')){
+  $observation=Test-MissingHitPreparation $mode
+  Assert-True ($observation.failure -like 'navigation-blocked:*' -and $null -eq $observation.hit -and
+    $observation.expansions -le 1) "Eine verlorene Listenbindung erlaubte weitere Navigation: $mode"
+}
+
+$script:forbiddenExpansion=0
+function Test-SSELastInputUnchanged($Tick){$Tick -eq 19}
+$clippedAgain=$false
+try {
+  $null=Resolve-SSEVisibleSearchActivation ([IntPtr]4242) 'Zielseite' $null 19 -ExpectedProcessId 123 -LayoutAlreadyExpanded `
+    -ReadSnapshot {SearchSnapshot (SearchLayout)} -ExpandLayout {$script:forbiddenExpansion++}
+} catch {$clippedAgain=$true}
+Assert-True ($clippedAgain -and $script:forbiddenExpansion -eq 0) 'Ein nach der Listenexpansion abgeschnittener Titel erlaubte einen zweiten Toggle.'
+
 $clipped=Get-SSESearchHitLayout (SearchLayout) 'Zielseite'
 Assert-True ($clipped.hit.on -and -not $clipped.fullyVisible -and
   $clipped.pointY -eq $clipped.table.y+$clipped.table.h) 'Ein aktivierter, am ganzzahligen Mittelpunkt abgeschnittener Treffer wurde freigegeben.'

@@ -175,11 +175,25 @@ export function checkerResults(nodes: readonly QtSnapshotNode[]): CheckerResults
   };
 }
 
-export function checkerResultComplete(result: CheckerResults): boolean {
-  return result.aktiv && ((result.leer && result.gesamt === 0) || (
-    result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen
-    && result.fragenWarnungenAngekuendigt === result.fragenWarnungen.length
-    && result.tippsAngekuendigt === result.tippsZusatzinfos.length));
+export function checkerResultComplete(result: CheckerResults, snapshot?: {
+  nodes: readonly QtSnapshotNode[];
+  stats: { truncated: boolean; depthLimited: boolean; err: number; cyc: number; valErr: number; scrollErr: number };
+}): boolean {
+  if (!result.aktiv) return false;
+  if (result.leer && result.gesamt === 0) return true;
+  if (result.fragenWarnungenAngekuendigt !== result.fragenWarnungen.length
+    || result.tippsAngekuendigt !== result.tippsZusatzinfos.length) return false;
+  if (result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen) return true;
+  if (result.fragenWarnungenGruppeGesehen === result.tippsGruppeGesehen || result.sonstige.length || !snapshot) return false;
+  // An omitted zero-count group needs independent evidence of absence, rather
+  // than treating a default count of zero as a successfully read header.
+  const { stats, nodes } = snapshot;
+  if (stats.truncated !== false || stats.depthLimited !== false
+    || stats.err !== 0 || stats.cyc !== 0 || stats.valErr !== 0 || stats.scrollErr !== 0) return false;
+  const items = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
+  if (items.some(node => !node.name)) return false;
+  const headers = items.filter(node => /^(?:\d+\s+Fragen oder Warnungen|1\s+Frage oder Warnung|\d+\s+Tipps oder Zusatzinformationen|1\s+Tipp oder Zusatzinformation)\n?$/iu.test(node.name));
+  return headers.length === 1;
 }
 
 /** German money/percent display normalised to decimal text; unparsable text is skipped, never treated as zero. */

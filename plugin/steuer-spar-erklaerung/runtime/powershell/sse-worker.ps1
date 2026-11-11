@@ -4048,7 +4048,9 @@ function Click-VerifiedPoint(
   }
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { & $pointFailure 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
-    & $pointFailure 'Eigene Eingabe-Epoche vor der Fokusuebernahme verloren. NICHT geklickt.' 'interference'
+    $epochEvidence = Get-SSEInputEpochEvidence $ExpectedInputTick (Get-SSELastInputTick) 'before-focus'
+    & $pointFailure ('Eigene Eingabe-Epoche vor der Fokusuebernahme verloren. NICHT geklickt. ' +
+      'Eingabe-Nachweis: ' + ($epochEvidence | ConvertTo-Json -Compress)) 'interference'
   }
   if ($popupMode) {
     if ($ForegroundWindow -eq $Window -or $null -eq $ExpectedInputTick -or -not $RequireForeground -or
@@ -6059,7 +6061,7 @@ function Get-SSESearchFieldNode {
 # A fresh, own-root-bound search layout. No click is authorized by on=true:
 # Qt can report an enabled row whose center is outside the result viewport.
 function Get-SSESearchActivationSnapshot {
-  param([IntPtr]$Window,[string]$Target,[scriptblock]$Accept,$InputTick)
+  param([IntPtr]$Window,[string]$Target,[scriptblock]$Accept,$InputTick,[switch]$AllowMissingHit)
   if($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick)){throw 'Die Suche verlor ihre Eingabe-Epoche.'}
   $processId=0
   $null=[SW]::GetWindowThreadProcessId($Window,[ref]$processId)
@@ -6070,8 +6072,9 @@ function Get-SSESearchActivationSnapshot {
     $tree.stats.truncated -or $tree.stats.depthLimited -or $tree.stats.err -ne 0 -or
     $tree.stats.cyc -ne 0 -or $tree.stats.valErr -ne 0){throw 'Der Suchbaum ist nicht vollstaendig und fehlerfrei.'}
   $layout=Get-SSESearchHitLayout $tree.nodes $Target -Accept $Accept
+  if(-not $layout -and $AllowMissingHit){$layout=Get-SSESearchListLayout $tree.nodes}
   if(-not $layout){throw 'Die Suche bindet nicht genau eine Titelzelle, Tabelle und Suchzeile.'}
-  foreach($node in @($layout.table,$layout.hit,$layout.query)) {
+  foreach($node in @($layout.table,$layout.query)+@($layout.hit | Where-Object {$null -ne $_})) {
     $element=Get-LiveElement $Window ([string]$node.rid)
     # An offscreen clipped row may authorize only layout preparation. A hit
     # that is geometrically ready for input must also be visible to UIA.
@@ -6096,7 +6099,22 @@ function Get-SSESearchActivationSnapshot {
   if($freshPid -ne $processId -or [string](Get-SSETablePreparationProcessEpoch $freshPid) -cne $epoch -or
     -not (Test-SSELastInputUnchanged $InputTick)){throw 'Fenster-, Prozess- oder Eingabebindung der Suche hat sich geaendert.'}
   [pscustomobject]@{window=[int64]$Window;processId=$processId;epoch=$epoch;target=$Target;accept=$Accept;
-    query=$Target;layout=$layout;inputTick=$InputTick;windowWriteAttempted=$false}
+    query=$Target;layout=$layout;tree=$tree;inputTick=$InputTick;windowWriteAttempted=$false}
+}
+
+function Test-SSESearchListIdentity {
+  param($Before,$After,[switch]$CompareTable)
+  if(-not $Before -or -not $After -or -not $Before.layout -or -not $After.layout -or
+    $Before.window -ne $After.window -or $Before.processId -ne $After.processId -or
+    $Before.epoch -cne $After.epoch -or $Before.target -cne $After.target -or
+    $Before.query -cne $After.query -or $Before.layout.query.rid -cne $After.layout.query.rid -or
+    $Before.layout.query.aid -cne $After.layout.query.aid){return $false}
+  if($CompareTable){
+    foreach($key in @('rid','aid','x','y','w','h')){
+      if($Before.layout.table.$key -cne $After.layout.table.$key){return $false}
+    }
+  }
+  $true
 }
 
 function Test-SSESearchSnapshotIdentity {
@@ -6119,9 +6137,11 @@ function Test-SSESearchSnapshotIdentity {
 
 function Invoke-SSESearchListExpansion {
   param([IntPtr]$Window,$Snapshot,$Button,$InputTick)
-  $fresh=Get-SSESearchActivationSnapshot $Window $Snapshot.target $Snapshot.accept $InputTick
+  $fresh=Get-SSESearchActivationSnapshot $Window $Snapshot.target $Snapshot.accept $InputTick -AllowMissingHit
   $freshButton=Get-SSESearchExpansionButton $fresh.layout
-  if(-not (Test-SSESearchSnapshotIdentity $Snapshot $fresh -CompareGeometry) -or -not $freshButton -or
+  $same=$(if($Snapshot.layout.hit){Test-SSESearchSnapshotIdentity $Snapshot $fresh -CompareGeometry}
+    else{Test-SSESearchListIdentity $Snapshot $fresh -CompareTable})
+  if(-not $same -or -not $freshButton -or
     $freshButton.rid -cne $Button.rid -or $freshButton.aid -cne $Button.aid -or
     $freshButton.x -ne $Button.x -or $freshButton.y -ne $Button.y -or $freshButton.w -ne $Button.w -or $freshButton.h -ne $Button.h){
     throw 'Der Schalter zum Vergroessern der eigenen Suchliste ist nicht mehr exakt gebunden.'
@@ -6139,11 +6159,42 @@ function Invoke-SSESearchListExpansion {
   $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
 
+# A collapsed Qt result table exposes only its visible rows. An absent title
+# therefore cannot decide that search has no exact result. Expand its own
+# bound list once, then select only from a fresh snapshot; never click a guess.
+function Resolve-SSESearchResultList {
+  param([IntPtr]$Window,[string]$Target,$InputTick,[int]$ExpectedProcessId,
+    [scriptblock]$ReadSnapshot,[scriptblock]$ExpandLayout)
+  $expanded=$false
+  try {
+    if($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick)){throw 'Die Suche hat keine unveraenderte Eingabe-Epoche.'}
+    $before=& $ReadSnapshot
+    if(-not $before -or -not $before.layout -or $before.window -ne [int64]$Window -or
+      $ExpectedProcessId -le 0 -or $before.processId -ne $ExpectedProcessId -or
+      $before.target -cne $Target -or $before.query -cne $Target){throw 'Die Suchliste ist nicht exakt gebunden.'}
+    if($before.layout.hit){return [pscustomobject]@{snapshot=$before;expanded=$false}}
+    $button=Get-SSESearchExpansionButton $before.layout
+    if(-not $button){return [pscustomobject]@{snapshot=$before;expanded=$false}}
+    $expanded=$true
+    & $ExpandLayout $before $button
+    Start-Sleep -Milliseconds 150
+    $after=& $ReadSnapshot
+    if(-not (Test-SSESearchListIdentity $before $after) -or
+      $after.layout.table.h -le $before.layout.table.h -or -not (Test-SSELastInputUnchanged $InputTick)){
+      throw 'Die einmalige Suchlisten-Vergroesserung lieferte keine frisch gebundene groessere Liste.'
+    }
+    [pscustomobject]@{snapshot=$after;expanded=$true}
+  } catch {
+    $_.Exception.Data['layoutExpansionAttempted']=[bool]$expanded
+    throw
+  }
+}
+
 # The callbacks are private worker dependencies, never caller arguments. They
 # also let the contract exercise the actual one-expansion flow without any UI.
 function Resolve-SSEVisibleSearchActivation {
   param([IntPtr]$Window,[string]$Target,[scriptblock]$Accept,$InputTick,
-    [scriptblock]$ReadSnapshot,[scriptblock]$ExpandLayout,[int]$ExpectedProcessId)
+    [scriptblock]$ReadSnapshot,[scriptblock]$ExpandLayout,[int]$ExpectedProcessId,[switch]$LayoutAlreadyExpanded)
   $expanded=$false
   try {
     if($null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick)){throw 'Die Suche hat keine unveraenderte Eingabe-Epoche.'}
@@ -6152,6 +6203,7 @@ function Resolve-SSEVisibleSearchActivation {
       $before.window -ne [int64]$Window -or $before.target -cne $Target -or
       $before.query -cne $Target -or -not $before.layout){throw 'Die Suchliste ist nicht exakt gebunden.'}
     if($before.layout.fullyVisible){return [pscustomobject]@{snapshot=$before;expanded=$false}}
+    if($LayoutAlreadyExpanded){throw 'Die bereits vergroesserte Suchliste zeigt den Treffer nicht vollstaendig; kein weiterer Umschaltversuch.'}
     $button=Get-SSESearchExpansionButton $before.layout
     if(-not $button){throw 'Der abgeschnittene Treffer hat keinen eindeutig gebundenen Vergroesserungsschalter.'}
     $expanded=$true
@@ -6434,19 +6486,29 @@ function Get-CheckerResults {
   }
 }
 
-function Test-CheckerResultComplete($result) {
-  [bool](
-    $result.aktiv -and
-    (
-      ($result.leer -eq $true -and $result.gesamt -eq 0) -or
-      (
-        $result.fragenWarnungenGruppeGesehen -and
-        $result.tippsGruppeGesehen -and
-        $result.fragenWarnungenAngekuendigt -eq @($result.fragenWarnungen).Count -and
-        $result.tippsAngekuendigt -eq @($result.tippsZusatzinfos).Count
-      )
-    )
-  )
+function Test-CheckerResultComplete($result, $tree = $null) {
+  if (-not $result.aktiv) { return $false }
+  if ($result.leer -eq $true -and $result.gesamt -eq 0) { return $true }
+  if ($result.fragenWarnungenAngekuendigt -ne @($result.fragenWarnungen).Count -or
+      $result.tippsAngekuendigt -ne @($result.tippsZusatzinfos).Count) { return $false }
+  if ($result.fragenWarnungenGruppeGesehen -and $result.tippsGruppeGesehen) { return $true }
+  if ([bool]$result.fragenWarnungenGruppeGesehen -eq [bool]$result.tippsGruppeGesehen -or
+      @($result.sonstige).Count -ne 0 -or -not $tree -or -not $tree.stats) { return $false }
+
+  # SSE omits a zero-count group. Infer its absence only from an intact
+  # snapshot containing exactly one group and no unnamed/unclassified items.
+  $stats = $tree.stats
+  if ($stats.truncated -isnot [bool] -or $stats.depthLimited -isnot [bool] -or
+      $stats.truncated -or $stats.depthLimited) { return $false }
+  foreach ($key in @('err','cyc','valErr','scrollErr')) {
+    if ($null -eq $stats.$key -or $stats.$key -ne 0) { return $false }
+  }
+  $items = @(Get-SSEContainerDescendants $tree.nodes $script:SSE_CHECKER_TREE_SUFFIX 'TreeItem' 'Tree')
+  if (@($items | Where-Object { -not [string]$_.name }).Count) { return $false }
+  $headers = @($items | Where-Object {
+    $_.name -match '^(?:\d+\s+Fragen oder Warnungen|1\s+Frage oder Warnung|\d+\s+Tipps oder Zusatzinformationen|1\s+Tipp oder Zusatzinformation)$'
+  })
+  [bool]($headers.Count -eq 1)
 }
 
 # Qt liefert beim aktuell ausgewaehlten Pruefer-Eintrag dessen eigenen
@@ -6473,7 +6535,7 @@ function Read-CheckerCompleteInteractiveLegacy {
   for ($attempt = 0; $attempt -le $MaxSteps; $attempt++) {
     $tree = Walk-Tree $hwnd 5000 60 20 -WithValues
     $result = Get-CheckerResults $tree $hwnd
-    if (-not $result.aktiv -or (Test-CheckerResultComplete $result)) { break }
+    if (-not $result.aktiv -or (Test-CheckerResultComplete $result $tree)) { break }
     $null = $cycles.Add([pscustomobject]@{
       name = $tree.stats.cycleName; rid = $tree.stats.cycleRid
       warnungen = @($result.fragenWarnungen).Count; tipps = @($result.tippsZusatzinfos).Count
@@ -6585,7 +6647,7 @@ function Read-CheckerCompleteInteractiveLegacy {
   [pscustomobject]@{
     tree = $tree
     result = $result
-    vollstaendig = [bool](Test-CheckerResultComplete $result)
+    vollstaendig = [bool](Test-CheckerResultComplete $result $tree)
     navigationSchritte = $steps
     fokusVerwendet = $focusUsed
     technischeFokusKarten = @($technicalCards)
@@ -6607,7 +6669,7 @@ function Read-CheckerComplete {
   [pscustomobject]@{
     tree = $tree
     result = $result
-    vollstaendig = [bool](Test-CheckerResultComplete $result)
+    vollstaendig = [bool](Test-CheckerResultComplete $result $tree)
     navigationSchritte = 0
     fokusVerwendet = $false
     technischeFokusKarten = @()
@@ -21858,10 +21920,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             { param($titel) Test-KnownPageHeading $titel $knownTarget.page }
           } else { $null })
           $genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel
+          $searchResultListExpanded=$false
+          if(-not $genau){
+            $searchListInputTick=Get-SSELastInputTick
+            try {
+              $searchResultList=Resolve-SSESearchResultList $hwnd $ziel $searchListInputTick $gotoPid `
+                -ReadSnapshot {Get-SSESearchActivationSnapshot $hwnd $ziel $titelRegel $searchListInputTick -AllowMissingHit} `
+                -ExpandLayout {param($snapshot,$button) Invoke-SSESearchListExpansion $hwnd $snapshot $button $searchListInputTick}
+              $tt=$searchResultList.snapshot.tree
+              $genau=$searchResultList.snapshot.layout.hit
+              $searchResultListExpanded=[bool]$searchResultList.expanded
+            } catch {
+              Fail ('Die Suchliste konnte nicht sicher vorbereitet werden; keine weitere Navigation: '+$_.Exception.Message) 'navigation-blocked' `
+                ([pscustomobject]@{ueberschrift=$start;inputDispatched=$false;
+                  layoutExpansionAttempted=[bool]$_.Exception.Data['layoutExpansionAttempted']})
+            }
+          }
           $treffer = @(Get-SSEContainerDescendants $tt.nodes 'DialogSearchResultsTableView' 'DataItem' 'Table' |
             Where-Object { [string]$_.name })
           $suchWeg = New-Object System.Collections.ArrayList
           $null = $suchWeg.Add("Suche nach '$ziel'")
+          if($searchResultListExpanded){$null=$suchWeg.Add('Zunaechst nicht sichtbarer Titel: eigene Suchliste einmal vergroessert und neu gelesen.')}
           $null = $suchWeg.Add("sichtbare Treffer: $((@($treffer | Select-Object -First 12 | ForEach-Object { $_.name })) -join ' | ')")
           $null = $suchWeg.Add("Trefferdetails: $((@($treffer | Select-Object -First 12 | ForEach-Object { "$($_.name)@x$($_.x),y$($_.y),d$($_.d),rid$($_.rid)" })) -join ' | ')")
           $null = $suchWeg.Add("sichtbare Texte: $((@($tt.nodes | Where-Object { $_.type -eq 'Text' -and $_.name -and $_.y -lt ($rr.T + 700) } | Select-Object -First 20 | ForEach-Object { $_.name })) -join ' | ')")
@@ -21915,8 +21994,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 # Guard-/Settle-Phase und koennen das Doppelklickfenster verpassen.
                 $searchPrepared = Resolve-SSEVisibleSearchActivation $hwnd $ziel $titelRegel $searchInputTick `
                   -ExpectedProcessId $gotoPid `
+                  -LayoutAlreadyExpanded:$searchResultListExpanded `
                   -ReadSnapshot { Get-SSESearchActivationSnapshot $hwnd $ziel $titelRegel $searchInputTick } `
                   -ExpandLayout { param($snapshot,$button) Invoke-SSESearchListExpansion $hwnd $snapshot $button $searchInputTick }
+                $searchPrepared.expanded=[bool]($searchPrepared.expanded -or $searchResultListExpanded)
                 $null = Invoke-SSESearchHitDoubleClick $hwnd $searchPrepared $searchInputTick
                 $searchInputDispatched = $true
                 # Solange die Suchseite offen ist, ist die Formularueberschrift
@@ -21943,7 +22024,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 Fail 'Die Suchaktivierung hat die Zielseite nicht bestaetigt; keine weitere Navigation.' 'navigation-blocked' `
                   ([pscustomobject]@{ ueberschrift = [string]$nachSuche; weg = @($suchWeg)
                     inputDispatched = $searchInputDispatched
-                    layoutExpansionAttempted = [bool](($searchPrepared -and $searchPrepared.expanded) -or
+                    layoutExpansionAttempted = [bool]($searchResultListExpanded -or ($searchPrepared -and $searchPrepared.expanded) -or
                       ($searchFailure -and $searchFailure.Data['layoutExpansionAttempted'])) })
               }
             }
