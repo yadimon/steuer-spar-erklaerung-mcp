@@ -3,11 +3,30 @@ $path=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$errors)
 if(@($errors).Count){throw 'Worker syntax is invalid.'}
+$workerFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
 foreach($name in @('Arg','Get-SSEBoundedIntegerArg','Test-SSEExactProperties','Test-SSELaunchMainWindowStable','Get-SSEMainWindowCandidates','Get-SSEDesktopStartWindowState','New-SSEDesktopStartBudget','Get-SSEDesktopStartWaitBudget','Wait-SSEDesktopStartWindowState')){
-  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+  $definition=@($workerFunctions|Where-Object {$_.Name -ceq $name})
   if($definition.Count -ne 1){throw "Productive helper '$name' is absent."}
-  . ([scriptblock]::Create($definition[0].Extent.Text))
+  $definitionText=$definition[0].Extent.Text
+  if($name -ceq 'Wait-SSEDesktopStartWindowState'){
+    # Bind only the monotonic-clock endpoint. The actual poller and all of its
+    # deadline/identity branches stay intact; CPU scheduling is not test input.
+    $clock='[Diagnostics.Stopwatch]::StartNew()'
+    if([regex]::Matches($definitionText,[regex]::Escape($clock)).Count -ne 1){throw 'Desktop probe clock is not unique.'}
+    $definitionText=$definitionText.Replace($clock,'[SseLaunchReadinessFixture.Clock]::StartNew()')
+  }
+  . ([scriptblock]::Create($definitionText))
 }
+Add-Type @'
+namespace SseLaunchReadinessFixture {
+  public sealed class Clock {
+    public static long Now;
+    private readonly long started = Now;
+    public static Clock StartNew() { return new Clock(); }
+    public long ElapsedMilliseconds { get { return Now - started; } }
+  }
+}
+'@
 $probe=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.SwitchStatementAst]},$true) |
   ForEach-Object {$_.Clauses} | Where-Object {$_.Item1.Extent.Text -ceq "'launch_probe'"})
 if($probe.Count -ne 1){throw 'Productive launch probe is absent.'}
@@ -22,6 +41,7 @@ function Get-Windows {
   param($Filter)
   if($Filter -cne 'SSE'){throw 'Probe escaped its product window inventory.'}
   $script:reads++
+  [SseLaunchReadinessFixture.Clock]::Now++
   if($script:windowSource){return (& $script:windowSource $script:reads)}
   $index=[Math]::Min($script:reads-1,$script:frames.Count-1)
   @($script:frames[$index])
@@ -86,7 +106,8 @@ $childDirectory=Join-Path ([IO.Path]::GetTempPath()) ('sse-start-budget-exit-'+[
 $childPath=Join-Path $childDirectory 'exit-contract.ps1'
 $closeLog=Join-Path $childDirectory 'closed.txt'
 $childDefinitions=@('Arg','Get-SSEBoundedIntegerArg','New-SSEDesktopStartBudget','Get-SSEDesktopStartWaitBudget','Fail','Emit') | ForEach-Object {
-  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $_},$true))
+  $helperName=$_
+  $definition=@($workerFunctions|Where-Object {$_.Name -ceq $helperName})
   Assert ($definition.Count -eq 1) 'Child exit contract lost a productive helper.'
   $definition[0].Extent.Text
 }
@@ -189,6 +210,7 @@ Assert ($desktopState.mainCandidates.Count -eq 1 -and $desktopState.dialogWindow
 
 function Run-DesktopProbe($Frames,[bool]$HasCase=$true,[int]$Budget=5000,[scriptblock]$WindowSource=$null){
   $script:frames=$Frames;$script:reads=0;$script:windowSource=$WindowSource
+  [SseLaunchReadinessFixture.Clock]::Now=0
   Wait-SSEDesktopStartWindowState {Get-Windows 'SSE'} $HasCase $Budget
 }
 $result=Run-DesktopProbe @(@((Window 10 500 'Steuerprogramm')),@((Window 20)),@((Window 20)),@((Window 20)))
@@ -225,10 +247,19 @@ $result=Run-DesktopProbe -Frames @() -Budget 30 -WindowSource {param($Read) Wind
 Assert (-not $result.ready -and $result.mainCandidates.Count -eq 1 -and $result.elapsedMs -ge 30) 'Changing desktop mains escaped the single absolute deadline.'
 $result=Run-DesktopProbe -Frames @() -Budget 30 -WindowSource {
   param($Read)
-  if($Read -eq 4){[Threading.Thread]::Sleep(40)}
+  if($Read -eq 4){[SseLaunchReadinessFixture.Clock]::Now=40}
   Window 10
 }
 Assert (-not $result.ready -and $script:reads -eq 4 -and $result.elapsedMs -ge 30) 'A desktop checkpoint finishing after the deadline still published readiness.'
+foreach($checkpointMs in @(29,30)){
+  $result=Run-DesktopProbe -Frames @() -Budget 30 -WindowSource {
+    param($Read)
+    if($Read -eq 4){[SseLaunchReadinessFixture.Clock]::Now=$checkpointMs}
+    Window 10
+  }
+  Assert ($script:reads -eq 4 -and $result.elapsedMs -eq $checkpointMs) 'The exact checkpoint boundary was not exercised.'
+  Assert ($result.ready -eq ($checkpointMs -lt 30)) 'Desktop readiness accepted the exact deadline or rejected an earlier checkpoint.'
+}
 $result=Run-DesktopProbe -Frames @(@($generic),@($generic),@($generic)) -HasCase $false
 Assert ($result.ready -and $script:reads -eq 4) 'Desktop generic no-case main failed to stabilize.'
 try {
