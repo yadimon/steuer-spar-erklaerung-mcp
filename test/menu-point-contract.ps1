@@ -3,15 +3,20 @@ $worker=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($worker,[ref]$null,[ref]$parseErrors)
 if($parseErrors.Count){throw 'Worker cannot be parsed.'}
+# Find the real definitions once. Rewalking the full worker AST for every
+# helper can consume the popup subprocess budget before its assertions run.
+$workerFunctions=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.FunctionDefinitionAst]
+},$true))
 foreach($name in @('Click-VerifiedPoint','Enter-SSEForegroundLease','Exit-SSEForegroundLease',
  'Set-SSEForegroundLeaseInputCheckpoint','Get-SSEInputEpochEvidence','Test-SSELastInputUnchanged',
  'Set-SSECursorPoint','Assert-SSECursorPoint','Hide-SSETopmost','Test-SSEMenuPointBinding','Enter-SSEPopupForeground')){
- $found=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
+ $found=@($workerFunctions|Where-Object {$_.Name -ceq $name})
  if($found.Count -ne 1){throw ('Actual menu point helper is ambiguous: '+$name)}
  . ([scriptblock]::Create($found[0].Extent.Text))
 }
 foreach($name in @('Get-SSEMenuHoverPoints','Initialize-SSEMenuHover')){
- $found=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name}.GetNewClosure(),$true))
+ $found=@($workerFunctions|Where-Object {$_.Name -ceq $name})
  if($found.Count -ne 1){throw ('Actual menu hover helper is ambiguous: '+$name)}
  . ([scriptblock]::Create($found[0].Extent.Text))
 }
@@ -300,19 +305,21 @@ try{Invoke-MenuPoint|Out-Null}catch{$caught=$_}
 Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['inputDispatched'] -eq $true -and [SW]::MouseCalls -eq 2) 'Post-click interference lost its dispatch evidence or replayed input.'
 Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
 
-$calls=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Click-VerifiedPoint' -and
- @($n.CommandElements|Where-Object{$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'ForegroundWindow'}).Count -gt 0},$true))
+$clickCommands=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and
+ $n.GetCommandName() -ceq 'Click-VerifiedPoint'},$true))
+$calls=@($clickCommands|Where-Object{
+ @($_.CommandElements|Where-Object{$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'ForegroundWindow'}).Count -gt 0})
 $menuSwitch=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.SwitchStatementAst] -and
  @($n.Clauses|Where-Object{$_.Item1.Extent.Text -ceq "'menu_click'"}).Count -eq 1},$true))
 Check-MenuPoint ($menuSwitch.Count -eq 1) 'Actual menu dispatcher is ambiguous.'
 $menuExtent=@($menuSwitch[0].Clauses|Where-Object{$_.Item1.Extent.Text -ceq "'menu_click'"})[0].Item2.Extent
-$saveAs=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Open-SSESaveAsDialog'},$true))
+$saveAs=@($workerFunctions|Where-Object {$_.Name -ceq 'Open-SSESaveAsDialog'})
 Check-MenuPoint ($saveAs.Count -eq 1) 'Actual SaveAs helper is ambiguous.'
 $menuCalls=@($calls|Where-Object{$_.Extent.StartOffset -gt $menuExtent.StartOffset -and $_.Extent.EndOffset -lt $menuExtent.EndOffset})
 $saveCalls=@($calls|Where-Object{$_.Extent.StartOffset -gt $saveAs[0].Extent.StartOffset -and $_.Extent.EndOffset -lt $saveAs[0].Extent.EndOffset})
 Check-MenuPoint ($calls.Count -eq 2 -and $menuCalls.Count -eq 1 -and $saveCalls.Count -eq 1) 'The popup foreground contract must be limited to exactly menu_click and SaveAs.'
-$reuseCalls=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Click-VerifiedPoint' -and
- @($n.CommandElements|Where-Object{$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'UseExistingPopupLease'}).Count -gt 0},$true))
+$reuseCalls=@($clickCommands|Where-Object{
+ @($_.CommandElements|Where-Object{$_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'UseExistingPopupLease'}).Count -gt 0})
 Check-MenuPoint ($reuseCalls.Count -eq 1 -and $reuseCalls[0].Extent.StartOffset -eq $saveCalls[0].Extent.StartOffset) 'Only the compound SaveAs helper may reuse its prepared parent popup lease.'
 Reset-MenuPoint
 [SW]::Tick=0
