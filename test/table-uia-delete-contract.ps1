@@ -1,7 +1,14 @@
 param([string]$Repo=(Join-Path $PSScriptRoot '..'))
 $ErrorActionPreference='Stop'
-. (Join-Path $Repo 'powershell/table-grid-read.ps1')
-. (Join-Path $Repo 'powershell/table-uia-delete.ps1')
+# Bind only the native type endpoints to this fixture's unique namespace.
+# PowerShell may otherwise resolve Windows.Forms to System.Windows.Forms
+# inside a function, even after a same-named synthetic type was compiled.
+# The production transaction and its control flow remain unchanged.
+foreach ($module in @('table-grid-read.ps1','table-uia-delete.ps1')) {
+ $source=Get-Content -LiteralPath (Join-Path $Repo ('powershell/'+$module)) -Raw
+ $source=$source.Replace('[Windows.','[SseUiaDeleteFixture.Windows.').Replace('New-Object Windows.','New-Object SseUiaDeleteFixture.Windows.')
+ . ([scriptblock]::Create($source))
+}
 $actualTableFocus=(Get-Command Assert-SSEUiaDeleteTableFocus).ScriptBlock
 $actualOwnEditor=(Get-Command Close-SSEUiaDeleteOwnEditor).ScriptBlock
 # All input endpoints below are scalar recorders. No UIA/Win32 assembly or
@@ -9,10 +16,10 @@ $actualOwnEditor=(Get-Command Close-SSEUiaDeleteOwnEditor).ScriptBlock
 Add-Type @'
 using System;
 using System.Collections.Generic;
-namespace Windows {public class Point {public Point(int x,int y){}}}
-namespace Windows.Automation {
+namespace SseUiaDeleteFixture.Windows {public class Point {public Point(int x,int y){}}}
+namespace SseUiaDeleteFixture.Windows.Automation {
  public static class ControlType {public static string DataItem="DataItem",Table="Table",DataGrid="DataGrid",Edit="Edit",ComboBox="ComboBox",Spinner="Spinner",Window="Window",Header="Header",HeaderItem="HeaderItem";}
- public static class AutomationElement {public static object FocusedElement,Hit;public static object FromPoint(Windows.Point point){if(SW.ForeignTickDuringPoint)SW.Tick++;if(SW.MoveCursorDuringPoint)SW.CursorX=999;return Hit;}}
+ public static class AutomationElement {public static object FocusedElement,Hit;public static object FromPoint(SseUiaDeleteFixture.Windows.Point point){if(SW.ForeignTickDuringPoint)SW.Tick++;if(SW.MoveCursorDuringPoint)SW.CursorX=999;return Hit;}}
  public class ValuePattern {public static object Pattern=new object();}
  public class SelectionItemPattern {
   public static object Pattern=new object();public SelectionInfo Current=new SelectionInfo();
@@ -34,11 +41,11 @@ namespace Windows.Automation {
   public EditorNode GetParent(EditorNode node){return node.Parent;}
  }
 }
-namespace Windows.Forms {
+namespace SseUiaDeleteFixture.Windows.Forms {
  public static class SendKeys {
   public static List<string> Calls=new List<string>();
   public static object EscapeFocus,AfterDeleteFocus,AfterUndoFocus;
-  public static void SendWait(string keys){Calls.Add(keys);SW.Tick++;if(keys=="{ESC}")Windows.Automation.AutomationElement.FocusedElement=EscapeFocus;if(keys=="^+{DEL}"&&AfterDeleteFocus!=null)Windows.Automation.AutomationElement.FocusedElement=AfterDeleteFocus;if(keys=="^z"&&AfterUndoFocus!=null)Windows.Automation.AutomationElement.FocusedElement=AfterUndoFocus;if(SW.LoseFocusAfterDelete&&keys=="^+{DEL}")SW.Foreground=new IntPtr(99);}
+  public static void SendWait(string keys){Calls.Add(keys);SW.Tick++;if(keys=="{ESC}")SseUiaDeleteFixture.Windows.Automation.AutomationElement.FocusedElement=EscapeFocus;if(keys=="^+{DEL}"&&AfterDeleteFocus!=null)SseUiaDeleteFixture.Windows.Automation.AutomationElement.FocusedElement=AfterDeleteFocus;if(keys=="^z"&&AfterUndoFocus!=null)SseUiaDeleteFixture.Windows.Automation.AutomationElement.FocusedElement=AfterUndoFocus;if(SW.LoseFocusAfterDelete&&keys=="^+{DEL}")SW.Foreground=new IntPtr(99);}
  }
 }
 public static class SW {
@@ -54,6 +61,13 @@ public static class SW {
  public static void mouse_event(int a,int b,int c,int d,IntPtr e){Tick++;if(a==4)Clicks++;}
 }
 '@
+if ([SseUiaDeleteFixture.Windows.Forms.SendKeys].FullName -cne 'SseUiaDeleteFixture.Windows.Forms.SendKeys' -or
+    @([SseUiaDeleteFixture.Windows.Forms.SendKeys].GetFields() | Where-Object Name -ceq 'AfterDeleteFocus').Count -ne 1) {
+ throw 'The deletion contract did not bind its isolated input recorder.'
+}
+if ((Get-Command Invoke-SSEUiaTableDelete).ScriptBlock.ToString().Contains('[Windows.')) {
+ throw 'A production input type escaped the explicit synthetic binding.'
+}
 function Assert($Condition,[string]$Message){if(-not $Condition){throw $Message}}
 function Same($Actual,$Expected,[string]$Message){if(($Actual|ConvertTo-Json -Depth 15 -Compress) -cne ($Expected|ConvertTo-Json -Depth 15 -Compress)){throw $Message}}
 function Arg($Arguments,$Name,$Default=$null){if($Arguments.ContainsKey($Name)){$Arguments[$Name]}else{$Default}}
@@ -61,7 +75,7 @@ function Get-SSELastInputTick {[SW]::Tick}
 function Test-SSELastInputUnchanged($Epoch){$null -ne $Epoch -and $Epoch -eq [SW]::Tick}
 function Get-SSEInteractionWindowSet {if($script:tickDuringWindowInventory){[SW]::Tick++};[pscustomobject]@{fingerprint=$(if($script:windowSetChanged){'synthetic-changed-window-set'}else{'synthetic-fixed-window-set'});windows=@([pscustomobject]@{role='main';hwnd=1})} }
 function Show-SSEWindow {
- if($script:activationEditor){[Windows.Automation.AutomationElement]::FocusedElement=$script:activationEditor}
+ if($script:activationEditor){[SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$script:activationEditor}
  if($script:activationInput){[SW]::Tick++}
 }
 function Test-SSEScalarEqual($Left,$Right){[string]$Left -ceq [string]$Right}
@@ -106,7 +120,7 @@ function Read-SSEUiaDeleteState {
  $state
 }
 $script:target=[pscustomobject]@{Current=[pscustomobject]@{ProcessId=0;ControlType='DataItem';IsOffscreen=$false;HasKeyboardFocus=$true;AutomationId='Synthetic.Table';BoundingRectangle=[pscustomobject]@{IsEmpty=$false;X=100.0;Y=100.0;Width=100.0;Height=20.0}}}
-$script:target|Add-Member ScriptMethod TryGetCurrentPattern {param($Pattern,[ref]$Result)$Result.Value=New-Object Windows.Automation.SelectionItemPattern;return $true}
+$script:target|Add-Member ScriptMethod TryGetCurrentPattern {param($Pattern,[ref]$Result)$Result.Value=New-Object SseUiaDeleteFixture.Windows.Automation.SelectionItemPattern;return $true}
 $script:target|Add-Member ScriptMethod GetRuntimeId {@('Cell',1)}
 function Focus([string]$Type='Table',[string]$Rid='Table.1',[string]$Aid='Synthetic.Table',[int]$ProcessId=[SW]::ProcessId){
  $node=[pscustomobject]@{rid=$Rid;Current=[pscustomobject]@{ControlType=$Type;ProcessId=$ProcessId;HasKeyboardFocus=$true;IsOffscreen=$false;AutomationId=$Aid;
@@ -127,7 +141,7 @@ function State($Model,[string]$Summary='300,00',[bool]$Dirty=$false){
 $before=Model @('alpha-complete-row','beta-complete-row','input-slot');$removed=Model @('alpha-complete-row','input-slot')
 function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRead=0,[switch]$NoRid,[switch]$RefuseSource,[switch]$RefuseSelection,[switch]$Interference,[switch]$RefuseUndoFocus,[switch]$ToggleTarget,[switch]$HiddenTarget,[switch]$Clipped,[switch]$WrongPoint,[switch]$InterfereFinalSelection,[switch]$InterfereFinalUndo,[switch]$InterferePoint,[switch]$MovePointCursor,[int]$SlowRead=0,[bool]$InitialDirty=$false,[switch]$PostEditor,[switch]$AmbiguousEditorCell,[switch]$MissingEditorCell,[switch]$MissingEditorRid,[switch]$ChangedEditorValue,[int]$SlowRawRead=0,[switch]$EditorAfterUndo,[switch]$IndependentCellAid,[switch]$ChangeWindowsFinalSelection,[switch]$TickInFinalInventory,[string]$ActivationScenario=''){
  $prefix=@((State $before '300,00' $InitialDirty),(State $before '300,00' $InitialDirty),(State $before '300,00' $InitialDirty),(State $before '300,00' $InitialDirty))
- [Windows.Forms.SendKeys]::AfterDeleteFocus=$null
+ [SseUiaDeleteFixture.Windows.Forms.SendKeys]::AfterDeleteFocus=$null
  if($PostEditor){
   $closedAfter=State $After.model $After.summary $After.dirty
   $editor=Editor ([string]$After.scan.cells[1].name)
@@ -140,7 +154,7 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
   if($MissingEditorCell){$After.tree.nodes=@()}
   if($MissingEditorRid){$node.rid='Missing.Rid'}
   $script:states=$prefix+@($After,$closedAfter,$closedAfter)
-  [Windows.Forms.SendKeys]::AfterDeleteFocus=$editor
+  [SseUiaDeleteFixture.Windows.Forms.SendKeys]::AfterDeleteFocus=$editor
  }else{$script:states=$prefix+@($After,$After)}
  if($Restored){$script:states+=@($Restored)}
  $script:activationEditor=$null;$script:activationInput=$false
@@ -202,21 +216,21 @@ function Run($After,$Restored=$null,[string]$ExpectedAfter='100,00',[int]$FailRe
  $script:windowSetChanged=$false;$script:tickDuringWindowInventory=$false;$script:changeWindowsFinalSelection=[bool]$ChangeWindowsFinalSelection;$script:tickInFinalInventory=[bool]$TickInFinalInventory
  if($ToggleTarget){$script:states[0].scan.cells[1].semantic.type='boolean'}
  if($HiddenTarget){$script:states[0].scan.headers[0].visible=$false}
- [Windows.Forms.SendKeys]::Calls.Clear();[SW]::Tick=10;[SW]::Foreground=[IntPtr]1;[SW]::Clicks=0;[SW]::LoseFocusAfterDelete=[bool]$Interference
+ [SseUiaDeleteFixture.Windows.Forms.SendKeys]::Calls.Clear();[SW]::Tick=10;[SW]::Foreground=[IntPtr]1;[SW]::Clicks=0;[SW]::LoseFocusAfterDelete=[bool]$Interference
  [SW]::ForeignTickDuringPoint=[bool]$InterferePoint;[SW]::MoveCursorDuringPoint=[bool]$MovePointCursor
- [Windows.Automation.SelectionItemPattern]::Selects=0;[Windows.Automation.SelectionItemPattern]::Removes=0
+ [SseUiaDeleteFixture.Windows.Automation.SelectionItemPattern]::Selects=0;[SseUiaDeleteFixture.Windows.Automation.SelectionItemPattern]::Removes=0
  $a=@{text='Duplicate';expectedPage='Synthetic page';sumLabel='Synthetic sum';sumOccurrence=1;expectedBefore='300,00';expectedAfter=$ExpectedAfter}
  if(-not $NoRid){$a.targetRid='Cell.1'}
  $process=[Diagnostics.Process]::GetCurrentProcess();[SW]::ProcessId=$process.Id
- $script:target.Current.ProcessId=$process.Id;[Windows.Automation.AutomationElement]::Hit=$script:target
+ $script:target.Current.ProcessId=$process.Id;[SseUiaDeleteFixture.Windows.Automation.AutomationElement]::Hit=$script:target
  $script:target.Current.BoundingRectangle.Y=$(if($Clipped){5.0}else{100.0})
- [Windows.Automation.AutomationElement]::FocusedElement=$(if($script:initialEditorScenario){$editor}else{Focus})
+ [SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$(if($script:initialEditorScenario){$editor}else{Focus})
  if($script:initialEditorScenario -ceq 'background'){[SW]::Foreground=[IntPtr]99}
- [Windows.Forms.SendKeys]::EscapeFocus=Focus
- [Windows.Forms.SendKeys]::AfterUndoFocus=$(if($EditorAfterUndo){Focus 'Edit' 'Other.Editor' 'Other.Editor'}else{$null})
- if($WrongPoint){[Windows.Automation.AutomationElement]::Hit=Focus 'DataItem' 'Other.cell'}
+ [SseUiaDeleteFixture.Windows.Forms.SendKeys]::EscapeFocus=Focus
+ [SseUiaDeleteFixture.Windows.Forms.SendKeys]::AfterUndoFocus=$(if($EditorAfterUndo){Focus 'Edit' 'Other.Editor' 'Other.Editor'}else{$null})
+ if($WrongPoint){[SseUiaDeleteFixture.Windows.Automation.AutomationElement]::Hit=Focus 'DataItem' 'Other.cell'}
  try{$result=Invoke-SSEUiaTableDelete ([IntPtr]1) $process.Id $a $process}finally{$process.Dispose()}
- [pscustomobject]@{result=$result;keys=@([Windows.Forms.SendKeys]::Calls);reads=$script:reads;clicks=[SW]::Clicks;focusPreserved=$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS}
+ [pscustomobject]@{result=$result;keys=@([SseUiaDeleteFixture.Windows.Forms.SendKeys]::Calls);reads=$script:reads;clicks=[SW]::Clicks;focusPreserved=$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS}
 }
 $script:editorMismatch=$true
 $diagnosed=Run (State $removed '100,00' $true)
@@ -317,19 +331,19 @@ Assert $captured 'A composed operation result sentinel was swallowed by transact
 
 # Exercise the actual focus proof independently of the transaction provider.
 $state=State $before
-foreach($focus in @((Focus),(Focus 'DataItem' 'Cell.1'))){[Windows.Automation.AutomationElement]::FocusedElement=$focus;& $actualTableFocus $state ([SW]::ProcessId)}
+foreach($focus in @((Focus),(Focus 'DataItem' 'Cell.1'))){[SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$focus;& $actualTableFocus $state ([SW]::ProcessId)}
 foreach($focus in @((Focus 'Edit' 'Cell.1'),(Focus 'Table' 'Other.table'),(Focus 'Table' 'Table.1' 'Other.Aid'),(Focus 'Table' 'Table.1' 'Synthetic.Table' 999),$null)){
- [Windows.Automation.AutomationElement]::FocusedElement=$focus;$refused=$false
+ [SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$focus;$refused=$false
  try{& $actualTableFocus $state ([SW]::ProcessId)}catch{$refused=$true}
  Assert $refused 'An editor, foreign table/process or absent focus authorized table undo.'
 }
 
 # Actual raw reader: the focused editor has an exact upward table chain but
 # is deliberately omitted from downward provider children, as Qt can do.
-$table=New-Object Windows.Automation.EditorNode('Table.1','Table','Synthetic.Table',[SW]::ProcessId)
-$viewport=New-Object Windows.Automation.EditorNode('Viewport.1','Group','Synthetic.Viewport',[SW]::ProcessId);$viewport.Parent=$table
-$editorNode=New-Object Windows.Automation.EditorNode('Editor.1','Edit','Synthetic.Table.editor',[SW]::ProcessId);$editorNode.Parent=$viewport
-[Windows.Automation.AutomationElement]::FocusedElement=$editorNode
+$table=New-Object SseUiaDeleteFixture.Windows.Automation.EditorNode('Table.1','Table','Synthetic.Table',[SW]::ProcessId)
+$viewport=New-Object SseUiaDeleteFixture.Windows.Automation.EditorNode('Viewport.1','Group','Synthetic.Viewport',[SW]::ProcessId);$viewport.Parent=$table
+$editorNode=New-Object SseUiaDeleteFixture.Windows.Automation.EditorNode('Editor.1','Edit','Synthetic.Table.editor',[SW]::ProcessId);$editorNode.Parent=$viewport
+[SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$editorNode
 $raw=Get-SSEUiaDeleteRawEditors $table ([SW]::ProcessId) {$true} 128
 Same $raw.Count 1 'The active editor omitted by downward enumeration was not detected.'
 Same ($raw[0].GetRuntimeId() -join '.') 'Editor.1' 'The upward reader bound another editor.'
@@ -375,8 +389,8 @@ $partialEvidence=Get-SSEUiaDeleteEditorEvidence $snapshotEvidence @([pscustomobj
 Same $partialEvidence.observationIncomplete $true 'A failed provider property was silently projected as false.'
 Same $partialEvidence.firstEditor $null 'A partially stale provider produced misleading editor flags.'
 Assert (-not ($partialEvidence|ConvertTo-Json -Depth 6 -Compress).Contains('synthetic-partial-provider-error')) 'A partial getter failure leaked provider text.'
-[Windows.Automation.AutomationElement]::FocusedElement=$null
-for($index=0;$index -lt 2500;$index++){$cell=New-Object Windows.Automation.EditorNode(('Cell.'+$index),'DataItem','Synthetic.Table',[SW]::ProcessId);$cell.Parent=$table;$table.Children.Add($cell)}
+[SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$null
+for($index=0;$index -lt 2500;$index++){$cell=New-Object SseUiaDeleteFixture.Windows.Automation.EditorNode(('Cell.'+$index),'DataItem','Synthetic.Table',[SW]::ProcessId);$cell.Parent=$table;$table.Children.Add($cell)}
 Same (Get-SSEUiaDeleteRawBound 1000 100) 101228 'The largest raw bound differs from the actual Grid dimensions.'
 Same (Get-SSEUiaDeleteRawBound 0 7) 135 'An empty Grid lost its header/editor margin.'
 $largeEditors=Get-SSEUiaDeleteRawEditors $table ([SW]::ProcessId) {$true} (Get-SSEUiaDeleteRawBound 300 7)
@@ -412,8 +426,8 @@ function Cancel($Change=$null,[switch]$AfterDelete,[switch]$InterfereFinalProof,
  $prior=State $before;$next=$(if($AfterDelete){State $removed '100,00' $true}else{State $before})
  $editor=Editor $(if($AfterDelete){''}else{'Duplicate'});$next.editors=@($editor)
  if($Change){& $Change $prior $next $editor}
- [Windows.Automation.AutomationElement]::FocusedElement=$editor;[Windows.Forms.SendKeys]::EscapeFocus=Focus
- [Windows.Forms.SendKeys]::Calls.Clear();[SW]::Foreground=[IntPtr]1;$script:undoFocusFails=$false;$script:selectionFails=$false
+ [SseUiaDeleteFixture.Windows.Automation.AutomationElement]::FocusedElement=$editor;[SseUiaDeleteFixture.Windows.Forms.SendKeys]::EscapeFocus=Focus
+ [SseUiaDeleteFixture.Windows.Forms.SendKeys]::Calls.Clear();[SW]::Foreground=[IntPtr]1;$script:undoFocusFails=$false;$script:selectionFails=$false
  $script:windowSetChanged=$false;$script:tickDuringWindowInventory=$false
  $script:interfereCancelRead=[bool]$InterfereFinalProof
  $script:states=@($(if($AfterDelete){State $removed '100,00' $true}else{State $before}));$script:reads=0;$script:failRead=0
@@ -423,7 +437,7 @@ function Cancel($Change=$null,[switch]$AfterDelete,[switch]$InterfereFinalProof,
  $binding.guard={Test-SSELastInputUnchanged $binding.transaction.epoch}.GetNewClosure()
  $error=$null;$result=$null
  try{$result=& $actualOwnEditor $binding $prior $next 1 0 -RemovedRow $(if($AfterDelete){1}else{-1})}catch{$error=$_}
- [pscustomobject]@{result=$result;failed=[bool]$error;keys=@([Windows.Forms.SendKeys]::Calls)}
+ [pscustomobject]@{result=$result;failed=[bool]$error;keys=@([SseUiaDeleteFixture.Windows.Forms.SendKeys]::Calls)}
 }
 $script:target.Current.BoundingRectangle.Y=100.0
 $cancelled=Cancel

@@ -53,7 +53,7 @@ namespace System.Windows.Automation {
     public static CommitMain FromHandle(IntPtr value) { return new CommitMain(); }
   }
 }
-namespace System.Windows.Forms {
+namespace SseTrackedTextFixture {
   public static class SendKeys {
     public static void SendWait(string keys) {
       SW.Events.Add(keys); SW.Tick++;
@@ -179,7 +179,9 @@ public static class SW {
 }
 '@
 
-$ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$null, [ref]$null)
+$workerSource=[IO.File]::ReadAllText($workerPath).Replace('[System.Windows.Forms.SendKeys]','[SseTrackedTextFixture.SendKeys]')
+if([SseTrackedTextFixture.SendKeys].FullName -cne 'SseTrackedTextFixture.SendKeys') {throw 'The commit contract did not bind its isolated input recorder.'}
+$ast = [Management.Automation.Language.Parser]::ParseInput($workerSource, [ref]$null, [ref]$null)
 foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SSECommitResult','Send-SSETrackedLiteralText','Get-SSETrackedCharacterSubstitution','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-SSETrackedCommitPrecondition','Get-SSEReceiptManagerBoundFieldObservation')) {
   $definition = @($ast.FindAll({ param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
@@ -187,6 +189,7 @@ foreach ($name in @('Commit-TrackedValue','Commit-TrackedValueFocusless','New-SS
   if ($definition.Count -ne 1) { throw "Ambiguous production function: $name" }
   Invoke-Expression $definition[0].Extent.Text
 }
+if((Get-Command Commit-TrackedValue).ScriptBlock.ToString().Contains('[System.Windows.Forms.SendKeys]')) {throw 'A framework input endpoint escaped the synthetic commit binding.'}
 
 function Show-SSEWindow {
   param($Hwnd)

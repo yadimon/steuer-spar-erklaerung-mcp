@@ -1,6 +1,7 @@
 $ErrorActionPreference='Stop'
 $worker=Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'
-$ast=[Management.Automation.Language.Parser]::ParseFile($worker,[ref]$null,[ref]$null)
+$source=[IO.File]::ReadAllText($worker).Replace('[System.Windows.Forms.SendKeys]','[SseAppendSeekFixture.SendKeys]')
+$ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$null)
 $add=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.SwitchStatementAst]},$true) |
   ForEach-Object {$_.Clauses | Where-Object {$_.Item1.Extent.Text -ceq "'table_add'"} | ForEach-Object {$_.Item2}})
 if ($add.Count -ne 1) {throw 'Expected exactly one production append dispatcher.'}
@@ -19,10 +20,11 @@ $seek=[scriptblock]::Create(($statements[$start[0]..($end[0]-1)].Extent.Text -jo
 Add-Type @'
 using System;
 public static class SW { public static IntPtr GetForegroundWindow() { return new IntPtr(7); } }
-namespace System.Windows.Forms {
+namespace SseAppendSeekFixture {
  public static class SendKeys { public static void SendWait(string value) { throw new Exception("unexpected-editor-key"); } }
 }
 '@
+if([SseAppendSeekFixture.SendKeys].FullName -cne 'SseAppendSeekFixture.SendKeys' -or $seek.ToString().Contains('[System.Windows.Forms.SendKeys]')) {throw 'The append contract did not bind its isolated input recorder.'}
 function Fail($Message,$Kind) {throw "$Kind`: $Message"}
 function Emit($Result) {$script:result=$Result;throw 'seek-result'}
 function Get-SSETableRegion { @{ok=$true} }
