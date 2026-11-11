@@ -23282,7 +23282,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.58";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.59";
   }
 });
 
@@ -30469,8 +30469,18 @@ function checkerResults(nodes) {
     aufgeklappt: [...new Set(details.map((detail) => detail.name))]
   };
 }
-function checkerResultComplete(result) {
-  return result.aktiv && (result.leer && result.gesamt === 0 || result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen && result.fragenWarnungenAngekuendigt === result.fragenWarnungen.length && result.tippsAngekuendigt === result.tippsZusatzinfos.length);
+function checkerResultComplete(result, snapshot) {
+  if (!result.aktiv) return false;
+  if (result.leer && result.gesamt === 0) return true;
+  if (result.fragenWarnungenAngekuendigt !== result.fragenWarnungen.length || result.tippsAngekuendigt !== result.tippsZusatzinfos.length) return false;
+  if (result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen) return true;
+  if (result.fragenWarnungenGruppeGesehen === result.tippsGruppeGesehen || result.sonstige.length || !snapshot) return false;
+  const { stats, nodes } = snapshot;
+  if (stats.truncated !== false || stats.depthLimited !== false || stats.err !== 0 || stats.cyc !== 0 || stats.valErr !== 0 || stats.scrollErr !== 0) return false;
+  const items = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
+  if (items.some((node2) => !node2.name)) return false;
+  const headers = items.filter((node2) => /^(?:\d+\s+Fragen oder Warnungen|1\s+Frage oder Warnung|\d+\s+Tipps oder Zusatzinformationen|1\s+Tipp oder Zusatzinformation)\n?$/iu.test(node2.name));
+  return headers.length === 1;
 }
 function comparableDecimalText(value) {
   if (value === null || value === void 0) return null;
@@ -32839,7 +32849,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   const bounds = contentBounds(own2, mainSnapshot.windowRect);
   const heading2 = heading(own2, profile);
   const checker = checkerResults(own2);
-  const steuerpruefer = { ...checker, konsistent: checkerResultComplete(checker) };
+  const steuerpruefer = { ...checker, konsistent: checkerResultComplete(checker, { nodes: own2, stats: mainSnapshot.stats }) };
   const pruefer = unique(own2.filter((node2) => node2.type === "TreeItem" && node2.name && node2.x > bounds.maxX && node2.name.length < 90).map((node2) => node2.name).filter((name) => !PRUEFER_EXCLUDED.includes(name.toLowerCase())));
   const baumfehler = unique(own2.filter((node2) => node2.type === "TreeItem" && node2.name && node2.x < bounds.minX && /!\s*$/u.test(node2.name) && !node2.aid.toLowerCase().includes("prueferwidgetsse")).map((node2) => node2.name));
   const leerePflicht = own2.filter((node2) => node2.type === "ComboBox" && node2.x >= bounds.minX && node2.x <= bounds.maxX && !(node2.val ?? "").trim()).map((node2) => ({ y: node2.y, aid: node2.aid.split(".").at(-1) ?? "", rid: node2.rid }));
@@ -33182,7 +33192,7 @@ async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, pr
     sonstige: result.sonstige,
     gesamt: result.gesamt,
     aufgeklappt: result.aufgeklappt,
-    konsistent: checkerResultComplete(result),
+    konsistent: checkerResultComplete(result, snapshot),
     navigationSchritte: 0,
     fokusVerwendet: false,
     technischeFokusKarten: [],

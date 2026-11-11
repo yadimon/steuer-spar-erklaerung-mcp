@@ -62,7 +62,7 @@ export async function executeQtNativeCheckerResults(
     sonstige: result.sonstige,
     gesamt: result.gesamt,
     aufgeklappt: result.aufgeklappt,
-    konsistent: checkerResultComplete(result),
+    konsistent: checkerResultComplete(result, snapshot),
     navigationSchritte: 0,
     fokusVerwendet: false,
     technischeFokusKarten: [],

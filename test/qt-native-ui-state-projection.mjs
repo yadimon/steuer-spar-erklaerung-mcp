@@ -411,4 +411,20 @@ for (const cls of ["UAC Input Indicator", "UAC_InputIndicatorOverlayWnd"]) {
   assert.deepEqual(larger.unsichereFenster.map(window => window.art), ["nicht-lesbar"]);
 }
 
-console.log("qt-native-ui-state-projection: state and untitled input-indicator scenarios passed");
+// The ui_state reader must pass its own complete snapshot to the checker
+// projection, so an omitted zero-count warning group is not inconsistent.
+{
+  const { nodes, add } = treeBuilder(42);
+  const tree = add("Tree", "", 20, 100, { aid: "window.PrueferWidgetSSE.SteuerPruefer", h: 200 });
+  add("TreeItem", "1 Tipp oder Zusatzinformation", 20, 130, { p: tree, d: 1 });
+  add("TreeItem", "Synthetischer Tipp", 20, 160, { p: tree, d: 1 });
+  const { client } = fakeClient([MAIN_WINDOW], mainSpec(nodes));
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.equal(result.ok, true);
+  assert.equal(result.steuerpruefer.konsistent, true);
+  assert.equal(result.steuerpruefer.fragenWarnungenGruppeGesehen, false);
+  assert.equal(result.steuerpruefer.fragenWarnungenAngekuendigt, 0);
+  assert.equal(result.steuerpruefer.tippsAngekuendigt, 1);
+}
+
+console.log("qt-native-ui-state-projection: state, omitted-zero checker group and untitled input-indicator scenarios passed");

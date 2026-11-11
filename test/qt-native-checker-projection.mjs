@@ -177,6 +177,37 @@ const activeNodes = buildNodes(activeSpecs);
 }
 
 // Empty checker: a uniquely bound tree without any item is a finished null result.
+// A zero-count group is absent from the real Qt tree when the other group has
+// findings. Snapshot integrity and complete named rows must prove that absence.
+for (const [header, expectedGroup] of [
+  ["1 Tipp oder Zusatzinformation", "tippsZusatzinfos"],
+  ["1 Frage oder Warnung", "fragenWarnungen"],
+]) {
+  const nodes = buildNodes([
+    activeSpecs[0], activeSpecs[2],
+    { p: 1, type: "TreeItem", name: header, aid: TREE_AID, x: 300, y: 150 },
+    { p: 1, type: "TreeItem", name: "Synthetischer Eintrag", aid: TREE_AID, x: 300, y: 180 },
+  ]);
+  const result = await run(fakeClient(nodes));
+  assert.equal(result.konsistent, true, "A fully observed single group must not require a synthetic zero-count header.");
+  assert.equal(result.gesamt, 1);
+  assert.deepEqual(result[expectedGroup].map(item => item.text), ["Synthetischer Eintrag"]);
+  assert.equal(result.fragenWarnungenGruppeGesehen, expectedGroup === "fragenWarnungen");
+  assert.equal(result.tippsGruppeGesehen, expectedGroup === "tippsZusatzinfos");
+
+  const anonymous = buildNodes([
+    activeSpecs[0], activeSpecs[2],
+    { p: 1, type: "TreeItem", name: header, aid: TREE_AID, x: 300, y: 150 },
+    { p: 1, type: "TreeItem", name: "Synthetischer Eintrag", aid: TREE_AID, x: 300, y: 180 },
+    { p: 1, type: "TreeItem", name: "", aid: TREE_AID, x: 300, y: 210 },
+  ]);
+  assert.equal((await run(fakeClient(anonymous))).konsistent, false);
+  const mismatched = nodes.map(node => node.name === header
+    ? { ...node, name: expectedGroup === "fragenWarnungen" ? "2 Fragen oder Warnungen" : "2 Tipps oder Zusatzinformationen" } : node);
+  assert.equal((await run(fakeClient(mismatched))).konsistent, false);
+}
+
+// Empty checker: a uniquely bound tree without any item is a finished null result.
 {
   const empty = buildNodes([activeSpecs[0], activeSpecs[1], activeSpecs[2]]);
   const result = await run(fakeClient(empty), { hwnd: 42 }, 5000);
@@ -286,4 +317,4 @@ const activeNodes = buildNodes(activeSpecs);
     error => error instanceof QtNativeTransportError && error.kind === "window-gone" && error.message === "Fenster verloren.");
 }
 
-console.log("qt-native-checker-projection: 23 checker_results projection cases passed");
+console.log("qt-native-checker-projection: complete, empty, omitted-zero-group and fail-closed cases passed");

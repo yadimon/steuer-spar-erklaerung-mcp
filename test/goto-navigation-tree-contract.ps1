@@ -3,7 +3,7 @@
 # Steht das Ziel exakt im sichtbaren Navigationsbaum, ersetzt ein einzelner
 # Klick auf diesen Eintrag die globale Suche. Der Weg ist nur zulaessig, weil
 # die Suche auf dem sichtbaren Desktop in genau diesem Fall ohnehin physisch
-# doppelklickt. Daraus folgen die Grenzen, die dieser Vertrag festhaelt:
+# klickt. Daraus folgen die Grenzen, die dieser Vertrag festhaelt:
 #
 #   1. Nur der sichtbare Desktop klickt; useSearch=false erreicht den Weg nie.
 #   2. Nie ein Uebermittlungsweg (Test-Versand), nie ein unsichtbarer Eintrag.
@@ -290,12 +290,14 @@ foreach ($case in $changedEntries.GetEnumerator()) {
     "Fall '$($case.Key)': der Suchvorlauf wurde veraendert oder der Grund verschwiegen: $(@($changed.weg) -join ' | ')"
 }
 
-# 12. Endet goto danach ueber einen Suchtreffer, nennt der Weg den
-#     vorherigen Baumversuch weiterhin.
+# 12. Endet goto danach ueber die direkte Aktivierungsbestaetigung, nennt
+#     der Weg den vorherigen Baumversuch weiterhin. Auch der physische
+#     Readback-Zweig heisst jetzt 'Suche'; diese Probe bindet den anderen Zweig.
 $searchEmits = @($gotoBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Emit' -and
-  $node.Extent.Text -match "richtung = 'Suche';"
+  $node.Extent.Text -match "richtung = 'Suche';" -and
+  $node.Extent.Text -match 'fokusfrei = \$true'
 }, $true))
 Assert-True ($searchEmits.Count -eq 1 -and
              $searchEmits[0].Extent.Text.Contains('weg = @(@($weg | Select-Object -Skip 1) + @($suchWeg))')) `

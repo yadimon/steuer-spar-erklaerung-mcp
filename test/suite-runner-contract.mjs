@@ -22,6 +22,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "goto-search-scope",
   "test-inventory-contract",
   "with-api-cleanup",
   "save-toolbar",

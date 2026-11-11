@@ -140,8 +140,8 @@ export function registerAnalysisTools(registry: McpRegistry): void {
       title: "Globale Steuerpruefer-Ergebnisse lesen",
       description:
         "Liest den aktuell sicher per UIA erreichbaren Ergebnisbaum des globalen Steuerpruefers " +
-        "ohne Serienklicks oder Tastaturnavigation. 'konsistent' ist nur dann wahr, wenn beide " +
-        "angezeigten Gruppenzaehler vollstaendig erreicht wurden. Bei false per sse_screenshot " +
+        "ohne Serienklicks oder Tastaturnavigation. 'konsistent' verlangt vollstaendig gelesene " +
+        "Gruppenzaehler; eine ausgelassene Null-Gruppe braucht einen vollstaendigen fehlerfreien Baum. Bei false per sse_screenshot " +
         "manuell kontrollieren; die Komfortautomatik fuer Qts zyklischen Baum ist Backlog.",
     },
     (r) => ({
@@ -205,7 +205,8 @@ export function registerAnalysisTools(registry: McpRegistry): void {
       description:
         "Schliesst alle aufgeklappten Detailkarten im globalen Steuerpruefer von unten nach oben " +
         "mit gezielten Klicks. Es werden keine Steuerangaben geaendert. Ob der anschliessende " +
-        "UIA-Snapshot beide Gruppen vollstaendig sieht, steht in 'konsistent'.",
+        "UIA-Snapshot die angekuendigten Eintraege vollstaendig sieht, steht in 'konsistent'. " +
+        "Eine ausgelassene leere Gruppe braucht einen vollstaendigen, fehlerfreien Baum.",
     },
     (r) => ({
       geschlossen: asArray(r.geschlossen),

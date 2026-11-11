@@ -24021,7 +24021,7 @@ var init_version = __esm({
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
     SSE_PLUGIN_NAME = "steuer-spar-erklaerung";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.58";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.59";
   }
 });
 
@@ -43547,7 +43547,7 @@ function registerAnalysisTools(registry2) {
     "sse_checker_results",
     {
       title: "Globale Steuerpruefer-Ergebnisse lesen",
-      description: "Liest den aktuell sicher per UIA erreichbaren Ergebnisbaum des globalen Steuerpruefers ohne Serienklicks oder Tastaturnavigation. 'konsistent' ist nur dann wahr, wenn beide angezeigten Gruppenzaehler vollstaendig erreicht wurden. Bei false per sse_screenshot manuell kontrollieren; die Komfortautomatik fuer Qts zyklischen Baum ist Backlog."
+      description: "Liest den aktuell sicher per UIA erreichbaren Ergebnisbaum des globalen Steuerpruefers ohne Serienklicks oder Tastaturnavigation. 'konsistent' verlangt vollstaendig gelesene Gruppenzaehler; eine ausgelassene Null-Gruppe braucht einen vollstaendigen fehlerfreien Baum. Bei false per sse_screenshot manuell kontrollieren; die Komfortautomatik fuer Qts zyklischen Baum ist Backlog."
     },
     (r) => ({
       aktiv: r.aktiv,
@@ -43599,7 +43599,7 @@ function registerAnalysisTools(registry2) {
     "sse_checker_reset",
     {
       title: "Steuerpruefer-Detailkarten sicher schliessen",
-      description: "Schliesst alle aufgeklappten Detailkarten im globalen Steuerpruefer von unten nach oben mit gezielten Klicks. Es werden keine Steuerangaben geaendert. Ob der anschliessende UIA-Snapshot beide Gruppen vollstaendig sieht, steht in 'konsistent'."
+      description: "Schliesst alle aufgeklappten Detailkarten im globalen Steuerpruefer von unten nach oben mit gezielten Klicks. Es werden keine Steuerangaben geaendert. Ob der anschliessende UIA-Snapshot die angekuendigten Eintraege vollstaendig sieht, steht in 'konsistent'. Eine ausgelassene leere Gruppe braucht einen vollstaendigen, fehlerfreien Baum."
     },
     (r) => ({
       geschlossen: asArray(r.geschlossen),

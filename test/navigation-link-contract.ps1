@@ -7,7 +7,7 @@ if (-not $WorkerPath) { $WorkerPath = Join-Path $PSScriptRoot '../powershell/sse
 $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($WorkerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Der Worker konnte nicht geparst werden.' }
-foreach ($name in @('Click-VerifiedPoint', 'Test-SSELastInputUnchanged',
+foreach ($name in @('Click-VerifiedPoint', 'Test-SSELastInputUnchanged', 'Get-SSEInputEpochEvidence',
   'Get-SSEUiaOwnRootAncestry', 'Get-SSEWizardWindowGeometry', 'Test-SSEWizardWindowGeometryEqual',
   'Get-SSEWizardNavigationFrame', 'Set-SSEWizardWindowPosition', 'Sync-SSEWizardNavigationFrame',
   'Test-SSEWizardNavigationFrameBeforeClick')) {

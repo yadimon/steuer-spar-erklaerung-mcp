@@ -128,7 +128,7 @@ export async function executeQtNativeUiState(
   const bounds = qtNativeContentBounds(own, mainSnapshot.windowRect);
   const heading = qtNativeHeading(own, profile);
   const checker = checkerResults(own);
-  const steuerpruefer = { ...checker, konsistent: checkerResultComplete(checker) };
+  const steuerpruefer = { ...checker, konsistent: checkerResultComplete(checker, { nodes: own, stats: mainSnapshot.stats }) };
   const pruefer = unique(own
     .filter(node => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90)
     .map(node => node.name)

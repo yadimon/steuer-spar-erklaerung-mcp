@@ -116,4 +116,46 @@ $mehrdeutig = Get-CheckerResults (Tree @(
 Assert-True (-not $mehrdeutig.aktiv) 'Mehrdeutige Pruefer-Container wurden als aktiv akzeptiert.'
 Assert-True (-not (Test-CheckerResultComplete $mehrdeutig)) 'Mehrdeutiger Pruefer darf nicht konsistent sein.'
 
+# Qt omits a group whose count is zero. Its absence proves zero only in an
+# independently complete snapshot, never in a clipped or anonymous subtree.
+$nurTippsBaum = Tree @(
+  (Node 0 -1 0 'Tree' '' 'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 30 180)
+  (Node 1 0 1 'TreeItem' '1 Tipp oder Zusatzinformation' '' 30 200)
+  (Node 2 0 1 'TreeItem' 'Synthetischer Tipp' '' 30 240)
+)
+$nurTippsBaum | Add-Member stats ([pscustomobject]@{
+  truncated=$false; depthLimited=$false; err=0; cyc=0; valErr=0; scrollErr=0
+})
+$nurTipps = Get-CheckerResults $nurTippsBaum
+Assert-True (-not $nurTipps.fragenWarnungenGruppeGesehen -and $nurTipps.tippsGruppeGesehen) 'Eine fehlende Null-Gruppe darf nicht als gesehen erfunden werden.'
+Assert-True (Test-CheckerResultComplete $nurTipps $nurTippsBaum) 'Vollstaendige Tipps mit ausgelassener leerer Warnungsgruppe sind inkonsistent.'
+Assert-True (-not (Test-CheckerResultComplete $nurTipps)) 'Ohne Baumnachweis wurde eine fehlende Gruppe als Null gewertet.'
+
+$nurWarnungenBaum = Tree @(
+  (Node 0 -1 0 'Tree' '' 'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 30 180)
+  (Node 1 0 1 'TreeItem' '1 Frage oder Warnung' '' 30 200)
+  (Node 2 0 1 'TreeItem' 'Synthetische Warnung' '' 30 240)
+)
+$nurWarnungenBaum | Add-Member stats $nurTippsBaum.stats
+Assert-True (Test-CheckerResultComplete (Get-CheckerResults $nurWarnungenBaum) $nurWarnungenBaum) 'Vollstaendige Warnungen mit ausgelassener leerer Tipp-Gruppe sind inkonsistent.'
+
+foreach ($flag in @('truncated','depthLimited','err','cyc','valErr','scrollErr')) {
+  $unvollstaendig = Tree $nurTippsBaum.nodes
+  $stats = [pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0;scrollErr=0}
+  $stats.$flag = $(if ($flag -in @('truncated','depthLimited')) {$true} else {1})
+  $unvollstaendig | Add-Member stats $stats
+  Assert-True (-not (Test-CheckerResultComplete (Get-CheckerResults $unvollstaendig) $unvollstaendig)) "Unsicherer Baum ($flag) bestaetigt eine ausgelassene Null-Gruppe."
+}
+$mitPlatzhalter = Tree @($nurTippsBaum.nodes + (Node 3 0 1 'TreeItem' '' '' 30 280))
+$mitPlatzhalter | Add-Member stats $nurTippsBaum.stats
+Assert-True (-not (Test-CheckerResultComplete (Get-CheckerResults $mitPlatzhalter) $mitPlatzhalter)) 'Namenlose Zeile wurde bei ausgelassener Null-Gruppe uebergangen.'
+$mitUnbekanntemEintrag = Tree @(
+  (Node 0 -1 0 'Tree' '' 'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 30 180)
+  (Node 1 0 1 'TreeItem' 'Unzugeordnete Warnung' '' 30 190)
+  (Node 2 0 1 'TreeItem' '1 Tipp oder Zusatzinformation' '' 30 220)
+  (Node 3 0 1 'TreeItem' 'Synthetischer Tipp' '' 30 260)
+)
+$mitUnbekanntemEintrag | Add-Member stats $nurTippsBaum.stats
+Assert-True (-not (Test-CheckerResultComplete (Get-CheckerResults $mitUnbekanntemEintrag) $mitUnbekanntemEintrag)) 'Unzugeordneter Eintrag wurde als fehlende Null-Gruppe gewertet.'
+
 Write-Output 'Checker-Zero-Results: offen/leer, geschlossen, unvollstaendig und normal korrekt unterschieden.'

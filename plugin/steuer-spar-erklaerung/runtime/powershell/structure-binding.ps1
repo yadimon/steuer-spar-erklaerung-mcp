@@ -216,16 +216,15 @@ function Get-SSESearchHitTitle {
   $null
 }
 
-function Get-SSESearchHitLayout {
-  param([AllowEmptyCollection()]$Nodes,[string]$Target,[scriptblock]$Accept=$null)
+function Get-SSESearchListLayout {
+  param([AllowEmptyCollection()]$Nodes)
   $table=Find-SSEContainerNode $Nodes 'DialogSearchResultsTableView' 'Table'
-  $hit=Select-SSESearchHit $Nodes $Target -Accept $Accept
   $queries=@($Nodes | Where-Object {
     $_.type -ceq 'Edit' -and ([string]$_.aid).EndsWith('.SearchFrameSSE.QWidget.SearchSSE.QLineEdit',[StringComparison]::Ordinal)
   })
-  if(-not $table -or -not $hit -or $queries.Count -ne 1){return $null}
+  if(-not $table -or $queries.Count -ne 1){return $null}
   $query=$queries[0]
-  foreach($node in @($table,$hit,$query)) {
+  foreach($node in @($table,$query)) {
     if(-not $node.on -or -not [string]$node.rid){return $null}
     foreach($key in @('x','y','w','h')) {
       try{$number=[double]$node.$key}catch{return $null}
@@ -233,6 +232,84 @@ function Get-SSESearchHitLayout {
     }
     if($node.w -le 0 -or $node.h -le 0){return $null}
   }
+  [pscustomobject]@{nodes=@($Nodes);table=$table;query=$query;hit=$null;title=$null;fullyVisible=$false}
+}
+
+# Combine complete observations of the real search roots. A cycle in an
+# unrelated owned help window cannot establish anything about this subtree.
+function Copy-SSESearchSnapshotNode {
+  param($Node)
+  # PSObject.Copy can retain the same underlying dictionary. Index remapping
+  # must leave cached native snapshots intact when a region is merged again.
+  $values=[ordered]@{}
+  if($Node -is [Collections.IDictionary]){
+    foreach($key in $Node.Keys){$values[[string]$key]=$Node[$key]}
+  }else{
+    foreach($property in $Node.PSObject.Properties){$values[$property.Name]=$property.Value}
+  }
+  [pscustomobject]$values
+}
+
+function Merge-SSESearchTreeParts {
+  param([object[]]$Parts,[int]$MaxNodes=4000)
+  if(-not $Parts.Count -or $MaxNodes -lt 1){throw 'Die Suchregionen fehlen.'}
+  $nodes=New-Object Collections.ArrayList
+  $ids=New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+  $windowKey=[string]$Parts[0].windowKey
+  if(-not $windowKey){throw 'Die Suchregion hat keine Fensterbindung.'}
+  foreach($part in $Parts){
+    $root=$part.root;$tree=$part.tree;$stats=$tree.stats
+    if([string]$part.windowKey -cne $windowKey -or -not $root -or $root.type -cne 'Group' -or
+      -not $root.on -or -not [string]$root.aid -or -not [string]$root.rid -or -not $tree -or -not $stats){
+      throw 'Die Suchregionen sind nicht an dasselbe eigene Fenster gebunden.'
+    }
+    if($stats.truncated -isnot [bool] -or $stats.depthLimited -isnot [bool] -or
+      $stats.truncated -or $stats.depthLimited -or $stats.n -ne @($tree.nodes).Count){
+      throw 'Eine Suchregion ist nicht vollstaendig.'
+    }
+    foreach($key in @('err','cyc','valErr','scrollErr')){
+      if($null -eq $stats.$key -or $stats.$key -ne 0){throw 'Eine Suchregion enthaelt Lesefehler.'}
+    }
+    if($nodes.Count+1+@($tree.nodes).Count -gt $MaxNodes -or -not $ids.Add([string]$root.rid)){
+      throw 'Die Suchregionen ueberschreiten ihr Budget oder wiederholen eine Identitaet.'
+    }
+    $offset=$nodes.Count
+    $copy=Copy-SSESearchSnapshotNode $root
+    $copy|Add-Member -Force NoteProperty i $offset
+    $copy|Add-Member -Force NoteProperty p ([int]-1)
+    $copy|Add-Member -Force NoteProperty d 0
+    $null=$nodes.Add($copy)
+    $ordinal=0
+    foreach($node in @($tree.nodes)){
+      if(($node.i -isnot [int] -and $node.i -isnot [long]) -or
+        ($node.p -isnot [int] -and $node.p -isnot [long]) -or
+        $node.i -ne $ordinal -or $node.p -lt -1 -or $node.p -ge $ordinal -or
+        -not [string]$node.rid -or -not $ids.Add([string]$node.rid)){
+        throw 'Die Suchregion hat keine eindeutige vollstaendige Elternstruktur.'
+      }
+      $copy=Copy-SSESearchSnapshotNode $node
+      $copy.i=$offset+1+$ordinal
+      $copy.p=$(if($node.p -lt 0){$offset}else{$offset+1+[int]$node.p})
+      $copy.d=1+[int]$node.d
+      $null=$nodes.Add($copy)
+      $ordinal++
+    }
+  }
+  [pscustomobject]@{nodes=@($nodes);stats=[pscustomobject]@{n=$nodes.Count;truncated=$false;depthLimited=$false;
+    err=0;cyc=0;valErr=0;scrollErr=0;source='bound-search-regions'}}
+}
+
+function Get-SSESearchHitLayout {
+  param([AllowEmptyCollection()]$Nodes,[string]$Target,[scriptblock]$Accept=$null)
+  $list=Get-SSESearchListLayout $Nodes
+  $hit=Select-SSESearchHit $Nodes $Target -Accept $Accept
+  if(-not $list -or -not $hit -or -not $hit.on -or -not [string]$hit.rid){return $null}
+  foreach($key in @('x','y','w','h')) {
+    try{$number=[double]$hit.$key}catch{return $null}
+    if([double]::IsNaN($number) -or [double]::IsInfinity($number) -or [Math]::Abs($number) -gt 1000000){return $null}
+  }
+  if($hit.w -le 0 -or $hit.h -le 0){return $null}
+  $table=$list.table;$query=$list.query
   $title=Get-SSESearchHitTitle $Nodes $hit $Target -Accept $Accept
   if(-not $title){return $null}
   $pointX=[int]($hit.x+$hit.w/2);$pointY=[int]($hit.y+$hit.h/2)

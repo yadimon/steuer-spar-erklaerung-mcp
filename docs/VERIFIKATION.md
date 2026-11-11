@@ -503,6 +503,21 @@ unverändert. Sie benötigt eine freie sichtbare Windows-Sitzung.
 Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
 Schritte; seine Einzelbelege ersetzen keine umfassende Paketabnahme.
 
+`npm run test:live-goto-search` prüft den UIA-Suchweg über MCP an drei eigenen
+Kopien des Hersteller-Gewinnermittlungsfalls im Profil 2025. Der erste Suchsprung
+jeder Kopie beginnt in einem frisch gestarteten Produktprozess, ohne vorherige Suche oder
+Zeilenauswahl. Ziele sind „Sonstige Vorsteuerbeträge“, „Bürobedarf“ und
+„Betriebsausgaben“; anschließend folgen jeweils ein anderer Seitenaufruf und
+der Rücksprung. Der erste Sprung muss über die Suche erfolgen und durch einen
+unabhängigen Seiten-Readback bestätigt werden. Nach den Rücksprüngen müssen
+Prüferstart, Ergebnisleser und UI-Zustand auch die ausgelassene leere
+Warnungsgruppe konsistent behandeln. Der Lauf benötigt eine freie
+sichtbare Windows-Sitzung und eine geschlossene SSE, speichert keine Falldatei
+und schließt nur die eigenen Testprozesse. Fehler führen nicht zu einem
+Methodenwechsel oder einer Wiederholung des Suchklicks. Der Bericht liegt im
+isolierten Ergebnisbereich der Test-API. Dieser getrennte opt-in Test ändert
+die Live-Bilanz erst durch die reguläre Ledger-Regeneration.
+
 `npm run test:live-tax-knowledge` prüft `tax_knowledge_search` über API und MCP.
 Vorher müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible Hersteller-
 Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner außerhalb

@@ -1,10 +1,14 @@
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot '../powershell/tax-knowledge.ps1')
+# Keep the real search flow, but give its input recorder a unique type name.
+# Resolving a framework type as a precondition can itself load WinForms.
+$source=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../powershell/tax-knowledge.ps1') -Raw
+$source=$source.Replace('[System.Windows.Forms.SendKeys]','[SseKnowledgeFixture.SendKeys]')
+. ([scriptblock]::Create($source))
 $realKnowledgeCandidates = (Get-Command Get-SSEKnowledgeCandidates).ScriptBlock
 $realKnowledgeIdentity = (Get-Command Get-SSEKnowledgeIdentity).ScriptBlock
 $realKnowledgePoint = (Get-Command Test-SSEKnowledgePoint).ScriptBlock
 $realKnowledgeSnapshot = (Get-Command Read-SSEKnowledgeSnapshot).ScriptBlock
-if ($null -ne ('System.Windows.Forms.SendKeys' -as [type])) { throw 'The input contract requires an isolated process without WinForms.' }
+if ($null -ne ('SseKnowledgeFixture.SendKeys' -as [type])) { throw 'The input recorder must not already exist.' }
 Add-Type @'
 using System;
 using System.Collections.Generic;
@@ -28,7 +32,7 @@ public sealed class KnowledgeFakeAcc {
   public int Role=42, State=1048580, X=10, Y=20, W=100, H=25;
   public string Name="Suchbegriff";
   public string OverrideValue;
-  public string Value { get { return OverrideValue ?? System.Windows.Forms.SendKeys.Value; } }
+  public string Value { get { return OverrideValue ?? SseKnowledgeFixture.SendKeys.Value; } }
 }
 public static class SSEAccessible {
   public static KnowledgeFakeAcc Focused, Hit;
@@ -53,7 +57,7 @@ public sealed class KnowledgeFakeProcess {
   public void Refresh() { if(ThrowRefresh) throw new InvalidOperationException("Unreadable process"); }
   public void Dispose() { Disposed=true; }
 }
-namespace System.Windows.Forms {
+namespace SseKnowledgeFixture {
   public static class SendKeys {
     public static List<string> Keys=new List<string>();
     public static int LoseAfter=0, LoseFieldAfter=0;
@@ -74,8 +78,8 @@ namespace System.Windows.Forms {
   }
 }
 '@
-if (-not [System.Windows.Forms.SendKeys].GetField('Keys') -or
-    [System.Windows.Forms.SendKeys].Assembly.GetName().Name -eq 'System.Windows.Forms') {
+if (-not [SseKnowledgeFixture.SendKeys].GetField('Keys') -or
+    [SseKnowledgeFixture.SendKeys].Assembly.GetName().Name -eq 'System.Windows.Forms') {
   throw 'Real SendKeys must never be used by this contract.'
 }
 function Fail { param($Message,$Kind) throw "$Kind`: $Message" }
@@ -122,11 +126,11 @@ function Reset-Scenario {
   [SW]::Visible=$true; [SW]::Iconic=$false; [SW]::Acquire=$true; [SW]::LoseAfterClick=$false
   [SW]::Hung=$false
   [SW]::DpiAvailable=$true; [SW]::DpiEntries=0; [SW]::DpiRestores=0
-  [System.Windows.Forms.SendKeys]::Keys.Clear()
-  [System.Windows.Forms.SendKeys]::LoseAfter=0
-  [System.Windows.Forms.SendKeys]::LoseFieldAfter=0; [System.Windows.Forms.SendKeys]::Uppercase=$false
-  [System.Windows.Forms.SendKeys]::Value=''; [System.Windows.Forms.SendKeys]::Submitted=$false
-  [System.Windows.Forms.SendKeys]::SubmittedTerm=$null; [System.Windows.Forms.SendKeys]::QueryTerms.Clear()
+  [SseKnowledgeFixture.SendKeys]::Keys.Clear()
+  [SseKnowledgeFixture.SendKeys]::LoseAfter=0
+  [SseKnowledgeFixture.SendKeys]::LoseFieldAfter=0; [SseKnowledgeFixture.SendKeys]::Uppercase=$false
+  [SseKnowledgeFixture.SendKeys]::Value=''; [SseKnowledgeFixture.SendKeys]::Submitted=$false
+  [SseKnowledgeFixture.SendKeys]::SubmittedTerm=$null; [SseKnowledgeFixture.SendKeys]::QueryTerms.Clear()
   [SSEAccessible]::Focused=New-Object KnowledgeFakeAcc
   [SSEAccessible]::Hit=New-Object KnowledgeFakeAcc
   [SSEAccessible]::InterfereOnFocus=$false
@@ -136,13 +140,13 @@ function Read-SSEKnowledgeSnapshot($Binding) {
   Assert-SSEKnowledgeTarget $Binding
   $script:reads++
   $text=$script:baselineText; $count=$script:initialCount
-  $submitted=[System.Windows.Forms.SendKeys]::SubmittedTerm
-  if ([System.Windows.Forms.SendKeys]::Submitted -and $script:mode -ne 'stale') {
+  $submitted=[SseKnowledgeFixture.SendKeys]::SubmittedTerm
+  if ([SseKnowledgeFixture.SendKeys]::Submitted -and $script:mode -ne 'stale') {
     $text=$script:resultText; $count=$script:resultCount
     if ($submitted.StartsWith('zzsse')) { $count=0; $text='' }
     if ($submitted -ceq 'Steuer') { $count=1; $text='Steuer is the positive control in a separate confirmed result paragraph.' }
   }
-  $views=@([pscustomobject]@{i=0;p=-1;type='Edit';name='Suchbegriff';rid='search';on=$true;x=10;y=20;w=100;h=25;val=[System.Windows.Forms.SendKeys]::Value})
+  $views=@([pscustomobject]@{i=0;p=-1;type='Edit';name='Suchbegriff';rid='search';on=$true;x=10;y=20;w=100;h=25;val=[SseKnowledgeFixture.SendKeys]::Value})
   if ($script:mode -eq 'moved' -and $script:reads -ge 2) { $views[0].x=40 }
   if ($script:mode -eq 'rebound' -and $script:reads -ge 2) { $views[0].rid='other-search' }
   $header="Ihre Suche ergab $count Treffer"
@@ -172,7 +176,7 @@ function Must-Fail([scriptblock]$Action,[string]$Kind,[string]$MessagePart='') {
   if ([SW]::DpiEntries -ne [SW]::DpiRestores) { throw 'A rejected search leaked its physical DPI context.' }
 }
 function Assert-NoInput {
-  if ([SW]::Clicks -ne 0 -or [System.Windows.Forms.SendKeys]::Keys.Count -ne 0) { throw 'Rejected target received physical input.' }
+  if ([SW]::Clicks -ne 0 -or [SseKnowledgeFixture.SendKeys]::Keys.Count -ne 0) { throw 'Rejected target received physical input.' }
 }
 
 Reset-Scenario
@@ -263,15 +267,15 @@ Assert-NoInput
 Reset-Scenario
 [SW]::LoseAfterClick=$true
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed'
-if ([SW]::Clicks -ne 2 -or [System.Windows.Forms.SendKeys]::Keys.Count -ne 0) { throw 'Keys continued after click lost focus.' }
+if ([SW]::Clicks -ne 2 -or [SseKnowledgeFixture.SendKeys]::Keys.Count -ne 0) { throw 'Keys continued after click lost focus.' }
 Reset-Scenario
-[System.Windows.Forms.SendKeys]::LoseAfter=1
+[SseKnowledgeFixture.SendKeys]::LoseAfter=1
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed'
-if ([System.Windows.Forms.SendKeys]::Keys.Count -ne 1) { throw 'Keys continued after Ctrl+A lost focus.' }
+if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 1) { throw 'Keys continued after Ctrl+A lost focus.' }
 Reset-Scenario
-[System.Windows.Forms.SendKeys]::LoseAfter=4
+[SseKnowledgeFixture.SendKeys]::LoseAfter=4
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed'
-if ([System.Windows.Forms.SendKeys]::Keys.Count -ne 4 -or [System.Windows.Forms.SendKeys]::Submitted) { throw 'Term input continued after focus loss.' }
+if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 4 -or [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'Term input continued after focus loss.' }
 Reset-Scenario
 $inputState=[pscustomobject]@{tick=0}
 Must-Fail { Send-SSEKnowledgeInput $binding $field '^a' $inputState } 'interference'
@@ -280,7 +284,7 @@ $inputState.tick=$null
 Must-Fail { Send-SSEKnowledgeInput $binding $field '^a' $inputState } 'interference'
 Assert-NoInput
 Reset-Scenario
-[System.Windows.Forms.SendKeys]::Value='Alpha'
+[SseKnowledgeFixture.SendKeys]::Value='Alpha'
 [SSEAccessible]::FocusDelayReads=2
 Wait-SSEKnowledgeInputValue $binding $field 'Alpha' ([pscustomobject]@{tick=10})
 Assert-NoInput
@@ -292,23 +296,23 @@ Assert-NoInput
 Reset-Scenario
 $script:nullTickAt=3
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'interference' 'Epoche'
-if ([SW]::Clicks -ne 2 -or [System.Windows.Forms.SendKeys]::Keys.Count -ne 0) { throw 'Keys were sent after a missing post-click epoch.' }
+if ([SW]::Clicks -ne 2 -or [SseKnowledgeFixture.SendKeys]::Keys.Count -ne 0) { throw 'Keys were sent after a missing post-click epoch.' }
 Reset-Scenario
-[System.Windows.Forms.SendKeys]::LoseFieldAfter=1
+[SseKnowledgeFixture.SendKeys]::LoseFieldAfter=1
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed' 'Tastaturfokus'
-if ([System.Windows.Forms.SendKeys]::Keys.Count -ne 1) { throw 'Typing continued after in-window focus changed.' }
+if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 1) { throw 'Typing continued after in-window focus changed.' }
 Reset-Scenario
 $script:onLiteral={ [SW]::Tick++ }
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'interference' 'Epoche'
-if ([System.Windows.Forms.SendKeys]::Keys.Count -ne 1 -or [System.Windows.Forms.SendKeys]::Submitted) { throw 'External inter-step input was absorbed.' }
+if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 1 -or [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'External inter-step input was absorbed.' }
 Reset-Scenario
 [SSEAccessible]::InterfereOnFocus=$true
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'interference' 'Epoche'
-if ([System.Windows.Forms.SendKeys]::Keys.Count -ne 0) { throw 'Input during focus verification was absorbed before SendWait.' }
+if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 0) { throw 'Input during focus verification was absorbed before SendWait.' }
 Reset-Scenario
-[System.Windows.Forms.SendKeys]::Uppercase=$true
+[SseKnowledgeFixture.SendKeys]::Uppercase=$true
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed' 'Suchbegriff'
-if ([System.Windows.Forms.SendKeys]::Submitted) { throw 'An unverified field value was submitted.' }
+if ([SseKnowledgeFixture.SendKeys]::Submitted) { throw 'An unverified field value was submitted.' }
 Reset-Scenario
 $script:mode='moved'
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed' 'Lage'
@@ -320,7 +324,7 @@ Assert-NoInput
 
 Reset-Scenario
 $baseline=Get-SSEKnowledgeResults (Read-SSEKnowledgeSnapshot $binding) 20 12
-[System.Windows.Forms.SendKeys]::Value='Alpha'; [System.Windows.Forms.SendKeys]::Submitted=$true; [System.Windows.Forms.SendKeys]::SubmittedTerm='Alpha'
+[SseKnowledgeFixture.SendKeys]::Value='Alpha'; [SseKnowledgeFixture.SendKeys]::Submitted=$true; [SseKnowledgeFixture.SendKeys]::SubmittedTerm='Alpha'
 $script:mode='empty'
 Must-Fail { Wait-SSEKnowledgeResult $binding $baseline 'Alpha' 20 12 $false 80 1 } 'timeout'
 $script:mode='stale'
@@ -340,18 +344,18 @@ Reset-Scenario
 $success=Invoke-SSETaxKnowledgeSearch @{begriff='Alpha';fenster=100}
 if (-not $success.ok -or $success.pid -ne 42 -or $success.fenster -ne 100 -or $success.abschnitte.Count -ne 1) { throw 'Genuine new content was not returned.' }
 if ($success.trefferAnzahl -ne 1 -or $success.abschnitte[0].text -cne $script:resultText) { throw 'Navigation leaked into the scoped search result.' }
-if (-not [System.Windows.Forms.SendKeys]::Submitted) { throw 'Successful search was not submitted.' }
-if (([System.Windows.Forms.SendKeys]::Keys -join '|') -cne '^a|A|l|p|h|a|{ENTER}' -or [SW]::Clicks -ne 2) { throw 'Unexpected successful input sequence.' }
+if (-not [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'Successful search was not submitted.' }
+if (([SseKnowledgeFixture.SendKeys]::Keys -join '|') -cne '^a|A|l|p|h|a|{ENTER}' -or [SW]::Clicks -ne 2) { throw 'Unexpected successful input sequence.' }
 if ([SW]::DpiEntries -ne 1 -or [SW]::DpiRestores -ne 1) { throw 'Successful search did not restore its DPI context.' }
 Reset-Scenario
 $script:baselineText=$script:resultText
-[System.Windows.Forms.SendKeys]::Value='Alpha'
+[SseKnowledgeFixture.SendKeys]::Value='Alpha'
 $repeat=Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'}
 if (-not $repeat.ok) { throw 'An already confirmed identical query lost compatibility.' }
-if ([System.Windows.Forms.SendKeys]::QueryTerms.Count -ne 3 -or
-    [System.Windows.Forms.SendKeys]::QueryTerms[0] -cne 'Alpha' -or
-    -not [System.Windows.Forms.SendKeys]::QueryTerms[1].StartsWith('zzsse') -or
-    [System.Windows.Forms.SendKeys]::QueryTerms[2] -cne 'Alpha') { throw 'An unchanged result was returned without an independently changed result state.' }
+if ([SseKnowledgeFixture.SendKeys]::QueryTerms.Count -ne 3 -or
+    [SseKnowledgeFixture.SendKeys]::QueryTerms[0] -cne 'Alpha' -or
+    -not [SseKnowledgeFixture.SendKeys]::QueryTerms[1].StartsWith('zzsse') -or
+    [SseKnowledgeFixture.SendKeys]::QueryTerms[2] -cne 'Alpha') { throw 'An unchanged result was returned without an independently changed result state.' }
 Reset-Scenario
 $script:resultCount=0
 $empty=Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'}
@@ -359,8 +363,8 @@ if (-not $empty.ok -or $empty.trefferAnzahl -ne 0 -or $empty.abschnitte.Count -n
 Reset-Scenario
 $script:initialCount=0; $script:resultCount=0
 $emptyRepeat=Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'}
-if (-not $emptyRepeat.ok -or $emptyRepeat.trefferAnzahl -ne 0 -or [System.Windows.Forms.SendKeys]::QueryTerms.Count -ne 3 -or
-    [System.Windows.Forms.SendKeys]::QueryTerms[1] -cne 'Steuer') { throw 'An unchanged empty result did not require a verified positive control.' }
+if (-not $emptyRepeat.ok -or $emptyRepeat.trefferAnzahl -ne 0 -or [SseKnowledgeFixture.SendKeys]::QueryTerms.Count -ne 3 -or
+    [SseKnowledgeFixture.SendKeys]::QueryTerms[1] -cne 'Steuer') { throw 'An unchanged empty result did not require a verified positive control.' }
 Reset-Scenario
 $parts=@(
   @{type='Text';name='A sufficiently long passage about the ';p='article'},

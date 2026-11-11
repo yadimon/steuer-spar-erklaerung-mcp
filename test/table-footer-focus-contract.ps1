@@ -1,8 +1,9 @@
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot '..\powershell\table-combobox.ps1')
-. (Join-Path $PSScriptRoot '..\powershell\table-values.ps1')
-. (Join-Path $PSScriptRoot '..\powershell\table-number-click.ps1')
-$source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
+foreach($module in @('table-combobox.ps1','table-values.ps1','table-number-click.ps1')){
+  $moduleSource=[IO.File]::ReadAllText((Join-Path $PSScriptRoot ('../powershell/'+$module))).Replace('[System.Windows.Forms.SendKeys]','[SseFooterFocusFixture.SendKeys]')
+  . ([scriptblock]::Create($moduleSource))
+}
+$source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1')).Replace('[System.Windows.Forms.SendKeys]','[SseFooterFocusFixture.SendKeys]')
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$parseErrors)
 if (@($parseErrors).Count) {throw 'Worker syntax is invalid.'}
@@ -19,7 +20,7 @@ foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-S
 Add-Type -TypeDefinition @'
 using System;
 public static class SW {public static IntPtr GetForegroundWindow(){return new IntPtr(111);}}
-namespace System.Windows.Forms {public static class SendKeys {public static int Calls;public static void SendWait(string key){Calls++;}}}
+namespace SseFooterFocusFixture {public static class SendKeys {public static int Calls;public static void SendWait(string key){Calls++;}}}
 namespace System.Windows.Automation {
  public static class AutomationElement {
   public static object FocusedElement,Root;
@@ -41,6 +42,7 @@ namespace System.Windows.Automation {
  public static class TextPattern {public static object Pattern=new object();}
 }
 '@
+if([SseFooterFocusFixture.SendKeys].FullName -cne 'SseFooterFocusFixture.SendKeys' -or (Get-Command Invoke-SSETableFooterFocus).ScriptBlock.ToString().Contains('[System.Windows.Forms.SendKeys]')) {throw 'The footer contract did not bind its isolated input recorder.'}
 $AE=[System.Windows.Automation.AutomationElement]
 $prefix='Synthetic.RedThreadContent.ClientFrameSSE'
 $tableAid=$prefix+'.DialogUI./.Synthetic.Table'
@@ -467,7 +469,7 @@ foreach ($case in @('keyboard-number-exact','keyboard-number-readonly','keyboard
   $script:mode=$case;$script:focusCalls=0;$script:selectionCalls=0;$script:keyboardValueWrites=0;$script:keyboardToggles=0
   $script:keyboardWalks=0;$script:keyboardNumberRawReads=0;$script:keyboardFocusAfterWalk=$null;$script:currentNumberCells=$null
   $script:keyboardHeaderReads=0;$script:keyboardSummaryReads=0;$script:SSE_TABLE_NUMBER_EDITOR_REJECTION='synthetic-number-not-reached'
-  [System.Windows.Forms.SendKeys]::Calls=0
+  [SseFooterFocusFixture.SendKeys]::Calls=0
   $numberTable=[pscustomobject]@{i=0;p=-1;type='Table';name='';aid=$numberTableAid;rid='30.1';on=$true;x=100;y=100;w=600;h=100}
   $headers=@(0..5 | ForEach-Object {[pscustomobject]@{i=1+$_;p=0;type='Header';name=$(if ($_ -eq 0) {'Nr.'} else {'Synthetic header'});
     aid=$numberTableAid+'.Header'+$_;rid='30.'+(20+$_);on=$true;x=100+100*$_;y=100;w=55;h=24}})
@@ -582,7 +584,7 @@ foreach ($case in @('keyboard-number-exact','keyboard-number-readonly','keyboard
     throw "$case`: changed focus fell through to ordinary acceptance or fabricated its diagnostic."
   }
   if ($script:focusCalls -ne 0 -or $script:selectionCalls -ne 0 -or $script:keyboardValueWrites -ne 0 -or
-      $script:keyboardToggles -ne 0 -or [System.Windows.Forms.SendKeys]::Calls -ne 0) {throw "$case`: keyboard proof performed an input action."}
+      $script:keyboardToggles -ne 0 -or [SseFooterFocusFixture.SendKeys]::Calls -ne 0) {throw "$case`: keyboard proof performed an input action."}
   $safe=$evidence | ConvertTo-Json -Depth 8 -Compress
   if ($safe -match 'Synthetic changed number|12,34|56,78|"name"|"value"|"val"') {throw 'Number keyboard diagnostics exposed field values.'}
 }
@@ -601,7 +603,7 @@ foreach ($case in @('home-align','home-offscreen-old-selection','home-already-se
   $script:keyboardValueWrites=0;$script:keyboardToggles=0;$script:keyboardWalks=0;$script:keyboardNumberRawReads=0
   $script:keyboardFocusAfterWalk=$null;$script:currentNumberCells=$null;$script:homeDirty=$false;$script:homeHeading='Synthetic page';$script:homeWindow=$null
   $script:homeAttemptObserved=$false
-  [System.Windows.Forms.SendKeys]::Calls=0
+  [SseFooterFocusFixture.SendKeys]::Calls=0
   $numberTable=[pscustomobject]@{i=0;p=-1;type='Table';name='';aid=$numberTableAid;rid='30.1';on=$true;x=100;y=100;w=600;h=160}
   $headers=@(0..5 | ForEach-Object {[pscustomobject]@{i=1+$_;p=0;type='Header';name=$(if ($_ -eq 0) {'Nr.'} else {'Synthetic header'});
     aid=$numberTableAid+'.Header'+$_;rid='30.'+(20+$_);on=$true;x=100+100*$_;y=100;w=55;h=24}})
@@ -674,7 +676,7 @@ foreach ($case in @('home-align','home-offscreen-old-selection','home-already-se
   if ($outcome.attempted -ne $attempted -or $script:selectionCalls -ne [int]$attempted) {throw "$case`: Select was replayed, skipped or its attempted state was lost."}
   if ($script:homeAttemptObserved -ne $attempted) {throw "$case`: Select attempt was recorded after dispatch instead of before it."}
   if ($case -ceq 'home-already-selected' -and $script:keyboardNumberRawReads -ne 1) {throw 'Already-selected HOME repeated the source proof or attempted a post-action read.'}
-  if ($script:keyboardWalks -ne 0 -or $script:focusCalls -ne 0 -or [System.Windows.Forms.SendKeys]::Calls -ne 0) {throw "$case`: planned alignment read the old selection or submitted unrelated input."}
+  if ($script:keyboardWalks -ne 0 -or $script:focusCalls -ne 0 -or [SseFooterFocusFixture.SendKeys]::Calls -ne 0) {throw "$case`: planned alignment read the old selection or submitted unrelated input."}
   if ($AE::FocusedElement.rid -cne '30.99' -and $case -notin @('home-late-source','home-table')) {throw "$case`: Select changed the current editor identity."}
   if ($case -in @('home-align','home-offscreen-old-selection','home-readonly')) {
     $afterEvidence=$null

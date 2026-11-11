@@ -93,11 +93,13 @@ scheitert am Navigationsbaum. Gemessen am Einkommensteuer-Musterfall:
 Das ist dieselbe Klasse von Befund, die der Worker fuer `goto` bereits
 festhaelt: Die Qt-Elemente des Navigationsbaums bieten UIA-Muster an, die
 zusagen und nichts tun. Deshalb navigiert `goto` ueber das Suchfeld und einen
-echten Doppelklick.
+frisch gebundenen Einzelklick. Der erste Klick kann die Seite bereits oeffnen
+und die Trefferliste einklappen; ein zweiter Klick darf nicht in das dadurch
+freigelegte Formular gelangen.
 
-**Konsequenz fuer die Bedienung:** Zu einer Seite zu *gelangen* geht nur ueber
-physische Eingabe. Deshalb navigiert `goto` ueber Suchfeld und Doppelklick, und
-deshalb kostet jede neu profilierte Seite einen echten Navigationslauf.
+**Konsequenz fuer die Verifikation:** Der UIA-Suchweg braucht einen live
+geprueften Einzelklick samt Seiten-Readback. Jede neu profilierte Seite
+braucht deshalb einen echten Navigationslauf.
 
 **Aber die Seiten aufzuzaehlen geht doch** - nur nicht ueber die Oberflaeche.
 Siehe naechster Abschnitt.

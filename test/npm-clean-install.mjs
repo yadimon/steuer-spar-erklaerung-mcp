@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SSE_MCP_TOOL_SCHEMAS } from "../dist/operation-catalog.js";
+import { runInstalledSystemSmoke } from "./npm-system-smoke.mjs";
+import { removeDirectoryWhenFree } from "./remove-when-free.mjs";
 
 if (process.platform !== "win32" || process.arch !== "x64") {
   throw new Error("Der Clean-install-Smoke fuer das API-Paket braucht Windows x64.");
@@ -21,8 +23,9 @@ const expectedMcpToolCount = Object.keys(SSE_MCP_TOOL_SCHEMAS).length;
 
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 assert(existsSync(npmCli), `npm CLI fehlt: ${npmCli}`);
-const temporary = mkdtempSync(join(tmpdir(), "sse-npm-install-"));
+const temporary = mkdtempSync(join(realpathSync(tmpdir()), "sse-npm-install-"));
 let fixtureRegistry;
+let passed = false;
 
 function npm(args, options = {}) {
   const { env: optionEnv = {}, ...spawnOptions } = options;
@@ -169,6 +172,11 @@ try {
     "Installierter MCP-Vertrag ist unvollstaendig.",
   );
 
+  const system = await runInstalledSystemSmoke({ installRoot, temporary, expectedVersion });
+  assert.equal(system.tools, expectedMcpToolCount);
+  assert.equal(system.apiStopped, true);
+  process.stdout.write(`Installed MCP/API system smoke: ${system.calls} real calls and ${system.filesVerified} verified files passed.\n`);
+
   const sourceLabel = publishedMode
     ? "dem exakten MCP-Registry-Paket samt API-Dependency"
     : "einem MCP-Tarball samt automatisch aufgeloester API-Dependency";
@@ -176,6 +184,7 @@ try {
     `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: NPX-Kurzweg, ${commands.length} CLI-Einstiege und ` +
       `${expectedMcpToolCount}-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
   );
+  passed = true;
 } finally {
   if (fixtureRegistry?.pid) {
     spawnSync("taskkill.exe", ["/PID", String(fixtureRegistry.pid), "/T", "/F"], {
@@ -183,5 +192,12 @@ try {
       stdio: "ignore",
     });
   }
-  rmSync(resolve(temporary), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  if (passed) {
+    assert.equal(dirname(resolve(temporary)), realpathSync(tmpdir()));
+    assert(basename(temporary).startsWith("sse-npm-install-") && !lstatSync(temporary).isSymbolicLink());
+    await removeDirectoryWhenFree(temporary);
+    assert.equal(existsSync(temporary), false);
+  } else {
+    process.stderr.write(`npm smoke failed; diagnostic sandbox preserved: ${temporary}\n`);
+  }
 }
