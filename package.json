@@ -1,6 +1,6 @@
 {
   "name": "steuer-spar-erklaerung-mcp",
-  "version": "0.1.0-beta.58",
+  "version": "0.1.0-beta.59",
   "description": "Workspace for the unofficial SteuerSparErklaerung API and MCP wrapper",
   "license": "MIT",
   "private": true,
@@ -65,6 +65,7 @@
     "test:package": "npm run build:npm-packages && node test/npm-package-contract.mjs",
     "test:npm-clean-install": "npm run build:npm-packages && node test/npm-clean-install.mjs",
     "smoke:published": "node test/npm-clean-install.mjs --published",
+    "smoke:npm": "node test/npm-system-smoke.mjs",
     "docs:build": "node scripts/build-api-docs.mjs",
     "docs:check": "node scripts/check-docs-consistency.mjs",
     "test:release-metadata": "node test/release-metadata-contract.mjs",

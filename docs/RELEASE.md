@@ -239,6 +239,30 @@ Artefakte geprüft:
 npm run smoke:published
 ```
 
+Dieser exakte Registry-Smoke startet zusätzlich die tatsächlich installierte
+MCP/API und vergleicht synthetische Dateiinhalte, Kopien und SHA256. Es werden
+keine Produktionsmodule aus dem Checkout geladen. Eine SSE-Installation ist
+für diesen Dateipfad nicht erforderlich; eine laufende SSE wird nicht bedient.
+
+Ein anderer Nutzer kann den neuesten Registry-Stand unabhängig von der
+Quellversion prüfen. Nach `npm ci --ignore-scripts` genügt:
+
+```powershell
+npm run smoke:npm
+npm run smoke:npm -- --version 0.1.0-beta.59
+```
+
+Der Test benötigt Windows x64 und Node.js 22+, aber keinen TypeScript-Build.
+Nur der Testtreiber und sein MCP-Client kommen aus dem Repository. Die
+ausgeführte MCP/API wird mit eigenem npm-Cache in einer neuen Ablage unter dem
+vom Betriebssystem gelieferten temporären Verzeichnis installiert. Vorhandene
+SSE-Konfigurationsvariablen werden für diese Kindprozesse entfernt. Es gelten
+keine Benutzer-, Rechner- oder Checkoutpfade. SSE muss für die Dateioperationen
+geschlossen sein. Nach erfolgreichem API-Shutdown wird ausschließlich die
+eigene temporäre Ablage entfernt; bei einem Fehler bleibt sie zur Diagnose
+erhalten und ihr Ort wird lokal ausgegeben. Dieser Dateismoke ersetzt keine
+UI-Liveprobe an einem Hersteller-Musterfall.
+
 ## 6. Client-Installation vor der Ankündigung prüfen
 
 Vor einer öffentlichen Ankündigung werden die empfohlenen Client-Wege getrennt

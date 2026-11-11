@@ -100,6 +100,7 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 | `npm run test:inventory` | Nur Planausgabe; Node.js genügt, kein Build und keine Testausführung |
 | `npm run test:fast` | Schnellplan mit TypeScript-Build; Windows x64, festgelegte Node-Version, Abhängigkeiten und Windows PowerShell 5.1 |
 | `npm test` | Vollständige Offline-Suite samt C#-Build und Controller-Prüfungen; Windows-Voraussetzungen wie oben, SSE muss geschlossen sein |
+| `npm run smoke:npm` | Installiert `latest` aus npm in einer eigenen temporären Ablage und prüft die echte MCP/API mit synthetischen Dateien; Node.js 22+, installierte Repository-Abhängigkeiten und Windows x64, SSE geschlossen; kein Build oder installiertes Steuerprogramm nötig |
 | `npm run test:qt-native` | Gesonderter opt-in Lauf mit gebautem Qt-Paket und passendem SDK; synthetische Qt-Fixture auf eigenem inaktivem Desktop |
 | `npm run test:live` | Installiertes unterstütztes Produkt, Musterfallkopien, aktivierte Live-Konfiguration und unbenutzte entsperrte Windows-Sitzung |
 | `npm run test:live-income-positions` | Erzeugt einen eigenen Gewinn-Erfassungsfall und prüft vollständige Positionsinventare, Anlage, Ablehnungen und Save/Reopen; unterstütztes Produktprofil und freie sichtbare Sitzung nötig |
