@@ -753,6 +753,22 @@ Längengrenzen für ASCII, UTF-16 und Eingabemasken. Passende Literale erreichen
 die vorhandene Bindungsprüfung; mangels Session wird dort abgelehnt. Dieser
 Test belegt keinen vollständigen erfolgreichen Schreibvorgang in der Anwendung.
 
+Der getrennte [Native-Qt-CI-Workflow](../.github/workflows/native-qt.yml) baut
+das Paket und die synthetischen Fixtures auf einem frischen Windows-Runner.
+Er lädt das feste offizielle Qt-Archiv, prüft dessen SHA256 und anschließend
+die drei Qt-DLLs gegen `compatibility.json`. Die native Integration läuft als
+erster GUI-Test; erst danach folgen die übrigen CTests seriell. Ein Fehler im
+ersten Lauf bleibt ein fehlgeschlagener Check, auch wenn die weiteren Tests
+bestehen. Es gibt keinen Warm-up und keine automatische Testwiederholung.
+Die ursprünglichen Testfristen und Assertions bleiben maßgeblich.
+
+Dieser Workflow läuft bei einschlägigen Pull Requests und Änderungen auf
+`main` sowie auf manuellen Aufruf. Er verwendet nur öffentliche Quellen und
+das Qt-SDK; eine installierte SteuerSparErklärung, persönliche Fälle oder
+Anmeldedaten werden nicht benötigt. Seine synthetischen Nachweise ersetzen
+keine Funktions- oder Persistenzabnahme am Herstellerprogramm. Buildpakete
+und Testberichte werden nicht als Artefakte veröffentlicht.
+
 ## Konfiguration und Paketvertrag
 
 `qtNativeRuntime` hat genau zwei Felder: `directory` ist ein absoluter lokaler

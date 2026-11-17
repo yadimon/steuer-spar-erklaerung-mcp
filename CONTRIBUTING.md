@@ -182,7 +182,15 @@ Ein Pull Request soll:
    enthalten.
 
 Die read-only [Windows-CI](.github/workflows/windows-ci.yml) führt Audit,
-Volltest und die Paketprüfungen aus. Der getrennte
+Volltest und die Paketprüfungen aus. Die zusätzliche
+[Native-Qt-CI](.github/workflows/native-qt.yml) baut bei einschlägigen Änderungen
+das quellgebundene Qt-Paket und prüft die synthetischen nativen Fixtures
+seriell. Sie benötigt keine Steuerinstallation und belegt keine Bedienung
+des Herstellerprogramms. Details und Grenzen stehen unter
+[NATIVE-QT.md](docs/NATIVE-QT.md).
+Das Ruleset verlangt weiterhin den Offline-Check; bei betroffenen Änderungen
+sollen zusätzlich die nativen Prüfungen grün sein.
+Der getrennte
 npm-Publish-Workflow ist manuell, taggebunden und verwendet OIDC ohne
 langlebiges npm-Token. Ein grüner
 Offline-Lauf allein macht ein neues UI-Verhalten nicht live-verifiziert.

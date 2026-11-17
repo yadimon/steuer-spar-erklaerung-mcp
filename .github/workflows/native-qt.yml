@@ -1,0 +1,110 @@
+name: Native Qt CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/native-qt.yml'
+      - 'native/qt/**'
+      - 'src/**'
+      - 'powershell/**'
+      - 'profiles/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'packages/**'
+      - 'package*.json'
+      - '.node-version'
+      - 'tsconfig.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-qt.yml'
+      - 'native/qt/**'
+      - 'src/**'
+      - 'powershell/**'
+      - 'profiles/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'packages/**'
+      - 'package*.json'
+      - '.node-version'
+      - 'tsconfig.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-qt-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  native:
+    name: Native Qt build and synthetic fixtures
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+
+      - name: Install locked dependencies and build API helpers
+        run: |
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path -LiteralPath 'powershell/sse-native.dll' -PathType Leaf)) {
+            throw 'The API helper build did not produce sse-native.dll.'
+          }
+
+      - name: Prepare verified Qt SDK
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:RUNNER_TEMP 'qt-native-sdk'
+          $archive = Join-Path $env:RUNNER_TEMP 'qtbase.7z'
+          New-Item -ItemType Directory -Path $sdk | Out-Null
+          # Published Qt archive and digest; no account or local SDK is used.
+          $uri = 'https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_692/qt6_692/qt.qt6.692.win64_msvc2022_64/6.9.2-0-202508181147qtbase-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z'
+          $expected = '38799bbe352acf244febf4868c05a35febddf98fad204fce6d3e8e58de8968ab'
+          & curl.exe --fail --location --proto '=https' --proto-redir '=https' `
+            --connect-timeout 30 --max-time 180 --output $archive $uri
+          if ($LASTEXITCODE -ne 0) { throw 'Qt archive download failed.' }
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Qt archive digest differs from the pinned official release.'
+          }
+          & 7z x $archive "-o$sdk" -y
+          if ($LASTEXITCODE -ne 0) { throw 'Qt archive extraction failed.' }
+          $compatibility = Get-Content -LiteralPath 'native/qt/compatibility.json' -Raw | ConvertFrom-Json
+          foreach ($library in @('Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll')) {
+            $digest = (Get-FileHash -LiteralPath (Join-Path $sdk "bin/$library") -Algorithm SHA256).Hash
+            if ($digest -ne $compatibility.sha256.$library) { throw "Qt runtime pin differs: $library" }
+          }
+          "QT_NATIVE_SDK=$sdk" >> $env:GITHUB_ENV
+
+      - name: Build native package and fixtures
+        id: build
+        run: |
+          $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+          cmake -S native/qt -B artifacts/qt-native -G 'Visual Studio 17 2022' -A x64 `
+            "-DCMAKE_PREFIX_PATH=$env:QT_NATIVE_SDK" -DSSE_QT_BUILD_TESTS=ON "-DNODE_EXECUTABLE=$node"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build artifacts/qt-native --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run original native integration first
+        run: ctest --test-dir artifacts/qt-native -C Release -R '^native-qt-integration$' -j 1 -V --output-on-failure --no-tests=error
+
+      - name: Run remaining native tests serially
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ctest --test-dir artifacts/qt-native -C Release -E '^native-qt-integration$' -j 1 --output-on-failure --no-tests=error
