@@ -11,7 +11,10 @@
 // may copy an immutable published prefix while the GUI is still executing.
 enum class NativeEditPhase {
     GuiEnter, ControllerAcquired, RootBefore, RootAfter, ActionEnter,
-    LookupBefore, LookupAfter, EditEnter, PrepareBefore, PrepareAfter, PermitClaimed, PermitRefused,
+    LookupBefore, LookupAfter, EditEnter, PrepareBefore,
+    PrepareLayoutCreated, PrepareLayoutConfigured, PrepareLayoutBegun,
+    PrepareLayoutLineCreated, PrepareLayoutEnded, PrepareLayoutDestroyBefore,
+    PrepareAfter, PermitClaimed, PermitRefused,
     SelectAllBefore, SelectAllAfter,
     InsertBefore, InsertAfter, CommitBefore, CommitAfter, GuiComplete
 };
@@ -27,6 +30,12 @@ static const char *nativeEditPhaseName(NativeEditPhase phase) noexcept {
     case NativeEditPhase::LookupAfter: return "lookup.after";
     case NativeEditPhase::EditEnter: return "edit.enter";
     case NativeEditPhase::PrepareBefore: return "prepare.before";
+    case NativeEditPhase::PrepareLayoutCreated: return "prepare.layout.created";
+    case NativeEditPhase::PrepareLayoutConfigured: return "prepare.layout.configured";
+    case NativeEditPhase::PrepareLayoutBegun: return "prepare.layout.begun";
+    case NativeEditPhase::PrepareLayoutLineCreated: return "prepare.layout.lineCreated";
+    case NativeEditPhase::PrepareLayoutEnded: return "prepare.layout.ended";
+    case NativeEditPhase::PrepareLayoutDestroyBefore: return "prepare.layout.destroy.before";
     case NativeEditPhase::PrepareAfter: return "prepare.after";
     case NativeEditPhase::PermitClaimed: return "permit.claimed";
     case NativeEditPhase::PermitRefused: return "permit.refused";

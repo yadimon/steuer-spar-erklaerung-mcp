@@ -3,10 +3,31 @@
 // insert.before -> insert.after includes synchronous application callbacks.
 export const nativeEditPhaseNames = Object.freeze([
   "gui.enter", "controller.acquired", "root.before", "root.after", "action.enter",
-  "lookup.before", "lookup.after", "edit.enter", "prepare.before", "prepare.after", "permit.refused", "permit.claimed", "selectAll.before", "selectAll.after",
+  "lookup.before", "lookup.after", "edit.enter", "prepare.before",
+  "prepare.layout.created", "prepare.layout.configured", "prepare.layout.begun",
+  "prepare.layout.lineCreated", "prepare.layout.ended", "prepare.layout.destroy.before",
+  "prepare.after", "permit.refused", "permit.claimed", "selectAll.before", "selectAll.after",
   "insert.before", "insert.after", "commit.before", "commit.after", "gui.complete",
 ]);
+// The first-edit fixture uses the complete unmasked QLineEdit path.
 export const successfulNativeLineEditPhases = Object.freeze(nativeEditPhaseNames.filter(phase => phase !== "permit.refused"));
+const layoutPhases = nativeEditPhaseNames.slice(nativeEditPhaseNames.indexOf("prepare.before") + 1,
+  nativeEditPhaseNames.indexOf("prepare.after"));
+
+function hasContiguousPreparation(phases, ok) {
+  const layoutCount = phases.filter(phase => layoutPhases.includes(phase)).length;
+  const preparationStart = phases.indexOf("prepare.before");
+  if (preparationStart < 0) return layoutCount === 0;
+  let prefixLength = 0;
+  while (prefixLength < layoutPhases.length && phases[preparationStart + 1 + prefixLength] === layoutPhases[prefixLength])
+    prefixLength++;
+  const next = phases[preparationStart + 1 + prefixLength];
+  // The native exception handler may finish an error at any boundary. A
+  // successful preparation must finish the layout block or skip it entirely.
+  return layoutCount === prefixLength && (next === undefined
+    || (next === "prepare.after" && (prefixLength === 0 || prefixLength === layoutPhases.length))
+    || (next === "gui.complete" && ok === false));
+}
 
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
@@ -27,6 +48,7 @@ export function inspectNativeEditPhases(reply, { complete, successfulLineEdit = 
     sequence: records.every((record, index) => record?.sequence === index + 1),
     fixedOrderedPhases: phases.every((phase, index) => nativeEditPhaseNames.includes(phase)
       && (index === 0 || nativeEditPhaseNames.indexOf(phase) > nativeEditPhaseNames.indexOf(phases[index - 1]))),
+    preparationBlock: hasContiguousPreparation(phases, reply?.ok),
     monotonic: nonnegativeInteger(trace?.capturedAtUs) && records.every((record, index) =>
       nonnegativeInteger(record?.monotonicUs) && record.monotonicUs <= trace.capturedAtUs
       && (index === 0 || record.monotonicUs >= records[index - 1].monotonicUs)),

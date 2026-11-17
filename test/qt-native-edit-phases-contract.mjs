@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { inspectNativeEditPhases, successfulNativeLineEditPhases } from "./qt-native-edit-phases.mjs";
+import { inspectNativeEditPhases, nativeEditPhaseNames, successfulNativeLineEditPhases } from "./qt-native-edit-phases.mjs";
 
 const successful = { id: 17, ok: true, nativeEditTrace: {
-  schemaVersion: 1, capacity: 32, clock: "request-relative-steady-microseconds", capturedAtUs: 200,
+  schemaVersion: 1, capacity: 32, clock: "request-relative-steady-microseconds",
+  capturedAtUs: successfulNativeLineEditPhases.length * 10,
   captureComplete: true, overflow: false,
   records: successfulNativeLineEditPhases.map((phase, index) => ({ sequence: index + 1, phase, monotonicUs: index * 10, threadId: 42 })),
 } };
@@ -38,7 +39,7 @@ invalid(reply => { reply.nativeEditTrace.records[2].rid = "Must never appear"; }
 invalid(reply => { reply.nativeEditTrace.records[2].phase = "untrusted private field"; });
 invalid(reply => { reply.nativeEditTrace.records[2].threadId++; });
 invalid(reply => { reply.nativeEditTrace.records[2].monotonicUs = -1; });
-invalid(reply => { reply.nativeEditTrace.records[2].monotonicUs = 201; });
+invalid(reply => { reply.nativeEditTrace.records[2].monotonicUs = reply.nativeEditTrace.capturedAtUs + 1; });
 invalid(reply => { reply.nativeEditTrace.records[2].monotonicUs = 0; });
 invalid(reply => { reply.nativeEditTrace.records[2].sequence++; });
 invalid(reply => { reply.nativeEditTrace.records.splice(2, 1); });
@@ -71,6 +72,55 @@ preparing.outcomeUnknown = false; preparing.mutationAttempted = false;
 preparing.nativeEditTrace.records = preparing.nativeEditTrace.records.slice(0, successfulNativeLineEditPhases.indexOf("lookup.after") + 1);
 assert.equal(inspectNativeEditPhases(preparing, { complete: false, activePhase: "lookup.after" }).valid, true,
   "A post-lookup name read can be cancelled before edit.enter and has no later refused-permit record yet.");
+const preparationPhases = ["prepare.layout.created", "prepare.layout.configured", "prepare.layout.begun",
+  "prepare.layout.lineCreated", "prepare.layout.ended", "prepare.layout.destroy.before"];
+const preparationPrefix = successfulNativeLineEditPhases.slice(0, successfulNativeLineEditPhases.indexOf("prepare.before") + 1);
+for (const [index, phase] of preparationPhases.entries()) {
+  const cancelledPreparation = structuredClone(preparing);
+  cancelledPreparation.nativeEditTrace.records = [...preparationPrefix, ...preparationPhases.slice(0, index + 1)]
+    .map((name, ordinal) => ({ sequence: ordinal + 1, phase: name, monotonicUs: ordinal * 10, threadId: 42 }));
+  assert.equal(inspectNativeEditPhases(cancelledPreparation, { complete: false, activePhase: phase }).valid, true,
+    "A frozen read-only preparation prefix must remain inspectable at " + phase);
+  assert.equal(inspectSuccess(cancelledPreparation).valid, false,
+    "A preparation boundary must never count as a successful edit.");
+  const missingBoundary = structuredClone(successful);
+  missingBoundary.nativeEditTrace.records = missingBoundary.nativeEditTrace.records.filter(record => record.phase !== phase);
+  missingBoundary.nativeEditTrace.records.forEach((record, ordinal) => { record.sequence = ordinal + 1; });
+  assert.equal(inspectSuccess(missingBoundary).valid, false,
+    "A completed unmasked line edit must retain its preparation boundary " + phase);
+}
+const withPhases = (phases, ok, complete) => ({ id: 18, ok, nativeEditTrace: {
+  schemaVersion: 1, capacity: 32, clock: "request-relative-steady-microseconds", capturedAtUs: phases.length * 10,
+  captureComplete: complete, overflow: false,
+  records: phases.map((phase, index) => ({ sequence: index + 1, phase, monotonicUs: index * 10, threadId: 42 })),
+} });
+const masked = withPhases(successfulNativeLineEditPhases.filter(phase => !preparationPhases.includes(phase)), true, true);
+assert.equal(inspectNativeEditPhases(masked, { complete: true }).valid, true);
+assert.equal(inspectSuccess(masked).valid, false, "Masked edits do not satisfy the unmasked first-edit fixture.");
+const invalidLayout = withPhases([...preparationPrefix, ...preparationPhases.slice(0, -1), "gui.complete"], false, true);
+assert.equal(inspectNativeEditPhases(invalidLayout, { complete: true }).valid, true);
+assert.equal(inspectSuccess(invalidLayout).valid, false, "An invalid layout returns before the normal destruction marker.");
+for (const count of [0, 1, 2, 3, 4, 5, 6]) {
+  const exception = withPhases([...preparationPrefix, ...preparationPhases.slice(0, count), "gui.complete"], false, true);
+  assert.equal(inspectNativeEditPhases(exception, { complete: true }).valid, true,
+    "The native exception handler can complete an error after any preparation prefix.");
+}
+for (const malformed of [
+  [...preparationPrefix, preparationPhases[0], "prepare.after", "gui.complete"],
+  [...preparationPrefix, ...preparationPhases.slice(0, -1), "prepare.after", "gui.complete"],
+  [...preparationPrefix, preparationPhases[2], "prepare.after", "gui.complete"],
+  [...preparationPrefix.slice(0, -1), ...preparationPhases, "prepare.after", "gui.complete"],
+]) {
+  const inspection = inspectNativeEditPhases(withPhases(malformed, true, true), { complete: true });
+  assert.equal(inspection.checks.preparationBlock, false);
+  assert.equal(inspection.valid, false,
+    "A completed success must not skip a preparation boundary.");
+}
+const gappedError = inspectNativeEditPhases(withPhases([
+  ...preparationPrefix, preparationPhases[0], preparationPhases[3], "gui.complete",
+], false, true), { complete: true });
+assert.equal(gappedError.checks.preparationBlock, false);
+assert.equal(gappedError.valid, false, "An error may end a prefix, but must not have gaps inside it.");
 assert.equal(inspectNativeEditPhases({ id: 1, nativeEditTrace: { records: [null] } }).valid, false);
 
 // Source contracts supplement the native atomic-fence unit test and real
@@ -80,6 +130,11 @@ const replaceStart = actions.indexOf("static Json replaceAccessibleEdit(");
 const replaceEnd = actions.indexOf("static Json selectAccessibleCombo(", replaceStart);
 assert(replaceStart >= 0 && replaceEnd > replaceStart);
 const replace = actions.slice(replaceStart, replaceEnd);
+const traceSource = readFileSync(new URL("../native/qt/bridge-edit-trace.h", import.meta.url), "utf8");
+const nativePhaseNames = [...traceSource.matchAll(/case NativeEditPhase::\w+: return "([^"]+)";/gu)].map(match => match[1]);
+assert.deepEqual(new Set(nativePhaseNames), new Set(nativeEditPhaseNames), "Native and inspector phase vocabularies must agree.");
+assert.match(replace, /markNativeEdit\(NativeEditPhase::PrepareLayoutDestroyBefore\);\s*\}\s*markNativeEdit\(NativeEditPhase::PrepareAfter\);/u,
+  "The final preparation marker must stay after the layout scope has released its local objects.");
 const branches = ["if (auto *line = qobject_cast<QLineEdit *>", "if (auto *text = qobject_cast<QTextEdit *>",
   "if (auto *text = qobject_cast<QPlainTextEdit *>"];
 const starts = branches.map(branch => replace.indexOf(branch));

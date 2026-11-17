@@ -147,16 +147,22 @@ static Json replaceAccessibleEdit(QWidget *root, QAccessibleInterface *target, c
             // the real insert still performs its own complete layout. This local
             // layout neither queries a paint device nor changes the target.
             QTextLayout preparation(lineEditDisplayCopy(value), font);
+            markNativeEdit(NativeEditPhase::PrepareLayoutCreated);
             QTextOption option;
             option.setTextDirection(Qt::LayoutDirectionAuto);
             option.setFlags(QTextOption::IncludeTrailingSpaces);
             preparation.setTextOption(option);
             preparation.setCacheEnabled(true);
+            markNativeEdit(NativeEditPhase::PrepareLayoutConfigured);
             preparation.beginLayout();
+            markNativeEdit(NativeEditPhase::PrepareLayoutBegun);
             const auto preparedLine = preparation.createLine();
+            markNativeEdit(NativeEditPhase::PrepareLayoutLineCreated);
             preparation.endLayout();
+            markNativeEdit(NativeEditPhase::PrepareLayoutEnded);
             if (!preparedLine.isValid())
                 return noMutationError("ACTION_DISPATCH_FAILED", "The read-only Qt edit layout could not be prepared");
+            markNativeEdit(NativeEditPhase::PrepareLayoutDestroyBefore);
         }
         markNativeEdit(NativeEditPhase::PrepareAfter);
         if (binding.fence && binding.fence->provenCancellation() == NativeDispatchFence::Cancellation::Preparing) {
