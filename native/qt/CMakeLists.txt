@@ -70,6 +70,17 @@ if(SSE_QT_BUILD_TESTS)
   set_target_properties(bridge-dispatch-fence-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
   add_test(NAME native-dispatch-fence COMMAND "$<TARGET_FILE:bridge-dispatch-fence-test>")
   set_tests_properties(native-dispatch-fence PROPERTIES TIMEOUT 15 RUN_SERIAL TRUE)
+  # Exercise the real private edit helper without a session, pipe, controller or visible window.
+  add_executable(bridge-edit-length-test tests/edit-length.cpp)
+  target_compile_options(bridge-edit-length-test PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
+  target_compile_definitions(bridge-edit-length-test PRIVATE QT_NO_KEYWORDS)
+  target_include_directories(bridge-edit-length-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+  target_link_libraries(bridge-edit-length-test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Widgets Advapi32 User32 Shell32)
+  set_target_properties(bridge-edit-length-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+  add_test(NAME native-edit-length COMMAND "${CMAKE_COMMAND}" -E env
+    "QT_QPA_PLATFORM=offscreen" "QT_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::Core>/../plugins"
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>;$ENV{PATH}" "$<TARGET_FILE:bridge-edit-length-test>")
+  set_tests_properties(native-edit-length PROPERTIES TIMEOUT 15 RUN_SERIAL TRUE)
   add_executable(bridge-table-focus-test tests/table-focus-policy.cpp)
   target_compile_options(bridge-table-focus-test PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
   target_compile_definitions(bridge-table-focus-test PRIVATE QT_NO_KEYWORDS)

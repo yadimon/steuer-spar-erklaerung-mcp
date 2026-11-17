@@ -479,7 +479,7 @@ int main(int argc, char **argv) {
                     if (!journal.armFirstEditWindow()) { std::cout << "trace-first-edit-arm-refused" << std::endl; return; }
                 }
                 else if (command == "change-field") field->setText("Changed by fixture");
-                else if (command == "validate-field") { field->setText("10"); field->setValidator(new QIntValidator(10, 99, field)); }
+                else if (command == "validate-field") { field->setMaxLength(2); field->setText("10"); field->setValidator(new QIntValidator(10, 99, field)); }
                 else if (command == "mask-field") { field->setInputMask("99;_"); field->setText("10"); }
                 else if (command == "slow-field-commit") *commitDelayMs = 1600;
                 else if (command == "timeout-field-commit") *commitDelayMs = 2600;
