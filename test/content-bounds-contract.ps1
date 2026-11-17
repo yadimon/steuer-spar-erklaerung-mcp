@@ -18,7 +18,7 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 
-foreach ($name in @('Get-ContentBounds', 'Get-CaptionMinX')) {
+foreach ($name in @('Get-ContentBounds', 'Get-CaptionMinX', 'Get-SSEPageFieldLabel')) {
   $definition = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -141,4 +141,38 @@ foreach($invalidBounds in @(
   Assert-True $refused 'Ungueltige scopedBounds erhielten einen geratenen Inhaltsbereich.'
 }
 
-Write-Output 'Inhaltsbereich: geratene und gemessene linke Grenze unterscheidbar, eingeklappte Navigation zaehlt nicht als Baum, Beschriftungssuche weicht nur der geratenen Grenze aus.'
+# Kuenstliche ueberlappende Formulargruppen: nur die eigene Caption benennt
+# das Feld. Koordinaten und Werte sind unabhaengig von einem lokalen Lauf.
+function CaptionNode($Aid, $Name, $X, $Y, $W, $Parent) {
+  [pscustomobject]@{aid=$Aid;name=$Name;type='Text';x=$X;y=$Y;w=$W;h=30;p=$Parent}
+}
+foreach ($offset in @(0,-2000)) {
+  $settlement = [pscustomobject]@{aid='Fixture.Settlement.Wert';x=(710+$offset);y=100;w=100;h=30;p=10}
+  $reduction = [pscustomobject]@{aid='Fixture.Reduction.Wert';x=(810+$offset);y=90;w=100;h=30;p=20}
+  $own = CaptionNode 'Fixture.Settlement.Caption' 'Umsatzsteuerzahllast' (100+$offset) 100 600 10
+  $other = CaptionNode 'Fixture.Reduction.Caption' 'Minderung der Bemessungsgrundlage' (300+$offset) 90 500 20
+  foreach ($order in @(@($own,$other),@($other,$own))) {
+    Assert-True ((Get-SSEPageFieldLabel $settlement $order) -ceq 'Umsatzsteuerzahllast') 'Eine fremde ueberlappende Caption verdraengte die strukturell gebundene Zahllast.'
+    Assert-True ((Get-SSEPageFieldLabel $reduction $order) -ceq 'Minderung der Bemessungsgrundlage') 'Die Nachbargruppe verlor ihre eigene Beschriftung.'
+  }
+  Assert-True ((Get-SSEPageFieldLabel $settlement @($own,$own,$other)) -ceq '') 'Doppelte Caption-Identitaet fiel auf einen fremden Text zurueck.'
+  $own.p=99
+  Assert-True ((Get-SSEPageFieldLabel $settlement @($own,$other)) -ceq '') 'Widerspruechliche Eltern wurden als Beschriftungsbindung akzeptiert.'
+  $own.p=10
+  $own.w=611
+  Assert-True ((Get-SSEPageFieldLabel $settlement @($own,$other)) -ceq 'Umsatzsteuerzahllast') 'Gerundete ueberlappende Kanten verdraengten die eindeutige Geschwisterbindung.'
+  $own.w=600
+  $own.y=130
+  Assert-True ((Get-SSEPageFieldLabel $settlement @($own,$other)) -ceq '') 'Eine Caption ausserhalb der Feldzeile erhielt einen geometrischen Ersatz.'
+  $own.y=100
+  $settlement.aid=''
+  Assert-True ((Get-SSEPageFieldLabel $settlement @($own,$other)) -ceq 'Umsatzsteuerzahllast') 'Geometrie akzeptierte eine ueber das Feld reichende Fremdbeschriftung.'
+  $tie = CaptionNode '' 'Mehrdeutig' (200+$offset) 100 500 30
+  Assert-True ((Get-SSEPageFieldLabel $settlement @($own,$tie)) -ceq '') 'Gleiche rechte Kanten wurden ueber die Knotenreihenfolge entschieden.'
+  Assert-True ((Get-SSEPageFieldLabel $settlement @()) -ceq '') 'Ein Feld ohne Caption erhielt eine erfundene Beschriftung.'
+}
+$workerText = [IO.File]::ReadAllText($workerPath)
+Assert-True ($workerText.Contains('$label = Get-SSEPageFieldLabel $f $texte')) 'Die page-Operation verwendet die gepruefte Caption-Zuordnung nicht.'
+Assert-True ($workerText.Contains('$lab = Get-SSEPageFieldLabel $f $texte')) 'Die schrittweise Seitenerfassung verwendet eine abweichende Caption-Zuordnung.'
+
+Write-Output 'Inhaltsbereich und Feldbeschriftung: gemessene Grenzen, eindeutige Caption-Bindung und ueberlappende Nachbargruppen geprueft.'

@@ -12,6 +12,28 @@ import type { QtSnapshotNode } from "./qt-native-snapshot.js";
 
 export const byPosition = (a: QtSnapshotNode, b: QtSnapshotNode) => a.y - b.y || a.x - b.x;
 
+/** Match the worker's unique sibling Caption, then an unambiguous right edge. */
+export function qtNativeFieldCaption(field: QtSnapshotNode, texts: readonly QtSnapshotNode[]): string {
+  const separator = field.aid.lastIndexOf(".");
+  if (separator > 0) {
+    const aid = field.aid.slice(0, separator) + ".Caption";
+    const siblings = texts.filter(text => text.aid === aid);
+    if (siblings.length) {
+      if (siblings.length !== 1) return "";
+      const caption = siblings[0]!;
+      if (field.p !== caption.p || caption.w <= 0 || caption.h <= 0
+        || Math.abs(caption.y - field.y) > 14 || caption.x >= field.x) return "";
+      return caption.name;
+    }
+  }
+  const candidates = texts.filter(text => text.w > 0 && text.h > 0
+    && Math.abs(text.y - field.y) <= 14 && text.x < field.x && text.x + text.w <= field.x)
+    .sort((a, b) => (field.x - (a.x + a.w)) - (field.x - (b.x + b.w)));
+  if (!candidates.length) return "";
+  if (candidates.length > 1 && candidates[0]!.x + candidates[0]!.w === candidates[1]!.x + candidates[1]!.w) return "";
+  return candidates[0]!.name;
+}
+
 /** Windows PowerShell `-eq` compares strings case-insensitively. */
 export const psEquals = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 

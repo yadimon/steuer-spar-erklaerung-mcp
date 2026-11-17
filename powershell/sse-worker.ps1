@@ -6412,6 +6412,40 @@ function Get-CaptionMinX($Bounds) {
   $Bounds.winX
 }
 
+# Reine Zuordnung aus einem einzigen Snapshot; keine weitere UIA-Abfrage.
+function Get-SSEPageFieldLabel($Field, [object[]]$Texts) {
+  $aid = [string]$Field.aid
+  $separator = $aid.LastIndexOf('.')
+  if ($separator -gt 0) {
+    $captionAid = $aid.Substring(0, $separator) + '.Caption'
+    $siblings = @($Texts | Where-Object { $_.aid -ceq $captionAid })
+    if ($siblings.Count -gt 0) {
+      # Widerspruechliche oder doppelte Struktur darf kein anderer Text ersetzen.
+      if ($siblings.Count -ne 1) { return '' }
+      $caption = $siblings[0]
+      if ($Field.PSObject.Properties['p'] -and $caption.PSObject.Properties['p'] -and
+          $Field.p -ne $caption.p) { return '' }
+      if ($caption.w -le 0 -or $caption.h -le 0 -or
+          [Math]::Abs($caption.y - $Field.y) -gt 14 -or
+          $caption.x -ge $Field.x) { return '' }
+      # Echte Geschwister duerfen sich durch gerundete UIA-Kanten ueberlappen;
+      # ihre eindeutige Struktur ist staerker als die geometrische Ersatzsuche.
+      return [string]$caption.name
+    }
+  }
+  # Ohne Caption-Identitaet entscheidet die naechste rechte Textkante;
+  # ein ueber das Feld reichender Text ist keine linke Beschriftung.
+  $candidates = @($Texts | Where-Object {
+    $_.w -gt 0 -and $_.h -gt 0 -and
+    [Math]::Abs($_.y - $Field.y) -le 14 -and $_.x -lt $Field.x -and
+    $_.x + $_.w -le $Field.x
+  } | Sort-Object { $Field.x - ($_.x + $_.w) })
+  if (-not $candidates.Count) { return '' }
+  if ($candidates.Count -gt 1 -and
+      $candidates[0].x + $candidates[0].w -eq $candidates[1].x + $candidates[1].w) { return '' }
+  [string]$candidates[0].name
+}
+
 # Element per Namen finden - ohne FindAll, ueber den gelaufenen Baum.
 function Find-Node {
   param($tree, [string]$Name, [string]$Type = '', [switch]$Contains)
@@ -19629,17 +19663,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $heading = $kopfzeile.text
 
     # --- Felder: alles Beschreibbare mit seiner Beschriftung ---------------
-    # Die Beschriftung eines Feldes ist der naechste Text LINKS davon in
-    # derselben Bildschirmzeile.
-    # Die Suche bleibt additiv: Sie nimmt den naechsten Text links vom Feld, und
-    # ein weiter links stehender Text kann einen bereits gefundenen naeheren nie
-    # verdraengen. Beschriftete Felder behalten damit genau ihre Beschriftung.
+    # Eine eindeutige Caption desselben Containers hat Vorrang. Ohne diese
+    # Struktur entscheidet die naechste rechte Textkante derselben Zeile;
+    # ueberlappende Fremdbeschriftungen und Gleichstaende bleiben ungebunden.
     $textMinX = Get-CaptionMinX $b
     $texte = @($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.name -and $_.x -ge $textMinX -and $_.x -le $b.maxX })
     $felder = New-Object System.Collections.ArrayList
     foreach ($f in ($t.nodes | Where-Object { $_.type -in @('Edit','ComboBox','CheckBox','RadioButton') -and (& $imInhalt $_) } | Sort-Object y, x)) {
-      $label = ($texte | Where-Object { [Math]::Abs($_.y - $f.y) -le 14 -and $_.x -lt $f.x } |
-                Sort-Object { $f.x - $_.x } | Select-Object -First 1).name
+      $label = Get-SSEPageFieldLabel $f $texte
       $null = $felder.Add([pscustomobject]@{
         label = $(if ($label) { $label } else { $f.name })
         typ = $f.type
@@ -20096,8 +20127,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $texte = @($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.name -and (& $inh $_) })
       $felder = New-Object System.Collections.ArrayList
       foreach ($f in ($t.nodes | Where-Object { $_.type -in @('Edit','ComboBox') -and (& $inh $_) } | Sort-Object y, x)) {
-        $lab = ($texte | Where-Object { [Math]::Abs($_.y - $f.y) -le 14 -and $_.x -lt $f.x } |
-                Sort-Object { $f.x - $_.x } | Select-Object -First 1).name
+        $lab = Get-SSEPageFieldLabel $f $texte
         if (-not $lab) { continue }
         $null = $felder.Add([pscustomobject]@{ label = $lab; wert = $f.val; ro = $f.ro })
       }
