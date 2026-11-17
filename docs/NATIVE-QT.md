@@ -637,6 +637,17 @@ Erfassung beweist für sich keinen erfolgreichen Eingriff. Bei Transportverlust
 kann diese Diagnose fehlen. Sie ändert weder Frist noch Ergebnisbewertung und
 veranlasst keine erneute Mutation.
 
+Bei einem Texteingabefeld ohne Eingabemaske unterteilen feste
+`prepare.layout.*`-Grenzen die lesende Vorbereitung: Erzeugen und Konfigurieren
+des Layouts, Beginn der Layoutberechnung, Erzeugen der Textzeile, Ende der
+Layoutberechnung und Verlassen des Layoutblocks. Der folgende Marker
+`prepare.after` liegt hinter dessen lokalen Destruktoren. So lässt sich eine
+Verzögerung innerhalb dieser Vorbereitung eingrenzen, ohne Feldinhalte zu
+erfassen oder das Zeitbudget und den Schreibschutz zu ändern.
+Lehnt die Vorbereitung ein ungültiges Layout ab, fehlt
+`prepare.layout.destroy.before`; der Block wird auch bei diesem Fehler regulär
+verlassen.
+
 Die Uhr `request-relative-steady-microseconds` beginnt für jede Anfrage neu.
 Zeiten des unabhängigen Fixture-Journals haben einen anderen Ursprung und
 dürfen davon nicht direkt abgezogen werden. Der Abschnitt `insert` enthält
