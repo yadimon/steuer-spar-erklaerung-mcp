@@ -858,6 +858,24 @@ try {
       const before = await readQtNativeSnapshot(validationSession.client, { maxNodes: 5000 }, 5000);
       const target = before.nodes.find(node => node.aid.endsWith(".syntheticField"));
       assert(target); assert.equal(target.val, "10");
+      const overlong = await validationSession.client.requestAcknowledged("accessibility_action", {
+        expectedRootHwnd: validatedFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+        action: "replace-edit-text", expectedValue: "10", value: "123",
+      }, 5000);
+      assert.equal(overlong.result.ok, false, command);
+      assert.equal(overlong.result.code, "EDIT_VALIDATION_FAILED");
+      assert.equal(overlong.result.mutationAttempted, false);
+      assert.equal(overlong.result.outcomeUnknown, false);
+      assert.equal(overlong.receiptAcknowledged, false);
+      assert.equal(overlong.result.mutationReceipt, undefined);
+      assert.equal(overlong.result.nativeEditTrace.captureComplete, true);
+      assert.equal(overlong.result.nativeEditTrace.records.some(record => record.phase === "prepare.before"), false);
+      const unchanged = await readQtNativeSnapshot(validationSession.client, { maxNodes: 5000 }, 5000);
+      for (const suffix of editDiagnosticFields) {
+        assert.equal(unchanged.nodes.find(node => node.aid.endsWith("." + suffix)).val,
+          before.nodes.find(node => node.aid.endsWith("." + suffix)).val,
+          "Overlong input must preserve text, textEdited count and committed model");
+      }
       const refusal = await validationSession.client.requestAcknowledged("accessibility_action", {
         expectedRootHwnd: validatedFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
         action: "replace-edit-text", expectedValue: "10", value: "1",
@@ -871,7 +889,7 @@ try {
         "Intermediate or incomplete input must never emit the model commit signal");
     } finally { await validationSession.close(); }
   }
-  report.checks.push("Intermediate validators and incomplete input masks refuse model commits; spin-box editingFinished reaches the model once");
+  report.checks.push("Overlong input is refused before mutation; intermediate validators and incomplete masks refuse model commits; spin-box editingFinished reaches the model once");
   // Only this fresh fixture creates the probe. Its one-shot accessible Name
   // delay happens after exact lookup and before any edit mutation permit.
   const preparationFixture = await fixture();

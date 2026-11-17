@@ -137,9 +137,11 @@ static Json replaceAccessibleEdit(QWidget *root, QAccessibleInterface *target, c
             return noMutationError("ACTION_UNSUPPORTED", "Combo values require typed option activation");
         if (line->text() != expected) return noMutationError("stale", "The exact Qt line edit changed before dispatch");
         QPointer<QLineEdit> live(line);
+        const auto maxLength = live->maxLength();
+        if (value.size() > maxLength)
+            return noMutationError("EDIT_VALIDATION_FAILED", "The requested literal exceeds the Qt line edit length limit");
         const auto font = live->font();
         const auto mask = live->inputMask();
-        const auto maxLength = live->maxLength();
         markNativeEdit(NativeEditPhase::PrepareBefore);
         if (mask.isEmpty()) {
             // Prepare shared font/fallback caches with the actual copied font.

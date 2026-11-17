@@ -664,6 +664,14 @@ bleiben ihre Controller-Sperre und der Schutz vor verschachtelter Ausführung
 gehalten; eine verschachtelte Anfrage erhält `busy`, ohne
 den äußeren Session-, Mutations- oder Permit-Kontext zu löschen.
 
+Ein Literal oberhalb der tatsächlichen `QLineEdit.maxLength` wird bereits vor
+Layoutvorbereitung und Permit mit `EDIT_VALIDATION_FAILED`,
+`mutationAttempted: false` und `outcomeUnknown: false` abgelehnt. Die Prüfung
+zählt wie Qt UTF-16-Codeeinheiten; ein Zeichen außerhalb der BMP benötigt zwei.
+Die Brücke kürzt den Text nicht. Bei passenden Längen bleiben Validator,
+Eingabemaske und die Prüfung nach dem Einfügen maßgeblich. Deren Ablehnung
+kann weiterhin einen bereits versuchten Eingriff melden.
+
 Ein bestätigter Abbruch meldet `GUI_QUEUE_TIMEOUT` beziehungsweise
 `GUI_PREPARATION_CANCELLED`, `mutationAttempted: false`, `outcomeUnknown: false`
 und die privaten Belege `preMutationCancellationProtocol: 1` sowie
@@ -736,6 +744,14 @@ Tabellen, Fenster-/Objektlebensdauer, Passwortfelder und Helfer-Shutdown. Das is
 kein Funktionsnachweis an einer installierten SSE. Freie Feld-, Tabellen-,
 Speichermutationen bleiben gesperrt; quittierte Widgetaktionen stehen ausschließlich
 den gebundenen Navigationen und katalogisierten Belegtransaktionen zur Verfügung.
+
+Der einzelne CTest `native-edit-length` prüft dagegen ausschließlich den
+privaten Schreibhelfer an nie angezeigten Offscreen-Widgets, ohne native
+Session oder Controller-Sperre. Er prüft die Ablehnung zu langer Literale samt
+unverändertem Feld, Auswahl, Undo-Zustand, Signalen und Modell sowie die
+Längengrenzen für ASCII, UTF-16 und Eingabemasken. Passende Literale erreichen
+die vorhandene Bindungsprüfung; mangels Session wird dort abgelehnt. Dieser
+Test belegt keinen vollständigen erfolgreichen Schreibvorgang in der Anwendung.
 
 ## Konfiguration und Paketvertrag
 
