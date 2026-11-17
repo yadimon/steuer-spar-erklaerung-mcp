@@ -45,6 +45,51 @@ function childOutputClosed(child) {
   };
 }
 
+async function waitForForegroundApi({ child, closed, baseUrl, startedAt, stdout, stderr, label }) {
+  // One budget covers both health and banner; never replay process startup.
+  const deadline = startedAt + 15_000;
+  const exited = new AbortController();
+  const onExit = () => exited.abort();
+  child.once("exit", onExit);
+  child.once("error", onExit);
+  const assertRunning = async () => {
+    if (Number.isInteger(child.pid) && child.exitCode === null && child.signalCode === null) return;
+    await closed();
+    assert.fail(`${label} endete vor ihrer Startbestaetigung ` +
+      `(Exit ${child.exitCode}, Signal ${child.signalCode}): ${stderr()}`);
+  };
+  let healthy = false;
+  try {
+    while (performance.now() < deadline) {
+      await assertRunning();
+      const remaining = Math.floor(deadline - performance.now());
+      if (remaining < 1) break;
+      healthy = false;
+      try {
+        healthy = await withCombinedAbortSignal([
+          exited.signal, AbortSignal.timeout(Math.min(1_000, remaining)),
+        ], async (signal) => {
+          const response = await fetch(`${baseUrl}/healthz`, { signal });
+          return response.ok && (await response.json()).processId === child.pid;
+        });
+      } catch {
+        // Only read-only startup observations repeat, within the same budget.
+      }
+      await assertRunning();
+      const observedAt = performance.now();
+      if (observedAt >= deadline) break;
+      if (healthy && stdout().includes("Strg+C beendet die API")) return observedAt;
+      const pauseMs = Math.min(50, Math.floor(deadline - performance.now()));
+      if (pauseMs > 0) await new Promise((resolveWait) => setTimeout(resolveWait, pauseMs));
+    }
+    assert.fail(`${label} wurde nicht rechtzeitig bereit (Health: ${healthy}, Startmeldung: ` +
+      `${stdout().includes("Strg+C beendet die API")}): ${stderr()}`);
+  } finally {
+    child.off("exit", onExit);
+    child.off("error", onExit);
+  }
+}
+
 assert.deepEqual(parseApiMainArguments([]), { help: false });
 assert.deepEqual(parseApiMainArguments(["--help"]), { help: true });
 assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
@@ -134,7 +179,11 @@ const quickEnvironment = {
 for (const key of ["SSE_API_CONFIG", "SSE_CASE_DIR", "SSE_WORKSPACE_DIR"]) {
   delete quickEnvironment[key];
 }
-const quickChild = spawn(process.execPath, ["dist/api-main.js", "--case-dir", quickCaseDir], {
+const quickStartedAt = performance.now();
+const quickChild = spawn(process.execPath, [
+  "--import", new URL("./fixtures/api-start-delay.mjs", import.meta.url).href,
+  "dist/api-main.js", "--case-dir", quickCaseDir,
+], {
   cwd: process.cwd(),
   windowsHide: true,
   env: quickEnvironment,
@@ -148,19 +197,12 @@ const quickClosed = childOutputClosed(quickChild);
 let quickExit;
 try {
   const quickBaseUrl = `http://127.0.0.1:${quickPort}`;
-  let healthy = false;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    healthy = false;
-    try {
-      const response = await fetch(`${quickBaseUrl}/healthz`, { signal: AbortSignal.timeout(1_000) });
-      healthy = response.ok && (await response.json()).processId === quickChild.pid;
-      if (healthy && quickStdout.includes("Strg+C beendet die API")) break;
-    } catch {
-      // Foreground-API startet noch.
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
-  }
-  assert.equal(healthy, true, `NPX-Kurzstart wurde nicht gesund: ${quickStderr}`);
+  const quickReadyAt = await waitForForegroundApi({
+    child: quickChild, closed: quickClosed, baseUrl: quickBaseUrl, startedAt: quickStartedAt,
+    stdout: () => quickStdout, stderr: () => quickStderr, label: "NPX-Kurzstart",
+  });
+  assert(quickReadyAt - quickStartedAt >= 3_500,
+    "Die Startprobe muss die verzoegerte echte API ausfuehren.");
   // Health and piped startup output are separate observations. Read the banner
   // before synchronous probes or termination can leave its data callback pending.
   assert.match(quickStdout, /Lokale Standardkonfiguration erstellt/);
@@ -405,7 +447,11 @@ assert.match(rejectedSupervisorContract.stderr, /Supervisor-Startvertrag/iu);
 await assert.rejects(fetch(`http://127.0.0.1:${port}/healthz`),
   "API lauschte trotz abweichendem Supervisor-Konfigurationsvertrag.");
 
-const child = spawn(process.execPath, ["dist/api-main.js", "--config", configPath], {
+const configuredStartedAt = performance.now();
+const child = spawn(process.execPath, [
+  "--import", new URL("./fixtures/api-start-delay.mjs", import.meta.url).href,
+  "dist/api-main.js", "--config", configPath,
+], {
   cwd: process.cwd(),
   windowsHide: true,
   env: {
@@ -423,18 +469,12 @@ child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
 
 try {
   const baseUrl = `http://127.0.0.1:${port}`;
-  let healthy = false;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      const response = await fetch(`${baseUrl}/healthz`);
-      healthy = response.ok;
-      if (healthy) break;
-    } catch {
-      // API startet noch.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  assert.equal(healthy, true, `Produktiver API-Entry-Point wurde nicht gesund: ${stderr}`);
+  const configuredReadyAt = await waitForForegroundApi({
+    child, closed: apiChildClosed, baseUrl, startedAt: configuredStartedAt,
+    stdout: () => stdout, stderr: () => stderr, label: "Konfigurierte Vordergrund-API",
+  });
+  assert(configuredReadyAt - configuredStartedAt >= 3_500,
+    "Auch die konfigurierte Startprobe muss die verzoegerte echte API ausfuehren.");
 
   const expectedConfigurationFingerprint = configurationFingerprint({
     profileId: "2025",
