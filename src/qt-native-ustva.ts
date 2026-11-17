@@ -4,6 +4,7 @@ import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 import { normalizeUstvaCurrentPage } from "./ustva.js";
+import { qtNativeFieldCaption } from "./qt-native-projections.js";
 
 const fieldTypes = new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
 const byPosition = (a: QtSnapshotNode, b: QtSnapshotNode) => a.y - b.y || a.x - b.x;
@@ -37,8 +38,7 @@ export async function executeQtNativeUstvaRead(
     && node.x >= captionMinX && node.x <= bounds.maxX);
   const fields = snapshot.nodes.filter(node => fieldTypes.has(node.type)
     && node.x >= bounds.minX && node.x <= bounds.maxX).sort(byPosition).map(field => {
-      const label = texts.filter(text => Math.abs(text.y - field.y) <= 14 && text.x < field.x)
-        .sort((a, b) => field.x - a.x - (field.x - b.x))[0]?.name || field.name;
+      const label = qtNativeFieldCaption(field, texts) || field.name;
       return {
         label,
         typ: field.type,

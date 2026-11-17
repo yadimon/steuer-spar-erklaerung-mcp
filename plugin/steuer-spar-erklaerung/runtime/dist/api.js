@@ -30278,66 +30278,25 @@ var init_qt_native_find = __esm({
   }
 });
 
-// src/qt-native-ustva.ts
-function transmissionName2(name) {
-  const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
-  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
-}
-async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile) {
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
-  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
-    return {
-      ok: false,
-      backend: "qt",
-      kind: "dialog-open",
-      error: "Ein modaler Dialog blockiert die gebundene UStVA-Seite; keine Werte ausgegeben."
-    };
-  }
-  if (snapshot.stats.truncated) {
-    throw new QtNativeTransportError("The UStVA tree exceeds the native read bound.", "native-incomplete");
-  }
-  const bounds = contentBounds(snapshot.nodes, snapshot.windowRect);
-  const captionMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
-  const texts = snapshot.nodes.filter((node2) => node2.type === "Text" && node2.name && node2.x >= captionMinX && node2.x <= bounds.maxX);
-  const fields2 = snapshot.nodes.filter((node2) => fieldTypes.has(node2.type) && node2.x >= bounds.minX && node2.x <= bounds.maxX).sort(byPosition2).map((field) => {
-    const label = texts.filter((text3) => Math.abs(text3.y - field.y) <= 14 && text3.x < field.x).sort((a, b) => field.x - a.x - (field.x - b.x))[0]?.name || field.name;
-    return {
-      label,
-      typ: field.type,
-      wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
-      schreibgeschuetzt: field.ro,
-      aid: field.aid.split(".").at(-1) ?? field.aid,
-      rid: field.rid,
-      y: field.y
-    };
-  });
-  const actions = snapshot.nodes.filter((node2) => ["Button", "Hyperlink"].includes(node2.type) && node2.name).map((node2) => ({ name: node2.name, gesperrt: transmissionName2(node2.name) }));
-  const normalized2 = normalizeUstvaCurrentPage({
-    ok: true,
-    ueberschrift: heading(snapshot.nodes, profile),
-    felder: fields2,
-    aktionen: actions,
-    blockiert: false,
-    prueferMeldungen: [],
-    dialoge: []
-  });
-  return { ...normalized2, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
-}
-var fieldTypes, byPosition2;
-var init_qt_native_ustva = __esm({
-  "src/qt-native-ustva.ts"() {
-    "use strict";
-    init_qt_native_client();
-    init_qt_native_pages();
-    init_qt_native_snapshot();
-    init_ustva();
-    fieldTypes = /* @__PURE__ */ new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
-    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
-  }
-});
-
 // src/qt-native-projections.ts
 import { createHash as createHash13 } from "node:crypto";
+function qtNativeFieldCaption(field, texts) {
+  const separator = field.aid.lastIndexOf(".");
+  if (separator > 0) {
+    const aid = field.aid.slice(0, separator) + ".Caption";
+    const siblings = texts.filter((text3) => text3.aid === aid);
+    if (siblings.length) {
+      if (siblings.length !== 1) return "";
+      const caption = siblings[0];
+      if (field.p !== caption.p || caption.w <= 0 || caption.h <= 0 || Math.abs(caption.y - field.y) > 14 || caption.x >= field.x) return "";
+      return caption.name;
+    }
+  }
+  const candidates = texts.filter((text3) => text3.w > 0 && text3.h > 0 && Math.abs(text3.y - field.y) <= 14 && text3.x < field.x && text3.x + text3.w <= field.x).sort((a, b) => field.x - (a.x + a.w) - (field.x - (b.x + b.w)));
+  if (!candidates.length) return "";
+  if (candidates.length > 1 && candidates[0].x + candidates[0].w === candidates[1].x + candidates[1].w) return "";
+  return candidates[0].name;
+}
 function powershellCompactJson(value) {
   const serialized = JSON.stringify(value);
   if (serialized === void 0) throw new TypeError("Fingerprint value is not JSON serializable.");
@@ -30346,7 +30305,7 @@ function powershellCompactJson(value) {
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
 }
-function transmissionName3(name) {
+function transmissionName2(name) {
   if (!name) return false;
   const normalized2 = comparableForm(name);
   if (!normalized2) return false;
@@ -30368,7 +30327,7 @@ function containerDescendants(nodes, aidSuffix, childType, containerType = "") {
     inSubtree.add(node2.i);
     if (node2.type === childType) hits.push(node2);
   }
-  return hits.sort(byPosition3);
+  return hits.sort(byPosition2);
 }
 function navigationSelection(nodes) {
   const selected = nodes.filter((node2) => node2.type === "TreeItem" && node2.selected === true);
@@ -30408,7 +30367,7 @@ function checkerTreeItems(nodes) {
 function checkerResults(nodes) {
   const checkerTree = findContainerNode(nodes, CHECKER_TREE_SUFFIX, "Tree");
   const allItems = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
-  const raw = checkerTreeItems(nodes).sort(byPosition3);
+  const raw = checkerTreeItems(nodes).sort(byPosition2);
   if (!raw.length) {
     return {
       aktiv: checkerTree !== null,
@@ -30504,7 +30463,7 @@ function comparisonInvariantResidual(actual, held, difference) {
 function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
   const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
   const unpositioned = allData.filter((node2) => node2.w <= 0 || node2.h <= 0);
-  const data = allData.filter((node2) => node2.w > 0 && node2.h > 0).sort(byPosition3);
+  const data = allData.filter((node2) => node2.w > 0 && node2.h > 0).sort(byPosition2);
   const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node2) => node2.w > 0 && node2.h > 0).sort((a, b) => a.x - b.x).map((node2) => node2.name);
   const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
   const scrollIncomplete = table !== null && table.scroll !== null;
@@ -30610,13 +30569,13 @@ function auxiliaryWindowKind(window, profile) {
 function byWindowArea(left, right) {
   return right.w * right.h - left.w * left.h || left.order - right.order;
 }
-var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
+var byPosition2, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
 var init_qt_native_projections = __esm({
   "src/qt-native-projections.ts"() {
     "use strict";
     init_zod();
     init_qt_native_client();
-    byPosition3 = (a, b) => a.y - b.y || a.x - b.x;
+    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
     psEquals = (left, right) => left.toLowerCase() === right.toLowerCase();
     textSha256 = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
     VERSAND = [
@@ -30664,6 +30623,65 @@ var init_qt_native_projections = __esm({
     WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
     TIPS_TITLE = "Steuer-Spar-Tipps";
     CLOSABLE_NONMODAL_ROLES = /* @__PURE__ */ new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
+  }
+});
+
+// src/qt-native-ustva.ts
+function transmissionName3(name) {
+  const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
+}
+async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile) {
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return {
+      ok: false,
+      backend: "qt",
+      kind: "dialog-open",
+      error: "Ein modaler Dialog blockiert die gebundene UStVA-Seite; keine Werte ausgegeben."
+    };
+  }
+  if (snapshot.stats.truncated) {
+    throw new QtNativeTransportError("The UStVA tree exceeds the native read bound.", "native-incomplete");
+  }
+  const bounds = contentBounds(snapshot.nodes, snapshot.windowRect);
+  const captionMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
+  const texts = snapshot.nodes.filter((node2) => node2.type === "Text" && node2.name && node2.x >= captionMinX && node2.x <= bounds.maxX);
+  const fields2 = snapshot.nodes.filter((node2) => fieldTypes.has(node2.type) && node2.x >= bounds.minX && node2.x <= bounds.maxX).sort(byPosition3).map((field) => {
+    const label = qtNativeFieldCaption(field, texts) || field.name;
+    return {
+      label,
+      typ: field.type,
+      wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
+      schreibgeschuetzt: field.ro,
+      aid: field.aid.split(".").at(-1) ?? field.aid,
+      rid: field.rid,
+      y: field.y
+    };
+  });
+  const actions = snapshot.nodes.filter((node2) => ["Button", "Hyperlink"].includes(node2.type) && node2.name).map((node2) => ({ name: node2.name, gesperrt: transmissionName3(node2.name) }));
+  const normalized2 = normalizeUstvaCurrentPage({
+    ok: true,
+    ueberschrift: heading(snapshot.nodes, profile),
+    felder: fields2,
+    aktionen: actions,
+    blockiert: false,
+    prueferMeldungen: [],
+    dialoge: []
+  });
+  return { ...normalized2, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
+}
+var fieldTypes, byPosition3;
+var init_qt_native_ustva = __esm({
+  "src/qt-native-ustva.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_snapshot();
+    init_ustva();
+    init_qt_native_projections();
+    fieldTypes = /* @__PURE__ */ new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
+    byPosition3 = (a, b) => a.y - b.y || a.x - b.x;
   }
 });
 
@@ -32652,10 +32670,9 @@ var init_qt_native_owned_windows = __esm({
 import { performance as performance11 } from "node:perf_hooks";
 function pageFields(own2, bounds, textMinX) {
   const texts = own2.filter((node2) => node2.type === "Text" && node2.name && node2.x >= textMinX && node2.x <= bounds.maxX);
-  return own2.filter((node2) => FIELD_TYPES.has(node2.type) && inContent(node2, bounds)).sort(byPosition3).map((field) => {
-    const caption = texts.filter((text3) => Math.abs(text3.y - field.y) <= 14 && text3.x < field.x).sort((a, b) => field.x - a.x - (field.x - b.x))[0];
+  return own2.filter((node2) => FIELD_TYPES.has(node2.type) && inContent(node2, bounds)).sort(byPosition2).map((field) => {
     return {
-      label: caption?.name || field.name,
+      label: qtNativeFieldCaption(field, texts) || field.name,
       typ: field.type,
       wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
       schreibgeschuetzt: field.ro,
@@ -32667,7 +32684,7 @@ function pageFields(own2, bounds, textMinX) {
 }
 function pageTable(own2) {
   const heads = own2.filter((node2) => node2.type === "Header" && node2.name && node2.w > 0).sort((a, b) => a.x - b.x);
-  const cells = own2.filter((node2) => node2.type === "DataItem" && node2.w > 0).sort(byPosition3);
+  const cells = own2.filter((node2) => node2.type === "DataItem" && node2.w > 0).sort(byPosition2);
   const rows = [];
   for (const cell of cells) {
     const current = rows.at(-1);
@@ -32689,7 +32706,7 @@ function pageActions(own2, bounds, windowTop) {
   const candidates = own2.filter((node2) => (node2.type === "Button" || node2.type === "Hyperlink") && node2.name).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
   const actions = [];
   for (const node2 of candidates) {
-    const gesperrt = transmissionName3(node2.name);
+    const gesperrt = transmissionName2(node2.name);
     const bereich = node2.y < windowTop + 160 ? "werkzeugleiste" : inContent(node2, bounds) ? "seite" : "hilfespalte";
     if (actions.some((action) => psEquals(action.name, node2.name) && action.bereich === bereich)) continue;
     actions.push({
@@ -32953,7 +32970,7 @@ function projectSection(entries) {
 }
 function qtNativeHelpProjection(nodes, windowRect) {
   const bounds = contentBounds([...nodes], windowRect);
-  const rechts = nodes.filter((node2) => node2.x > bounds.maxX && node2.name).sort(byPosition3);
+  const rechts = nodes.filter((node2) => node2.x > bounds.maxX && node2.name).sort(byPosition2);
   const abschnitte = new OrderedSections();
   let aktuell = "Allgemein";
   for (const node2 of rechts) {
@@ -33070,7 +33087,7 @@ function qtNativeTableProjection(nodes) {
     });
     return best;
   };
-  const cells = nodes.filter((node2) => psEquals(node2.type, "DataItem") && node2.w > 0).sort(byPosition3);
+  const cells = nodes.filter((node2) => psEquals(node2.type, "DataItem") && node2.w > 0).sort(byPosition2);
   const rows = [];
   const rowDetails = [];
   let current = null;
@@ -33420,7 +33437,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
   }
   const target = page ? String(page.headingNumberedLabel || page.headingPrefix || page.heading || "") : args.ziel ?? "";
   if (!target) return { ok: false, backend: "qt", kind: "bad-args", error: "The target heading is empty." };
-  if (transmissionName3(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
+  if (transmissionName2(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
   const activeProfile = profile, started = performance.now(), path = [], visited = [];
   let mutationStarted = false, nativeDurationMs = 0, steps = 0, lastHeading = null, phase = "precondition";
   const budget = () => {
@@ -33460,7 +33477,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
     nativeDurationMs
   });
   const dispatch = async (snapshot, node2, action, extra = {}) => {
-    if (!node2.on || node2.w <= 0 || node2.h <= 0 || transmissionName3(node2.name))
+    if (!node2.on || node2.w <= 0 || node2.h <= 0 || transmissionName2(node2.name))
       throw new GotoError("The exact navigation control is inactive, invisible or blocked.", "stale");
     let reply;
     try {
@@ -33532,7 +33549,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
       const navName = page ? String(page.navigationTreeItemName || target) : target;
       const treePage = page && !page.navigationTreeItemName && !/^[1-9][0-9]*\.\s*$/u.test(String(page.headingPrefix ?? "")) ? page : void 0;
       const item = visibleNavigationItem(snapshot.nodes, navName, treePage);
-      if (item && !transmissionName3(item.name)) {
+      if (item && !transmissionName2(item.name)) {
         phase = "navigation-tree";
         await dispatch(snapshot, item, "activate-navigation-item");
         steps++;

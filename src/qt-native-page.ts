@@ -4,7 +4,7 @@ import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import { readBoundWindows, readOwnedWindowSubtrees } from "./qt-native-owned-windows.js";
-import { byPosition, navigationSelection, psEquals, splitWindowScope, transmissionName } from "./qt-native-projections.js";
+import { byPosition, navigationSelection, psEquals, qtNativeFieldCaption, splitWindowScope, transmissionName } from "./qt-native-projections.js";
 import { nativeTreeBoundReason, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
 /**
@@ -33,14 +33,11 @@ interface PageAction { name: string; typ: string; bereich: string; aktiviert: bo
 
 const inContent = (node: QtSnapshotNode, bounds: Bounds) => node.x >= bounds.minX && node.x <= bounds.maxX;
 
-/** A field's caption is the nearest named text to its left on the same screen line; a farther text never replaces a nearer one. */
 function pageFields(own: readonly QtSnapshotNode[], bounds: Bounds, textMinX: number): PageField[] {
   const texts = own.filter(node => node.type === "Text" && node.name && node.x >= textMinX && node.x <= bounds.maxX);
   return own.filter(node => FIELD_TYPES.has(node.type) && inContent(node, bounds)).sort(byPosition).map(field => {
-    const caption = texts.filter(text => Math.abs(text.y - field.y) <= 14 && text.x < field.x)
-      .sort((a, b) => (field.x - a.x) - (field.x - b.x))[0];
     return {
-      label: caption?.name || field.name,
+      label: qtNativeFieldCaption(field, texts) || field.name,
       typ: field.type,
       wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
       schreibgeschuetzt: field.ro,

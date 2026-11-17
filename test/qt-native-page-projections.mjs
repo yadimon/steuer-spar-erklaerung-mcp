@@ -11,7 +11,8 @@ import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist
 import { canonicalReceiptJson, receiptFingerprint } from "../dist/qt-native-receipts.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { nativeWildcard } from "../dist/qt-native-find.js";
-import { checkerResults, resultDetailsFromNodes, splitWindowScope } from "../dist/qt-native-projections.js";
+import { checkerResults, qtNativeFieldCaption, resultDetailsFromNodes, splitWindowScope } from "../dist/qt-native-projections.js";
+import { normalizeUstvaCurrentPage } from "../dist/ustva.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { readPositionInventory } from "../dist/position-inventory.js";
 import { gotoTargetState } from "../dist/qt-native-goto-projection.js";
@@ -224,6 +225,27 @@ export async function testNativePageProjections() {
     { operation: "checker_results", args: {}, nodes: checkerless, rect: pageRect, stats: { ...pageStats, n: checkerless.length },
       windows: pageWindows },
   );
+  // Independent synthetic regression: a nearby caption overlaps a field in a
+  // different group. Both backends must keep the exact sibling label instead.
+  const captionRegressionIndexes = [];
+  for (const offset of [0, -2000]) {
+    const overlap = pageNodes.map(node => ({ ...node, x: node.x + offset }));
+    const add = (type, name, x, y, extra = {}) => {
+      const i = overlap.length;
+      overlap.push({ i, p: -1, d: 0, type, name, aid: `window.Overlap.Node${i}`, rid: `42.42.4.${i+1}`,
+        x: x + offset, y, w: 100, h: 30, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
+      return i;
+    };
+    const settlement = add("Group", "", 320, 840, { aid: "window.Overlap.Settlement" });
+    add("Text", "Umsatzsteuerzahllast", 320, 840, { p: settlement, d: 1, w: 681, aid: "window.Overlap.Settlement.Caption" });
+    add("Edit", "", 1000, 840, { p: settlement, d: 1, val: "231,45", ro: true, aid: "window.Overlap.Settlement.Wert" });
+    const reduction = add("Group", "", 600, 830, { aid: "window.Overlap.Reduction" });
+    add("Text", "Minderung der Bemessungsgrundlage", 600, 830, { p: reduction, d: 1, w: 500, aid: "window.Overlap.Reduction.Caption" });
+    add("Edit", "", 1120, 830, { p: reduction, d: 1, val: "0,00", ro: false, aid: "window.Overlap.Reduction.Wert" });
+    captionRegressionIndexes.push(cases.length);
+    cases.push({ operation: "page", args: {}, nodes: overlap, rect: { ...pageRect, x: offset },
+      stats: { ...pageStats, n: overlap.length }, windows: pageWindows.slice(0,1).map(window => ({ ...window, x: offset })) });
+  }
   // Pure helper oracles: the Werte-Info projection (fingerprint bytes included) and the checker grouping.
   const resultNodes = [];
   const resultNode = (type, name, x, y, extra = {}) => {
@@ -308,6 +330,27 @@ export async function testNativePageProjections() {
     assert.equal(backend, "qt"); assert(Number.isInteger(nativeDurationMs) && nativeDurationMs >= 1, test.operation);
     assert.deepEqual(projection, oracle.results[index], `${test.operation} ${JSON.stringify(test.args)}`);
     projections.push(projection);
+  }
+  for (const index of captionRegressionIndexes) {
+    assert.equal(projections[index].felder.find(field => field.label === "Umsatzsteuerzahllast")?.wert, "231,45");
+    assert.equal(projections[index].felder.find(field => field.label === "Minderung der Bemessungsgrundlage")?.wert, "0,00");
+  }
+  const captionField = { aid: "fixture.Field.Wert", p: 0, x: 500, y: 100 };
+  const ownCaption = { aid: "fixture.Field.Caption", p: 0, x: 100, y: 100, w: 401, h: 30, name: "Own" };
+  const captionCases = [
+    { nodes: [ownCaption], expected: "Own" },
+    { nodes: [ownCaption, ownCaption], expected: "" },
+    { nodes: [{ ...ownCaption, p: 1 }], expected: "" },
+    { nodes: [{ ...ownCaption, y: 130 }], expected: "" },
+    { nodes: [{ ...ownCaption, x: 500 }], expected: "" },
+    { nodes: [{ ...ownCaption, aid: "fixture.TextA", w: 200 },
+      { ...ownCaption, aid: "fixture.TextB", x: 150, w: 150 }], expected: "" },
+    { nodes: [{ ...ownCaption, aid: "fixture.TextA", w: 200 }], expected: "Own" },
+  ].map(test => ({ ...test, helper: "fieldCaption", field: captionField }));
+  const captionOracle = await pageProjectionOracle([], [], {}, captionCases);
+  for (const [index, test] of captionCases.entries()) {
+    assert.equal(qtNativeFieldCaption(test.field, test.nodes), test.expected);
+    assert.deepEqual(captionOracle.helpers[index], { label: test.expected });
   }
   // The counters and the tie-break are observable: page counts every product process, ui_state only its own, and the
   // shuffled state lists the equal-area pair by enumeration order where the plain state lists it by area.
@@ -675,6 +718,16 @@ export async function testNativePageProjections() {
   ustvaNode("CheckBox", "", 700, 160, { checked: true, ro: false,
     aid: "window.RahmenWerteUebersicht.ManuelleEingabe" });
   ustvaNode("Button", "ELSTER versenden", 600, 300);
+  const settlementGroup = ustvaNode("Group", "", 220, 220, { aid: "window.Settlement" });
+  ustvaNode("Text", "Umsatzsteuerzahllast", 220, 220,
+    { p: settlementGroup, w: 481, aid: "window.Settlement.Caption" });
+  ustvaNode("Edit", "", 700, 220,
+    { p: settlementGroup, val: "231,45", ro: true, aid: "window.Settlement.Wert" });
+  const reductionGroup = ustvaNode("Group", "", 400, 210, { aid: "window.Reduction" });
+  ustvaNode("Text", "Minderung der Bemessungsgrundlage", 400, 210,
+    { p: reductionGroup, w: 350, aid: "window.Reduction.Caption" });
+  ustvaNode("Edit", "", 760, 210,
+    { p: reductionGroup, val: "0,00", ro: false, aid: "window.Reduction.Wert" });
   const ustvaStats = { ...stats, n: ustvaNodes.length };
   const ustvaClient = { binding: { hwnd: 42, pid: 99 }, request: async operation => {
     assert.equal(operation, "accessibility_snapshot");
@@ -693,6 +746,12 @@ export async function testNativePageProjections() {
   assert.equal(ustva.flags.manual_input, true);
   assert.equal(ustva.transmission.blockedByApi, true);
   assert.equal(ustva.transmission.uiGuardObserved, true);
+  assert.equal(ustva.amounts.settlement.cents, 23145);
+  assert.equal(ustva.amounts.reductionTaxableBase.cents, 0);
+  const ustvaOracle = await pageProjectionOracle([{ operation: "page", args: {}, nodes: ustvaNodes,
+    rect: { x: 0, y: 0, w: 1000, h: 600 }, stats: ustvaStats, windows: pageWindows.slice(0,1) }]);
+  const { backend: ustvaBackend, nativeDurationMs: ustvaDuration, ...ustvaProjection } = ustva;
+  assert.deepEqual(ustvaProjection, normalizeUstvaCurrentPage(ustvaOracle.results[0]));
 
   const receiptNodes = [];
   const receiptNode = (type, name, aid, x, y, extra = {}) => {

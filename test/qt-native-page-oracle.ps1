@@ -21,7 +21,7 @@ $switchClauses = @($oracleAstNodes | Where-Object { $_ -is [Management.Automatio
 # Differential oracle: execute the actual worker's projection bodies against supplied observations.
 # Only the OS observation boundaries are supplied by the fixture; no product branch is copied.
 foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256',
-    'Get-CaptionMinX','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
+    'Get-CaptionMinX','Get-SSEPageFieldLabel','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
     'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails',
     'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor','New-SSEUiStateRootContext',
     'Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading','Read-SSEPositionInventory')) {
@@ -157,6 +157,7 @@ foreach ($case in $inputData.helpers) {
         'checkerResults' { Get-CheckerResults $tree }
         'resultDetails' { Read-ResultDetailsFromTree $tree }
         'windowScope' { Split-SSEWindowScope $tree.nodes }
+        'fieldCaption' { [pscustomobject]@{label=(Get-SSEPageFieldLabel $case.field @($case.nodes))} }
         'positionInventory' {
             try {
                 $parameters = @{ Tree=$tree; Heading=[string]$case.heading }
