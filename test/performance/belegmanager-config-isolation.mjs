@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { commitIniBytes, createPrivateIniCopy } from "./ini-byte-transaction.mjs";
 
 const ORIGINAL_NAME = ".api-mega-belegmanager-config-original.bin";
 const SWAPPED_NAME = ".api-mega-belegmanager-config-swapped.bin";
@@ -11,11 +12,17 @@ const MARKER_NAME = ".api-mega-belegmanager-config-recovery.json";
 const USER_CONFIG_NAME = ["SSEKonf", "user.ini"].join(".");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex").toUpperCase();
 
+function readConfiguration(path) {
+  try { return readFileSync(path); }
+  catch { throw new Error("SSE-Benutzerkonfiguration ist gesperrt oder nicht lesbar; nichts ueberschrieben."); }
+}
+
 function paths({ evidenceRoot, localAppData, engineMajor }) {
   assert(isAbsolute(evidenceRoot) && isAbsolute(localAppData));
   assert(Number.isInteger(engineMajor) && engineMajor > 0);
   return {
     iniPath: join(localAppData, "Steuertipps", "SSE", String(engineMajor), USER_CONFIG_NAME),
+    lockPath: join(localAppData, "Steuertipps", "SSE", String(engineMajor), ".api-mega-belegmanager-config.lock"),
     originalPath: join(evidenceRoot, ORIGINAL_NAME),
     swappedPath: join(evidenceRoot, SWAPPED_NAME),
     markerPath: join(evidenceRoot, MARKER_NAME),
@@ -144,75 +151,162 @@ function restoreExistingIsolation(options) {
   assert.equal(hasSwapped, true, "BelegManager-Recovery-Marker existiert ohne isolierte Vergleichskonfiguration.");
   assert.equal(hasMarker, true, "BelegManager-Originalkonfiguration existiert ohne Recovery-Marker.");
   const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+  assert.equal(marker.schemaVersion, 1, "Unbekanntes privates Recovery-Format.");
+  assert(!options.expectedHashes || (marker.originalHash === options.expectedHashes.originalHash &&
+    marker.swappedHash === options.expectedHashes.swappedHash), "Recovery-Marker gehoert nicht zu diesem Lauf.");
   const original = readFileSync(originalPath);
   const swapped = readFileSync(swappedPath);
-  assert.equal(sha256(original), marker.originalHash, "Private Recovery-Kopie hat einen unerwarteten Hash.");
-  assert.equal(sha256(swapped), marker.swappedHash, "Private Vergleichskopie hat einen unerwarteten Hash.");
-  const current = readFileSync(iniPath);
+  assert.equal(sha256(original) === marker.originalHash, true, "Private Recovery-Kopie hat einen unerwarteten Hash.");
+  assert.equal(sha256(swapped) === marker.swappedHash, true, "Private Vergleichskopie hat einen unerwarteten Hash.");
+  const originalValue = dataDirValue(original);
+  const swappedValue = dataDirValue(swapped);
+  assert.equal(originalValue.equals(swappedValue), false, "Recovery-Kopien belegen keine eigene DataDir-Aenderung.");
+  assert.equal(replaceDataDirValue(original, swappedValue).equals(swapped), true,
+    "Recovery-Kopien unterscheiden sich ausserhalb des eigenen DataDir-Werts.");
+  const current = readConfiguration(iniPath);
   const currentHash = sha256(current);
-  if (![marker.originalHash, marker.swappedHash].includes(currentHash)) {
-    assertOnlyKnownRuntimeDrift(current, swapped);
+  const currentValue = dataDirValue(current);
+  const stillIsolated = currentValue.equals(swappedValue);
+  assert(stillIsolated || currentValue.equals(originalValue),
+    "DataDir wurde anderweitig geaendert; Konfiguration und Recovery-Kopien bleiben erhalten.");
+  let fullConfigRestored = currentHash === marker.originalHash;
+  if (stillIsolated) {
+    try {
+      assertOnlyKnownRuntimeDrift(current, swapped);
+      fullConfigRestored = true;
+    } catch (error) {
+      if (error?.code !== "ERR_ASSERTION") throw error;
+      fullConfigRestored = false;
+    }
   }
-  if (currentHash !== marker.originalHash) writeFileSync(iniPath, original);
-  assert.equal(sha256(readFileSync(iniPath)), marker.originalHash,
-    "SSE-Benutzerkonfiguration wurde nicht byteidentisch restauriert.");
-  unlinkSync(markerPath);
-  unlinkSync(swappedPath);
-  unlinkSync(originalPath);
-  return { recovered: true, originalHash: marker.originalHash };
+  const replacement = fullConfigRestored ? original : replaceDataDirValue(current, originalValue);
+  const restorePreimagePath = join(options.evidenceRoot, `.api-mega-belegmanager-config-preimage-${randomUUID()}.bin`);
+  options.preimages.add(restorePreimagePath);
+  const transaction = options.commitBytes({ path: iniPath, expectedHash: currentHash,
+    bytes: replacement, recoveryPath: restorePreimagePath });
+  const restoredBytes = readConfiguration(iniPath);
+  const restoredHash = sha256(restoredBytes);
+  assert.equal(restoredHash === sha256(replacement), true, "Konfigurations-Ruecknahme ist nach dem Schreiben nicht mehr aktuell.");
+  assert.equal(dataDirValue(restoredBytes).equals(originalValue), true,
+    "Eigener DataDir-Wert wurde nicht zurueckgenommen.");
+  const cleanupErrors = [];
+  for (const path of [...options.preimages, swappedPath, originalPath]) {
+    try { if (existsSync(path)) unlinkSync(path); }
+    catch { cleanupErrors.push("recovery-copy-cleanup-failed"); }
+  }
+  if (!cleanupErrors.length) {
+    try { unlinkSync(markerPath); }
+    catch { cleanupErrors.push("recovery-marker-cleanup-failed"); }
+  }
+  return { recovered: true, ownChangeRestored: true, fullConfigRestored,
+    driftPreserved: !fullConfigRestored, restoreMode: fullConfigRestored ? "full" : "owned-field-only",
+    cleanupComplete: cleanupErrors.length === 0, cleanupErrors,
+    writePerformed: transaction.writePerformed, originalHash: marker.originalHash,
+    preRestoreHash: currentHash, restoredHash };
 }
 
-function replaceDataDir(original, isolatedDataDir) {
-  const text = original.toString("latin1");
+function dataDirSpan(bytes) {
+  const text = bytes.toString("latin1");
   const range = sectionRange(text, "BelegManager");
   assert(range, "SSE-Benutzerkonfiguration enthaelt keinen [BelegManager]-Abschnitt.");
   const sectionText = text.slice(range.start, range.end);
   const matches = [...sectionText.matchAll(/^([ \t]*DataDir[ \t]*=[ \t]*)([^\r\n]*)$/gimu)];
   assert.equal(matches.length, 1, "[BelegManager] braucht genau einen DataDir-Eintrag.");
   const match = matches[0];
-  const absoluteMatchStart = range.start + match.index;
-  // Keep the existing UTF-8 directory-value contract without decoding unrelated values.
-  const replacement = `${match[1]}${Buffer.from(isolatedDataDir, "utf8").toString("latin1")}`;
-  return Buffer.from(
-    text.slice(0, absoluteMatchStart) + replacement + text.slice(absoluteMatchStart + match[0].length),
-    "latin1",
-  );
+  const start = range.start + match.index + match[1].length;
+  return { start, end: start + match[2].length };
+}
+
+function dataDirValue(bytes) {
+  const { start, end } = dataDirSpan(bytes);
+  return bytes.subarray(start, end);
+}
+
+function replaceDataDirValue(bytes, value) {
+  const { start, end } = dataDirSpan(bytes);
+  return Buffer.concat([bytes.subarray(0, start), value, bytes.subarray(end)]);
 }
 
 export function beginBelegManagerConfigIsolation(options) {
   const { evidenceRoot, isolatedDataDir } = options;
   assert(isAbsolute(isolatedDataDir));
   mkdirSync(evidenceRoot, { recursive: true });
-  const recovered = restoreExistingIsolation(options);
-  mkdirSync(isolatedDataDir, { recursive: true });
-  assert.deepEqual(readdirSync(isolatedDataDir), [], "Der isolierte BelegManager-DataDir ist nicht leer.");
-  const { iniPath, originalPath, swappedPath, markerPath } = paths(options);
-  const original = readFileSync(iniPath);
-  // Reject ambiguous known runtime sections before changing the real DataDir.
-  assertOnlyKnownRuntimeDrift(original, original);
-  const swapped = replaceDataDir(original, resolve(isolatedDataDir));
-  const marker = {
-    schemaVersion: 1,
-    originalHash: sha256(original),
-    swappedHash: sha256(swapped),
+  const lockToken = randomUUID();
+  const { lockPath } = paths(options);
+  try { writeFileSync(lockPath, lockToken, { flag: "wx" }); }
+  catch { throw new Error("BelegManager-Testisolation ist bereits reserviert oder gesperrt; vorhandene Recovery zuerst pruefen."); }
+  options = { ...options, preimages: new Set(), commitBytes: options.commitBytes ?? commitIniBytes,
+    removeReservation: options.removeReservation ?? unlinkSync };
+  let markerCreated = false;
+  const assertLock = () => {
+    let token;
+    try { token = readFileSync(lockPath, "utf8"); }
+    catch { throw new Error("Die Reservierung der BelegManager-Testisolation ist nicht lesbar."); }
+    assert.equal(token === lockToken, true, "Die Reservierung der BelegManager-Testisolation wurde ersetzt.");
   };
-  writeFileSync(originalPath, original, { flag: "wx" });
-  writeFileSync(swappedPath, swapped, { flag: "wx" });
-  writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { flag: "wx" });
-  writeFileSync(iniPath, swapped);
-  assert.equal(sha256(readFileSync(iniPath)), marker.swappedHash,
-    "Isolierter BelegManager-DataDir wurde nicht exakt in die Benutzerkonfiguration geschrieben.");
-  let restored = false;
-  return {
-    recoveredStaleIsolation: recovered.recovered,
-    originalHash: marker.originalHash,
-    swappedHash: marker.swappedHash,
-    restore() {
-      assert.equal(restored, false, "BelegManager-Konfiguration darf nur einmal restauriert werden.");
-      const result = restoreExistingIsolation(options);
-      assert.equal(result.recovered, true);
-      restored = true;
-      return { restored: true, originalHash: result.originalHash };
-    },
-  };
+  const releaseLock = () => { assertLock(); options.removeReservation(lockPath); };
+  try {
+    const recovered = restoreExistingIsolation(options);
+    assert.notEqual(recovered.cleanupComplete, false, "Alte Recovery-Dateien konnten nicht bereinigt werden.");
+    mkdirSync(isolatedDataDir, { recursive: true });
+    assert.deepEqual(readdirSync(isolatedDataDir), [], "Der isolierte BelegManager-DataDir ist nicht leer.");
+    const { iniPath, originalPath, swappedPath, markerPath } = paths(options);
+    const original = readConfiguration(iniPath);
+    // Reject ambiguous known runtime sections before changing the real DataDir.
+    assertOnlyKnownRuntimeDrift(original, original);
+    const swapped = replaceDataDirValue(original, Buffer.from(resolve(isolatedDataDir), "utf8"));
+    assert.equal(original.equals(swapped), false, "BelegManager-DataDir ist bereits der gewaehlte Testbereich.");
+    const marker = {
+      schemaVersion: 1,
+      originalHash: sha256(original),
+      swappedHash: sha256(swapped),
+    };
+    createPrivateIniCopy(originalPath, original);
+    createPrivateIniCopy(swappedPath, swapped);
+    createPrivateIniCopy(markerPath, Buffer.from(`${JSON.stringify(marker, null, 2)}\n`));
+    markerCreated = true;
+    options.expectedHashes = marker;
+    const beginPreimagePath = join(evidenceRoot, `.api-mega-belegmanager-config-preimage-${randomUUID()}.bin`);
+    options.preimages.add(beginPreimagePath);
+    options.commitBytes({ path: iniPath, expectedHash: marker.originalHash, bytes: swapped,
+      recoveryPath: beginPreimagePath });
+    assert.equal(sha256(readConfiguration(iniPath)) === marker.swappedHash, true,
+      "Isolierter BelegManager-DataDir wurde nicht exakt in die Benutzerkonfiguration geschrieben.");
+    let restored = false;
+    return {
+      recoveredStaleIsolation: recovered.recovered,
+      originalHash: marker.originalHash,
+      swappedHash: marker.swappedHash,
+      restore() {
+        assert.equal(restored, false, "BelegManager-Konfiguration darf nur einmal restauriert werden.");
+        assertLock();
+        const result = restoreExistingIsolation(options);
+        assert.equal(result.recovered, true);
+        restored = true;
+        if (result.cleanupComplete) {
+          try { releaseLock(); }
+          catch { result.cleanupComplete = false; result.cleanupErrors.push("reservation-cleanup-failed"); }
+        }
+        return result;
+      },
+    };
+  } catch (error) {
+    if (!markerCreated) {
+      releaseLock();
+      throw error;
+    }
+    let recovery;
+    try {
+      assertLock();
+      recovery = restoreExistingIsolation(options);
+    } catch {
+      throw new Error("BelegManager-Setup fehlgeschlagen; eigene Konfigurationsaenderung ist unbestaetigt, Recovery und Reservierung bleiben erhalten.");
+    }
+    if (!recovery.cleanupComplete) {
+      throw new Error("BelegManager-Setup fehlgeschlagen; eigene Konfigurationsaenderung ist zurueckgenommen, Recovery-Bereinigung unvollstaendig.");
+    }
+    try { releaseLock(); }
+    catch { throw new Error("BelegManager-Setup fehlgeschlagen; eigene Konfigurationsaenderung ist zurueckgenommen, Reservierungs-Bereinigung fehlgeschlagen."); }
+    throw error;
+  }
 }

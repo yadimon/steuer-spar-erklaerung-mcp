@@ -691,6 +691,28 @@ Ohne eigene Einstellung beträgt das begrenzte Startbudget 30 Sekunden; es gilt
 für das Vorwärmen im Hintergrund und verändert kein Operationszeitlimit.
 Ein vor dem ersten Aufruf fehlgeschlagener Lauf liefert keine Gesamtlatenz der Reise.
 
+Die Mega-Reise isoliert den BelegManager-Datenordner vorübergehend in der
+Benutzerkonfiguration. Jede Änderung prüft unter einer exklusiven Dateisperre
+den erwarteten Ausgangsstand, sichert dessen Bytes und liest das Ergebnis
+zurück. Beim Aufräumen wird die ursprüngliche Konfiguration nur bei bekannten
+Laufzeitänderungen vollständig wiederhergestellt. Andere Änderungen bleiben
+erhalten; dann wird ausschließlich der eigene `DataDir`-Wert zurückgenommen.
+Der Bericht unterscheidet `ownChangeRestored`, `fullConfigRestored`,
+`driftPreserved` und `restoreMode`. Ein fremder oder mehrdeutiger `DataDir`,
+eine belegte Datei oder ein abweichender Ausgangsstand verhindert das Schreiben;
+die Wiederherstellungskopien bleiben zur Diagnose erhalten. Dieser Ablauf ist
+gegen konkurrierendes Schreiben geschützt, aber keine Zusage für atomare
+Wiederherstellung bei Prozessabbruch oder Stromausfall.
+Eine create-only Reservierung an der Benutzerkonfiguration verhindert
+gleichzeitige Mega-Isolationen auch bei verschiedenen Ergebnisordnern. Bleibt
+sie nach einem Abbruch zurück, startet kein weiterer Lauf, bis Konfiguration
+und private Wiederherstellungskopien geprüft wurden. Die Reservierung wird
+nicht automatisch als veraltet gelöscht. Alle Konfigurationskopien erhalten
+einen geschützten Windows-Zugriff für den ausführenden Benutzer und SYSTEM.
+Die Bereinigung der Kopien wird getrennt als `cleanupComplete` ausgewiesen;
+ein Fehler dabei macht eine bereits bestätigte Konfigurationsrücknahme nicht
+rückgängig. Der Bericht enthält keine Konfigurationsbytes oder deren Hashes.
+
 Für produktfreie Teilstrecken stehen `npm run perf:tax-journeys`,
 `npm run perf:receipt-workload` und `npm run perf:api-load-soak` bereit; der
 Rahmen dazu ist in [`test/performance/README.md`](../test/performance/README.md)
