@@ -597,6 +597,11 @@ Bereich und Layout müssen über alle Stufen unverändert bleiben. Würden die
 begrenzten Sprünge bei einer sehr langen Seite Leselücken lassen, wird der
 Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
 müssen zusätzlich überlappen.
+`read_full` bindet sowohl die anfängliche Rollaufnahme als auch jede
+Wertelesung an den profilierten Formularbereich. Fehlende oder unvollständige
+Teilbäume, Seitenwechsel und Geometrieänderungen ergeben weiterhin keinen
+Vollständigkeitsnachweis. Fehler zwischen den Lesestufen nennen einen festen
+Ursachencode; fremde Providertexte werden dabei nicht ausgegeben.
 Die UStVA-Mega-Reise stellt vor dem Betragscommit die Sichtbarkeit des konkreten
 Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
 Rollposition zurück. Die Fall-, Vorwert-, Fokus- und Eingabeprüfungen des

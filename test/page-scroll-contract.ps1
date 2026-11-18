@@ -15,7 +15,7 @@ $workerPath=Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($workerPath,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Production worker syntax is invalid'}
-foreach($name in @('Arg','Test-SSEElementIdentity','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Assert-SSEFullReadStageCoverage')){
+foreach($name in @('Arg','Test-SSEElementIdentity','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Get-SSEFullReadFailureCode','Assert-SSEFullReadStageCoverage')){
  $definitions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($definitions.Count -ne 1){throw 'Production page-scroll helper is missing or ambiguous'}
  . ([scriptblock]::Create($definitions[0].Extent.Text))
@@ -24,6 +24,8 @@ function Test-SSEMainContentAncestry { $script:ancestryValid }
 function Get-LiveElement {throw 'A page scroll must not search outside its exact snapshot cache'}
 function Start-Sleep {param($Milliseconds) if($Milliseconds -ne 450){throw 'Unexpected wait'};$script:waits++}
 function Assert-Equal($Actual,$Expected,$Message){if($Actual -cne $Expected){throw $Message}}
+Assert-Equal (Get-SSEFullReadFailureCode ([InvalidOperationException]::new('Full-read range changed.'))) 'range-changed' 'Fixed read failure was not classified'
+Assert-Equal (Get-SSEFullReadFailureCode ([InvalidOperationException]::new('synthetic-provider-detail'))) 'unproven-state' 'Untrusted provider details escaped through a read error'
 function New-Rect($X,$Y,$Width,$Height){[pscustomobject]@{X=[double]$X;Y=[double]$Y;Width=[double]$Width;Height=[double]$Height;IsEmpty=$false}}
 function New-Element($Id,$Aid,$Type,$Bounds,$Parent){
  $e=[pscustomobject]@{Id=$Id;Parent=$Parent;Current=[pscustomobject]@{AutomationId=$Aid;ProcessId=7;ControlType=$Type;BoundingRectangle=$Bounds;IsEnabled=$true;IsOffscreen=$false;NativeWindowHandle=0}}
@@ -253,22 +255,17 @@ function Resolve-Window { [IntPtr]111 }
 function Get-ContentBounds { [pscustomobject]@{minX=0;maxX=1000} }
 function Get-SSEHeading { [pscustomobject]@{text=$(if($script:valueFailure -ceq 'late-heading' -and $script:pattern.Current.Value -eq 185){'Different page'}else{'Synthetic scroll page'})} }
 function Emit($Result){$script:emitted=$Result;throw 'PAGE_SCROLL_TEST_EMIT'}
-function Fail($Message,$Kind){$script:emitted=[pscustomobject]@{ok=$false;kind=$Kind};throw 'PAGE_SCROLL_TEST_EMIT'}
+function Fail($Message,$Kind){$script:emitted=[pscustomobject]@{ok=$false;kind=$Kind;error=$Message};throw 'PAGE_SCROLL_TEST_EMIT'}
 function Get-SSEMainContentTree {
  param($Hwnd,$MaxNodes,$TimeoutSec,$MaxDepth,[switch]$WithValues,[switch]$WithScroll)
  Assert-Equal ([long]$Hwnd) 111 'Scoped read lost its exact window'
  Assert-Equal $MaxNodes 5000 'Scoped read changed its node bound'
  Assert-Equal $TimeoutSec 45 'Scoped read changed its deadline'
  Assert-Equal $MaxDepth 40 'Scoped read changed its depth bound'
- Assert-Equal ([bool]$WithScroll) $true 'Scoped read omitted live scroll evidence'
+ Assert-Equal (([bool]$WithScroll) -xor ([bool]$WithValues)) $true 'Scoped read omitted or mixed its required evidence'
  $script:scopedWalks++
  if($script:scopeMissing){return $null}
- $script:tree
-}
-function Walk-Tree {
- param($Hwnd,$MaxNodes,$TimeoutSec,$MaxDepth,[switch]$WithValues,[switch]$WithScroll)
- if($script:forbidGlobalWalk){throw 'Scroll must not traverse unrelated navigation or tool windows'}
- $script:walks++
+ if($WithValues -and $script:valueFailure -ceq 'late-scope' -and $script:pattern.Current.Value -eq 185){return $null}
  $nodes=@($script:tree.nodes)
  if($WithValues){
    switch($script:valueFailure){
@@ -283,8 +280,12 @@ function Walk-Tree {
  }
  [pscustomobject]@{nodes=$nodes;stats=$script:tree.stats}
 }
+function Walk-Tree {
+ $script:walks++
+ throw 'Page scrolling and full reading must not directly traverse unrelated navigation or tool windows'
+}
 function Run-Operation($Name,$Arguments){
- $script:a=$Arguments;$script:emitted=$null;$script:walks=0;$script:scopedWalks=0;$script:forbidGlobalWalk=($Name -ceq 'scroll_page')
+ $script:a=$Arguments;$script:emitted=$null;$script:walks=0;$script:scopedWalks=0
  try{& $cases[$Name]}catch{if($_.Exception.Message -cne 'PAGE_SCROLL_TEST_EMIT'){throw}}
  if(-not $script:emitted){throw 'Production operation never emitted its result'}
  $script:emitted
@@ -320,7 +321,23 @@ $full=Run-Operation 'read_full' ([pscustomobject]@{})
 Assert-Equal $full.ok $true 'Actual full reader failed'
 Assert-Equal $full.gerollt $true 'Actual full reader concealed scrolling'
 Assert-Equal $full.stufen 5 'Actual full reader did not visit every bounded stage'
+Assert-Equal $script:scopedWalks 7 'Full reader did not bind initialization and each value stage separately'
+Assert-Equal $script:walks 0 'Full reader directly walked unrelated global state'
 Assert-Equal ($script:targets -join ',') '0,185,370,555,740,925,0' 'Full reader did not start at the top, visit every stage and restore the top'
+New-Fixture
+$script:scopeMissing=$true
+Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'scroll-state-unknown' 'Missing initial full-read scope fell through to a global tree'
+Assert-Equal $script:sets 0 'Missing full-read scope moved the page'
+foreach($invalid in @(@{err=1},@{cyc=1},@{truncated=$true},@{depthLimited=$true})){
+ New-Fixture
+ foreach($entry in $invalid.GetEnumerator()){$script:tree.stats.($entry.Key)=$entry.Value}
+ Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'scroll-state-unknown' 'Incomplete initial full-read scope was accepted'
+ Assert-Equal $script:sets 0 'Incomplete initial full-read scope moved the page'
+}
+New-Fixture
+$script:valueFailure='late-scope'
+Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'incomplete' 'A disappearing value-stage scope emitted success'
+Assert-Equal $script:sets 1 'A disappearing scope caused another movement or an unproven restore'
 Assert-Equal ($full.zeilen -contains 'Top marker') $true 'Full reader missed the top of an initially scrolled page'
 Assert-Equal ($full.zeilen -contains 'Bottom marker') $true 'Full reader missed the bottom'
 foreach($failure in @('throw','no-movement')){

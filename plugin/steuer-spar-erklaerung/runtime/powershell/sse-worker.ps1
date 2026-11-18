@@ -7260,6 +7260,18 @@ function Assert-SSEFullReadRange($Baseline, $Current, [double]$ExpectedValue) {
   } }
 }
 
+function Get-SSEFullReadFailureCode($Failure) {
+  switch -CaseSensitive ([string]$Failure.Message) {
+    'Full-read scroll position changed.' { return 'position-changed' }
+    'Full-read range changed.' { return 'range-changed' }
+    'Full-read layout changed.' { return 'layout-changed' }
+    'Full-read intervals do not overlap.' { return 'coverage-gap' }
+    'Page scroll identity changed.' { return 'identity-changed' }
+    'Page scroll root changed.' { return 'root-changed' }
+    default { return 'unproven-state' }
+  }
+}
+
 function Assert-SSEFullReadStageCoverage($State) {
   if (-not $State.scrollable) { return }
   $previous=0.0
@@ -21054,7 +21066,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Qt haelt nur den sichtbaren Ausschnitt im Elementbaum; eine lange Seite
     # einmal zu lesen liefert also stillschweigend zu wenig.
     $hwnd = Resolve-Window $a
-    $pageScrollTree = Walk-Tree $hwnd 5000 45 40 -WithScroll
+    $pageScrollTree = Get-SSEMainContentTree $hwnd 5000 45 40 -WithScroll
+    if (-not $pageScrollTree) { Fail 'Vollstaendiger Seitenread braucht einen frisch gebundenen Formularbereich; nichts gerollt.' 'scroll-state-unknown' }
     try { $pageRangeBinding = Get-SSEPageRangeBinding $hwnd $pageScrollTree }
     catch { Fail 'Vollstaendiger Seitenread braucht einen frischen eindeutigen Rollbereich.' 'scroll-state-unknown' }
     $rangeInitial = $null
@@ -21076,7 +21089,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $ueberschrift = $null
 
     $lies = {
-      $t = Walk-Tree $hwnd 5000 45 40 -WithValues
+      $t = Get-SSEMainContentTree $hwnd 5000 45 40 -WithValues
+      if (-not $t) { Fail 'Der Formularbereich ist nicht mehr eindeutig gebunden; keinen Vollstaendigkeitsnachweis ausgeben.' 'incomplete' }
       if (-not $t.stats -or $t.stats.truncated -isnot [bool] -or $t.stats.depthLimited -isnot [bool] -or
           $t.stats.truncated -or $t.stats.depthLimited -or
           $t.stats.err -ne 0 -or $t.stats.cyc -ne 0 -or $t.stats.valErr -ne 0) {
@@ -21157,7 +21171,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $previousBottom = $fullRangePrevious.rects.viewport.y+$fullRangePrevious.rects.viewport.h-$fullRangePrevious.rects.body.y
             if ($currentTop -gt $previousBottom) { throw 'Full-read intervals do not overlap.' }
             $fullRangePrevious = $fullRangeConfirmed
-          } catch { Fail 'Lesestufen sind nicht lueckenlos und unveraendert bestaetigt.' 'incomplete' }
+          } catch {
+            $reason=Get-SSEFullReadFailureCode $_.Exception
+            Fail "Lesestufen sind nicht lueckenlos und unveraendert bestaetigt. [$reason]" 'incomplete'
+          }
           $stufen++
           $null = & $lies
         }
