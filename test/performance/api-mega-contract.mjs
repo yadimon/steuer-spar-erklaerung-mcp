@@ -185,7 +185,15 @@ assert.match(runner, /test\/with-api\.mjs/u);
 assert.match(runner, /SSE_TEST_API_PREWARM: "1"/u);
 assert.match(runner, /beginBelegManagerConfigIsolation/u);
 assert.match(runner, /SSE_MEGA_BELEGMANAGER_ISOLATED: "1"/u);
-assert.match(runner, /receiptConfigIsolationEvidence\.restored/u);
+assert.match(runner, /receiptConfigIsolationEvidence\.ownChangeRestored/u);
+assert.match(runner, /fullConfigRestored: false/u);
+assert.match(runner, /if \(receiptConfigIsolation && pidsAfter === ""\)/u,
+  "Config rollback must wait until every SSE process is closed.");
+assert.match(runner, /const cleanupSafe = [^;]+receiptConfigIsolationEvidence\.ownChangeRestored[^;]+receiptConfigIsolationEvidence\.cleanupComplete/u);
+assert.match(runner, /Object\.assign\(receiptConfigIsolationEvidence, \{ ownChangeRestored, fullConfigRestored,[\s\S]+?cleanupComplete, cleanupErrors \}\)/u);
+assert.doesNotMatch(runner, /Object\.assign\(receiptConfigIsolationEvidence, receiptConfigIsolation\.restore\(\)\)/u,
+  "Reports must select safe cleanup metadata instead of copying private configuration fingerprints.");
+assert.match(runner, /foreign drift preserved=\$\{receiptConfigIsolationEvidence\.driftPreserved\}/u);
 assert.match(runner, /safety:\s*\{[\s\S]+?belegManagerConfigIsolation: receiptConfigIsolationEvidence/u);
 assert.match(journey, /SSE_MEGA_BELEGMANAGER_ISOLATED/u);
 assert.match(journey, /result\.listFingerprint, baseline\.listFingerprint/u);

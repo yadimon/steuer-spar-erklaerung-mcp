@@ -1000,6 +1000,7 @@ export function createStatefulSseWorker({
         if (!caseState) return { ok: false, kind: "not-found", error: "Kein Steuerfall offen." };
         return {
           ok: true,
+          stats: { err: 0, cyc: 0, valErr: 0, truncated: false, depthLimited: false },
           ueberschrift: currentPage,
           felder: pageFields(model),
           aktionen: [{ name: "ELSTER", gesperrt: true }],

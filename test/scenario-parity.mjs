@@ -76,6 +76,7 @@ const worker = async (operation, args) => {
     },
     page: {
       ok: true,
+      stats: { err: 0, cyc: 0, valErr: 0, truncated: false, depthLimited: false },
       ueberschrift: "Umsatzsteuer-Voranmeldungen 2025",
       felder: [
         { label: "Voranmeldezeitraum", typ: "ComboBox", wert: "monatlich", aid: "Combobox" },

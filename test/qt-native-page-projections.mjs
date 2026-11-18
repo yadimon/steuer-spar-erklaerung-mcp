@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeQtNativeOperation } from "../dist/qt-native-executor.js";
+import { createApiExecutor } from "../dist/api-executor.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist/qt-native-pages.js";
 import { canonicalReceiptJson, receiptFingerprint } from "../dist/qt-native-receipts.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
@@ -704,8 +705,10 @@ export async function testNativePageProjections() {
       x, y, w: 180, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
     return i;
   };
-  ustvaNode("Group", "", 0, 0, { w: 1000, h: 600 });
+  ustvaNode("Group", "", 0, 0, { w: 1000, h: 600, aid: "window.centralWidget" });
   ustvaNode("Tree", "Navigation", 0, 0, { w: 200 });
+  const ustvaLibrary = ustvaNode("Group", "", 800, 0, { w: 200, h: 600,
+    aid: "window.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE" });
   const ustvaHeader = ustvaNode("Group", "", 220, 0, { aid: "window.ClientFrameSSE.ClientHeader" });
   ustvaNode("Text", "Umsatzsteuer-Voranmeldungen 2025", 220, 20, { p: ustvaHeader });
   ustvaNode("Text", "Voranmeldezeitraum", 220, 100);
@@ -729,17 +732,33 @@ export async function testNativePageProjections() {
   ustvaNode("Edit", "", 760, 210,
     { p: reductionGroup, val: "0,00", ro: false, aid: "window.Reduction.Wert" });
   const ustvaStats = { ...stats, n: ustvaNodes.length };
-  const ustvaClient = { binding: { hwnd: 42, pid: 99 }, request: async operation => {
+  const ustvaClientFor = (nodes = ustvaNodes, windows = pageWindows.slice(0, 1), selectedStats = { ...ustvaStats, n: nodes.length }) => {
+    // The native walker numbers its emitted nodes consecutively. Removing a
+    // column from a fixture must also update node and parent indexes.
+    const indexes = new Map(nodes.map((node, index) => [node.i, index]));
+    assert.equal(indexes.size, nodes.length);
+    const snapshotNodes = nodes.map((node, i) => {
+      assert(node.p < 0 || indexes.has(node.p), "Synthetic native parent must still exist.");
+      return { ...node, i, p: node.p < 0 ? -1 : indexes.get(node.p) };
+    });
+    return {
+    binding: { hwnd: 42, pid: 99 }, request: async operation => {
+    if (operation === "window_inventory") {
+      return { durationMs: 1, result: { ok: true, windows, visibleWindowCount: windows.length,
+        productWindowCount: windows.length, untitledWindows: [] } };
+    }
     assert.equal(operation, "accessibility_snapshot");
     return { durationMs: 4, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
       windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true, modalBlocked: false,
-      exactMatches: {}, nodes: ustvaNodes, stats: ustvaStats } };
-  } };
+      exactMatches: {}, nodes: snapshotNodes, stats: selectedStats } };
+    } };
+  };
+  const ustvaClient = ustvaClientFor();
   const ustva = await executeQtNativeOperation("ustva_read", { hwnd: 42 }, { qtNativeClient: ustvaClient },
     5000, undefined, loadProductProfile("2025"));
   assert.equal(ustva.ok, true, JSON.stringify(ustva));
   assert.equal(ustva.backend, "qt");
-  assert.equal(ustva.nativeDurationMs, 4);
+  assert.equal(ustva.nativeDurationMs, 5);
   assert.equal(ustva.pageKind, "overview");
   assert.equal(ustva.taxYear, 2025);
   assert.deepEqual(ustva.period, { frequency: "monthly", frequencyDisplay: "monatlich", selector: "month", key: "june", display: "Juni" });
@@ -752,6 +771,89 @@ export async function testNativePageProjections() {
     rect: { x: 0, y: 0, w: 1000, h: 600 }, stats: ustvaStats, windows: pageWindows.slice(0,1) }]);
   const { backend: ustvaBackend, nativeDurationMs: ustvaDuration, ...ustvaProjection } = ustva;
   assert.deepEqual(ustvaProjection, normalizeUstvaCurrentPage(ustvaOracle.results[0]));
+
+  const warning = { ...ustvaNodes[0], i: ustvaNodes.length, p: ustvaLibrary, d: 2, type: "TreeItem",
+    name: "Synthetic UStVA warning " + "x".repeat(100), x: 790, y: 100, aid: "window.ValidationPreview", rid: "42.42.4.900" };
+  const warnedUstva = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+    { qtNativeClient: ustvaClientFor([...ustvaNodes, warning]) }, 5000, undefined, loadProductProfile("2025"));
+  assert.equal(warnedUstva.ok, true);
+  assert.equal(warnedUstva.blocked, true, "Native UStVA silently cleared an observed checker warning.");
+  assert.deepEqual(warnedUstva.messages, [warning.name]);
+  const unknownUstvaWindow = { ...pageWindows[0], hwnd: 84, order: 84, title: "Synthetic unknown dialog", w: 300, h: 200 };
+  const obstructedUstva = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+    { qtNativeClient: ustvaClientFor(ustvaNodes, [pageWindows[0], unknownUstvaWindow]) },
+    5000, undefined, loadProductProfile("2025"));
+  assert.equal(obstructedUstva.ok, false);
+  assert.equal(obstructedUstva.kind, "dialog-open");
+  assert.equal(Object.hasOwn(obstructedUstva, "amounts"), false);
+  const cutUstva = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+    { qtNativeClient: ustvaClientFor(ustvaNodes, undefined, { ...ustvaStats, truncated: true }) },
+    5000, undefined, loadProductProfile("2025"));
+  assert.equal(cutUstva.ok, false);
+  assert.equal(cutUstva.kind, "native-incomplete");
+  assert.equal(Object.hasOwn(cutUstva, "amounts"), false);
+  for (const columnNodes of [ustvaNodes.filter(node => node.i !== ustvaLibrary),
+    ustvaNodes.map(node => node.i === ustvaLibrary ? { ...node, w: 0, h: 0 } : node),
+  ]) {
+    const missingStatus = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+      { qtNativeClient: ustvaClientFor(columnNodes) }, 5000, undefined, loadProductProfile("2025"));
+    assert.equal(missingStatus.ok, false);
+    assert.equal(missingStatus.kind, "ustva-incomplete", JSON.stringify(missingStatus));
+    assert.equal(Object.hasOwn(missingStatus, "amounts"), false);
+  }
+  const dispatchRoot = mkdtempSync(join(tmpdir(), "sse-ustva-native-dispatch-"));
+  try {
+    const nativeExecute = createApiExecutor({ host: "127.0.0.1", port: 1, profileId: "2025",
+      configPath: join(dispatchRoot, "config.json"), caseDir: dispatchRoot,
+      workspaceDir: dispatchRoot, resultDir: dispatchRoot,
+    }, async () => { throw new Error("Native UStVA must not dispatch a private UIA worker."); }, { qtNativeClient: ustvaClientFor() });
+    assert.equal((await nativeExecute("ustva_read", { hwnd: 42 }, 5000)).ok, true);
+
+    writeFileSync(join(dispatchRoot, "synthetic.Gew2025"), "synthetic native preparation fixture");
+    const caseBinding = { hwnd: 42, expectedCaseRef: "cases:synthetic.Gew2025", expectedCaseHash: "a".repeat(64) };
+    const preparations = [
+      ["ustva_select_period", { ...caseBinding, selector: "month", value: "july", expectedCurrent: "june" }, "combo_select"],
+      ["ustva_set_flag", { ...caseBinding, flag: "corrected", value: true, expectedBefore: false, expectedAfter: true }, "toggle"],
+      ["ustva_change_value", { ...caseBinding, field: "input_tax_adjustment", value: "1,00", expectedBefore: "0,00", expectedAfter: "1,00" }, "tracked_set_value"],
+      ["ustva_open_section", { section: "input_tax", hwnd: 42 }, "click"],
+      ["ustva_change_value", { field: "taxable_19_base", value: "1,00", expectedBefore: "0,00", expectedAfter: "1,00",
+        ...caseBinding, manualInputConfirmed: true, expectedPage: "Umsatzsteuer-Voranmeldungen 2025" }, "tracked_set_value"],
+    ];
+    for (const provider of ["qtNativeClient", "qtNativeClientFor"]) {
+      const createPreparation = selectedNodes => {
+        const workerCalls = [];
+        const client = ustvaClientFor(selectedNodes);
+        const execute = createApiExecutor({ host: "127.0.0.1", port: 1, profileId: "2025",
+          configPath: join(dispatchRoot, "config.json"), caseDir: dispatchRoot,
+          workspaceDir: dispatchRoot, resultDir: dispatchRoot,
+        }, async operation => { workerCalls.push(operation); return { ok: true, verified: true }; },
+        { [provider]: provider === "qtNativeClient" ? client : async () => client });
+        return { execute, workerCalls };
+      };
+      for (const [operation, args, followup] of preparations) {
+        const complete = createPreparation(ustvaNodes);
+        assert.equal((await complete.execute(operation, args, 5000)).ok, true,
+          `${provider}: complete ${operation} preparation was rejected`);
+        assert.deepEqual(complete.workerCalls, [followup], `${provider}: complete preparation changed its followup`);
+      }
+      for (const columnNodes of [ustvaNodes.filter(node => node.i !== ustvaLibrary),
+        ustvaNodes.map(node => node.i === ustvaLibrary ? { ...node, w: 0, h: 0 } : node),
+      ]) {
+        const publicPage = createPreparation(columnNodes);
+        assert.equal((await publicPage.execute("page", { hwnd: 42 }, 5000)).ok, true,
+          "The private UStVA requirement must not change a public page read.");
+        assert.deepEqual(publicPage.workerCalls, []);
+        for (const [operation, args] of preparations) {
+          const incomplete = createPreparation(columnNodes);
+          const refused = await incomplete.execute(operation, args, 5000);
+          assert.equal(refused.ok, false, `${provider}: ${operation} ignored incomplete status`);
+          assert.equal(refused.kind, "ustva-incomplete");
+          assert.equal(Object.hasOwn(refused, "amounts"), false);
+          assert.deepEqual(incomplete.workerCalls, [], `${provider}: ${operation} dispatched a mutation after incomplete status`);
+        }
+      }
+    }
+  } finally { rmSync(dispatchRoot, { recursive: true, force: true }); }
 
   const receiptNodes = [];
   const receiptNode = (type, name, aid, x, y, extra = {}) => {

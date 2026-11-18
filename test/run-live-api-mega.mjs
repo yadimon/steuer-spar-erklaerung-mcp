@@ -131,7 +131,11 @@ let receiptConfigIsolation = null;
 const receiptConfigIsolationEvidence = {
   active: false,
   recoveredStaleIsolation: false,
-  restored: false,
+  ownChangeRestored: false,
+  fullConfigRestored: false,
+  driftPreserved: false,
+  restoreMode: null,
+  cleanupComplete: false,
 };
 let setupFailure = markerBefore.present
   ? new Error("Die API-Mega-Reise startet nicht mit vorhandenem Hidden-Desktop-Marker.")
@@ -196,8 +200,10 @@ const runtimeAfter = megaRuntimeFingerprint();
 const pidsAfter = ssePids();
 if (receiptConfigIsolation && pidsAfter === "") {
   try {
-    receiptConfigIsolation.restore();
-    receiptConfigIsolationEvidence.restored = true;
+    const { ownChangeRestored, fullConfigRestored, driftPreserved, restoreMode,
+      writePerformed, cleanupComplete, cleanupErrors } = receiptConfigIsolation.restore();
+    Object.assign(receiptConfigIsolationEvidence, { ownChangeRestored, fullConfigRestored,
+      driftPreserved, restoreMode, writePerformed, cleanupComplete, cleanupErrors });
   } catch (error) {
     setupFailure ??= new Error(`BelegManager-Konfiguration wurde nicht restauriert: ${error.message}`);
   }
@@ -213,8 +219,8 @@ const fingerprintStable =
   runtimeAfter.fingerprint === runtimeBefore.fingerprint;
 const fingerprintVerificationWallMs = rounded(performance.now() - postflightVerificationStartedAt);
 const childSucceeded = !setupFailure && child?.status === 0 && child?.signal === null && raw?.status === "passed";
-const cleanupSafe = childSucceeded && pidsAfter === "" && receiptConfigIsolationEvidence.restored &&
-  markerSafe && officialUnchanged && fingerprintStable;
+const cleanupSafe = childSucceeded && pidsAfter === "" && receiptConfigIsolationEvidence.ownChangeRestored &&
+  receiptConfigIsolationEvidence.cleanupComplete && markerSafe && officialUnchanged && fingerprintStable;
 let disposableCleanup = { attempted: false, removed: false, preserved: true };
 let disposableCleanupWallMs = 0;
 if (cleanupSafe) {
@@ -240,7 +246,8 @@ const failureReasons = [
   ...(child?.signal ? [`child-signal-${child.signal}`] : []),
   ...(pidsAfter ? ["owned-sse-process-remained"] : []),
   ...(!receiptConfigIsolationEvidence.active ? ["belegmanager-config-isolation-not-active"] : []),
-  ...(!receiptConfigIsolationEvidence.restored ? ["belegmanager-config-not-restored"] : []),
+  ...(!receiptConfigIsolationEvidence.ownChangeRestored ? ["belegmanager-owned-config-change-not-restored"] : []),
+  ...(!receiptConfigIsolationEvidence.cleanupComplete ? ["belegmanager-recovery-cleanup-incomplete"] : []),
   ...(markerBefore.present ? ["hidden-desktop-marker-present-before"] : []),
   ...(markerAfter.present ? ["hidden-desktop-marker-present-after"] : []),
   ...(!markerUnchanged ? ["hidden-desktop-marker-changed"] : []),
@@ -278,15 +285,6 @@ const report = {
       : previousReports.length
         ? `This is canonical whole-journey baseline #${baselineOrdinal}; prior canonical reports are eligible for explicit comparison when their fingerprints and run evidence match.`
         : "This is the first canonical whole-journey baseline; historical numbers are component-only and are not deltas for this report.",
-    componentContextMs: {
-      semanticNavigationBefore: 19_916,
-      semanticNavigationAfter: 12_724,
-      receiptBulkBefore: 37_531,
-      receiptBulkAfter: 25_568,
-      existingReceiptUpdateSafeCycle: 15_009,
-      vehicleFillFieldsCycle: 8_753,
-      coldOutlierVmBulkUpsert: 98_561,
-    },
   },
   source: {
     branch: sourceBefore.branch,
@@ -400,7 +398,7 @@ const markdown = `# Canonical live API mega journey — ${classification}\n\n` +
   `- API calls: ${report.operations?.count ?? "n/a"}; distinct executed operations: ${report.operations?.distinctCount ?? "n/a"}; call failures=${report.operations?.failureCount ?? "n/a"}\n` +
   `- Catalog coverage: executed=${report.catalogCoverage?.coveredExecutedCount ?? 0}/${report.catalogCoverage?.coveredDeclaredCount ?? 0} declared covered; catalog total=${report.catalogCoverage?.operationCount ?? 99}\n` +
   `- Mutation/readback assertions: passed=${report.mutationCoverage?.passed ?? 0}; skipped=${report.mutationCoverage?.skipped ?? 0}; failed=${report.mutationCoverage?.failed ?? 0}; unexecuted=${report.mutationCoverage?.unexecuted ?? 0}; declared=${report.mutationCoverage?.declared ?? 0}\n` +
-  `- Cleanup: zero SSE processes=${pidsAfter === ""}; BelegManager config restored=${receiptConfigIsolationEvidence.restored}; hidden-desktop marker safe=${markerSafe}; official hashes unchanged=${officialUnchanged}; disposable copies removed=${disposableCleanup.removed}\n\n` +
+  `- Cleanup: zero SSE processes=${pidsAfter === ""}; own BelegManager config change restored=${receiptConfigIsolationEvidence.ownChangeRestored}; full original config restored=${receiptConfigIsolationEvidence.fullConfigRestored}; foreign drift preserved=${receiptConfigIsolationEvidence.driftPreserved}; restore mode=${receiptConfigIsolationEvidence.restoreMode}; hidden-desktop marker safe=${markerSafe}; official hashes unchanged=${officialUnchanged}; disposable copies removed=${disposableCleanup.removed}\n\n` +
   "## Environment and stability\n\n" +
   `- Runtime fingerprint: \`${runtimeBefore.fingerprint}\` (stable: ${runtimeAfter.fingerprint === runtimeBefore.fingerprint})\n` +
   `- Node/npm: ${report.runtime.node} / ${report.runtime.npm}; SSE build: ${md(report.runtime.sse?.currentBuild ?? "n/a")}\n` +
@@ -421,7 +419,7 @@ const markdown = `# Canonical live API mega journey — ${classification}\n\n` +
   "## Safely excluded catalog operations\n\n" +
   "| Classification | Subclassification | Operations | Reason |\n| --- | --- | --- | --- |\n" +
   (exclusionRows || "| n/a | n/a | n/a | n/a |") + "\n\n" +
-  `${report.historicalComparison.note} The historical navigation, receipt, and vehicle figures are component measurements only and are not directly comparable.\n` +
+  `${report.historicalComparison.note}\n` +
   (passed ? "" : `\nFailure phase: ${report.failure.phase}; reasons: ${failureReasons.join(", ")}\n`);
 
 writeExclusive(jsonPath, `${JSON.stringify(report, null, 2)}\n`);

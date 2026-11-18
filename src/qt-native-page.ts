@@ -91,7 +91,7 @@ function pageActions(own: readonly QtSnapshotNode[], bounds: Bounds, windowTop: 
 /** Checker entries right of the content area; Select-Object -Unique keeps case-sensitive distinct names. */
 function checkerMessages(own: readonly QtSnapshotNode[], bounds: Bounds): string[] {
   return [...new Set(own
-    .filter(node => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90)
+    .filter(node => node.type === "TreeItem" && node.name && node.x >= bounds.maxX)
     .map(node => node.name)
     .filter(name => !CHECKER_NOISE.has(name.toLowerCase())))];
 }
@@ -103,6 +103,7 @@ export async function executeQtNativePage(
   timeoutMs: number,
   signal?: AbortSignal,
   profile?: ProductProfile,
+  validateObservation?: (nodes: readonly QtSnapshotNode[], bounds: Bounds) => WorkerResult | null,
 ): Promise<WorkerResult> {
   if (!profile) return fail("bad-args", "page requires a product profile.");
   if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
@@ -134,6 +135,8 @@ export async function executeQtNativePage(
   const ownedRead = await readOwnedWindowSubtrees(client, owned, 5000, "Seite", snapshot.nodes.length, budget, signal);
   if (ownedRead.failure) return ownedRead.failure;
   const bounds = qtNativeContentBounds(own, snapshot.windowRect);
+  const invalidObservation = validateObservation?.(own, bounds);
+  if (invalidObservation) return invalidObservation;
   // Get-CaptionMinX: without a recognised navigation tree the caption column lies left of the guessed content edge.
   const textMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
   const ueberschrift = qtNativeHeading(own, profile);

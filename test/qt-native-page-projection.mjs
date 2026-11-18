@@ -153,7 +153,7 @@ assert.deepEqual(page, {
     { name: "ELSTER versenden", typ: "Button", bereich: "seite", aktiviert: true, gesperrt: true, werkzeug: "(gesperrt)" },
   ],
   blockiert: true,
-  prueferMeldungen: ["Fehlende Angabe zur Anlage N", "fehlende angabe zur anlage n"],
+  prueferMeldungen: ["Fehlende Angabe zur Anlage N", "x".repeat(90), "fehlende angabe zur anlage n"],
   leerePflichtfelder: ["Hinweis"],
   dialoge: [],
   offeneFenster: 2,
@@ -355,7 +355,7 @@ assert.deepEqual(tooltip.operations, ["window_inventory", "accessibility_snapsho
 // The worker's closable-window policy is case-sensitive on the catalogued title.
 const caseVariant = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(88, "belegmanager", { w: 1800, h: 1200 })]);
 assert.equal((await executeQtNativePage(caseVariant.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
-// --- Boundary constants copied from the worker: caption band, row band, toolbar band and checker name length.
+// --- Worker boundaries: caption, row and toolbar bands; checker text remains complete.
 const edge = treeBuilder();
 edge.node("Tree", "Navigation", 0, 60, { w: 200, h: 600 });
 edge.node("Button", "Eingabehilfe", 800, 200);
@@ -370,13 +370,15 @@ edge.node("Button", "Leiste", 400, 159);
 edge.node("Button", "Inhalt", 400, 160);
 edge.node("TreeItem", "y".repeat(89), 820, 400);
 edge.node("TreeItem", "z".repeat(90), 820, 420);
+const longCheckerMessage = "Eine ausführliche Meldung muss auch am Rand der Hinweisspalte vollständig erhalten bleiben. ".repeat(3).trim();
+edge.node("TreeItem", longCheckerMessage, 800, 440);
 const edges = await executeQtNativePage(makeClient(edge.nodes, fullRect, [twoWindows[0]]).client, { hwnd: 42 }, 5000, undefined, profile);
 assert.deepEqual(edges.felder.map(field => field.label), ["Genau 14", ""]);
 assert.deepEqual(edges.tabelle.zeilen, ["r1", "r1b", "r2"]);
 assert.equal(edges.tabelle.sichtbareZeilen, 2);
 assert.deepEqual(edges.aktionen.map(action => [action.name, action.bereich]),
   [["Leiste", "werkzeugleiste"], ["Inhalt", "seite"], ["Eingabehilfe", "hilfespalte"]]);
-assert.deepEqual(edges.prueferMeldungen, ["y".repeat(89)]);
+assert.deepEqual(edges.prueferMeldungen, ["y".repeat(89), "z".repeat(90), longCheckerMessage]);
 const catalogued = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(87, "BelegManager", { w: 1800, h: 1200 })]);
 const withManager = await executeQtNativePage(catalogued.client, { hwnd: 42 }, 5000, undefined, profile);
 assert.equal(withManager.ok, true);

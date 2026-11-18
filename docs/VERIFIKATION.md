@@ -597,10 +597,31 @@ Bereich und Layout müssen über alle Stufen unverändert bleiben. Würden die
 begrenzten Sprünge bei einer sehr langen Seite Leselücken lassen, wird der
 Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
 müssen zusätzlich überlappen.
+`read_full` bindet sowohl die anfängliche Rollaufnahme als auch jede
+Wertelesung an den profilierten Formularbereich. Fehlende oder unvollständige
+Teilbäume, Seitenwechsel und Geometrieänderungen ergeben weiterhin keinen
+Vollständigkeitsnachweis. Fehler zwischen den Lesestufen nennen einen festen
+Ursachencode; fremde Providertexte werden dabei nicht ausgegeben.
 Die UStVA-Mega-Reise stellt vor dem Betragscommit die Sichtbarkeit des konkreten
 Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
 Rollposition zurück. Die Fall-, Vorwert-, Fokus- und Eingabeprüfungen des
 Feldcommits bleiben eigenständige Voraussetzungen.
+
+Der UStVA-Vertrag führt die produktiven PowerShell-Funktionen für getrennte
+Formular- und Hinweislesungen gegen synthetische Providergrenzen aus. Er prüft
+fehlende oder fehlerhafte Teilbäume, lange Warntexte, geänderte Überschrift oder
+Spaltenbindung, eigene und fremde Dialoge sowie das gemeinsame Lesebudget.
+Die API-Tests verweigern fehlende Vollständigkeitsangaben und beweisen, dass
+eine unvollständige Vorbereitung keine Mutation startet. Der interne Lesekontext
+kann nicht über öffentliche `page`-Argumente eingeschleust werden. Native
+Regressionen prüfen zusätzlich erhaltene Warnungen, unbekannte Fenster und
+abgeschnittene Bäume. Bei fest gebundenen und verwalteten Qt-Sitzungen nutzen
+auch die notwendigen Vorbereitungslesungen denselben Hinweisspalten-Validator.
+Fehlende oder eingeklappte Spalten verhindern jede Folgeaktion; vollständige
+Kontrollfälle behalten ihre bisherige Folgeaktion. Eine übergebene Überschrift
+ersetzt bei manuellen Übersichtswerten nicht die Prüfung des live gelesenen
+Kennzeichens. Öffentliche `page`-Lesungen bleiben unverändert. Diese Gegenfälle
+ersetzen keine reale UStVA-Abnahme.
 
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
@@ -690,6 +711,28 @@ Pool-Konfiguration; eine längere erlaubte Vorbereitung ist keine schnellere API
 Ohne eigene Einstellung beträgt das begrenzte Startbudget 30 Sekunden; es gilt
 für das Vorwärmen im Hintergrund und verändert kein Operationszeitlimit.
 Ein vor dem ersten Aufruf fehlgeschlagener Lauf liefert keine Gesamtlatenz der Reise.
+
+Die Mega-Reise isoliert den BelegManager-Datenordner vorübergehend in der
+Benutzerkonfiguration. Jede Änderung prüft unter einer exklusiven Dateisperre
+den erwarteten Ausgangsstand, sichert dessen Bytes und liest das Ergebnis
+zurück. Beim Aufräumen wird die ursprüngliche Konfiguration nur bei bekannten
+Laufzeitänderungen vollständig wiederhergestellt. Andere Änderungen bleiben
+erhalten; dann wird ausschließlich der eigene `DataDir`-Wert zurückgenommen.
+Der Bericht unterscheidet `ownChangeRestored`, `fullConfigRestored`,
+`driftPreserved` und `restoreMode`. Ein fremder oder mehrdeutiger `DataDir`,
+eine belegte Datei oder ein abweichender Ausgangsstand verhindert das Schreiben;
+die Wiederherstellungskopien bleiben zur Diagnose erhalten. Dieser Ablauf ist
+gegen konkurrierendes Schreiben geschützt, aber keine Zusage für atomare
+Wiederherstellung bei Prozessabbruch oder Stromausfall.
+Eine create-only Reservierung an der Benutzerkonfiguration verhindert
+gleichzeitige Mega-Isolationen auch bei verschiedenen Ergebnisordnern. Bleibt
+sie nach einem Abbruch zurück, startet kein weiterer Lauf, bis Konfiguration
+und private Wiederherstellungskopien geprüft wurden. Die Reservierung wird
+nicht automatisch als veraltet gelöscht. Alle Konfigurationskopien erhalten
+einen geschützten Windows-Zugriff für den ausführenden Benutzer und SYSTEM.
+Die Bereinigung der Kopien wird getrennt als `cleanupComplete` ausgewiesen;
+ein Fehler dabei macht eine bereits bestätigte Konfigurationsrücknahme nicht
+rückgängig. Der Bericht enthält keine Konfigurationsbytes oder deren Hashes.
 
 Für produktfreie Teilstrecken stehen `npm run perf:tax-journeys`,
 `npm run perf:receipt-workload` und `npm run perf:api-load-soak` bereit; der

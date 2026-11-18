@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { callWorker, MAX_WORKER_ARGUMENT_BYTES } from "../dist/worker.js";
 import { bindDesktopStartDeadline } from "../dist/worker-start-deadline.js";
+import { bindUstvaReadDeadline } from "../dist/worker-read-deadline.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -30,6 +31,18 @@ const run = (path, extra = [], operation = "health") => spawnSync(
 
 try {
   const callerArgs = { timeoutSec: 90 };
+  const privateRead = { internalUstvaPage: true, hwnd: 42 };
+  assert.deepEqual(bindUstvaReadDeadline("page", privateRead, 10_000, 1000),
+    { ...privateRead, __ustvaReadDeadlineUnixMs: 11_000 });
+  assert.deepEqual(privateRead, { internalUstvaPage: true, hwnd: 42 });
+  assert.equal(bindUstvaReadDeadline("page", callerArgs, 1), callerArgs);
+  assert.equal(bindUstvaReadDeadline("health", privateRead, 1), privateRead);
+  for (const invalid of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => bindUstvaReadDeadline("page", privateRead, invalid, 1000), TypeError);
+  }
+  for (const operation of ["page", "health"]) {
+    assert.throws(() => bindUstvaReadDeadline(operation, { __ustvaReadDeadlineUnixMs: 11_000 }, 1000), TypeError);
+  }
   assert.deepEqual(bindDesktopStartDeadline("desktop_start", callerArgs, 90_000, 10_000),
     { timeoutSec: 90, __desktopStartDeadlineUnixMs: 100_000 });
   assert.deepEqual(callerArgs, { timeoutSec: 90 }, "Transport binding must not change caller arguments");
@@ -46,6 +59,9 @@ try {
   await assert.rejects(callWorker("desktop_start", {}, 1000), (error) => error.kind === "bad-args");
   const workerSource = readFileSync(join(root, "src", "worker.ts"), "utf8");
   const deadlineBinding = workerSource.indexOf("args = bindDesktopStartDeadline(");
+  const readDeadlineBinding = workerSource.indexOf("args = bindUstvaReadDeadline(");
+  assert(readDeadlineBinding > deadlineBinding && readDeadlineBinding < workerSource.indexOf("const spare ="),
+    "Private read deadlines must bind before borrowing a worker.");
   assert(deadlineBinding >= 0 && deadlineBinding < workerSource.indexOf("const spare ="),
     "Reject invalid deadlines before borrowing a ready child");
   writeFileSync(argsPath, JSON.stringify({

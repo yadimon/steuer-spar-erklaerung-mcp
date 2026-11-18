@@ -7,7 +7,7 @@ import { executeQtNativeSnapshot, executeQtSnapshotGetValue, qtSnapshotArguments
 import type { ProductProfile } from "./product-profiles.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions, executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
 import { executeQtNativeFind } from "./qt-native-find.js";
-import { executeQtNativeUstvaRead } from "./qt-native-ustva.js";
+import { executeQtNativeUstvaPage, executeQtNativeUstvaRead } from "./qt-native-ustva.js";
 import { executeQtNativeReceiptManagerRead } from "./qt-native-receipt-read.js";
 import { executeQtNativeReceiptManagerUpdate } from "./qt-native-receipt-update.js";
 import { executeQtNativeReceiptManagerLink } from "./qt-native-receipt-link.js";
@@ -41,6 +41,7 @@ export interface QtNativeExecutorDependencies {
 export async function executeQtNativeOperation(
   operation: QtNativeOperation, args: Readonly<Record<string, unknown>>, dependencies: QtNativeExecutorDependencies,
   timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal, profile?: ProductProfile,
+  internalUstvaPage = false,
 ): Promise<WorkerResult> {
   if (operation === "get_value" && args.selectorNamespace !== undefined
     && (args.selectorNamespace !== "qt-object"
@@ -56,7 +57,7 @@ export async function executeQtNativeOperation(
     const remaining = Math.floor(timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before dispatch.", "native-timeout");
     const execute = operation === "goto" ? executeQtNativeGoto : operation === "known_page_state" ? executeQtNativeKnownPageState
-      : operation === "page" ? executeQtNativePage
+      : operation === "page" ? (internalUstvaPage ? executeQtNativeUstvaPage : executeQtNativePage)
       : operation === "ui_state" ? executeQtNativeUiState
       : operation === "help" ? executeQtNativeHelp
       : operation === "read_table" ? executeQtNativeReadTable

@@ -15,7 +15,7 @@ $workerPath=Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($workerPath,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Production worker syntax is invalid'}
-foreach($name in @('Arg','Test-SSEElementIdentity','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Assert-SSEFullReadStageCoverage')){
+foreach($name in @('Arg','Test-SSEElementIdentity','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Get-SSEFullReadFailureCode','Assert-SSEFullReadStageCoverage')){
  $definitions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($definitions.Count -ne 1){throw 'Production page-scroll helper is missing or ambiguous'}
  . ([scriptblock]::Create($definitions[0].Extent.Text))
@@ -24,16 +24,18 @@ function Test-SSEMainContentAncestry { $script:ancestryValid }
 function Get-LiveElement {throw 'A page scroll must not search outside its exact snapshot cache'}
 function Start-Sleep {param($Milliseconds) if($Milliseconds -ne 450){throw 'Unexpected wait'};$script:waits++}
 function Assert-Equal($Actual,$Expected,$Message){if($Actual -cne $Expected){throw $Message}}
+Assert-Equal (Get-SSEFullReadFailureCode ([InvalidOperationException]::new('Full-read range changed.'))) 'range-changed' 'Fixed read failure was not classified'
+Assert-Equal (Get-SSEFullReadFailureCode ([InvalidOperationException]::new('synthetic-provider-detail'))) 'unproven-state' 'Untrusted provider details escaped through a read error'
 function New-Rect($X,$Y,$Width,$Height){[pscustomobject]@{X=[double]$X;Y=[double]$Y;Width=[double]$Width;Height=[double]$Height;IsEmpty=$false}}
 function New-Element($Id,$Aid,$Type,$Bounds,$Parent){
  $e=[pscustomobject]@{Id=$Id;Parent=$Parent;Current=[pscustomobject]@{AutomationId=$Aid;ProcessId=7;ControlType=$Type;BoundingRectangle=$Bounds;IsEnabled=$true;IsOffscreen=$false;NativeWindowHandle=0}}
  $e|Add-Member ScriptMethod GetRuntimeId {,$this.Id}
  $e|Add-Member ScriptMethod GetCurrentPropertyValue {param($Property) $this.Current.AutomationId}
- $e|Add-Member ScriptMethod TryGetCurrentPattern {param($Kind,$Output) $Output.Value=$script:pattern;$script:patternSupported}
+ $e|Add-Member ScriptMethod TryGetCurrentPattern {param($Kind,$Output) if($script:throwProvider){throw 'synthetic-provider-detail'};$Output.Value=$script:pattern;$script:patternSupported}
  $e
 }
 function New-Fixture([double]$Scale=1,[double]$Value=0){
- $script:sets=0;$script:waits=0;$script:ancestryValid=$true;$script:patternSupported=$true;$script:afterSet='normal';$script:scale=$Scale;$script:valueFailure='none'
+ $script:sets=0;$script:waits=0;$script:ancestryValid=$true;$script:patternSupported=$true;$script:afterSet='normal';$script:scale=$Scale;$script:valueFailure='none';$script:scopeMissing=$false;$script:throwProvider=$false
  $script:targets=New-Object 'Collections.Generic.List[double]'
  [PageScrollTestAutomation]::Reads=0;[PageScrollTestAutomation]::ChangeAt=0;[PageScrollTestAutomation]::BeforeRead=$null
  $root=New-Element 'root' 'SyntheticRoot' ([Windows.Automation.ControlType]::Window) (New-Rect 0 0 800 800) ''
@@ -101,6 +103,23 @@ $amount=Run-Scroll ([pscustomobject]@{mode='amount';direction='down'})
 Assert-Equal $amount.ok $true 'Scaled amount scroll failed'
 Assert-Equal $script:pattern.Current.Value 267 'Amount used provider LargeChange or an assumed Windows DPI instead of the bound viewport scale'
 Assert-Equal $script:sets 1 'Amount repeated its action'
+New-Fixture
+$script:elements.area.Current.BoundingRectangle.Width=299.0
+Assert-Equal (Run-Scroll ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'One-pixel separately rounded scrollbar edge was rejected'
+Assert-Equal $script:sets 1 'Rounded edge changed the one-call movement contract'
+New-Fixture
+$script:elements.area.Current.BoundingRectangle.Width=298.0
+$outside=Run-Scroll ([pscustomobject]@{mode='percent';vPercent=100})
+Assert-Equal $outside.ok $false 'A scrollbar outside the rounding envelope was accepted'
+Assert-Equal $outside.error.Contains('[unproven-scrollbar]') $true 'Known geometry refusal lost its sanitized cause'
+Assert-Equal $script:sets 0 'An out-of-bounds scrollbar moved'
+New-Fixture
+$script:throwProvider=$true
+$providerFailure=Run-Scroll ([pscustomobject]@{mode='info'})
+Assert-Equal $providerFailure.ok $false 'A provider exception was concealed'
+Assert-Equal $providerFailure.error.Contains('[provider-read-failed]') $true 'An unknown provider failure lost its sanitized cause'
+Assert-Equal $providerFailure.error.Contains('synthetic-provider-detail') $false 'Provider details leaked through the public error'
+Assert-Equal $script:sets 0 'A failed read moved the page'
 New-Fixture 1 900
 Assert-Equal (Run-Scroll ([pscustomobject]@{mode='amount';direction='down'})).ok $true 'Boundary amount failed'
 Assert-Equal $script:pattern.Current.Value 925 'Amount did not clamp at the actual maximum'
@@ -236,10 +255,17 @@ function Resolve-Window { [IntPtr]111 }
 function Get-ContentBounds { [pscustomobject]@{minX=0;maxX=1000} }
 function Get-SSEHeading { [pscustomobject]@{text=$(if($script:valueFailure -ceq 'late-heading' -and $script:pattern.Current.Value -eq 185){'Different page'}else{'Synthetic scroll page'})} }
 function Emit($Result){$script:emitted=$Result;throw 'PAGE_SCROLL_TEST_EMIT'}
-function Fail($Message,$Kind){$script:emitted=[pscustomobject]@{ok=$false;kind=$Kind};throw 'PAGE_SCROLL_TEST_EMIT'}
-function Walk-Tree {
+function Fail($Message,$Kind){$script:emitted=[pscustomobject]@{ok=$false;kind=$Kind;error=$Message};throw 'PAGE_SCROLL_TEST_EMIT'}
+function Get-SSEMainContentTree {
  param($Hwnd,$MaxNodes,$TimeoutSec,$MaxDepth,[switch]$WithValues,[switch]$WithScroll)
- $script:walks++
+ Assert-Equal ([long]$Hwnd) 111 'Scoped read lost its exact window'
+ Assert-Equal $MaxNodes 5000 'Scoped read changed its node bound'
+ Assert-Equal $TimeoutSec 45 'Scoped read changed its deadline'
+ Assert-Equal $MaxDepth 40 'Scoped read changed its depth bound'
+ Assert-Equal (([bool]$WithScroll) -xor ([bool]$WithValues)) $true 'Scoped read omitted or mixed its required evidence'
+ $script:scopedWalks++
+ if($script:scopeMissing){return $null}
+ if($WithValues -and $script:valueFailure -ceq 'late-scope' -and $script:pattern.Current.Value -eq 185){return $null}
  $nodes=@($script:tree.nodes)
  if($WithValues){
    switch($script:valueFailure){
@@ -254,8 +280,12 @@ function Walk-Tree {
  }
  [pscustomobject]@{nodes=$nodes;stats=$script:tree.stats}
 }
+function Walk-Tree {
+ $script:walks++
+ throw 'Page scrolling and full reading must not directly traverse unrelated navigation or tool windows'
+}
 function Run-Operation($Name,$Arguments){
- $script:a=$Arguments;$script:emitted=$null;$script:walks=0
+ $script:a=$Arguments;$script:emitted=$null;$script:walks=0;$script:scopedWalks=0
  try{& $cases[$Name]}catch{if($_.Exception.Message -cne 'PAGE_SCROLL_TEST_EMIT'){throw}}
  if(-not $script:emitted){throw 'Production operation never emitted its result'}
  $script:emitted
@@ -263,6 +293,21 @@ function Run-Operation($Name,$Arguments){
 New-Fixture
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{})).position 0 'Actual omitted-mode dispatcher moved instead of informing'
 Assert-Equal $script:sets 0 'Actual omitted-mode dispatcher called SetValue'
+Assert-Equal $script:scopedWalks 1 'Scroll did not use exactly one fresh form snapshot'
+Assert-Equal $script:walks 0 'Scroll inspected unrelated global UIA state'
+New-Fixture
+Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'Complete scoped content was blocked by the global traversal canary'
+Assert-Equal $script:sets 1 'Scoped scroll did not perform exactly one verified movement'
+New-Fixture
+$script:scopeMissing=$true
+Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).kind 'scroll-state-unknown' 'A missing form scope fell through to global traversal'
+Assert-Equal $script:sets 0 'A missing form scope dispatched a movement'
+foreach($invalid in @(@{err=1},@{cyc=1},@{truncated=$true},@{depthLimited=$true})){
+ New-Fixture
+ foreach($entry in $invalid.GetEnumerator()){$script:tree.stats.($entry.Key)=$entry.Value}
+ Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).kind 'scroll-state-unknown' 'Incomplete local content was accepted'
+ Assert-Equal $script:sets 0 'Incomplete local content dispatched a movement'
+}
 New-Fixture
 $script:tree.nodes=$script:tree.nodes|Where-Object rid -ne 'viewport'
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $false 'Actual dispatcher fell through a partial exact Qt binding'
@@ -276,7 +321,23 @@ $full=Run-Operation 'read_full' ([pscustomobject]@{})
 Assert-Equal $full.ok $true 'Actual full reader failed'
 Assert-Equal $full.gerollt $true 'Actual full reader concealed scrolling'
 Assert-Equal $full.stufen 5 'Actual full reader did not visit every bounded stage'
+Assert-Equal $script:scopedWalks 7 'Full reader did not bind initialization and each value stage separately'
+Assert-Equal $script:walks 0 'Full reader directly walked unrelated global state'
 Assert-Equal ($script:targets -join ',') '0,185,370,555,740,925,0' 'Full reader did not start at the top, visit every stage and restore the top'
+New-Fixture
+$script:scopeMissing=$true
+Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'scroll-state-unknown' 'Missing initial full-read scope fell through to a global tree'
+Assert-Equal $script:sets 0 'Missing full-read scope moved the page'
+foreach($invalid in @(@{err=1},@{cyc=1},@{truncated=$true},@{depthLimited=$true})){
+ New-Fixture
+ foreach($entry in $invalid.GetEnumerator()){$script:tree.stats.($entry.Key)=$entry.Value}
+ Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'scroll-state-unknown' 'Incomplete initial full-read scope was accepted'
+ Assert-Equal $script:sets 0 'Incomplete initial full-read scope moved the page'
+}
+New-Fixture
+$script:valueFailure='late-scope'
+Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'incomplete' 'A disappearing value-stage scope emitted success'
+Assert-Equal $script:sets 1 'A disappearing scope caused another movement or an unproven restore'
 Assert-Equal ($full.zeilen -contains 'Top marker') $true 'Full reader missed the top of an initially scrolled page'
 Assert-Equal ($full.zeilen -contains 'Bottom marker') $true 'Full reader missed the bottom'
 foreach($failure in @('throw','no-movement')){
