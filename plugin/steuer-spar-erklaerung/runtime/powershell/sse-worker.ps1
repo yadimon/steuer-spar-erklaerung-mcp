@@ -6998,8 +6998,12 @@ function Read-SSEPageRangeState($Binding) {
     return [pscustomobject]@{scrollable=$false;rects=$rects;minimum=0.0;maximum=0.0;value=0.0;scale=0.0;position=0.0;pattern=$range;writable=$false}
   }
   $bar=$rects.bar
-  if (-not $bar -or $bar.w -le 0 -or $bar.h -le 0 -or $bar.x -lt $area.x -or $bar.y -lt $area.y -or
-      $bar.x+$bar.w -gt $area.x+$area.w -or $bar.y+$bar.h -gt $area.y+$area.h -or $body.h -le $view.h) { throw 'Unproven visible page scrollbar.' }
+  # Qt/UIA kann die separat umgerechnete Scrollbarkante um einen Pixel anders
+  # runden als ihre Elternflaeche. Identitaet und echte Eltern wurden bereits
+  # geprueft; groessere Abweichungen bleiben unzulaessig.
+  $barEdgeTolerance=1.0
+  if (-not $bar -or $bar.w -le 0 -or $bar.h -le 0 -or $bar.x -lt $area.x-$barEdgeTolerance -or $bar.y -lt $area.y-$barEdgeTolerance -or
+      $bar.x+$bar.w -gt $area.x+$area.w+$barEdgeTolerance -or $bar.y+$bar.h -gt $area.y+$area.h+$barEdgeTolerance -or $body.h -le $view.h) { throw 'Unproven visible page scrollbar.' }
   # Derive pixels per range unit from the same live content/viewport geometry.
   # Windows DPI is not necessarily Qt's effective scale. Never substitute it.
   $scale=($body.h-$view.h)/$maximum
@@ -7054,7 +7058,20 @@ function Invoke-SSEPageRangeScroll($Binding, $Arguments) {
     [pscustomobject]@{ok=$true;scrollbar=$true;vorher=$before.position;nachher=$after.position;bewegt=($after.value -ne $before.value);bereich='Inhaltsbereich';hinweis='Seitenposition und Inhaltsbewegung frisch geprueft; Zielfelder vor Eingaben neu lesen.'}
   } catch {
     if ($attempted) { return [pscustomobject]@{ok=$false;kind='postcondition-failed';error='Seitenbewegung nach einem einzelnen Aufruf nicht sicher bestaetigt; nicht wiederholen.';retryable=$false;mutationStarted=$true;outcomeUnknown=$true;resultingState='unknown'} }
-    [pscustomobject]@{ok=$false;kind='scroll-state-unknown';error='Seiten-Rollbereich ist nicht vollstaendig und frisch gebunden; nichts gerollt.';retryable=$false;mutationStarted=$false;outcomeUnknown=$false;resultingState='unchanged'}
+    # Nur eigene feste Ursachen ausgeben, niemals Providertexte oder Falldaten.
+    $reason = @{
+      'Page scroll root changed.'='root-changed'; 'Page scroll identity changed.'='identity-changed'
+      'Page scroll bounds unavailable.'='bounds-unavailable'; 'Invalid page scroll geometry.'='invalid-geometry'
+      'Empty page scroll geometry.'='empty-geometry'; 'Live page scroll ancestry changed.'='ancestry-changed'
+      'Live page scroll root is unproven.'='root-unproven'; 'Page viewport leaves its bound area.'='viewport-outside-area'
+      'Exact page scrollbar has no RangeValuePattern.'='range-pattern-unavailable'
+      'Invalid page scrollbar range.'='invalid-range'; 'Inconsistent page scrollbar state.'='inconsistent-range'
+      'Overflow without a proven page scrollbar.'='overflow-without-range'; 'Unproven visible page scrollbar.'='unproven-scrollbar'
+      'Unproven page scroll mapping.'='unproven-mapping'; 'Page scrollbar is not writable and visible.'='not-writable'
+      'Page scrollbar changed before the request.'='range-changed'; 'Page geometry changed before the request.'='geometry-changed'
+    }[[string]$_.Exception.Message]
+    if (-not $reason) { $reason='provider-read-failed' }
+    [pscustomobject]@{ok=$false;kind='scroll-state-unknown';error="Seiten-Rollbereich ist nicht vollstaendig und frisch gebunden; nichts gerollt. [$reason]";retryable=$false;mutationStarted=$false;outcomeUnknown=$false;resultingState='unchanged'}
   }
 }
 
@@ -20815,7 +20832,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $hwnd = Resolve-Window $a
     $mode = [string](Arg $a 'mode' 'info')
     if ($mode -cnotin @('info','percent','amount')) { Fail 'Unbekannter Seiten-Rollmodus.' 'bad-args' }
-    $t = Walk-Tree $hwnd 5000 45 40 -WithScroll
+    # Nur das exakt gebundene Formular bestimmt seinen Rollbereich. Ein
+    # Zyklus in Navigation oder Tippsfenstern ist kein Formularbefund.
+    $t = Get-SSEMainContentTree $hwnd -MaxNodes 5000 -TimeoutSec 45 -MaxDepth 40 -WithScroll
+    if (-not $t) { Fail 'Seitenformular ist nicht frisch und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
     try { $rangeBinding = Get-SSEPageRangeBinding $hwnd $t }
     catch { Fail 'Seiten-Rollbereich ist nicht vollstaendig und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
     if ($rangeBinding) { Emit (Invoke-SSEPageRangeScroll $rangeBinding $a) }

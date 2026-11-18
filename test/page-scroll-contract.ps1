@@ -29,11 +29,11 @@ function New-Element($Id,$Aid,$Type,$Bounds,$Parent){
  $e=[pscustomobject]@{Id=$Id;Parent=$Parent;Current=[pscustomobject]@{AutomationId=$Aid;ProcessId=7;ControlType=$Type;BoundingRectangle=$Bounds;IsEnabled=$true;IsOffscreen=$false;NativeWindowHandle=0}}
  $e|Add-Member ScriptMethod GetRuntimeId {,$this.Id}
  $e|Add-Member ScriptMethod GetCurrentPropertyValue {param($Property) $this.Current.AutomationId}
- $e|Add-Member ScriptMethod TryGetCurrentPattern {param($Kind,$Output) $Output.Value=$script:pattern;$script:patternSupported}
+ $e|Add-Member ScriptMethod TryGetCurrentPattern {param($Kind,$Output) if($script:throwProvider){throw 'synthetic-provider-detail'};$Output.Value=$script:pattern;$script:patternSupported}
  $e
 }
 function New-Fixture([double]$Scale=1,[double]$Value=0){
- $script:sets=0;$script:waits=0;$script:ancestryValid=$true;$script:patternSupported=$true;$script:afterSet='normal';$script:scale=$Scale;$script:valueFailure='none'
+ $script:sets=0;$script:waits=0;$script:ancestryValid=$true;$script:patternSupported=$true;$script:afterSet='normal';$script:scale=$Scale;$script:valueFailure='none';$script:scopeMissing=$false;$script:throwProvider=$false
  $script:targets=New-Object 'Collections.Generic.List[double]'
  [PageScrollTestAutomation]::Reads=0;[PageScrollTestAutomation]::ChangeAt=0;[PageScrollTestAutomation]::BeforeRead=$null
  $root=New-Element 'root' 'SyntheticRoot' ([Windows.Automation.ControlType]::Window) (New-Rect 0 0 800 800) ''
@@ -101,6 +101,23 @@ $amount=Run-Scroll ([pscustomobject]@{mode='amount';direction='down'})
 Assert-Equal $amount.ok $true 'Scaled amount scroll failed'
 Assert-Equal $script:pattern.Current.Value 267 'Amount used provider LargeChange or an assumed Windows DPI instead of the bound viewport scale'
 Assert-Equal $script:sets 1 'Amount repeated its action'
+New-Fixture
+$script:elements.area.Current.BoundingRectangle.Width=299.0
+Assert-Equal (Run-Scroll ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'One-pixel separately rounded scrollbar edge was rejected'
+Assert-Equal $script:sets 1 'Rounded edge changed the one-call movement contract'
+New-Fixture
+$script:elements.area.Current.BoundingRectangle.Width=298.0
+$outside=Run-Scroll ([pscustomobject]@{mode='percent';vPercent=100})
+Assert-Equal $outside.ok $false 'A scrollbar outside the rounding envelope was accepted'
+Assert-Equal $outside.error.Contains('[unproven-scrollbar]') $true 'Known geometry refusal lost its sanitized cause'
+Assert-Equal $script:sets 0 'An out-of-bounds scrollbar moved'
+New-Fixture
+$script:throwProvider=$true
+$providerFailure=Run-Scroll ([pscustomobject]@{mode='info'})
+Assert-Equal $providerFailure.ok $false 'A provider exception was concealed'
+Assert-Equal $providerFailure.error.Contains('[provider-read-failed]') $true 'An unknown provider failure lost its sanitized cause'
+Assert-Equal $providerFailure.error.Contains('synthetic-provider-detail') $false 'Provider details leaked through the public error'
+Assert-Equal $script:sets 0 'A failed read moved the page'
 New-Fixture 1 900
 Assert-Equal (Run-Scroll ([pscustomobject]@{mode='amount';direction='down'})).ok $true 'Boundary amount failed'
 Assert-Equal $script:pattern.Current.Value 925 'Amount did not clamp at the actual maximum'
@@ -237,8 +254,20 @@ function Get-ContentBounds { [pscustomobject]@{minX=0;maxX=1000} }
 function Get-SSEHeading { [pscustomobject]@{text=$(if($script:valueFailure -ceq 'late-heading' -and $script:pattern.Current.Value -eq 185){'Different page'}else{'Synthetic scroll page'})} }
 function Emit($Result){$script:emitted=$Result;throw 'PAGE_SCROLL_TEST_EMIT'}
 function Fail($Message,$Kind){$script:emitted=[pscustomobject]@{ok=$false;kind=$Kind};throw 'PAGE_SCROLL_TEST_EMIT'}
+function Get-SSEMainContentTree {
+ param($Hwnd,$MaxNodes,$TimeoutSec,$MaxDepth,[switch]$WithValues,[switch]$WithScroll)
+ Assert-Equal ([long]$Hwnd) 111 'Scoped read lost its exact window'
+ Assert-Equal $MaxNodes 5000 'Scoped read changed its node bound'
+ Assert-Equal $TimeoutSec 45 'Scoped read changed its deadline'
+ Assert-Equal $MaxDepth 40 'Scoped read changed its depth bound'
+ Assert-Equal ([bool]$WithScroll) $true 'Scoped read omitted live scroll evidence'
+ $script:scopedWalks++
+ if($script:scopeMissing){return $null}
+ $script:tree
+}
 function Walk-Tree {
  param($Hwnd,$MaxNodes,$TimeoutSec,$MaxDepth,[switch]$WithValues,[switch]$WithScroll)
+ if($script:forbidGlobalWalk){throw 'Scroll must not traverse unrelated navigation or tool windows'}
  $script:walks++
  $nodes=@($script:tree.nodes)
  if($WithValues){
@@ -255,7 +284,7 @@ function Walk-Tree {
  [pscustomobject]@{nodes=$nodes;stats=$script:tree.stats}
 }
 function Run-Operation($Name,$Arguments){
- $script:a=$Arguments;$script:emitted=$null;$script:walks=0
+ $script:a=$Arguments;$script:emitted=$null;$script:walks=0;$script:scopedWalks=0;$script:forbidGlobalWalk=($Name -ceq 'scroll_page')
  try{& $cases[$Name]}catch{if($_.Exception.Message -cne 'PAGE_SCROLL_TEST_EMIT'){throw}}
  if(-not $script:emitted){throw 'Production operation never emitted its result'}
  $script:emitted
@@ -263,6 +292,21 @@ function Run-Operation($Name,$Arguments){
 New-Fixture
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{})).position 0 'Actual omitted-mode dispatcher moved instead of informing'
 Assert-Equal $script:sets 0 'Actual omitted-mode dispatcher called SetValue'
+Assert-Equal $script:scopedWalks 1 'Scroll did not use exactly one fresh form snapshot'
+Assert-Equal $script:walks 0 'Scroll inspected unrelated global UIA state'
+New-Fixture
+Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'Complete scoped content was blocked by the global traversal canary'
+Assert-Equal $script:sets 1 'Scoped scroll did not perform exactly one verified movement'
+New-Fixture
+$script:scopeMissing=$true
+Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).kind 'scroll-state-unknown' 'A missing form scope fell through to global traversal'
+Assert-Equal $script:sets 0 'A missing form scope dispatched a movement'
+foreach($invalid in @(@{err=1},@{cyc=1},@{truncated=$true},@{depthLimited=$true})){
+ New-Fixture
+ foreach($entry in $invalid.GetEnumerator()){$script:tree.stats.($entry.Key)=$entry.Value}
+ Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).kind 'scroll-state-unknown' 'Incomplete local content was accepted'
+ Assert-Equal $script:sets 0 'Incomplete local content dispatched a movement'
+}
 New-Fixture
 $script:tree.nodes=$script:tree.nodes|Where-Object rid -ne 'viewport'
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $false 'Actual dispatcher fell through a partial exact Qt binding'
