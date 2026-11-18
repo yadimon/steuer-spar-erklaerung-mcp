@@ -285,15 +285,6 @@ const report = {
       : previousReports.length
         ? `This is canonical whole-journey baseline #${baselineOrdinal}; prior canonical reports are eligible for explicit comparison when their fingerprints and run evidence match.`
         : "This is the first canonical whole-journey baseline; historical numbers are component-only and are not deltas for this report.",
-    componentContextMs: {
-      semanticNavigationBefore: 19_916,
-      semanticNavigationAfter: 12_724,
-      receiptBulkBefore: 37_531,
-      receiptBulkAfter: 25_568,
-      existingReceiptUpdateSafeCycle: 15_009,
-      vehicleFillFieldsCycle: 8_753,
-      coldOutlierVmBulkUpsert: 98_561,
-    },
   },
   source: {
     branch: sourceBefore.branch,
@@ -428,7 +419,7 @@ const markdown = `# Canonical live API mega journey — ${classification}\n\n` +
   "## Safely excluded catalog operations\n\n" +
   "| Classification | Subclassification | Operations | Reason |\n| --- | --- | --- | --- |\n" +
   (exclusionRows || "| n/a | n/a | n/a | n/a |") + "\n\n" +
-  `${report.historicalComparison.note} The historical navigation, receipt, and vehicle figures are component measurements only and are not directly comparable.\n` +
+  `${report.historicalComparison.note}\n` +
   (passed ? "" : `\nFailure phase: ${report.failure.phase}; reasons: ${failureReasons.join(", ")}\n`);
 
 writeExclusive(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
