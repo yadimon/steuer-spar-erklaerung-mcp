@@ -197,7 +197,7 @@ export function createApiExecutor(
         && !(operation === "get_value" && args.selectorNamespace === "uia")
         && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid"))
         && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
+        const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile, internalUstvaPage);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }
       if (operation === "capabilities") {

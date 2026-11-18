@@ -30863,8 +30863,8 @@ var init_qt_native_page = __esm({
 });
 
 // src/qt-native-ustva.ts
-async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile) {
-  const page = await executeQtNativePage(client, args, timeoutMs, signal, profile, (nodes, bounds) => {
+async function executeQtNativeUstvaPage(client, args, timeoutMs, signal, profile) {
+  return executeQtNativePage(client, args, timeoutMs, signal, profile, (nodes, bounds) => {
     const columns = nodes.filter((node2) => node2.aid.endsWith(".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE"));
     const column = columns[0];
     if (columns.length !== 1 || !column || column.type !== "Group" || !column.on || column.w <= 0 || column.h <= 0 || column.x < bounds.maxX) {
@@ -30877,6 +30877,9 @@ async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile
     }
     return null;
   });
+}
+async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile) {
+  const page = await executeQtNativeUstvaPage(client, args, timeoutMs, signal, profile);
   return { ...normalizeUstvaCurrentPage(page), backend: "qt", nativeDurationMs: page.nativeDurationMs };
 }
 var init_qt_native_ustva = __esm({
@@ -34312,7 +34315,7 @@ import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeOperation(operation) {
   return QT_NATIVE_OPERATIONS.some((value) => value === operation);
 }
-async function executeQtNativeOperation(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
+async function executeQtNativeOperation(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile, internalUstvaPage = false) {
   if (operation === "get_value" && args.selectorNamespace !== void 0 && (args.selectorNamespace !== "qt-object" || !args.aid && !args.rid || !dependencies.qtNativeClient && !dependencies.qtNativeClientFor || typeof args.rid === "string" && !!args.rid && !args.rid.startsWith("qt:"))) {
     return { ok: false, kind: "bad-args", error: "Explicit native get_value requires qt-object selectors and qt: references." };
   }
@@ -34322,7 +34325,7 @@ async function executeQtNativeOperation(operation, args, dependencies, timeoutMs
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before dispatch.", "native-timeout");
-    const execute = operation === "goto" ? executeQtNativeGoto : operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "checker_results" ? executeQtNativeCheckerResults : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_update" ? executeQtNativeReceiptManagerUpdate : operation === "receipt_manager_link" ? executeQtNativeReceiptManagerLink : operation === "receipt_manager_classification_options" ? executeQtNativeClassificationOptions : operation === "receipt_manager_classify" ? executeQtNativeClassify : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "goto" ? executeQtNativeGoto : operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? internalUstvaPage ? executeQtNativeUstvaPage : executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "checker_results" ? executeQtNativeCheckerResults : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_update" ? executeQtNativeReceiptManagerUpdate : operation === "receipt_manager_link" ? executeQtNativeReceiptManagerLink : operation === "receipt_manager_classification_options" ? executeQtNativeClassificationOptions : operation === "receipt_manager_classify" ? executeQtNativeClassify : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error62) {
     return {
@@ -36220,7 +36223,7 @@ function createApiExecutor(config2, rawWorker, dependencies = {}) {
         return redactPaths(await win325(() => dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (isQtNativeOperation(operation) && !(operation === "get_value" && args.selectorNamespace === "uia") && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid")) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
+        const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile, internalUstvaPage);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }
       if (operation === "capabilities") {

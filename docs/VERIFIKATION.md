@@ -615,7 +615,13 @@ Die API-Tests verweigern fehlende Vollständigkeitsangaben und beweisen, dass
 eine unvollständige Vorbereitung keine Mutation startet. Der interne Lesekontext
 kann nicht über öffentliche `page`-Argumente eingeschleust werden. Native
 Regressionen prüfen zusätzlich erhaltene Warnungen, unbekannte Fenster und
-abgeschnittene Bäume. Diese Gegenfälle ersetzen keine reale UStVA-Abnahme.
+abgeschnittene Bäume. Bei fest gebundenen und verwalteten Qt-Sitzungen nutzen
+auch die notwendigen Vorbereitungslesungen denselben Hinweisspalten-Validator.
+Fehlende oder eingeklappte Spalten verhindern jede Folgeaktion; vollständige
+Kontrollfälle behalten ihre bisherige Folgeaktion. Eine übergebene Überschrift
+ersetzt bei manuellen Übersichtswerten nicht die Prüfung des live gelesenen
+Kennzeichens. Öffentliche `page`-Lesungen bleiben unverändert. Diese Gegenfälle
+ersetzen keine reale UStVA-Abnahme.
 
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der

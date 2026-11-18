@@ -732,7 +732,16 @@ export async function testNativePageProjections() {
   ustvaNode("Edit", "", 760, 210,
     { p: reductionGroup, val: "0,00", ro: false, aid: "window.Reduction.Wert" });
   const ustvaStats = { ...stats, n: ustvaNodes.length };
-  const ustvaClientFor = (nodes = ustvaNodes, windows = pageWindows.slice(0, 1), selectedStats = { ...ustvaStats, n: nodes.length }) => ({
+  const ustvaClientFor = (nodes = ustvaNodes, windows = pageWindows.slice(0, 1), selectedStats = { ...ustvaStats, n: nodes.length }) => {
+    // The native walker numbers its emitted nodes consecutively. Removing a
+    // column from a fixture must also update node and parent indexes.
+    const indexes = new Map(nodes.map((node, index) => [node.i, index]));
+    assert.equal(indexes.size, nodes.length);
+    const snapshotNodes = nodes.map((node, i) => {
+      assert(node.p < 0 || indexes.has(node.p), "Synthetic native parent must still exist.");
+      return { ...node, i, p: node.p < 0 ? -1 : indexes.get(node.p) };
+    });
+    return {
     binding: { hwnd: 42, pid: 99 }, request: async operation => {
     if (operation === "window_inventory") {
       return { durationMs: 1, result: { ok: true, windows, visibleWindowCount: windows.length,
@@ -741,8 +750,9 @@ export async function testNativePageProjections() {
     assert.equal(operation, "accessibility_snapshot");
     return { durationMs: 4, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
       windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true, modalBlocked: false,
-      exactMatches: {}, nodes, stats: selectedStats } };
-  } });
+      exactMatches: {}, nodes: snapshotNodes, stats: selectedStats } };
+    } };
+  };
   const ustvaClient = ustvaClientFor();
   const ustva = await executeQtNativeOperation("ustva_read", { hwnd: 42 }, { qtNativeClient: ustvaClient },
     5000, undefined, loadProductProfile("2025"));
@@ -788,7 +798,7 @@ export async function testNativePageProjections() {
     const missingStatus = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
       { qtNativeClient: ustvaClientFor(columnNodes) }, 5000, undefined, loadProductProfile("2025"));
     assert.equal(missingStatus.ok, false);
-    assert.equal(missingStatus.kind, "ustva-incomplete");
+    assert.equal(missingStatus.kind, "ustva-incomplete", JSON.stringify(missingStatus));
     assert.equal(Object.hasOwn(missingStatus, "amounts"), false);
   }
   const dispatchRoot = mkdtempSync(join(tmpdir(), "sse-ustva-native-dispatch-"));
@@ -798,6 +808,51 @@ export async function testNativePageProjections() {
       workspaceDir: dispatchRoot, resultDir: dispatchRoot,
     }, async () => { throw new Error("Native UStVA must not dispatch a private UIA worker."); }, { qtNativeClient: ustvaClientFor() });
     assert.equal((await nativeExecute("ustva_read", { hwnd: 42 }, 5000)).ok, true);
+
+    writeFileSync(join(dispatchRoot, "synthetic.Gew2025"), "synthetic native preparation fixture");
+    const caseBinding = { hwnd: 42, expectedCaseRef: "cases:synthetic.Gew2025", expectedCaseHash: "a".repeat(64) };
+    const preparations = [
+      ["ustva_select_period", { ...caseBinding, selector: "month", value: "july", expectedCurrent: "june" }, "combo_select"],
+      ["ustva_set_flag", { ...caseBinding, flag: "corrected", value: true, expectedBefore: false, expectedAfter: true }, "toggle"],
+      ["ustva_change_value", { ...caseBinding, field: "input_tax_adjustment", value: "1,00", expectedBefore: "0,00", expectedAfter: "1,00" }, "tracked_set_value"],
+      ["ustva_open_section", { section: "input_tax", hwnd: 42 }, "click"],
+      ["ustva_change_value", { field: "taxable_19_base", value: "1,00", expectedBefore: "0,00", expectedAfter: "1,00",
+        ...caseBinding, manualInputConfirmed: true, expectedPage: "Umsatzsteuer-Voranmeldungen 2025" }, "tracked_set_value"],
+    ];
+    for (const provider of ["qtNativeClient", "qtNativeClientFor"]) {
+      const createPreparation = selectedNodes => {
+        const workerCalls = [];
+        const client = ustvaClientFor(selectedNodes);
+        const execute = createApiExecutor({ host: "127.0.0.1", port: 1, profileId: "2025",
+          configPath: join(dispatchRoot, "config.json"), caseDir: dispatchRoot,
+          workspaceDir: dispatchRoot, resultDir: dispatchRoot,
+        }, async operation => { workerCalls.push(operation); return { ok: true, verified: true }; },
+        { [provider]: provider === "qtNativeClient" ? client : async () => client });
+        return { execute, workerCalls };
+      };
+      for (const [operation, args, followup] of preparations) {
+        const complete = createPreparation(ustvaNodes);
+        assert.equal((await complete.execute(operation, args, 5000)).ok, true,
+          `${provider}: complete ${operation} preparation was rejected`);
+        assert.deepEqual(complete.workerCalls, [followup], `${provider}: complete preparation changed its followup`);
+      }
+      for (const columnNodes of [ustvaNodes.filter(node => node.i !== ustvaLibrary),
+        ustvaNodes.map(node => node.i === ustvaLibrary ? { ...node, w: 0, h: 0 } : node),
+      ]) {
+        const publicPage = createPreparation(columnNodes);
+        assert.equal((await publicPage.execute("page", { hwnd: 42 }, 5000)).ok, true,
+          "The private UStVA requirement must not change a public page read.");
+        assert.deepEqual(publicPage.workerCalls, []);
+        for (const [operation, args] of preparations) {
+          const incomplete = createPreparation(columnNodes);
+          const refused = await incomplete.execute(operation, args, 5000);
+          assert.equal(refused.ok, false, `${provider}: ${operation} ignored incomplete status`);
+          assert.equal(refused.kind, "ustva-incomplete");
+          assert.equal(Object.hasOwn(refused, "amounts"), false);
+          assert.deepEqual(incomplete.workerCalls, [], `${provider}: ${operation} dispatched a mutation after incomplete status`);
+        }
+      }
+    }
   } finally { rmSync(dispatchRoot, { recursive: true, force: true }); }
 
   const receiptNodes = [];
