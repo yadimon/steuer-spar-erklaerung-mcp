@@ -237,6 +237,17 @@ function blockedPage(page: WorkerResult): WorkerResult | null {
       dialogs,
     };
   }
+  const stats = page.stats;
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
+    return { ok: false, kind: "ustva-incomplete",
+      error: "Die UStVA-Lesung enthaelt keinen Vollstaendigkeitsnachweis; keine Werte ausgegeben." };
+  }
+  const observed = stats as Record<string, unknown>;
+  if (observed.truncated !== false || observed.depthLimited !== false
+    || observed.err !== 0 || observed.cyc !== 0 || observed.valErr !== 0) {
+    return { ok: false, kind: "ustva-incomplete",
+      error: "Der UStVA-Seitenbaum ist unvollstaendig oder fehlerhaft; keine Werte ausgegeben." };
+  }
   return null;
 }
 

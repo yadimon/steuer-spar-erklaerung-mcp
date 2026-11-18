@@ -5937,6 +5937,178 @@ function Get-SSEMainContentTree {
   } catch { return $null }
 }
 
+function Test-SSEUstvaTreeComplete($Tree) {
+  if (-not $Tree -or -not $Tree.stats -or -not @($Tree.nodes).Count) { return $false }
+  $stats=$Tree.stats
+  $observedCount=@($Tree.nodes).Count
+  foreach($scope in @($Tree.fremdeFenster | Where-Object {$null -ne $_})){
+    if(($scope.nodeCount -isnot [int] -and $scope.nodeCount -isnot [long]) -or $scope.nodeCount -le 0){return $false}
+    $observedCount += $scope.nodeCount
+  }
+  if ($stats.truncated -isnot [bool] -or $stats.truncated -or
+      $stats.depthLimited -isnot [bool] -or $stats.depthLimited -or
+      $stats.n -ne $observedCount) { return $false }
+  foreach ($key in @('err','cyc','valErr','scrollErr')) {
+    if (($stats.$key -isnot [int] -and $stats.$key -isnot [long]) -or $stats.$key -ne 0) { return $false }
+  }
+  return $true
+}
+
+function New-SSEUstvaReadBudget($Arguments,[long]$NowUnixMs=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) {
+  $deadline=$Arguments.PSObject.Properties['__ustvaReadDeadlineUnixMs']
+  if(-not $deadline -or ($deadline.Value -isnot [int] -and $deadline.Value -isnot [long]) -or $deadline.Value -le $NowUnixMs){
+    throw 'Invalid private UStVA deadline'
+  }
+  [pscustomobject]@{timer=[Diagnostics.Stopwatch]::StartNew();limitMs=[Math]::Min(45000L,([long]$deadline.Value-$NowUnixMs))}
+}
+function Get-SSEUstvaReadRemaining($Budget,[int]$MinimumMs=1000) {
+  $remaining=[long]$Budget.limitMs-[long]$Budget.timer.ElapsedMilliseconds
+  if($remaining -lt $MinimumMs){
+    $failure=[InvalidOperationException]::new('UStVA read budget exhausted')
+    $failure.Data['kind']='ustva-read-timeout';throw $failure
+  }
+  [int][Math]::Floor($remaining/1000.0)
+}
+
+function Get-SSEUstvaDialogState([int]$ProcessId) {
+  $inventory=@(Get-DialogInventory $ProcessId -RejectHung | Where-Object {[int]$_.pid -eq $ProcessId})
+  if(@($inventory | Where-Object {$_.kind -notin @('main','tips','known-nonmodal','shadow','native-dialog','qt-dialog')}).Count){
+    throw 'Unknown UStVA window state'
+  }
+  @($inventory | Where-Object {$_.kind -in @('native-dialog','qt-dialog')})
+}
+
+# This producer is private to UStVA composition. Public page remains a whole-window read.
+function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
+  function Incomplete-Ustva([string]$Reason) {
+    [pscustomobject]@{ok=$false;kind='ustva-incomplete';error=$Reason}
+  }
+  function Dialog-Ustva($Dialogs) {
+    [pscustomobject]@{ok=$false;kind='dialog-open';error='Ein modaler Dialog ist offen; keine UStVA-Werte ausgegeben.'
+      dialogs=@($Dialogs | ForEach-Object {[pscustomobject]@{
+        hwnd=$_.hwnd;title=$_.title;fingerprint=$_.fingerprint;buttons=$_.buttons;unsupportedButtons=$_.unsupportedButtons
+      }})}
+  }
+  try {
+    $budget=New-SSEUstvaReadBudget $Arguments
+    $window=Resolve-SSEMainWindowDescriptor ([pscustomobject]@{hwnd=[int64]$Hwnd})
+    $null=Get-SSEUstvaReadRemaining $budget
+    $dialogs=@(Get-SSEUstvaDialogState ([int]$window.pid))
+    if ($dialogs.Count) {
+      return (Dialog-Ustva $dialogs)
+    }
+    $form=Get-SSEMainContentTree $Hwnd -WithValues -TimeoutSec (Get-SSEUstvaReadRemaining $budget)
+    if (-not (Test-SSEUstvaTreeComplete $form)) {
+      return (Incomplete-Ustva 'Der gebundene UStVA-Formularbaum ist unvollstaendig; keine Werte ausgegeben.')
+    }
+    $binding=$form.contentBinding
+    if (-not $binding -or [int64]$binding.hwnd -ne [int64]$Hwnd -or [int]$binding.pid -le 0 -or [int]$binding.pid -ne [int]$window.pid) {
+      return (Incomplete-Ustva 'Die UStVA-Fensterbindung ist nicht belegt; keine Werte ausgegeben.')
+    }
+    $windowBinding=[pscustomobject]@{aid=$binding.windowAid;rid=$binding.windowRid;processId=$binding.pid}
+    $headingNode=Get-SSEContainerChild $form.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+    if (-not $headingNode -or -not $headingNode.rid -or -not $headingNode.aid -or -not $headingNode.name) {
+      return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist nicht eindeutig gebunden; keine Werte ausgegeben.')
+    }
+    # Keep the exact live leaf before a second snapshot can replace the element cache.
+    if (-not $script:UIAElementCache.ContainsKey([string]$headingNode.rid)) {
+      return (Incomplete-Ustva 'Die frische UStVA-Ueberschrift fehlt im Elementcache; keine Werte ausgegeben.')
+    }
+    $headingElement=$script:UIAElementCache[[string]$headingNode.rid]
+    if (-not (Test-SSEElementIdentity $headingElement $headingNode.rid $headingNode.aid $headingNode.name)) {
+      return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist veraltet; keine Werte ausgegeben.')
+    }
+    $null=Get-SSEUstvaReadRemaining $budget
+    $libraryElement=Find-ExactAutomationElement $Hwnd '.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE' -VisibleOnly
+    $libraryBefore=Convert-ExactElementToNode $libraryElement
+    if(-not $libraryBefore -or -not $libraryBefore.on -or $libraryBefore.w -le 0 -or $libraryBefore.h -le 0){
+      return (Incomplete-Ustva 'Der UStVA-Prueferbereich ist nicht sicher lesbar. Hilfespalte einblenden und erneut lesen.')
+    }
+    $libraryTimeout=[Math]::Min(5,(Get-SSEUstvaReadRemaining $budget))
+    try {
+      $library=Read-SSESearchRegion $Hwnd '.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE' $windowBinding -TimeoutSec $libraryTimeout
+    } catch {
+      return (Incomplete-Ustva 'Die Bindung der UStVA-Hinweisspalte ist nicht vollstaendig bestaetigt; keine Werte ausgegeben.')
+    }
+    $windowKey=[string]$binding.windowRid+'|'+[string]$binding.pid+'|'+[string][int64]$Hwnd
+    if (-not $libraryBefore -or $libraryBefore.rid -cne $library.root.rid -or
+        $library.windowKey -cne $windowKey -or -not (Test-SSEUstvaTreeComplete $library.tree)) {
+      return (Incomplete-Ustva 'Der gebundene UStVA-Prueferbereich ist unvollstaendig; keine Werte ausgegeben.')
+    }
+    $bounds=$form.contentBounds
+    if (-not $bounds -or $bounds.maxX -le $bounds.minX -or $library.root.x -lt $bounds.maxX) {
+      return (Incomplete-Ustva 'Formular und Prueferbereich sind geometrisch nicht getrennt; keine Werte ausgegeben.')
+    }
+    $texts=@($form.nodes | Where-Object {$_.type -eq 'Text' -and $_.name -and $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX})
+    $fields=New-Object System.Collections.ArrayList
+    foreach ($field in ($form.nodes | Where-Object {
+      $_.type -in @('Edit','ComboBox','CheckBox','RadioButton') -and $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX
+    } | Sort-Object y,x)) {
+      $label=Get-SSEPageFieldLabel $field $texts
+      $null=$fields.Add([pscustomobject]@{
+        label=$(if($label){$label}else{$field.name});typ=$field.type
+        wert=$(if($field.type -eq 'CheckBox'){$field.checked}elseif($field.type -eq 'RadioButton'){$field.selected}else{$field.val})
+        schreibgeschuetzt=$field.ro;aid=($field.aid -split '\.')[-1];rid=$field.rid;y=$field.y
+      })
+    }
+    $messages=@($library.tree.nodes | Where-Object {
+      $_.type -eq 'TreeItem' -and $_.name
+    } | ForEach-Object {$_.name} | Where-Object {
+      $_ -notin @('Eingabehilfe','Steuertipps','Prüfer','Mehr Details','Zurzeit keine Hinweise zu diesem Dialog.')
+    } | Select-Object -Unique)
+    $actions=@(@($form.nodes)+@($library.tree.nodes) | Where-Object {
+      $_.type -in @('Button','Hyperlink') -and $_.name
+    } | Sort-Object y,x | ForEach-Object {[pscustomobject]@{name=$_.name;gesperrt=[bool](Test-Versand $_.name)}})
+    # ELSTER can be toolbar-only. Read that exact button; never invoke it.
+    $null=Get-SSEUstvaReadRemaining $budget
+    $elsterElement=Find-ExactAutomationElement $Hwnd '.MainToolBar.tb_elster'
+    $elster=$(if($elsterElement){Convert-ExactElementToNode $elsterElement}else{$null})
+    if ($elster -and $elster.type -ceq 'Button' -and $elster.aid -ceq ([string]$binding.windowAid+'.MainToolBar.tb_elster') -and
+        (Test-SSEElementIdentity $elsterElement $elster.rid $elster.aid $elster.name) -and
+        (Test-SSEMainContentAncestry $Hwnd $elsterElement $windowBinding)) {
+      $actions=@([pscustomobject]@{name=$elster.name;gesperrt=[bool](Test-Versand $elster.name)})+$actions
+    }
+    $null=Get-SSEUstvaReadRemaining $budget
+    $dialogs=@(Get-SSEUstvaDialogState ([int]$binding.pid))
+    if ($dialogs.Count) {
+      return (Dialog-Ustva $dialogs)
+    }
+    $windows=@(Get-Windows 'SSE')
+    $libraryAfter=Convert-ExactElementToNode $libraryElement
+    if (-not $libraryAfter -or -not (Test-SSEElementIdentity $libraryElement $library.root.rid $library.root.aid) -or
+        -not (Test-SSEElementVisible $libraryElement) -or
+        -not (Test-SSEMainContentAncestry $Hwnd $libraryElement $windowBinding)) {
+      return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte seine Bindung; keine Werte ausgegeben.')
+    }
+    foreach($key in @('rid','aid','type','on','x','y','w','h')){
+      if($libraryAfter.$key -cne $library.root.$key){return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte sich; keine Werte ausgegeben.')}
+    }
+    if (-not (Test-SSEElementIdentity $headingElement $headingNode.rid $headingNode.aid $headingNode.name) -or
+        -not (Test-SSEElementVisible $headingElement) -or
+        -not (Test-SSEMainContentAncestry $Hwnd $headingElement $windowBinding)) {
+      return (Incomplete-Ustva 'Die UStVA-Seite aenderte sich zwischen Formular- und Prueferlesung; keine Werte ausgegeben.')
+    }
+    $null=Get-SSEUstvaReadRemaining $budget
+    $stats=[pscustomobject]@{
+      n=([int]$form.stats.n+[int]$library.tree.stats.n)
+      err=([int]$form.stats.err+[int]$library.tree.stats.err)
+      cyc=([int]$form.stats.cyc+[int]$library.tree.stats.cyc)
+      valErr=([int]$form.stats.valErr+[int]$library.tree.stats.valErr)
+      scrollErr=([int]$form.stats.scrollErr+[int]$library.tree.stats.scrollErr)
+      truncated=($form.stats.truncated -or $library.tree.stats.truncated)
+      depthLimited=($form.stats.depthLimited -or $library.tree.stats.depthLimited)
+    }
+    [pscustomobject]@{ok=$true;ueberschrift=[string]$headingNode.name;felder=@($fields);aktionen=$actions
+      dialoge=@();prueferMeldungen=$messages;blockiert=[bool]($messages.Count -or $windows.Count -gt 2)
+      stats=$stats}
+  } catch {
+    if($_.Exception.Data['kind'] -ceq 'ustva-read-timeout'){
+      return (Incomplete-Ustva 'Das gemeinsame UStVA-Lesebudget ist abgelaufen; keine Werte ausgegeben.')
+    }
+    Incomplete-Ustva 'Die gebundene UStVA-Lesung konnte nicht vollstaendig bestaetigt werden; keine Werte ausgegeben.'
+  }
+}
+
 # Selektorendungen aus dem Profilkatalog. Einmal je Arbeitsprozess gelesen;
 # der Katalog laege sonst bei jeder Seitenabfrage erneut auf der Platte.
 $script:SSE_MAIN_WINDOW_SELECTORS = $null
@@ -6084,7 +6256,8 @@ function Get-SSESearchFieldNode {
 }
 
 function Read-SSESearchRegion {
-  param([IntPtr]$Window,[string]$RelativeAid,$WindowBinding)
+  param([IntPtr]$Window,[string]$RelativeAid,$WindowBinding,[int]$TimeoutSec=5)
+  if($TimeoutSec -lt 1 -or $TimeoutSec -gt 5){throw 'Invalid bound region read budget'}
   $element=Find-ExactAutomationElement $Window $RelativeAid -VisibleOnly
   $before=$(if($element){Convert-ExactElementToNode $element}else{$null})
   $fullAid=[string]$WindowBinding.aid+$RelativeAid
@@ -6093,7 +6266,7 @@ function Read-SSESearchRegion {
     -not (Test-SSEMainContentAncestry $Window $element $WindowBinding)){
     throw 'Die eigene sichtbare Suchregion ist nicht eindeutig gebunden.'
   }
-  $tree=Get-UiSnapshot $Window 4000 5 16 -RootElement $element
+  $tree=Get-UiSnapshot $Window 4000 $TimeoutSec 16 -RootElement $element
   $after=Convert-ExactElementToNode $element
   if(-not $after -or -not (Test-SSEMainContentAncestry $Window $element $WindowBinding)){
     throw 'Die Suchregion verlor ihre eigene Fensterbindung.'
@@ -19671,6 +19844,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $hwnd = Resolve-Window $a
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - Programm ueberlastet, neu starten." 'degraded' }
+    if ((Arg $a 'internalUstvaPage') -eq $true) { Emit (Read-SSEUstvaPage $hwnd $a) }
     $t = Walk-BoundTree $hwnd -WithValues
     $b = Get-ContentBounds $t $hwnd
     $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
@@ -19746,7 +19920,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
     })
     $pruefer = @($t.nodes | Where-Object {
-      $_.type -eq 'TreeItem' -and $_.name -and $_.x -gt $b.maxX -and $_.name.Length -lt 90
+      $_.type -eq 'TreeItem' -and $_.name -and $_.x -ge $b.maxX
     } | ForEach-Object { $_.name } | Where-Object { $_ -notin @('Eingabehilfe','Steuertipps','Prüfer','Mehr Details','Zurzeit keine Hinweise zu diesem Dialog.') } | Select-Object -Unique)
     $pflichtLeer = @($felder | Where-Object { $_.typ -eq 'ComboBox' -and -not "$($_.wert)".Trim() })
 

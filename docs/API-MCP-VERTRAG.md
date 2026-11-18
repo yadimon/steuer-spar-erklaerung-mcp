@@ -1175,6 +1175,26 @@ Feldoperationen in der API, nicht im MCP-Prozess. Ihr Seiten-Read und die
 nachfolgende gebundene UI-Aktion teilen eine absolute Aufruferdeadline. Unter
 zwei Sekunden Rest startet keine UStVA-Mutation oder Bereichsnavigation mehr.
 
+Die UStVA-Lesung verlangt vollständige, fehlerfreie Beobachtungen. Der
+UIA-Pfad bindet Formular und rechte Hinweisspalte getrennt an dasselbe Fenster,
+prüft Überschrift und Spaltenbindung abschließend erneut und hält ein gemeinsames
+Lesebudget ein. Ein Zyklus in der übrigen Navigation ersetzt diese Nachweise
+nicht. Eine fehlende oder unlesbare Hinweisspalte führt zu `ustva-incomplete`;
+bei ausgeblendeter Spalte muss sie vor dem erneuten Lesen eingeblendet werden.
+Der optionale Qt-Pfad verwendet den vollständigen nativen Seitenleser mit
+Fensterinventar und beobachteten Hinweisen. Lange Warntexte bleiben erhalten.
+`blocked` und `messages` beschreiben den beobachteten Seitenzustand; sie ersetzen
+keinen vollständigen Steuerprüferlauf. Öffentliche `page`-Aufrufe behalten ihre
+gesamte Seitenprojektion. Keine dieser Lesungen speichert oder übermittelt Daten.
+
+Dieselben Nachweise gelten für notwendige Vorlesungen der UStVA-Schreibwerkzeuge.
+Eine ausgeblendete Hinweisspalte verhindert dann die Vorbereitung. Wo ein
+geprüftes `expectedPage` die Vorlesung ersetzt, bleibt dieser Weg erhalten;
+manuelle Übersichtsbeträge brauchen weiterhin das tatsächlich gelesene
+Kennzeichen. Das interne Lesebudget übernimmt die verbleibende Aufruferfrist
+vor dem Leihen eines Workers und zählt dessen Startzeit mit. Es setzt die
+Frist nicht auf einen neuen vollen Zeitraum zurück.
+
 Der Seiten-Read der vier schreibenden UStVA-Operationen entfällt, wenn der
 Aufrufer die Seitenüberschrift als `expectedPage` durchreicht — das Feld `page`
 aus dem unmittelbar vorangegangenen `ustva_read`. Die Angabe wird gegen die

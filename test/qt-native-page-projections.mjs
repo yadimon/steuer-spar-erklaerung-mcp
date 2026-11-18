@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeQtNativeOperation } from "../dist/qt-native-executor.js";
+import { createApiExecutor } from "../dist/api-executor.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist/qt-native-pages.js";
 import { canonicalReceiptJson, receiptFingerprint } from "../dist/qt-native-receipts.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
@@ -704,8 +705,10 @@ export async function testNativePageProjections() {
       x, y, w: 180, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
     return i;
   };
-  ustvaNode("Group", "", 0, 0, { w: 1000, h: 600 });
+  ustvaNode("Group", "", 0, 0, { w: 1000, h: 600, aid: "window.centralWidget" });
   ustvaNode("Tree", "Navigation", 0, 0, { w: 200 });
+  const ustvaLibrary = ustvaNode("Group", "", 800, 0, { w: 200, h: 600,
+    aid: "window.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE" });
   const ustvaHeader = ustvaNode("Group", "", 220, 0, { aid: "window.ClientFrameSSE.ClientHeader" });
   ustvaNode("Text", "Umsatzsteuer-Voranmeldungen 2025", 220, 20, { p: ustvaHeader });
   ustvaNode("Text", "Voranmeldezeitraum", 220, 100);
@@ -729,17 +732,23 @@ export async function testNativePageProjections() {
   ustvaNode("Edit", "", 760, 210,
     { p: reductionGroup, val: "0,00", ro: false, aid: "window.Reduction.Wert" });
   const ustvaStats = { ...stats, n: ustvaNodes.length };
-  const ustvaClient = { binding: { hwnd: 42, pid: 99 }, request: async operation => {
+  const ustvaClientFor = (nodes = ustvaNodes, windows = pageWindows.slice(0, 1), selectedStats = { ...ustvaStats, n: nodes.length }) => ({
+    binding: { hwnd: 42, pid: 99 }, request: async operation => {
+    if (operation === "window_inventory") {
+      return { durationMs: 1, result: { ok: true, windows, visibleWindowCount: windows.length,
+        productWindowCount: windows.length, untitledWindows: [] } };
+    }
     assert.equal(operation, "accessibility_snapshot");
     return { durationMs: 4, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
       windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true, modalBlocked: false,
-      exactMatches: {}, nodes: ustvaNodes, stats: ustvaStats } };
-  } };
+      exactMatches: {}, nodes, stats: selectedStats } };
+  } });
+  const ustvaClient = ustvaClientFor();
   const ustva = await executeQtNativeOperation("ustva_read", { hwnd: 42 }, { qtNativeClient: ustvaClient },
     5000, undefined, loadProductProfile("2025"));
   assert.equal(ustva.ok, true, JSON.stringify(ustva));
   assert.equal(ustva.backend, "qt");
-  assert.equal(ustva.nativeDurationMs, 4);
+  assert.equal(ustva.nativeDurationMs, 5);
   assert.equal(ustva.pageKind, "overview");
   assert.equal(ustva.taxYear, 2025);
   assert.deepEqual(ustva.period, { frequency: "monthly", frequencyDisplay: "monatlich", selector: "month", key: "june", display: "Juni" });
@@ -752,6 +761,44 @@ export async function testNativePageProjections() {
     rect: { x: 0, y: 0, w: 1000, h: 600 }, stats: ustvaStats, windows: pageWindows.slice(0,1) }]);
   const { backend: ustvaBackend, nativeDurationMs: ustvaDuration, ...ustvaProjection } = ustva;
   assert.deepEqual(ustvaProjection, normalizeUstvaCurrentPage(ustvaOracle.results[0]));
+
+  const warning = { ...ustvaNodes[0], i: ustvaNodes.length, p: ustvaLibrary, d: 2, type: "TreeItem",
+    name: "Synthetic UStVA warning " + "x".repeat(100), x: 790, y: 100, aid: "window.ValidationPreview", rid: "42.42.4.900" };
+  const warnedUstva = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+    { qtNativeClient: ustvaClientFor([...ustvaNodes, warning]) }, 5000, undefined, loadProductProfile("2025"));
+  assert.equal(warnedUstva.ok, true);
+  assert.equal(warnedUstva.blocked, true, "Native UStVA silently cleared an observed checker warning.");
+  assert.deepEqual(warnedUstva.messages, [warning.name]);
+  const unknownUstvaWindow = { ...pageWindows[0], hwnd: 84, order: 84, title: "Synthetic unknown dialog", w: 300, h: 200 };
+  const obstructedUstva = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+    { qtNativeClient: ustvaClientFor(ustvaNodes, [pageWindows[0], unknownUstvaWindow]) },
+    5000, undefined, loadProductProfile("2025"));
+  assert.equal(obstructedUstva.ok, false);
+  assert.equal(obstructedUstva.kind, "dialog-open");
+  assert.equal(Object.hasOwn(obstructedUstva, "amounts"), false);
+  const cutUstva = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+    { qtNativeClient: ustvaClientFor(ustvaNodes, undefined, { ...ustvaStats, truncated: true }) },
+    5000, undefined, loadProductProfile("2025"));
+  assert.equal(cutUstva.ok, false);
+  assert.equal(cutUstva.kind, "native-incomplete");
+  assert.equal(Object.hasOwn(cutUstva, "amounts"), false);
+  for (const columnNodes of [ustvaNodes.filter(node => node.i !== ustvaLibrary),
+    ustvaNodes.map(node => node.i === ustvaLibrary ? { ...node, w: 0, h: 0 } : node),
+  ]) {
+    const missingStatus = await executeQtNativeOperation("ustva_read", { hwnd: 42 },
+      { qtNativeClient: ustvaClientFor(columnNodes) }, 5000, undefined, loadProductProfile("2025"));
+    assert.equal(missingStatus.ok, false);
+    assert.equal(missingStatus.kind, "ustva-incomplete");
+    assert.equal(Object.hasOwn(missingStatus, "amounts"), false);
+  }
+  const dispatchRoot = mkdtempSync(join(tmpdir(), "sse-ustva-native-dispatch-"));
+  try {
+    const nativeExecute = createApiExecutor({ host: "127.0.0.1", port: 1, profileId: "2025",
+      configPath: join(dispatchRoot, "config.json"), caseDir: dispatchRoot,
+      workspaceDir: dispatchRoot, resultDir: dispatchRoot,
+    }, async () => { throw new Error("Native UStVA must not dispatch a private UIA worker."); }, { qtNativeClient: ustvaClientFor() });
+    assert.equal((await nativeExecute("ustva_read", { hwnd: 42 }, 5000)).ok, true);
+  } finally { rmSync(dispatchRoot, { recursive: true, force: true }); }
 
   const receiptNodes = [];
   const receiptNode = (type, name, aid, x, y, extra = {}) => {

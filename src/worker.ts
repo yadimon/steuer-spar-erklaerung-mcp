@@ -35,6 +35,7 @@ import {
 import { ensureWarmSpare, takeWarmSpare } from "./worker-prewarm.js";
 import { bindTableWorkerArguments, createTableWorkerCapability, tableWorkerEnvironment } from "./worker-table-capability.js";
 import { bindDesktopStartDeadline } from "./worker-start-deadline.js";
+import { bindUstvaReadDeadline } from "./worker-read-deadline.js";
 import { workerOperationNeedsMarkedDesktop } from "./worker-operation-policy.js";
 import type { ExecutionTelemetry } from "./execution-telemetry.js";
 import { withVisibleGuiLaunchGuard } from "./gui-launch-lifetime.js";
@@ -275,7 +276,10 @@ async function callWorkerUnsynchronised(
 ): Promise<WorkerResult> {
   // Freeze the shared startup deadline before borrowing a child. Cold parsing
   // consumes this budget; time spent waiting in the prewarm pool does not.
-  try { args = bindDesktopStartDeadline(op, args, timeoutMs); }
+  try {
+    args = bindDesktopStartDeadline(op, args, timeoutMs);
+    args = bindUstvaReadDeadline(op, args, timeoutMs);
+  }
   catch (error) { throw new WorkerError(error instanceof Error ? error.message : String(error), "bad-args"); }
   // Ein vorhandener, aber ungueltiger/fremder Marker ist kein Signal fuer den
   // sichtbaren Desktop. Die Entscheidung geschieht vor der Argumentdatei,

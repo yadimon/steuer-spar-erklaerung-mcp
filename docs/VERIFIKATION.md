@@ -602,6 +602,16 @@ Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
 Rollposition zurück. Die Fall-, Vorwert-, Fokus- und Eingabeprüfungen des
 Feldcommits bleiben eigenständige Voraussetzungen.
 
+Der UStVA-Vertrag führt die produktiven PowerShell-Funktionen für getrennte
+Formular- und Hinweislesungen gegen synthetische Providergrenzen aus. Er prüft
+fehlende oder fehlerhafte Teilbäume, lange Warntexte, geänderte Überschrift oder
+Spaltenbindung, eigene und fremde Dialoge sowie das gemeinsame Lesebudget.
+Die API-Tests verweigern fehlende Vollständigkeitsangaben und beweisen, dass
+eine unvollständige Vorbereitung keine Mutation startet. Der interne Lesekontext
+kann nicht über öffentliche `page`-Argumente eingeschleust werden. Native
+Regressionen prüfen zusätzlich erhaltene Warnungen, unbekannte Fenster und
+abgeschnittene Bäume. Diese Gegenfälle ersetzen keine reale UStVA-Abnahme.
+
 Die Zahl 96 funktional live belegter Operationen ist keine Qt-Abdeckung.
 Zweck und schrittweise Abnahme der Umstellung stehen in der
 [Roadmap](ROADMAP.md); technische Bindung und Ausführung beschreibt

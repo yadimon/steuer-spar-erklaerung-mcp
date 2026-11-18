@@ -144,6 +144,7 @@ export function createApiExecutor(
     signal?: AbortSignal,
     internalCheckerClick = false,
     internalCheckerNavigation = false,
+    internalUstvaPage = false,
   ): Promise<WorkerResult> => {
     try {
       if (profile.status === "disabled" && !EXPERIMENTAL_PROFILE_BASE.has(operation)) {
@@ -332,7 +333,10 @@ export function createApiExecutor(
         ));
       }
       if (isUstvaOperation(operation)) {
-        return await executeUstvaOperation(operation, args, timeoutMs, signal, executeOperation);
+        return await executeUstvaOperation(operation, args, timeoutMs, signal,
+          (nested, nestedArgs, remaining, nestedSignal) => executeOperation(
+            nested, nestedArgs, remaining, nestedSignal, false, false, nested === "page",
+          ));
       }
       if (operation === "case_create") {
         return redactPaths(await executeCaseCreate(args, timeoutMs, signal, {
@@ -383,6 +387,10 @@ export function createApiExecutor(
         // erst nach der strikten Validierung fuer den eng gebundenen
         // checker_open-Navigationsschritt an den Worker angehaengt.
         configured.args.experimentalCheckerNavigation = true;
+      }
+      if (internalUstvaPage && operation === "page") {
+        // Private composition context, injected only after strict public validation.
+        configured.args.internalUstvaPage = true;
       }
       if (
         operation === "screenshot" &&

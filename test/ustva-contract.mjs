@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { executeUstvaOperation } from "../dist/ustva-executor.js";
 import { traceOperations } from "./operation-trace.mjs";
+import { resolveWindowsPowerShell } from "../dist/windows-runtime.js";
 import {
   USTVA_FLAGS,
   USTVA_PERIOD_SELECTORS,
   USTVA_SECTIONS,
   USTVA_VALUE_FIELDS,
+  normalizeUstvaCurrentPage,
 } from "../dist/ustva.js";
+
+const completeStats = () => ({ err: 0, cyc: 0, valErr: 0, truncated: false, depthLimited: false });
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-ustva-contract-"));
 const cases = join(temporary, "cases");
@@ -67,6 +73,7 @@ function fieldsForCurrentPage() {
 function overviewWorkerPage() {
   return {
     ok: true,
+    stats: completeStats(),
     ueberschrift: "Umsatzsteuer-Voranmeldungen 2025",
     felder: fields,
     aktionen: [{ name: "ELSTER", gesperrt: true }],
@@ -88,6 +95,7 @@ const execute = traceOperations("ustva-mock", createApiExecutor({
   if (operation === "page") {
     return {
       ok: true,
+      stats: completeStats(),
       ueberschrift: currentHeading,
       felder: fieldsForCurrentPage(),
       aktionen: [{ name: "ELSTER", gesperrt: true }],
@@ -150,7 +158,18 @@ const execute = traceOperations("ustva-mock", createApiExecutor({
 }));
 
 try {
+  const regions = spawnSync(resolveWindowsPowerShell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+    fileURLToPath(new URL("./ustva-region-contract.ps1", import.meta.url))],
+  { encoding: "utf8", windowsHide: true, timeout: 20_000 });
+  assert.equal(regions.status, 0, regions.stderr || regions.stdout);
+  assert.match(regions.stdout, /Bound UStVA regions/u);
+  const beforePublicAttempt = calls.length;
+  assert.equal((await execute("page", { hwnd: 42, internalUstvaPage: true }, 5_000)).kind, "bad-args");
+  assert.equal(calls.length, beforePublicAttempt, "A public caller injected the private context.");
+  assert.equal((await execute("page", { hwnd: 42 }, 5_000)).ok, true);
+  assert.equal(Object.hasOwn(calls.at(-1).args, "internalUstvaPage"), false);
   const read = await execute("ustva_read", { hwnd: 42 }, 5_000);
+  assert.equal(calls.at(-1).args.internalUstvaPage, true);
   assert.equal(read.ok, true);
   assert.equal(read.taxYear, 2025);
   assert.deepEqual(read.period, {
@@ -164,6 +183,52 @@ try {
   assert.equal(read.transmission.uiGuardObserved, true);
   assert.equal(read.transmission.existingSubmissionStatus, "not-read");
   assert.deepEqual(read.effects, { savePerformed: false, submissionPerformed: false });
+
+  for (const heading of ["Umsatzsteuer-Voranmeldungen 2025", "Steuerschuldnerschaft nach § 13b UStG", "Abziehbare Vorsteuer"]) {
+    for (const stats of [undefined, null, [], {},
+      ...["err", "cyc", "valErr"].map(key => ({ ...completeStats(), [key]: 1 })),
+      ...["truncated", "depthLimited"].map(key => ({ ...completeStats(), [key]: true })),
+      { ...completeStats(), truncated: "false" }, { ...completeStats(), valErr: "0" },
+    ]) {
+      const incomplete = normalizeUstvaCurrentPage({ ...overviewWorkerPage(), ueberschrift: heading, stats });
+      assert.equal(incomplete.ok, false);
+      assert.equal(incomplete.kind, "ustva-incomplete");
+      assert.equal(Object.hasOwn(incomplete, "amounts"), false);
+    }
+  }
+  assert.equal(normalizeUstvaCurrentPage({ ...overviewWorkerPage(), stats: {}, dialoge: [{}] }).kind, "dialog-open");
+  const originalFailure = { ok: false, kind: "synthetic-provider-failed", error: "read failed" };
+  assert.equal(normalizeUstvaCurrentPage(originalFailure), originalFailure);
+  const incompleteCalls = [];
+  const incompleteRead = await executeUstvaOperation("ustva_change_value", {
+    hwnd: 42, field: "taxable_19_base", value: "1,00", manualInputConfirmed: true,
+    expectedCaseRef: "cases:arbeit.Gew2025", expectedCaseHash: hash,
+  }, 5_000, undefined, async operation => {
+    incompleteCalls.push(operation);
+    return { ...overviewWorkerPage(), stats: { ...completeStats(), valErr: 1 }, ms: 123 };
+  });
+  assert.equal(incompleteRead.ok, false);
+  assert.equal(incompleteRead.kind, "ustva-incomplete");
+  assert.equal(incompleteRead.ms, 123);
+  assert.deepEqual(incompleteCalls, ["page"], "Incomplete preparation dispatched a mutation.");
+  const producerDialog = { ok: false, kind: "dialog-open", error: "Synthetic modal",
+    dialogs: [{ hwnd: 222, title: "Synthetic dialog", fingerprint: "synthetic", buttons: [], unsupportedButtons: [] }] };
+  const dialogFromProducer = await executeUstvaOperation("ustva_read", {}, 5000, undefined, async () => producerDialog);
+  assert.deepEqual(dialogFromProducer.dialogs, producerDialog.dialogs);
+  for (const [operation, args] of [
+    ["ustva_select_period", { selector: "month", value: "october", expectedCurrent: "july" }],
+    ["ustva_set_flag", { flag: "documents", value: true, expectedBefore: false, expectedAfter: true }],
+    ["ustva_change_value", { field: "taxable_19_base", value: "1,00", manualInputConfirmed: true }],
+    ["ustva_open_section", { section: "input_tax" }],
+  ]) {
+    const preparationCalls = [];
+    const refused = await executeUstvaOperation(operation, args, 5000, undefined, async nested => {
+      preparationCalls.push(nested);
+      return { ok: false, kind: "ustva-incomplete", error: "Synthetic collapsed hint column." };
+    });
+    assert.equal(refused.kind, "ustva-incomplete");
+    assert.deepEqual(preparationCalls, ["page"], "Collapsed required status caused a mutation.");
+  }
 
   currentHeading = "Steuerschuldnerschaft nach § 13b UStG";
   const reverseChargeRead = await execute("ustva_read", { hwnd: 42 }, 5_000);
@@ -187,7 +252,7 @@ try {
     configPath: join(temporary, "config-2026.json"), caseDir: cases, workspaceDir, resultDir,
   }, async (operation, args) => {
     if (operation === "page") return {
-      ok: true, ueberschrift: "Umsatzsteuer-Voranmeldungen 2026", felder: heading2025,
+      ok: true, stats: completeStats(), ueberschrift: "Umsatzsteuer-Voranmeldungen 2026", felder: heading2025,
       aktionen: [{ name: "ELSTER", gesperrt: true }], dialoge: [], prueferMeldungen: [], blockiert: false,
     };
     return { ok: true, operation, ...args };
@@ -555,6 +620,8 @@ try {
   assert.deepEqual(abortedCalls, [], "Vorab-Abbruch darf keinen UStVA-Worker mehr starten.");
   assert.equal(aborted.ok, false);
   assert.equal(aborted.kind, "aborted");
+  assert(calls.filter(call => call.operation !== "page").every(call => !Object.hasOwn(call.args, "internalUstvaPage")),
+    "The private page context escaped into a lower mutation.");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
