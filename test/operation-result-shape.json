@@ -12194,7 +12194,8 @@
               "array-one:object"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
               "success"
@@ -12205,7 +12206,8 @@
               "boolean"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
               "success"
@@ -12216,10 +12218,22 @@
               "array-empty"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
               "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "ustva-mock"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "felder": {
@@ -12227,10 +12241,22 @@
               "array-many:object"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
               "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "ustva-mock"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "ok": {
@@ -12238,9 +12264,11 @@
               "boolean"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12249,7 +12277,20 @@
               "array-empty"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "stats": {
+            "types": [
+              "object:{\"cyc\":\"nonnegative-number\",\"depthLimited\":\"boolean\",\"err\":\"nonnegative-number\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
               "success"
@@ -12260,7 +12301,8 @@
               "string-other"
             ],
             "labels": [
-              "stateful-mock"
+              "stateful-mock",
+              "ustva-mock"
             ],
             "outcomes": [
               "success"
