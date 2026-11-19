@@ -24,6 +24,7 @@
     "main": {
       "process": "SSE",
       "role": "main",
+      "contentAutomationId": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE",
       "headingContainerAutomationIdSuffix": ".ClientFrameSSE.ClientHeader",
       "searchContainerAutomationIdSuffix": "SearchSSE"
     },
