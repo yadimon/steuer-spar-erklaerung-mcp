@@ -706,6 +706,10 @@ Paket zeigen. Der Bericht nennt den Ausführungsmodus und die Manifestidentität
 Die Prüfung der interaktiven Sitzung verwendet dann den verifizierten
 Win32-Helfer ohne PowerShell-Kompilierung. Ohne diese beiden Einstellungen
 misst der Test den Worker-Pfad. Native Messungen ändern das Worker-Coverage-Ledger nicht.
+Ein früherer Lauf zählt als Vergleichskandidat, wenn er erfolgreich war und
+Commit, Laufzeitartefakte, Ausführungsmodus und gegebenenfalls der native
+Manifest-Hash übereinstimmen. Ein fehlender oder ungültiger Rohbericht lässt
+den Lauf auch bei Exit-Code 0 des Kindprozesses fehlschlagen.
 Der Bereitschaftstest übernimmt `SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS` aus der
 Pool-Konfiguration; eine längere erlaubte Vorbereitung ist keine schnellere API-Operation.
 Ohne eigene Einstellung beträgt das begrenzte Startbudget 30 Sekunden; es gilt
