@@ -153,6 +153,43 @@ assert(
 assert(!/(?:gh\s+release|create-release|softprops|contents:\s*write|secrets\.)/iu.test(workflow),
   "CI darf weder veröffentlichen noch Schreibrechte oder Secrets verwenden.");
 
+const nativeWorkflow = readFileSync(".github/workflows/native-qt.yml", "utf8");
+assert.match(nativeWorkflow, /^permissions:\r?\n  contents: read$/mu);
+assert.match(nativeWorkflow, /persist-credentials: false/u);
+assert.match(nativeWorkflow, /node-version-file: '\.node-version'/u);
+for (const [action, revision] of Object.entries(pinnedActions)) {
+  assert(nativeWorkflow.includes(`uses: ${action}@${revision}`), `Native CI hat keinen geprüften ${action}-Pin.`);
+}
+assert(!/uses:\s+[^\s]+@(v\d+|main|master)\b/u.test(nativeWorkflow));
+assert(!/(?:upload-artifact|contents:\s*write|secrets\.|continue-on-error|--repeat|--timeout\b|QT_QPA_PLATFORM)/u.test(nativeWorkflow),
+  "Native CI darf keine vertraulichen Artefakte, abgeschwächten Fristen, Wiederholungen oder Ersatz-Plattform verwenden.");
+const firstNativeTest = nativeWorkflow.indexOf("-R '^native-qt-integration$'");
+const remainingNativeTests = nativeWorkflow.indexOf("-E '^native-qt-integration$'");
+assert(firstNativeTest > 0 && remainingNativeTests > firstNativeTest,
+  "Die unveränderte native Integration muss vor den übrigen nativen Tests laufen.");
+const nativeTestCommands = nativeWorkflow.split(/\r?\n/u).filter(line => /run: ctest /u.test(line));
+assert.deepEqual(nativeTestCommands.map(line => line.trim()), [
+  "run: ctest --test-dir artifacts/qt-native -C Release -R '^native-qt-integration$' -j 1 -V --output-on-failure --no-tests=error",
+  "run: ctest --test-dir artifacts/qt-native -C Release -E '^native-qt-integration$' -j 1 --output-on-failure --no-tests=error",
+], "Alle registrierten Tests müssen durch disjunkte serielle Auswahl genau einmal laufen; leere Auswahl ist ein Fehler.");
+assert(nativeWorkflow.includes("steps.build.outcome == 'success'"),
+  "Die restlichen Tests brauchen den erfolgreichen Build, nicht den Erfolg des ersten Tests.");
+assert.match(nativeWorkflow, /- name: Build native package and fixtures\r?\n\s+id: build\r?\n/u,
+  "Die Ergebnisbindung darf die übrigen Tests nicht durch eine fehlende Schritt-ID auslassen.");
+assert(nativeWorkflow.includes("--proto '=https' --proto-redir '=https'")
+  && nativeWorkflow.includes("--connect-timeout 30 --max-time 180") && !nativeWorkflow.includes("--retry"),
+"SDK-Downloads müssen HTTPS und feste Fristen ohne automatische Wiederholung behalten.");
+const helperCheck = nativeWorkflow.indexOf("Test-Path -LiteralPath 'powershell/sse-native.dll'");
+assert(helperCheck > nativeWorkflow.indexOf("npm run build"), "Der API-Helfer muss nach seinem Build vorhanden sein.");
+assert.match(nativeWorkflow, /^\s+\$expected = '[a-f0-9]{64}'$/mu, "Das Qt-Archiv braucht einen festen SHA256-Pin.");
+const digestCheck = nativeWorkflow.indexOf("Get-FileHash -LiteralPath $archive -Algorithm SHA256");
+assert(digestCheck > 0 && digestCheck < nativeWorkflow.indexOf("& 7z x $archive"),
+  "Vor dem Entpacken muss das heruntergeladene SDK gegen den festen Pin geprüft werden.");
+for (const library of ["Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll"]) {
+  assert(nativeWorkflow.includes(`'${library}'`), `Native CI prüft ${library} nicht gegen die Laufzeitbindung.`);
+}
+assert(nativeWorkflow.includes("$digest -ne $compatibility.sha256.$library"));
+
 const publishWorkflow = readFileSync(publishWorkflowPath, "utf8");
 assert.match(publishWorkflow, /^name: Publish npm prerelease$/mu);
 assert.match(publishWorkflow, /^  workflow_dispatch:$/mu, "npm-Publish muss bewusst manuell gestartet werden.");
