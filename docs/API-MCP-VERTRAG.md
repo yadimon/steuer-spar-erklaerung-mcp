@@ -1246,7 +1246,9 @@ Menüeintrags und die ursprüngliche Eingabemarke. Bei einem eigenen
 Qt-Popup bleibt das bereits aktive Hauptfenster gebunden; der Klick aktiviert
 weder Popup noch Hauptfenster erneut. Derselbe Prozess, die bekannte
 Popup-Klasse, das vollständige Menüinventar und der tatsächliche Punktnachweis
-sind Pflicht. Die nur beobachtende Vordergrundbindung behält den geschützten
+sind Pflicht. Das Inventar bindet den gewünschten Eintrag. Beim Hover liest der
+Helfer Sichtbarkeit, Fenster- und Prozessbindung direkt am gebundenen Popup.
+Die nur beobachtende Vordergrundbindung behält den geschützten
 Cursor-Rückweg; ein Fokus- oder Eingabewechsel erlaubt keinen Klick.
 Vor dem einzigen Klick bereitet der Helfer denselben Menüeintrag mit zehn
 verschiedenen Hover-Punkten innerhalb seiner Fläche vor und endet am

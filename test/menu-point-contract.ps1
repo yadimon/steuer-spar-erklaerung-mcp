@@ -31,7 +31,7 @@ public static class SW {
  public static long Foreground=101;
  public static int CursorX=7,CursorY=9,MouseCalls,WindowPosCalls;
  public static uint Tick=37,PopupPid=55;
- public static bool PopupAlive=true,MainAlive=true,CorrectPoint=true,RedirectRoot;
+ public static bool PopupAlive=true,PopupVisible=true,MainAlive=true,CorrectPoint=true,RedirectRoot;
  public static Action OnCursorRead,OnMouseUp,OnPointRead;
  public static Action OnHoverMessage,OnCursorMove;
  public static int HoverMessages,CursorMoves,DpiRestores,HeldKey,FinalPointReads;
@@ -53,6 +53,7 @@ public static class SW {
  }
  public static IntPtr GetForegroundWindow(){return new IntPtr(Foreground);}
  public static bool IsWindow(IntPtr h){return h.ToInt64()==909|| (h.ToInt64()==101?MainAlive:h.ToInt64()==202&&PopupAlive);}
+ public static bool IsWindowVisible(IntPtr h){return h.ToInt64()==202&&PopupAlive&&PopupVisible;}
  public static uint GetWindowThreadProcessId(IntPtr h,out int pid){pid=IsWindow(h)?(h.ToInt64()==909?77:h.ToInt64()==101?55:(int)PopupPid):0;return pid==0?0u:1u;}
  public static IntPtr GetAncestor(IntPtr h,int kind){return RedirectRoot&&h.ToInt64()==202?new IntPtr(101):h;}
  public static IntPtr GetWindow(IntPtr h,int kind){return IntPtr.Zero;}
@@ -73,7 +74,12 @@ function Set-SSEForegroundWindowCore {param([IntPtr]$Hwnd,[switch]$Topmost) $scr
 function Show-SSEWindow {param([IntPtr]$Hwnd) $script:showCalls++;Enter-SSEForegroundLease $Hwnd}
 function Test-SSEWindowIsLockScreen {return $false}
 function Get-SSEWindowClassName([IntPtr]$Window){if($Window -eq [IntPtr]202){return $script:popupClass};return 'Qt692QWindowIcon'}
-function Get-SSEMenuPopupWindows([int]$TargetPid){if($script:listedPopup -and [SW]::PopupAlive){[pscustomobject]@{hwnd=202;pid=55;cls=$script:popupClass}}}
+function Get-Process([int]$Id,$ErrorAction) {
+ if($Id -ne 55){throw 'Point check looked up a process other than the already bound target.'}
+ [pscustomobject]@{Id=$Id}
+}
+function Test-SSEProcess($Process){return ($Process.Id -eq 55 -and $script:supportedProcess)}
+function Get-SSEMenuPopupWindows {throw 'A bound point check enumerated unrelated windows again.'}
 function Get-SSEPointObstruction([IntPtr]$Window,[int]$X,[int]$Y){
  if($Window -ne [IntPtr]202){throw 'Popup hit proof was rebound to the main window.'}
  [pscustomobject]@{isBoundTarget=$script:unobstructed}
@@ -82,7 +88,7 @@ function Fail($Message,$Kind,$Details){throw ('Unexpected terminal Emit: '+$Kind
 function Reset-MenuPoint {
  & $initializeLease
  [SW]::Foreground=101;[SW]::CursorX=7;[SW]::CursorY=9;[SW]::MouseCalls=0;[SW]::WindowPosCalls=0
- [SW]::Tick=37;[SW]::PopupPid=55;[SW]::PopupAlive=$true;[SW]::MainAlive=$true;[SW]::CorrectPoint=$true;[SW]::RedirectRoot=$false
+ [SW]::Tick=37;[SW]::PopupPid=55;[SW]::PopupAlive=$true;[SW]::PopupVisible=$true;[SW]::MainAlive=$true;[SW]::CorrectPoint=$true;[SW]::RedirectRoot=$false
  [SW]::OnCursorRead=$null;[SW]::OnMouseUp=$null;[SW]::OnPointRead=$null
  [SW]::OnHoverMessage=$null;[SW]::OnCursorMove=$null;[SW]::HoverMessages=0;[SW]::CursorMoves=0;[SW]::DpiRestores=0;[SW]::HeldKey=0
  [SW]::MessageTimeout=$false;[SW]::ClientConversionFailure=$false;[SW]::DpiRestoreFailure=$false;[SW]::DpiEnterFailure=$false
@@ -90,7 +96,7 @@ function Reset-MenuPoint {
  [SW]::FinalPointReads=0
  $script:activationCalls=0;$script:showCalls=0;$script:popupClass='Qt692QWindowPopupDropShadowSaveBits'
  $script:activationTargets=[Collections.Generic.List[long]]::new()
- $script:listedPopup=$true;$script:unobstructed=$true
+ $script:supportedProcess=$true;$script:unobstructed=$true
  $script:foreignAfterInput=$false
 }
 $node=[pscustomobject]@{x=20;y=30;w=100;h=20;rid='4.7';name='BelegManager';type='MenuItem';on=$true}
@@ -154,6 +160,8 @@ foreach($case in @(
  @{name='input-after-hover';setup={[SW]::OnHoverMessage={[SW]::Tick=38}}},
  @{name='foreground-after-hover';setup={[SW]::OnHoverMessage={[SW]::Foreground=999}}},
  @{name='popup-after-hover';setup={[SW]::OnHoverMessage={[SW]::PopupPid=56}}},
+ @{name='hidden-popup-after-hover';setup={[SW]::OnHoverMessage={[SW]::PopupVisible=$false}}},
+ @{name='profile-after-hover';setup={[SW]::OnHoverMessage={$script:supportedProcess=$false}}},
  @{name='rid-after-hover';setup={[SW]::OnHoverMessage={[SW]::CorrectPoint=$false}}},
  @{name='rid-before-first-message';setup={[SW]::OnCursorMove={if([SW]::CursorMoves -eq 1){[SW]::CorrectPoint=$false}}}},
  @{name='obstruction-before-first-message';setup={[SW]::OnCursorMove={if([SW]::CursorMoves -eq 1){$script:unobstructed=$false}}}},
@@ -187,7 +195,8 @@ foreach($case in @(
  @{name='unknown-class-suffix';setup={$script:popupClass='Qt692QWindowPopupDropShadowUnknown'}},
  @{name='missing-class-flag';setup={$script:popupClass='Qt692QWindowPopupDropShadow'}},
  @{name='wrong-root';setup={[SW]::RedirectRoot=$true}},
- @{name='missing-popup';setup={$script:listedPopup=$false}},
+ @{name='hidden-popup';setup={[SW]::PopupVisible=$false}},
+ @{name='unsupported-process';setup={$script:supportedProcess=$false}},
  @{name='obstructed';setup={$script:unobstructed=$false}},
  @{name='wrong-point';setup={[SW]::CorrectPoint=$false}},
  @{name='input-during-capture';setup={[SW]::OnCursorRead={[SW]::Tick=38}}},
@@ -290,7 +299,8 @@ $caught=$null;try{Invoke-MenuPoint $throwingCheck|Out-Null}catch{$caught=$_}
 Check-MenuPoint ($null -ne $caught -and $caught.Exception.Data['kind'] -ceq 'stale' -and $caught.Exception.Data['inputDispatched'] -eq $false -and [SW]::MouseCalls -eq 0) 'A throwing last popup proof lost its known-unsent state.'
 Exit-SSEForegroundLease -Force -Reason 'emit';Assert-NoMenuActivation
 foreach($change in @(
- {[SW]::Foreground=999}, {[SW]::PopupPid=56}, {$script:popupClass='Qt692QWindowToolSaveBits'}, {$script:listedPopup=$false}
+ {[SW]::Foreground=999}, {[SW]::PopupPid=56}, {$script:popupClass='Qt692QWindowToolSaveBits'},
+ {[SW]::PopupVisible=$false}, {$script:supportedProcess=$false}
 )){
  Reset-MenuPoint;$caught=$null
  $before={param($Window,$Binding,$X,$Y) if($null -ne $X){& $change}}

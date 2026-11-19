@@ -13348,12 +13348,15 @@ function Test-SSEMenuPointBinding([IntPtr]$Popup, $Binding) {
         [SW]::GetAncestor($main,2) -ne $main -or [SW]::GetAncestor($Popup,2) -ne $Popup -or
         [SW]::GetForegroundWindow() -ne $main -or
         (Get-SSEWindowClassName $Popup) -notmatch '^Qt\d+QWindowPopupDropShadowSaveBits$') { return $false }
+    # Das vollstaendige Inventar bindet den Eintrag vor dem Hover. Pruefe hier
+    # das exakte Popup und dessen Produktprozess direkt, ohne alle Fenster
+    # fuer jeden einzelnen Hover-Punkt erneut zu beschreiben.
+    if (-not (Test-SSEProcess (Get-Process -Id $expectedPid -ErrorAction Stop))) { return $false }
     $mainPid = 0; $popupPid = 0
     $null = [SW]::GetWindowThreadProcessId($main,[ref]$mainPid)
     $null = [SW]::GetWindowThreadProcessId($Popup,[ref]$popupPid)
-    if ($mainPid -ne $expectedPid -or $popupPid -ne $expectedPid) { return $false }
-    $listed = @(Get-SSEMenuPopupWindows $expectedPid | Where-Object { [int64]$_.hwnd -eq [int64]$Popup })
-    [bool]($listed.Count -eq 1 -and [SW]::GetForegroundWindow() -eq $main)
+    [bool]($mainPid -eq $expectedPid -and $popupPid -eq $expectedPid -and
+      [SW]::IsWindowVisible($Popup) -and [SW]::GetForegroundWindow() -eq $main)
   } catch { $false }
 }
 
