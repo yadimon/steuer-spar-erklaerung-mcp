@@ -5743,6 +5743,28 @@
           "2025"
         ],
         "fields": {
+          "dialogInspectionError": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "dialogInspectionKind": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "discardChanges": {
             "types": [
               "boolean"
@@ -7543,7 +7565,8 @@
           },
           "treeWalkDetail": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "worker"
@@ -8034,7 +8057,8 @@
           },
           "treeWalkDetail": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "worker"
@@ -11634,6 +11658,17 @@
               "success"
             ]
           },
+          "focusTelemetry": {
+            "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "hinweis": {
             "types": [
               "string-other"
@@ -12809,6 +12844,7 @@
         "fields": {
           "afterPositions": {
             "types": [
+              "array-empty",
               "array-many:object",
               "array-one:object"
             ],
@@ -12816,18 +12852,21 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
           "beforePositions": {
             "types": [
               "array-empty",
+              "array-many:object",
               "array-one:object"
             ],
             "labels": [
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12839,6 +12878,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12895,6 +12935,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12906,6 +12947,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12944,14 +12986,27 @@
               "success"
             ]
           },
-          "treeWalkDetail": {
+          "rollback": {
             "types": [
-              "array-many:object"
+              "object:{\"attempted\":\"boolean\",\"reason\":\"string-other\"}"
             ],
             "labels": [
               "worker"
             ],
             "outcomes": [
+              "error"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12963,6 +13018,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12974,6 +13030,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -12985,6 +13042,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           }
@@ -13581,7 +13639,8 @@
           },
           "zeilen": {
             "types": [
-              "array-many:string-other"
+              "array-many:string-other",
+              "array-one:string-other"
             ],
             "labels": [
               "worker"
@@ -18412,6 +18471,28 @@
           "2025"
         ],
         "fields": {
+          "bereich": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "bewegt": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "hinweis": {
             "types": [
               "string-other"
@@ -18434,6 +18515,17 @@
               "success"
             ]
           },
+          "nachher": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ok": {
             "types": [
               "boolean"
@@ -18445,9 +18537,31 @@
               "success"
             ]
           },
+          "position": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "scrollbar": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "sichtbarerAnteil": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -18479,6 +18593,17 @@
             ]
           },
           "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "vorher": {
             "types": [
               "nonnegative-number"
             ],
@@ -20212,6 +20337,39 @@
               "success"
             ]
           },
+          "freshRawFocusCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "freshRawFocusMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "freshRawResolvers": {
+            "types": [
+              "object:{\"focus\":\"object\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "geloescht": {
             "types": [
               "boolean"
@@ -20226,6 +20384,17 @@
           "ms": {
             "types": [
               "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mutationStarted": {
+            "types": [
+              "boolean"
             ],
             "labels": [
               "worker"
@@ -20256,9 +20425,31 @@
               "success"
             ]
           },
+          "outcomeUnknown": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "page": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "retryable": {
+            "types": [
+              "boolean"
             ],
             "labels": [
               "worker"
@@ -21860,6 +22051,7 @@
           },
           "commitDetails": {
             "types": [
+              "object:{\"characterSubstitution\":\"null\",\"focusMethod\":\"string-other\",\"mutationStarted\":\"boolean\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\",\"textBeforeCommitVerified\":\"null\"}",
               "object:{\"desktop\":\"string-other\",\"focusMode\":\"string-other\",\"focusMs\":\"nonnegative-number\",\"focusVerified\":\"boolean\",\"foregroundLeaseUsed\":\"boolean\",\"observedValue\":\"string-other\",\"physicalInputUsed\":\"boolean\",\"selectedByPattern\":\"boolean\",\"setValueMs\":\"nonnegative-number\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\",\"strategy\":\"string-other\",\"targetPid\":\"nonnegative-number\",\"typeMs\":\"nonnegative-number\",\"writeMs\":\"nonnegative-number\"}",
               "object:{\"focusMethod\":\"string-other\",\"mutationStarted\":\"boolean\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"focusMethod\":\"string-other\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
@@ -22184,6 +22376,18 @@
           "ungespeichert": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "valueInfo": {
+            "types": [
+              "null",
+              "object:{\"input\":\"null\",\"inputDispatched\":\"null\",\"opened\":\"boolean\"}"
             ],
             "labels": [
               "worker"
@@ -23263,6 +23467,7 @@
           },
           "commitDetails": {
             "types": [
+              "object:{\"characterSubstitution\":\"null\",\"focusMethod\":\"string-other\",\"mutationStarted\":\"boolean\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\",\"textBeforeCommitVerified\":\"null\"}",
               "object:{\"focusMethod\":\"string-other\",\"mutationStarted\":\"boolean\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"focusMethod\":\"string-other\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}"
@@ -23564,6 +23769,17 @@
           "ustva": {
             "types": [
               "object:{\"effects\":\"object\",\"field\":\"string-other\",\"manualOnly\":\"boolean\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "valueInfo": {
+            "types": [
+              "null"
             ],
             "labels": [
               "worker"
@@ -24173,6 +24389,17 @@
               "success"
             ]
           },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "flags": {
             "types": [
               "object:{\"additional_information\":\"boolean\",\"corrected\":\"boolean\",\"documents\":\"boolean\",\"manual_input\":\"boolean\",\"offset_request\":\"boolean\",\"revoke_sepa\":\"boolean\"}"
@@ -24182,6 +24409,17 @@
             ],
             "outcomes": [
               "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "messages": {
@@ -24204,6 +24442,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -24226,6 +24465,7 @@
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -24293,6 +24533,39 @@
             ],
             "outcomes": [
               "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
             ]
           }
         }
