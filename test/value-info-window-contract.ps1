@@ -15,12 +15,21 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 
-$definition = @($ast.FindAll({
-  param($node)
-  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-SSEValueInfoWindows'
+$workerFunctions = @($ast.FindAll({
+  param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst]
 }, $true))
-if ($definition.Count -ne 1) { throw 'Get-SSEValueInfoWindows ist nicht eindeutig vorhanden.' }
-Invoke-Expression $definition[0].Extent.Text
+function Get-WorkerDefinition([string]$Name) {
+  $matches = @($workerFunctions | Where-Object { $_.Name -ceq $Name })
+  if ($matches.Count -ne 1) { throw "Worker helper '$Name' is missing or ambiguous." }
+  $matches[0]
+}
+$operations = @((Get-WorkerDefinition 'Invoke-SSEWorkerOperation').Body.EndBlock.Statements |
+  Where-Object { $_ -is [Management.Automation.Language.SwitchStatementAst] })
+$trackedCases = @($operations | ForEach-Object { $_.Clauses } |
+  Where-Object { $_.Item1.Value -ceq 'tracked_set_value' })
+if ($trackedCases.Count -ne 1) { throw 'Actual field operation is missing or ambiguous.' }
+$trackedBody = $trackedCases[0].Item2
+Invoke-Expression (Get-WorkerDefinition 'Get-SSEValueInfoWindows').Extent.Text
 
 $script:WERTE_INFO_TITEL = 'Werte-Info: Werte vergleichen - Was wäre wenn'
 $script:FensterStub = @()
@@ -65,12 +74,7 @@ Write-Output 'Werte-Info-Fenstersuche: leer, eindeutig, fremde PID und mehrdeuti
 # Exercise the real open/readiness/close helpers against an adapter whose
 # window appears immediately but whose content can arrive in stages.
 foreach ($name in @('Open-SSEPlanValueInfoWindow','Open-SSEValueInfoWindow','Open-TrackedResultWindow','Read-TrackedResultWindowComplete','Close-TrackedResultWindow')) {
-  $definitions = @($ast.FindAll({
-    param($node)
-    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
-  }, $true))
-  Assert-True ($definitions.Count -eq 1) "Missing helper $name."
-  Invoke-Expression $definitions[0].Extent.Text
+  Invoke-Expression (Get-WorkerDefinition $name).Extent.Text
 }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -TypeDefinition @'
@@ -145,9 +149,7 @@ function Show-SSEWindow {
 }
 function Hide-SSETopmost { $script:hideCalls++ }
 function Set-SSEForegroundLeaseInputCheckpoint($Tick,$Point,[string]$Context){$null=$script:leaseMarks.Add([pscustomobject]@{tick=$Tick;context=$Context})}
-$inputGuard=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSELastInputUnchanged'},$true))
-Assert-True ($inputGuard.Count -eq 1) 'Actual input comparison missing.'
-Invoke-Expression $inputGuard[0].Extent.Text
+Invoke-Expression (Get-WorkerDefinition 'Test-SSELastInputUnchanged').Extent.Text
 function Click-VerifiedPoint {
   param($Window,$Node,$ExpectedInputTick=$null,[switch]$ThrowOnFailure,[switch]$RequireForeground,[string]$ExpectedRuntimeId='')
   $script:clickCalls++
@@ -215,13 +217,9 @@ Assert-True (-not $postClick.ok -and $postClick.kind -ceq 'interference' -and $n
 Assert-True ($script:clickCalls -eq 1 -and $script:SSE_TRACKED_PLAN_INPUT_CONTEXT.checkpoint -eq 0 -and $postClick.inputGuard.eingriffErkannt -and $script:FensterStub.Count -eq 2) 'Post-click interference was retried, rebased or closed an unproven window.'
 function Assert-TrackingFailureResult($ExpectedTracking,[string]$ExpectedKind,[bool]$ExpectedUnknown){ & {
  param($ExpectedTracking,$ExpectedKind,$ExpectedUnknown)
- $tracked=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.SwitchStatementAst]},$true)|ForEach-Object{$_.Clauses}|Where-Object{$_.Item1.Value -ceq 'tracked_set_value'})
- Assert-True ($tracked.Count -eq 1) 'Actual field operation missing.'
- $failureBlock=@($tracked[0].Item2.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq '-not $tracking.ok'},$true))
+ $failureBlock=@($trackedBody.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq '-not $tracking.ok'},$true))
  Assert-True ($failureBlock.Count -eq 1) 'Actual tracking refusal block missing.'
- $fail=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Fail'},$true))
- Assert-True ($fail.Count -eq 1) 'Actual failure result builder missing.'
- . ([scriptblock]::Create($fail[0].Extent.Text))
+ . ([scriptblock]::Create((Get-WorkerDefinition 'Fail').Extent.Text))
  $tracking=$ExpectedTracking;$script:trackingFailure=$null
  function Emit($Result){$script:trackingFailure=$Result;throw 'synthetic-tracking-result'}
  try{& ([scriptblock]::Create($failureBlock[0].Extent.Text));throw 'Actual caller did not stop'}catch{if($_.Exception.Message -cne 'synthetic-tracking-result'){throw}}
@@ -354,9 +352,7 @@ Assert-TrackingFailureResult $cleanRefusal 'precondition-failed' $false
   $script:SSE_CAPTURE_OPERATION_RESULT=$false
   $script:originalCaptured=[pscustomobject]@{ok=$false;kind='synthetic-original-capture';resultingState='unknown'}
   $script:throwClickSentinel=$true;[SW]::PatternAvailable=$false
-  $capture=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Invoke-SSECapturedOperation'},$true))
-  Assert-True ($capture.Count -eq 1) 'Actual capture dispatcher missing.'
-  . ([scriptblock]::Create($capture[0].Extent.Text))
+  . ([scriptblock]::Create((Get-WorkerDefinition 'Invoke-SSECapturedOperation').Extent.Text))
   function Assert-SSEVerifiedBuildForOperation {}
   function Invoke-SSEWorkerOperation { Open-SSEValueInfoWindow ([IntPtr]111) 42 -DeferContentReadiness }
   $captured=Invoke-SSECapturedOperation 'tracked_set_value' ([pscustomobject]@{})
@@ -403,14 +399,9 @@ Write-Output 'Tracked results: deferred complete readback, partial/deadline reje
 # PowerShell can otherwise turn a missing argument into one empty label.
 . (Join-Path $root 'powershell/table-values.ps1')
 foreach ($name in @('Arg', 'Compare-TrackedResultRows')) {
-  $definitions = @($ast.FindAll({
-    param($node)
-    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
-  }, $true))
-  Assert-True ($definitions.Count -eq 1) "Missing helper $name."
-  Invoke-Expression $definitions[0].Extent.Text
+  Invoke-Expression (Get-WorkerDefinition $name).Extent.Text
 }
-$labelAssignments = @($ast.FindAll({
+$labelAssignments = @($trackedBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.AssignmentStatementAst] -and
     $node.Left.Extent.Text -ceq '$labels' -and $node.Right.Extent.Text.Contains("'resultLabels'")
@@ -448,7 +439,7 @@ $newAfter = [pscustomobject]@{ rows=@([pscustomobject]@{ name='New tax'; aktuell
 $newDiff = @(Compare-TrackedResultRows ([pscustomobject]@{ rows=@() }) $newAfter @('New tax'))
 Assert-True ($newDiff.Count -eq 1 -and $null -eq $newDiff[0].vorher -and $newDiff[0].nachher -ceq '250,00') 'A requested newly calculated row was lost.'
 Assert-True (@(Compare-TrackedResultRows $resultBefore $resultAfter @('Absent row')).Count -eq 0) 'An unmatched filter must not invent changed rows.'
-$labelGuards = @($ast.FindAll({
+$labelGuards = @($trackedBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.IfStatementAst] -and
     $node.Extent.Text.Contains('$labels | Where-Object { [string]::IsNullOrWhiteSpace($_) }')
@@ -471,12 +462,7 @@ Invoke-Expression $labelGuards[0].Extent.Text
 # The transaction must still wait for consecutive identical content snapshots.
 . (Join-Path $root 'powershell/structure-binding.ps1')
 foreach ($name in @('Convert-SSEComparableNumber', 'Get-SSETextSha256', 'Read-ResultDetailsFromTree', 'Read-TrackedResultWindow')) {
-  $definitions = @($ast.FindAll({
-    param($node)
-    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
-  }, $true))
-  Assert-True ($definitions.Count -eq 1) "Missing helper $name."
-  Invoke-Expression $definitions[0].Extent.Text
+  Invoke-Expression (Get-WorkerDefinition $name).Extent.Text
 }
 function Result-Tree([int]$RowCount, [string]$Tax = '2.000,00') {
   $nodes = New-Object Collections.ArrayList
@@ -498,7 +484,7 @@ $full = Result-Tree 2
 $changed = Result-Tree 2 '2.100,00'
 $parsedPrefix = Read-ResultDetailsFromTree $prefix
 Assert-True ($parsedPrefix.vollstaendig -and $parsedPrefix.anzahl -eq 1) 'The regression fixture must be a structurally complete prefix.'
-$beforeAssignments = @($ast.FindAll({
+$beforeAssignments = @($trackedBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.AssignmentStatementAst] -and
     $node.Left.Extent.Text -ceq '$resultBefore' -and $node.Right.Extent.Text.Contains('Read-TrackedResultWindowComplete')
