@@ -90,7 +90,7 @@ passenden Bearbeiten-Verweis und doppelte Namen. Ein abgeschlossener roher
 Baumdurchlauf allein beweist keine fachliche Seitenbereitschaft.
 Texte und Links werden über ihre Zugehörigkeit zum eindeutigen Formular-Guide
 gebunden. Dadurch bleiben die Blattknoten von 2024 ohne eigene AutomationId
-lesbar. Bei einem UIA-Lesefehler sind bis zu zwei erneute Beobachtungen derselben
+lesbar. Bei einem UIA-Baumlauffehler sind bis zu zwei erneute Beobachtungen derselben
 Übersicht möglich. Jede erfolgreiche Ausgabe braucht einen vollständigen Read.
 
 Dieselbe Bestandsprüfung schützt `position_create` vor dem ersten Klick.
@@ -1185,6 +1185,10 @@ prüft Überschrift und Spaltenbindung abschließend erneut und hält ein gemein
 Lesebudget ein. Die Überschrift muss als eindeutiges Textkind im gebundenen
 Header stehen. So bleibt sie auch mit fehlender AutomationId des Textknotens
 über Runtime-ID, Text und Elternbindung überprüfbar.
+Bei einem UIA-Baumlauffehler kann derselbe Prüferbereich innerhalb des
+gemeinsamen Budgets bis zu zweimal neu gelesen werden. Fenster, Überschrift
+und Spaltengeometrie müssen weiterhin dieselbe Bindung bestätigen. Die
+Hinweise stammen aus einem vollständigen Snapshot.
 Ein Zyklus in der übrigen Navigation ersetzt diese Nachweise
 nicht. Eine fehlende oder unlesbare Hinweisspalte führt zu `ustva-incomplete`;
 bei ausgeblendeter Spalte muss sie vor dem erneuten Lesen eingeblendet werden.

@@ -5,7 +5,7 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Invalid production worker syntax'}
 $workerFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
-foreach($name in @('Get-SSEPageFieldLabel','Test-SSEUstvaTreeComplete','New-SSEUstvaReadBudget','Get-SSEUstvaReadRemaining',
+foreach($name in @('Get-SSEPageFieldLabel','Test-SSESnapshotHasOnlyWalkErrors','Test-SSEUstvaTreeComplete','New-SSEUstvaReadBudget','Get-SSEUstvaReadRemaining',
   'Get-SSEUstvaDialogState','Test-SSEUstvaHeadingBinding','Read-SSEUstvaPage')){
   $definitions=@($workerFunctions | Where-Object Name -CEQ $name)
   if($definitions.Count -ne 1){throw "Production UStVA helper '$name' is missing or ambiguous"}
@@ -40,6 +40,7 @@ function New-Fixture {
   $script:clock=[pscustomobject]@{timer=[pscustomobject]@{ElapsedMilliseconds=0};limitMs=45000}
   $script:elapsedAfterForm=0;$script:elapsedAfterLibrary=0
   $script:libraryChanged=$false;$script:changeLibraryAfterRead=$false
+  $script:libraryWalkFailures=0;$script:changeLibraryOnRetry=$false
   $script:header=[pscustomobject]@{type='Group';rid='header';aid='SyntheticRoot.ClientFrameSSE.ClientHeader';i=11;p=3}
   $script:heading=[pscustomobject]@{type='Text';rid='heading';aid='SyntheticRoot.ClientFrameSSE.ClientHeader.Heading';name='Umsatzsteuer-Voranmeldungen 2025';i=12;p=11}
   $script:headingCurrent=[pscustomobject]@{ProcessId=7;AutomationId=$script:heading.aid;ControlType=[pscustomobject]@{ProgrammaticName='ControlType.Text'}}
@@ -80,7 +81,16 @@ function Read-SSESearchRegion {param($Window,$RelativeAid,$Binding,[int]$Timeout
   if($script:libraryMissing){throw 'Synthetic provider secret must be redacted'}
   $script:headingChanged=$script:changeHeadingAfterLibrary
   if($script:changeHeadingParentAfterLibrary){$script:headingParent=[pscustomobject]@{key='other-header'}}
-  $script:clock.timer.ElapsedMilliseconds=$script:elapsedAfterLibrary;$script:library
+  $script:clock.timer.ElapsedMilliseconds=$script:elapsedAfterLibrary
+  $region=$script:library.PSObject.Copy()
+  if($script:libraryReads -le $script:libraryWalkFailures){
+    $region.tree=$script:library.tree.PSObject.Copy()
+    $region.tree.stats=$script:library.tree.stats.PSObject.Copy()
+    $region.tree.stats.err=1
+    $region.tree.nodes=@([pscustomobject]@{type='TreeItem';name='Incomplete warning'},$region.tree.nodes[1])
+  }
+  if($script:libraryReads -gt 1 -and $script:changeLibraryOnRetry){$region.root=$region.root.PSObject.Copy();$region.root.x++}
+  $region
 }
 function Get-SSEMainWindowSelectors {[pscustomobject]@{heading='.ClientHeader'}}
 function Test-SSEElementIdentity {param($Element,$Rid,$Aid,$Name)
@@ -118,6 +128,25 @@ Assert-Equal $read.aktionen[0].gesperrt $true 'Toolbar transmission boundary was
 Assert-Equal $read.stats.n 6 'Measured region counters were not summed'
 Assert-Equal $script:formReads 1 'Form was retried'
 Assert-Equal $script:libraryReads 1 'Status was retried'
+
+New-Fixture;$script:libraryWalkFailures=2
+$retryRead=Read-SSEUstvaPage 111
+Assert-Equal $retryRead.ok $true 'A fully rebound checker region did not recover after transient UIA walk failures'
+Assert-Equal $script:libraryReads 3 'The checker region did not get two independent rereads'
+Assert-Equal $script:formReads 1 'An unchanged form was read again'
+Assert-Equal ($retryRead.prueferMeldungen -join ',') 'Synthetic warning' 'A partial snapshot contributed a warning'
+New-Fixture;$script:libraryWalkFailures=3
+Assert-Equal (Read-SSEUstvaPage 111).ok $false 'Persistent UIA failure emitted a UStVA result'
+Assert-Equal $script:libraryReads 3 'Persistent UIA failure exceeded the reread limit'
+New-Fixture;$script:libraryWalkFailures=1;$script:changeLibraryOnRetry=$true
+Assert-Equal (Read-SSEUstvaPage 111).ok $false 'The reread accepted moved checker geometry'
+Assert-Equal $script:libraryReads 2 'A moved region triggered another reread'
+New-Fixture;$script:libraryWalkFailures=1;$script:changeHeadingAfterLibrary=$true
+Assert-Equal (Read-SSEUstvaPage 111).ok $false 'The reread retained a stale UStVA page'
+Assert-Equal $script:libraryReads 1 'A changed page triggered a reread'
+New-Fixture;$script:libraryWalkFailures=1;$script:elapsedAfterLibrary=45000
+Assert-Equal ((Read-SSEUstvaPage 111).error -like '*Lesebudget*') $true 'The reread ignored the shared budget'
+Assert-Equal $script:libraryReads 1 'An expired budget triggered a reread'
 
 New-Fixture
 $script:heading.aid=''

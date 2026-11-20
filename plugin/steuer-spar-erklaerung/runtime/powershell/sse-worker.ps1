@@ -5949,6 +5949,16 @@ function Test-SSEMainContentBinding($Before,$After) {
   $true
 }
 
+function Test-SSESnapshotHasOnlyWalkErrors($Stats) {
+  if (-not $Stats -or $Stats.truncated -isnot [bool] -or $Stats.truncated -or
+      $Stats.depthLimited -isnot [bool] -or $Stats.depthLimited -or
+      ($Stats.err -isnot [int] -and $Stats.err -isnot [long]) -or $Stats.err -le 0) { return $false }
+  foreach ($key in @('cyc','valErr','scrollErr')) {
+    if (($Stats.$key -isnot [int] -and $Stats.$key -isnot [long]) -or $Stats.$key -ne 0) { return $false }
+  }
+  $true
+}
+
 function Test-SSEUstvaTreeComplete($Tree) {
   if (-not $Tree -or -not $Tree.stats -or -not @($Tree.nodes).Count) { return $false }
   $stats=$Tree.stats
@@ -6014,6 +6024,13 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
         hwnd=$_.hwnd;title=$_.title;fingerprint=$_.fingerprint;buttons=$_.buttons;unsupportedButtons=$_.unsupportedButtons
       }})}
   }
+  function Test-UstvaLibraryRoot($Before,$After) {
+    if (-not $Before -or -not $After) { return $false }
+    foreach ($key in @('rid','aid','type','on','x','y','w','h')) {
+      if ($Before.$key -cne $After.$key) { return $false }
+    }
+    $true
+  }
   try {
     $budget=New-SSEUstvaReadBudget $Arguments
     $window=Resolve-SSEMainWindowDescriptor ([pscustomobject]@{hwnd=[int64]$Hwnd})
@@ -6050,21 +6067,30 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
       return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist veraltet; keine Werte ausgegeben.')
     }
     $null=Get-SSEUstvaReadRemaining $budget
-    $libraryElement=Find-ExactAutomationElement $Hwnd '.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE' -VisibleOnly
+    $libraryAid='.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE'
+    $libraryElement=Find-ExactAutomationElement $Hwnd $libraryAid -VisibleOnly
     $libraryBefore=Convert-ExactElementToNode $libraryElement
     if(-not $libraryBefore -or -not $libraryBefore.on -or $libraryBefore.w -le 0 -or $libraryBefore.h -le 0){
       return (Incomplete-Ustva 'Der UStVA-Prueferbereich ist nicht sicher lesbar. Hilfespalte einblenden und erneut lesen.')
     }
-    $libraryTimeout=[Math]::Min(5,(Get-SSEUstvaReadRemaining $budget))
-    try {
-      $library=Read-SSESearchRegion $Hwnd '.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE' $windowBinding -TimeoutSec $libraryTimeout
-    } catch {
-      return (Incomplete-Ustva 'Die Bindung der UStVA-Hinweisspalte ist nicht vollstaendig bestaetigt; keine Werte ausgegeben.')
-    }
     $windowKey=[string]$binding.windowRid+'|'+[string]$binding.pid+'|'+[string][int64]$Hwnd
-    if (-not $libraryBefore -or $libraryBefore.rid -cne $library.root.rid -or
-        $library.windowKey -cne $windowKey -or -not (Test-SSEUstvaTreeComplete $library.tree)) {
-      return (Incomplete-Ustva 'Der gebundene UStVA-Prueferbereich ist unvollstaendig; keine Werte ausgegeben.')
+    for ($attempt=0; $attempt -le 2; $attempt++) {
+      $libraryTimeout=[Math]::Min(5,(Get-SSEUstvaReadRemaining $budget))
+      try {
+        $library=Read-SSESearchRegion $Hwnd $libraryAid $windowBinding -TimeoutSec $libraryTimeout
+      } catch {
+        return (Incomplete-Ustva 'Die Bindung der UStVA-Hinweisspalte ist nicht vollstaendig bestaetigt; keine Werte ausgegeben.')
+      }
+      if ($library.windowKey -cne $windowKey -or -not (Test-UstvaLibraryRoot $libraryBefore $library.root)) {
+        return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte seine Bindung; keine Werte ausgegeben.')
+      }
+      if (Test-SSEUstvaTreeComplete $library.tree) { break }
+      if ($attempt -eq 2 -or -not (Test-SSESnapshotHasOnlyWalkErrors $library.tree.stats)) {
+        return (Incomplete-Ustva 'Der gebundene UStVA-Prueferbereich ist unvollstaendig; keine Werte ausgegeben.')
+      }
+      if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
+        return (Incomplete-Ustva 'Die UStVA-Seite aenderte sich zwischen Formular- und Prueferlesung; keine Werte ausgegeben.')
+      }
     }
     $bounds=$form.contentBounds
     if (-not $bounds -or $bounds.maxX -le $bounds.minX -or $library.root.x -lt $bounds.maxX) {
@@ -6111,8 +6137,8 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
         -not (Test-SSEMainContentAncestry $Hwnd $libraryElement $windowBinding)) {
       return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte seine Bindung; keine Werte ausgegeben.')
     }
-    foreach($key in @('rid','aid','type','on','x','y','w','h')){
-      if($libraryAfter.$key -cne $library.root.$key){return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte sich; keine Werte ausgegeben.')}
+    if (-not (Test-UstvaLibraryRoot $library.root $libraryAfter)) {
+      return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte sich; keine Werte ausgegeben.')
     }
     if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
       return (Incomplete-Ustva 'Die UStVA-Seite aenderte sich zwischen Formular- und Prueferlesung; keine Werte ausgegeben.')
@@ -7299,10 +7325,7 @@ function Get-SSEPageReadSnapshot {
   $origin = $tree.contentBinding
   $heading = $null
   for ($attempt=0; $attempt -lt 2; $attempt++) {
-    $stats = $tree.stats
-    if (-not $stats -or $stats.truncated -isnot [bool] -or $stats.truncated -or
-        $stats.depthLimited -isnot [bool] -or $stats.depthLimited -or $stats.cyc -ne 0 -or
-        $stats.valErr -ne 0 -or $stats.err -isnot [int] -or $stats.err -le 0) { break }
+    if (-not (Test-SSESnapshotHasOnlyWalkErrors $tree.stats)) { break }
     if ($attempt -eq 0) {
       $heading = [string](Get-SSEHeading $tree).text
       if (-not $heading) { break }

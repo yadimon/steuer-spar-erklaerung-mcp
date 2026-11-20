@@ -617,6 +617,8 @@ Der UStVA-Vertrag führt die produktiven PowerShell-Funktionen für getrennte
 Formular- und Hinweislesungen gegen synthetische Providergrenzen aus. Er prüft
 fehlende oder fehlerhafte Teilbäume, lange Warntexte, geänderte Überschrift oder
 Spaltenbindung, eigene und fremde Dialoge sowie das gemeinsame Lesebudget.
+Für die Hinweisspalte prüft er auch zwei gebundene Neulesungen nach einem
+Baumlauffehler und den Abbruch bei Seitenwechsel oder dauerhafter Störung.
 Die API-Tests verweigern fehlende Vollständigkeitsangaben und beweisen, dass
 eine unvollständige Vorbereitung keine Mutation startet. Der interne Lesekontext
 kann nicht über öffentliche `page`-Argumente eingeschleust werden. Native

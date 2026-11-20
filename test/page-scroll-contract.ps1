@@ -16,7 +16,7 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($workerPath,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Production worker syntax is invalid'}
 $helpers=$ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|Group-Object Name -AsHashTable
-foreach($name in @('Arg','Test-SSEElementIdentity','Test-SSEMainContentBinding','Get-SSEPageReadSnapshot','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Get-SSEFullReadFailureCode','Assert-SSEFullReadStageCoverage')){
+foreach($name in @('Arg','Test-SSEElementIdentity','Test-SSEMainContentBinding','Test-SSESnapshotHasOnlyWalkErrors','Get-SSEPageReadSnapshot','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Get-SSEFullReadFailureCode','Assert-SSEFullReadStageCoverage')){
  $definitions=@($helpers[$name]|Where-Object Name -CEQ $name)
  if($definitions.Count -ne 1){throw 'Production page-scroll helper is missing or ambiguous'}
  . ([scriptblock]::Create($definitions[0].Extent.Text))
@@ -76,7 +76,7 @@ function New-Fixture([double]$Scale=1,[double]$Value=0){
   $key=$order[$i];$e=$script:elements[$key]
   $nodes+=@([pscustomobject]@{i=$i;p=$order.IndexOf($e.Parent);rid=$e.Id;aid=$e.Current.AutomationId;type=$e.Current.ControlType.ProgrammaticName.Replace('ControlType.','')})
  }
- $script:tree=[pscustomobject]@{nodes=$nodes;stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0}}
+ $script:tree=[pscustomobject]@{nodes=$nodes;stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0;scrollErr=0}}
 }
 function Run-Scroll($Arguments){try{$binding=Get-SSEPageRangeBinding 111 $script:tree}catch{return [pscustomobject]@{ok=$false;kind='bind-failed'}};if(-not $binding){throw 'Expected exact Qt binding'};Invoke-SSEPageRangeScroll $binding $Arguments}
 
