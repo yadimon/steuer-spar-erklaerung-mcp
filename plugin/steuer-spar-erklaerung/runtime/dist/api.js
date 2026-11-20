@@ -29868,434 +29868,8 @@ var init_qt_native_snapshot = __esm({
   }
 });
 
-// src/position-inventory.ts
-function readPositionInventory(nodes, stats, heading2, allowedHeadings = POSITION_OVERVIEW_HEADINGS) {
-  const fail12 = (error62) => ({ ok: false, error: error62 });
-  if (!stats || stats.truncated || stats.err || stats.cyc || stats.valErr || stats.depthLimited || heading2 === null || !allowedHeadings.includes(heading2)) {
-    return fail12("Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.");
-  }
-  const links = nodes.filter((node2) => node2.type === "Hyperlink" && node2.aid.includes(".GuideViewer."));
-  const edits = links.flatMap((node2) => {
-    const match = /^»(.*)« bearbeiten$/u.exec(node2.name);
-    return match ? [{ node: node2, label: match[1] }] : [];
-  });
-  const deletes = links.flatMap((node2) => {
-    const match = /^»(.*)« löschen$/u.exec(node2.name);
-    return match ? [{ node: node2, label: match[1] }] : [];
-  });
-  if (links.some((node2) => /^».*« erfassen$/u.test(node2.name) || node2.name.startsWith("»") && /[\r\n\u2028\u2029]/u.test(node2.name)) || edits.some((row) => !row.label || !row.node.on) || deletes.some((row) => !row.label || !row.node.on)) {
-    return fail12("Die Uebersicht enthaelt eine unvollstaendige oder nicht lesbare Position; kein vollstaendiges Inventar.");
-  }
-  const names = new Set(edits.map((row) => row.label));
-  const deleteNames = new Set(deletes.map((row) => row.label));
-  if (names.size !== edits.length || deleteNames.size !== deletes.length || deletes.some((row) => !names.has(row.label))) {
-    return fail12("Positionsnamen oder Zeilenaktionen sind nicht eindeutig und vollstaendig zugeordnet.");
-  }
-  const rows = [];
-  for (const row of edits) {
-    const amounts = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.aid.includes(".GuideViewer.") && Math.abs(node2.y - row.node.y) < 10 && /^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}$/u.test(node2.name));
-    if (amounts.length !== 1) return fail12("Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.");
-    rows.push({ name: row.label, net: amounts[0].name });
-  }
-  const empty = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.aid.includes(".GuideViewer.") && node2.name === "Sie haben noch keine Angaben erfasst");
-  const createCaption = rows.length ? "Weitere Position erfassen" : "Position erfassen";
-  const commands = links.filter((node2) => node2.on && ["Position erfassen", "Weitere Position erfassen"].includes(node2.name));
-  if (empty.length !== (rows.length ? 0 : 1) || commands.length !== 1 || commands[0].name !== createCaption) {
-    return fail12("Positionsinventar und Erfassungsbefehl sind nicht vollstaendig geladen und eindeutig gebunden.");
-  }
-  return { ok: true, rows, createCaption };
-}
-var POSITION_OVERVIEW_HEADINGS;
-var init_position_inventory = __esm({
-  "src/position-inventory.ts"() {
-    "use strict";
-    POSITION_OVERVIEW_HEADINGS = ["Erlöse Lieferungen/Leistungen", "Betriebsausgaben: Eigene Positionen"];
-  }
-});
-
-// src/qt-native-pages.ts
-import { createHash as createHash12 } from "node:crypto";
-import { setTimeout as delay2 } from "node:timers/promises";
-function roundEven(value) {
-  const floor = Math.floor(value);
-  return value - floor === 0.5 ? floor + Math.abs(floor) % 2 : Math.round(value);
-}
-function contentBounds(nodes, rect2) {
-  const nav = nodes.filter((node2) => node2.type === "Tree" && node2.w > 100).sort((a, b) => a.x - b.x)[0];
-  let minX = nav ? nav.x + nav.w + 5 : roundEven(rect2.x + rect2.w * 0.28);
-  const help = nodes.filter((node2) => ["eingabehilfe", "steuertipps"].includes(node2.name.toLowerCase()) && node2.x > minX).sort((a, b) => a.x - b.x)[0];
-  let maxX = help ? help.x - 10 : roundEven(rect2.x + rect2.w * 0.79);
-  const helpFrames = nodes.filter((node2) => node2.aid.endsWith(".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE"));
-  if (helpFrames.length > 1) throw new QtNativeTransportError("The help column identity is ambiguous.", "native-incomplete");
-  const helpFrame = helpFrames[0];
-  if (helpFrame) {
-    if (helpFrame.type !== "Group") {
-      throw new QtNativeTransportError("The help column state is unavailable.", "native-incomplete");
-    }
-    if (helpFrame.w > 0 && helpFrame.h > 0) {
-      const clientAid = helpFrame.aid.slice(0, -".SearchSplitter.TopLevelHSplitter.LibraryFrameSSE".length);
-      const clients = nodes.filter((node2) => node2.aid === clientAid);
-      const client = clients[0];
-      if (clients.length !== 1 || client?.type !== "Group" || client.w <= 0 || client.h <= 0) {
-        throw new QtNativeTransportError("The help column client geometry is unavailable.", "native-incomplete");
-      }
-      if (!nav && helpFrame.x - 10 <= minX) minX = client.x;
-      if (helpFrame.x - 10 <= minX || helpFrame.x + helpFrame.w > client.x + client.w + 1) {
-        throw new QtNativeTransportError("The help column geometry contradicts the bound window.", "native-incomplete");
-      }
-      maxX = helpFrame.x - 10;
-    }
-  }
-  return { minX, maxX, winX: rect2.x, winW: rect2.w, navErkannt: !!nav };
-}
-function heading(nodes, profile, visibleOnly = false) {
-  const parsed = external_exports.object({ headingContainerAutomationIdSuffix: external_exports.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
-  if (!parsed.success) throw new QtNativeTransportError("Page catalogue has no heading container selector.", "invalid-catalog");
-  const containers = nodes.filter((node2) => node2.aid.endsWith(parsed.data.headingContainerAutomationIdSuffix));
-  if (containers.length !== 1) return null;
-  const descendants = /* @__PURE__ */ new Set([containers[0].i]);
-  const texts = [];
-  for (const node2 of nodes) {
-    if (descendants.has(node2.p)) {
-      descendants.add(node2.i);
-      if (node2.type === "Text" && (!visibleOnly || node2.w > 0 && node2.h > 0)) texts.push(node2);
-    }
-  }
-  return texts.sort(byPosition)[0]?.name ?? null;
-}
-function qtNativeKnownHeading(nodes, profile, page) {
-  const relativeAid = typeof page.headingAutomationIdRelative === "string" ? page.headingAutomationIdRelative : "";
-  if (!relativeAid) return heading(nodes, profile);
-  const matches = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.w > 0 && node2.h > 0 && (node2.aid === relativeAid || node2.aid.endsWith(relativeAid)));
-  return matches.length === 1 ? matches[0].name : null;
-}
-function knownHeadingMatches(actual, page) {
-  if (!actual) return false;
-  if (actual === page.heading) return true;
-  if (page.headingNumberedTitle === true && /^[1-9][0-9]*\. \S.*$/u.test(actual)) return true;
-  const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
-  if (prefix && actual.startsWith(prefix)) return true;
-  const numberedLabel = typeof page.headingNumberedLabel === "string" ? page.headingNumberedLabel : "";
-  if (!numberedLabel) return false;
-  const match = /^(?<number>[1-9][0-9]*)\. (?<label>.+)$/u.exec(actual);
-  if (!match?.groups?.label) return false;
-  return match.groups.label === numberedLabel || match.groups.label.startsWith(numberedLabel + ": ");
-}
-function knownFieldValue(node2, controlType2) {
-  if (controlType2 === "CheckBox") {
-    if (node2.checked === true) return "True";
-    if (node2.checked === false) return "False";
-    if (node2.checked === "unbestimmt") return "Indeterminate";
-  }
-  return node2.val;
-}
-function knownEpoch(hwnd, currentHeading, dirty, fields2) {
-  return createHash12("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields: fields2 }), "utf8").digest("hex").toUpperCase();
-}
-async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, profile) {
-  if (!profile || typeof args.pageId !== "string" || !args.pageId) {
-    return fail4("bad-args", "known_page_state requires pageId and a product profile.");
-  }
-  const resolved = resolvePageObjectDefinition(profile.pageObjectsCatalog, args.pageId);
-  if (resolved.status !== "found") {
-    return fail4(resolved.status === "ambiguous" ? "ambiguous" : "not-found", "The requested page object is not unique.");
-  }
-  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
-  if (!result.windowEnabled || result.modalBlocked) {
-    return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-  }
-  if (result.stats.truncated) return fail4("native-incomplete", "The current native tree exceeds the page-state read bound.");
-  const page = resolved.page;
-  const currentHeading = qtNativeKnownHeading(result.nodes, profile, page);
-  const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields) ? page.fields : {};
-  const fields2 = [];
-  const exactBindingFields = /* @__PURE__ */ new Set();
-  const epochFields = [];
-  for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
-    const definition = rawDefinition;
-    const relativeAid = typeof definition.automationIdRelative === "string" ? definition.automationIdRelative : "";
-    const suffix = typeof definition.automationIdSuffix === "string" ? definition.automationIdSuffix : "";
-    const controlType2 = typeof definition.controlType === "string" ? definition.controlType : "";
-    const exact = relativeAid ? result.nodes.filter((node3) => node3.aid === relativeAid || node3.aid.endsWith(relativeAid)) : [];
-    if (exact.length === 1 && exact[0].type === controlType2) exactBindingFields.add(fieldId);
-    const suffixMatches = suffix ? result.nodes.filter((node3) => node3.aid.endsWith(suffix)) : [];
-    const candidates = (exact.length ? exact : suffixMatches).filter((node3) => node3.type === controlType2);
-    if (candidates.length > 1) return fail4("ambiguous", `Known field '${fieldId}' is not uniquely bound in the native tree.`);
-    const node2 = candidates[0];
-    const value = node2 ? knownFieldValue(node2, controlType2) : null;
-    const enabled2 = node2?.on ?? false;
-    const readOnly = node2?.ro ?? null;
-    const field = {
-      fieldId,
-      label: String(definition.label ?? ""),
-      controlType: controlType2,
-      valueKind: String(definition.valueKind ?? ""),
-      writeTool: typeof definition.writeTool === "string" ? definition.writeTool : null,
-      automationIdSuffix: suffix,
-      present: Boolean(node2),
-      value,
-      enabled: enabled2,
-      readOnly,
-      x: node2?.x ?? -1,
-      y: node2?.y ?? -1,
-      w: node2?.w ?? 0,
-      h: node2?.h ?? 0
-    };
-    fields2.push(field);
-    epochFields.push({ id: fieldId, value, enabled: enabled2, readOnly, x: field.x, y: field.y, w: field.w, h: field.h });
-  }
-  const dirtyNode = result.nodes.find((node2) => node2.type === "Button" && node2.aid.endsWith(".MainToolBar.tb_sichern"));
-  const dirty = dirtyNode?.on ?? null;
-  const bindingIds = pageBindingFieldIds(page);
-  return {
-    ok: true,
-    backend: "qt",
-    pageId: args.pageId,
-    expectedHeading: String(page.heading),
-    onExpectedPage: knownHeadingMatches(currentHeading, page) && bindingIds !== null && bindingIds.every((id) => exactBindingFields.has(id)),
-    heading: currentHeading,
-    dirty,
-    fields: fields2,
-    epoch: knownEpoch(result.hwnd, currentHeading, dirty, epochFields),
-    hwnd: result.hwnd,
-    pid: client.binding.pid,
-    foreground: result.foreground ?? false,
-    dialogs: [],
-    privateValuesPersisted: false,
-    nativeDurationMs: result.nativeDurationMs
-  };
-}
-async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile) {
-  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
-  const bounds = contentBounds(result.nodes, result.windowRect);
-  const minX = typeof args.minX === "number" ? args.minX : bounds.minX;
-  const maxX = typeof args.maxX === "number" ? args.maxX : bounds.maxX;
-  const keep = /* @__PURE__ */ new Set(["Text", "DataItem", "Edit", "CheckBox", "Header", "RadioButton", "Button", "Hyperlink", "ComboBox"]);
-  const rows = result.nodes.filter((node2) => (node2.name || node2.val?.trim()) && node2.x >= minX && node2.x <= maxX && keep.has(node2.type)).sort(byPosition);
-  const lines = [];
-  let anchor2;
-  for (const node2 of rows) {
-    const overlap = anchor2 ? Math.min(node2.y + node2.h, anchor2.y + anchor2.h) - Math.max(node2.y, anchor2.y) : 0;
-    if (!anchor2 || Math.abs(node2.y - anchor2.y) > 12 && overlap <= Math.max(1, Math.min(node2.h, anchor2.h)) / 2) {
-      anchor2 = node2;
-      lines.push({ y: node2.y, cells: [] });
-    }
-    lines.at(-1).cells.push(node2.val?.trim() ? node2.name ? `${node2.name} = ${node2.val}` : node2.val : node2.name);
-  }
-  return {
-    ok: true,
-    backend: "qt",
-    heading: heading(result.nodes, profile),
-    bounds,
-    lines,
-    stats: result.stats,
-    nativeDurationMs: result.nativeDurationMs
-  };
-}
-function transmissionName(name) {
-  const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
-  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
-}
-async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
-  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
-  const bounds = contentBounds(result.nodes, result.windowRect);
-  if (result.stats.truncated) throw new QtNativeTransportError("The subpage tree exceeds the native read bound.", "native-incomplete");
-  const pageNodes = result.nodes.filter((node2) => node2.aid.toLowerCase().includes(".redthreadcontent.") && node2.x >= bounds.minX && node2.x <= bounds.maxX);
-  const texts = pageNodes.filter((node2) => node2.type === "Text" && node2.name), values = pageNodes.filter((node2) => node2.type === "Edit");
-  const buttons = pageNodes.filter((node2) => node2.type === "Button" && (node2.name || node2.aid.toLowerCase().endsWith(".button")) || node2.type === "Hyperlink" && node2.name).filter((node2) => !["zurück", "weiter"].includes(node2.name.toLowerCase())).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
-  const seen = /* @__PURE__ */ new Set();
-  const subpages = [];
-  for (const button of buttons) {
-    if (transmissionName(button.name)) continue;
-    const caption = texts.filter((node2) => node2.p === button.p).sort((a, b) => a.x - b.x)[0] ?? texts.filter((node2) => Math.abs(node2.y - button.y) <= 14 && node2.x < button.x).sort((a, b) => b.x - a.x)[0];
-    const value = values.filter((node2) => node2.p === button.p).sort((a, b) => a.x - b.x)[0];
-    const name = button.name || "Öffnen", key = `${name}|${caption?.name ?? ""}|${button.y}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    subpages.push({
-      schalter: name,
-      fuehrt_zu: caption?.name ?? null,
-      wert: value?.val ?? null,
-      typ: button.type,
-      aktiviert: button.on,
-      aid: button.aid,
-      rid: button.rid,
-      y: button.y,
-      werkzeug: button.type === "Button" ? "sse_click (rid)" : "sse_click_point (nicht versteckt)"
-    });
-  }
-  return {
-    ok: true,
-    backend: "qt",
-    anzahl: subpages.length,
-    unterseiten: subpages,
-    nativeDurationMs: result.nativeDurationMs,
-    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad."
-  };
-}
-async function executeQtNativePositions(client, args, timeoutMs, signal, profile) {
-  const action = args.aktion === void 0 ? "list" : String(args.aktion);
-  if (action !== "list") {
-    if (action === "add" || action === "delete") {
-      return fail4("blocked", "Positionen anlegen oder loeschen bleibt ohne eigenen Seiten-, Feld-, Summen- und Dialogvertrag gesperrt.");
-    }
-    return fail4("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
-  }
-  const started = performance.now();
-  let boundHeading = null, nativeDurationMs = 0;
-  let incomplete;
-  for (let attempt = 1; ; attempt++) {
-    const remaining = Math.max(1, Math.floor(timeoutMs - (performance.now() - started)));
-    if (incomplete && remaining < MIN_READ_RETRY_BUDGET_MS) return incomplete;
-    const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, remaining, signal);
-    nativeDurationMs += result.nativeDurationMs;
-    if (!result.windowEnabled || result.modalBlocked)
-      return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
-    const currentHeading = heading(result.nodes, profile, true);
-    if (attempt === 1) boundHeading = currentHeading;
-    if (currentHeading !== boundHeading)
-      return fail4("position-inventory-incomplete", "Die Positionsuebersicht wechselte waehrend der Lesung.");
-    const inventory = readPositionInventory(result.nodes, result.stats, currentHeading);
-    if (inventory.ok) {
-      const positionen = inventory.rows.map((row) => row.name);
-      return {
-        ok: true,
-        backend: "qt",
-        positionen,
-        anzahl: positionen.length,
-        hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
-        nativeDurationMs
-      };
-    }
-    incomplete = fail4("position-inventory-incomplete", inventory.error);
-    if (attempt === 3 || result.stats.truncated || !POSITION_OVERVIEW_HEADINGS.some((value) => value === currentHeading) || timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 75) return incomplete;
-    if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
-    try {
-      await delay2(25, void 0, { signal });
-    } catch (error62) {
-      if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
-      throw error62;
-    }
-    if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) return incomplete;
-  }
-}
-var byPosition, fail4;
-var init_qt_native_pages = __esm({
-  "src/qt-native-pages.ts"() {
-    "use strict";
-    init_zod();
-    init_product_profiles();
-    init_qt_native_client();
-    init_qt_native_snapshot();
-    init_position_inventory();
-    byPosition = (a, b) => a.y - b.y || a.x - b.x;
-    fail4 = (kind, error62) => ({ ok: false, backend: "qt", kind, error: error62 });
-  }
-});
-
-// src/qt-native-find.ts
-function nativeWildcard(pattern) {
-  const tokens = [];
-  const literal2 = (value) => tokens.push((character) => character.toLowerCase() === value.toLowerCase());
-  for (let index = 0; index < pattern.length; ++index) {
-    const character = pattern[index];
-    if (character === "`") {
-      if (index + 1 < pattern.length) literal2(pattern[++index]);
-      else if (pattern.length > 1) literal2("`");
-    } else if (character === "*") {
-      if (tokens.at(-1) !== "*") tokens.push("*");
-    } else if (character === "?") tokens.push(() => true);
-    else if (character === "[") {
-      const contents = [];
-      let closed = false, first = true;
-      while (++index < pattern.length) {
-        let value = pattern[index], escaped = false;
-        if (value === "]" && !first) {
-          closed = true;
-          break;
-        }
-        if (value === "`") {
-          first = false;
-          if (++index >= pattern.length) break;
-          value = pattern[index];
-          escaped = true;
-        }
-        contents.push({ value, dash: value === "-" && !escaped });
-        first = false;
-      }
-      if (!closed) throw invalid();
-      const matchers = [];
-      for (let part = 0; part < contents.length; ++part) {
-        const lower = contents[part].value;
-        if (part + 2 < contents.length && contents[part + 1].dash) {
-          const upper = contents[part + 2].value;
-          part += 2;
-          if (lower > upper) throw invalid();
-          const hex3 = (value) => `\\u${value.charCodeAt(0).toString(16).padStart(4, "0")}`;
-          const range = new RegExp(`[${hex3(lower)}-${hex3(upper)}]`, "i");
-          matchers.push((value) => range.test(value));
-        } else matchers.push((value) => value.toLowerCase() === lower.toLowerCase());
-      }
-      tokens.push((value) => matchers.some((match) => match(value)));
-    } else literal2(character);
-  }
-  let budget = 1e7;
-  return (text3) => {
-    let current = new Uint8Array(tokens.length + 1);
-    current[0] = 1;
-    const closure = (states) => {
-      for (let index = 0; index < tokens.length; ++index) if (states[index] && tokens[index] === "*") states[index + 1] = 1;
-    };
-    closure(current);
-    for (let offset = 0; offset < text3.length; ++offset) {
-      budget -= tokens.length;
-      if (budget < 0) throw new QtNativeTransportError("Wildcard evaluation exceeds the bounded selector budget.", "native-selector-limit");
-      const next = new Uint8Array(tokens.length + 1);
-      for (let index = 0; index < tokens.length; ++index) {
-        if (!current[index]) continue;
-        const token = tokens[index];
-        if (token === "*") next[index] = 1;
-        else if (token(text3[offset])) next[index + 1] = 1;
-      }
-      closure(next);
-      current = next;
-    }
-    return current[tokens.length] === 1;
-  };
-}
-async function executeQtNativeFind(client, args, timeoutMs, signal) {
-  const name = typeof args.name === "string" ? args.name : "", aid = typeof args.aid === "string" ? args.aid : "";
-  const type = typeof args.type === "string" ? args.type : "";
-  if (!name && !aid && !type || args.contains && !name) throw new QtNativeTransportError("find requires name, aid or type; contains requires name.", "bad-args");
-  const nameMatch = args.contains ? nativeWildcard(`*${name}*`) : void 0;
-  const aidMatch = nativeWildcard(`*${aid}`);
-  const equalitySelectors = { ...name && !args.contains ? { name } : {}, ...aid ? { aid } : {}, ...type ? { type } : {} };
-  const result = await readQtNativeSnapshot(client, { ...args, withValues: false, equalitySelectors }, timeoutMs, signal);
-  const exactName = new Set(result.exactMatches.name), exactAid = new Set(result.exactMatches.aid), exactType = new Set(result.exactMatches.type);
-  const hits = result.nodes.filter((node2) => (!name || (nameMatch ? nameMatch(node2.name) : exactName.has(node2.i))) && (!aid || exactAid.has(node2.i) || aidMatch(node2.aid)) && (!type || exactType.has(node2.i)));
-  return {
-    ok: true,
-    backend: "qt",
-    count: hits.length,
-    hits,
-    stats: result.stats,
-    incomplete: result.stats.truncated,
-    note: result.stats.truncated ? 'ACHTUNG: Der Baumlauf wurde abgeschnitten. "Nicht gefunden" ist hier KEIN Beweis fuer Abwesenheit.' : null,
-    nativeDurationMs: result.nativeDurationMs
-  };
-}
-var invalid;
-var init_qt_native_find = __esm({
-  "src/qt-native-find.ts"() {
-    "use strict";
-    init_qt_native_client();
-    init_qt_native_snapshot();
-    invalid = () => new QtNativeTransportError("Invalid PowerShell wildcard expression.", "bad-args");
-  }
-});
-
 // src/qt-native-projections.ts
-import { createHash as createHash13 } from "node:crypto";
+import { createHash as createHash12 } from "node:crypto";
 function qtNativeFieldCaption(field, texts) {
   const separator = field.aid.lastIndexOf(".");
   if (separator > 0) {
@@ -30321,7 +29895,7 @@ function powershellCompactJson(value) {
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
 }
-function transmissionName2(name) {
+function transmissionName(name) {
   if (!name) return false;
   const normalized2 = comparableForm(name);
   if (!normalized2) return false;
@@ -30343,7 +29917,7 @@ function containerDescendants(nodes, aidSuffix, childType, containerType = "") {
     inSubtree.add(node2.i);
     if (node2.type === childType) hits.push(node2);
   }
-  return hits.sort(byPosition2);
+  return hits.sort(byPosition);
 }
 function navigationSelection(nodes) {
   const selected = nodes.filter((node2) => node2.type === "TreeItem" && node2.selected === true);
@@ -30383,7 +29957,7 @@ function checkerTreeItems(nodes) {
 function checkerResults(nodes) {
   const checkerTree = findContainerNode(nodes, CHECKER_TREE_SUFFIX, "Tree");
   const allItems = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
-  const raw = checkerTreeItems(nodes).sort(byPosition2);
+  const raw = checkerTreeItems(nodes).sort(byPosition);
   if (!raw.length) {
     return {
       aktiv: checkerTree !== null,
@@ -30479,7 +30053,7 @@ function comparisonInvariantResidual(actual, held, difference) {
 function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
   const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
   const unpositioned = allData.filter((node2) => node2.w <= 0 || node2.h <= 0);
-  const data = allData.filter((node2) => node2.w > 0 && node2.h > 0).sort(byPosition2);
+  const data = allData.filter((node2) => node2.w > 0 && node2.h > 0).sort(byPosition);
   const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node2) => node2.w > 0 && node2.h > 0).sort((a, b) => a.x - b.x).map((node2) => node2.name);
   const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
   const scrollIncomplete = table !== null && table.scroll !== null;
@@ -30585,15 +30159,15 @@ function auxiliaryWindowKind(window, profile) {
 function byWindowArea(left, right) {
   return right.w * right.h - left.w * left.h || left.order - right.order;
 }
-var byPosition2, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
+var byPosition, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
 var init_qt_native_projections = __esm({
   "src/qt-native-projections.ts"() {
     "use strict";
     init_zod();
     init_qt_native_client();
-    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
+    byPosition = (a, b) => a.y - b.y || a.x - b.x;
     psEquals = (left, right) => left.toLowerCase() === right.toLowerCase();
-    textSha256 = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    textSha256 = (text3) => createHash12("sha256").update(text3, "utf8").digest("hex").toUpperCase();
     VERSAND = [
       "ELSTER",
       "Anmeldungen versenden",
@@ -30639,6 +30213,435 @@ var init_qt_native_projections = __esm({
     WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
     TIPS_TITLE = "Steuer-Spar-Tipps";
     CLOSABLE_NONMODAL_ROLES = /* @__PURE__ */ new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
+  }
+});
+
+// src/position-inventory.ts
+function readPositionInventory(nodes, stats, heading2, allowedHeadings = POSITION_OVERVIEW_HEADINGS) {
+  const fail12 = (error62) => ({ ok: false, error: error62 });
+  if (!stats || stats.truncated || stats.err || stats.cyc || stats.valErr || stats.depthLimited || heading2 === null || !allowedHeadings.includes(heading2)) {
+    return fail12("Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.");
+  }
+  const guideSuffix = ".ClientFrameSSE.GuideViewer";
+  const links = containerDescendants(nodes, guideSuffix, "Hyperlink", "Group");
+  const texts = containerDescendants(nodes, guideSuffix, "Text", "Group");
+  const edits = links.flatMap((node2) => {
+    const match = /^»(.*)« bearbeiten$/u.exec(node2.name);
+    return match ? [{ node: node2, label: match[1] }] : [];
+  });
+  const deletes = links.flatMap((node2) => {
+    const match = /^»(.*)« löschen$/u.exec(node2.name);
+    return match ? [{ node: node2, label: match[1] }] : [];
+  });
+  if (links.some((node2) => /^».*« erfassen$/u.test(node2.name) || node2.name.startsWith("»") && /[\r\n\u2028\u2029]/u.test(node2.name)) || edits.some((row) => !row.label || !row.node.on) || deletes.some((row) => !row.label || !row.node.on)) {
+    return fail12("Die Uebersicht enthaelt eine unvollstaendige oder nicht lesbare Position; kein vollstaendiges Inventar.");
+  }
+  const names = new Set(edits.map((row) => row.label));
+  const deleteNames = new Set(deletes.map((row) => row.label));
+  if (names.size !== edits.length || deleteNames.size !== deletes.length || deletes.some((row) => !names.has(row.label))) {
+    return fail12("Positionsnamen oder Zeilenaktionen sind nicht eindeutig und vollstaendig zugeordnet.");
+  }
+  const rows = [];
+  for (const row of edits) {
+    const amounts = texts.filter((node2) => node2.on && Math.abs(node2.y - row.node.y) < 10 && /^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}$/u.test(node2.name));
+    if (amounts.length !== 1) return fail12("Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.");
+    rows.push({ name: row.label, net: amounts[0].name });
+  }
+  const empty = texts.filter((node2) => node2.on && node2.name === "Sie haben noch keine Angaben erfasst");
+  const createCaption = rows.length ? "Weitere Position erfassen" : "Position erfassen";
+  const commands = links.filter((node2) => node2.on && ["Position erfassen", "Weitere Position erfassen"].includes(node2.name));
+  if (empty.length !== (rows.length ? 0 : 1) || commands.length !== 1 || commands[0].name !== createCaption) {
+    return fail12("Positionsinventar und Erfassungsbefehl sind nicht vollstaendig geladen und eindeutig gebunden.");
+  }
+  return { ok: true, rows, createCaption };
+}
+var POSITION_OVERVIEW_HEADINGS;
+var init_position_inventory = __esm({
+  "src/position-inventory.ts"() {
+    "use strict";
+    init_qt_native_projections();
+    POSITION_OVERVIEW_HEADINGS = ["Erlöse Lieferungen/Leistungen", "Betriebsausgaben: Eigene Positionen"];
+  }
+});
+
+// src/qt-native-pages.ts
+import { createHash as createHash13 } from "node:crypto";
+import { setTimeout as delay2 } from "node:timers/promises";
+function roundEven(value) {
+  const floor = Math.floor(value);
+  return value - floor === 0.5 ? floor + Math.abs(floor) % 2 : Math.round(value);
+}
+function contentBounds(nodes, rect2) {
+  const nav = nodes.filter((node2) => node2.type === "Tree" && node2.w > 100).sort((a, b) => a.x - b.x)[0];
+  let minX = nav ? nav.x + nav.w + 5 : roundEven(rect2.x + rect2.w * 0.28);
+  const help = nodes.filter((node2) => ["eingabehilfe", "steuertipps"].includes(node2.name.toLowerCase()) && node2.x > minX).sort((a, b) => a.x - b.x)[0];
+  let maxX = help ? help.x - 10 : roundEven(rect2.x + rect2.w * 0.79);
+  const helpFrames = nodes.filter((node2) => node2.aid.endsWith(".centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE"));
+  if (helpFrames.length > 1) throw new QtNativeTransportError("The help column identity is ambiguous.", "native-incomplete");
+  const helpFrame = helpFrames[0];
+  if (helpFrame) {
+    if (helpFrame.type !== "Group") {
+      throw new QtNativeTransportError("The help column state is unavailable.", "native-incomplete");
+    }
+    if (helpFrame.w > 0 && helpFrame.h > 0) {
+      const clientAid = helpFrame.aid.slice(0, -".SearchSplitter.TopLevelHSplitter.LibraryFrameSSE".length);
+      const clients = nodes.filter((node2) => node2.aid === clientAid);
+      const client = clients[0];
+      if (clients.length !== 1 || client?.type !== "Group" || client.w <= 0 || client.h <= 0) {
+        throw new QtNativeTransportError("The help column client geometry is unavailable.", "native-incomplete");
+      }
+      if (!nav && helpFrame.x - 10 <= minX) minX = client.x;
+      if (helpFrame.x - 10 <= minX || helpFrame.x + helpFrame.w > client.x + client.w + 1) {
+        throw new QtNativeTransportError("The help column geometry contradicts the bound window.", "native-incomplete");
+      }
+      maxX = helpFrame.x - 10;
+    }
+  }
+  return { minX, maxX, winX: rect2.x, winW: rect2.w, navErkannt: !!nav };
+}
+function heading(nodes, profile, visibleOnly = false) {
+  const parsed = external_exports.object({ headingContainerAutomationIdSuffix: external_exports.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
+  if (!parsed.success) throw new QtNativeTransportError("Page catalogue has no heading container selector.", "invalid-catalog");
+  const containers = nodes.filter((node2) => node2.aid.endsWith(parsed.data.headingContainerAutomationIdSuffix));
+  if (containers.length !== 1) return null;
+  const descendants = /* @__PURE__ */ new Set([containers[0].i]);
+  const texts = [];
+  for (const node2 of nodes) {
+    if (descendants.has(node2.p)) {
+      descendants.add(node2.i);
+      if (node2.type === "Text" && (!visibleOnly || node2.w > 0 && node2.h > 0)) texts.push(node2);
+    }
+  }
+  return texts.sort(byPosition2)[0]?.name ?? null;
+}
+function qtNativeKnownHeading(nodes, profile, page) {
+  const relativeAid = typeof page.headingAutomationIdRelative === "string" ? page.headingAutomationIdRelative : "";
+  if (!relativeAid) return heading(nodes, profile);
+  const matches = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.w > 0 && node2.h > 0 && (node2.aid === relativeAid || node2.aid.endsWith(relativeAid)));
+  return matches.length === 1 ? matches[0].name : null;
+}
+function knownHeadingMatches(actual, page) {
+  if (!actual) return false;
+  if (actual === page.heading) return true;
+  if (page.headingNumberedTitle === true && /^[1-9][0-9]*\. \S.*$/u.test(actual)) return true;
+  const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
+  if (prefix && actual.startsWith(prefix)) return true;
+  const numberedLabel = typeof page.headingNumberedLabel === "string" ? page.headingNumberedLabel : "";
+  if (!numberedLabel) return false;
+  const match = /^(?<number>[1-9][0-9]*)\. (?<label>.+)$/u.exec(actual);
+  if (!match?.groups?.label) return false;
+  return match.groups.label === numberedLabel || match.groups.label.startsWith(numberedLabel + ": ");
+}
+function knownFieldValue(node2, controlType2) {
+  if (controlType2 === "CheckBox") {
+    if (node2.checked === true) return "True";
+    if (node2.checked === false) return "False";
+    if (node2.checked === "unbestimmt") return "Indeterminate";
+  }
+  return node2.val;
+}
+function knownEpoch(hwnd, currentHeading, dirty, fields2) {
+  return createHash13("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields: fields2 }), "utf8").digest("hex").toUpperCase();
+}
+async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, profile) {
+  if (!profile || typeof args.pageId !== "string" || !args.pageId) {
+    return fail4("bad-args", "known_page_state requires pageId and a product profile.");
+  }
+  const resolved = resolvePageObjectDefinition(profile.pageObjectsCatalog, args.pageId);
+  if (resolved.status !== "found") {
+    return fail4(resolved.status === "ambiguous" ? "ambiguous" : "not-found", "The requested page object is not unique.");
+  }
+  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!result.windowEnabled || result.modalBlocked) {
+    return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+  }
+  if (result.stats.truncated) return fail4("native-incomplete", "The current native tree exceeds the page-state read bound.");
+  const page = resolved.page;
+  const currentHeading = qtNativeKnownHeading(result.nodes, profile, page);
+  const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields) ? page.fields : {};
+  const fields2 = [];
+  const exactBindingFields = /* @__PURE__ */ new Set();
+  const epochFields = [];
+  for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
+    const definition = rawDefinition;
+    const relativeAid = typeof definition.automationIdRelative === "string" ? definition.automationIdRelative : "";
+    const suffix = typeof definition.automationIdSuffix === "string" ? definition.automationIdSuffix : "";
+    const controlType2 = typeof definition.controlType === "string" ? definition.controlType : "";
+    const exact = relativeAid ? result.nodes.filter((node3) => node3.aid === relativeAid || node3.aid.endsWith(relativeAid)) : [];
+    if (exact.length === 1 && exact[0].type === controlType2) exactBindingFields.add(fieldId);
+    const suffixMatches = suffix ? result.nodes.filter((node3) => node3.aid.endsWith(suffix)) : [];
+    const candidates = (exact.length ? exact : suffixMatches).filter((node3) => node3.type === controlType2);
+    if (candidates.length > 1) return fail4("ambiguous", `Known field '${fieldId}' is not uniquely bound in the native tree.`);
+    const node2 = candidates[0];
+    const value = node2 ? knownFieldValue(node2, controlType2) : null;
+    const enabled2 = node2?.on ?? false;
+    const readOnly = node2?.ro ?? null;
+    const field = {
+      fieldId,
+      label: String(definition.label ?? ""),
+      controlType: controlType2,
+      valueKind: String(definition.valueKind ?? ""),
+      writeTool: typeof definition.writeTool === "string" ? definition.writeTool : null,
+      automationIdSuffix: suffix,
+      present: Boolean(node2),
+      value,
+      enabled: enabled2,
+      readOnly,
+      x: node2?.x ?? -1,
+      y: node2?.y ?? -1,
+      w: node2?.w ?? 0,
+      h: node2?.h ?? 0
+    };
+    fields2.push(field);
+    epochFields.push({ id: fieldId, value, enabled: enabled2, readOnly, x: field.x, y: field.y, w: field.w, h: field.h });
+  }
+  const dirtyNode = result.nodes.find((node2) => node2.type === "Button" && node2.aid.endsWith(".MainToolBar.tb_sichern"));
+  const dirty = dirtyNode?.on ?? null;
+  const bindingIds = pageBindingFieldIds(page);
+  return {
+    ok: true,
+    backend: "qt",
+    pageId: args.pageId,
+    expectedHeading: String(page.heading),
+    onExpectedPage: knownHeadingMatches(currentHeading, page) && bindingIds !== null && bindingIds.every((id) => exactBindingFields.has(id)),
+    heading: currentHeading,
+    dirty,
+    fields: fields2,
+    epoch: knownEpoch(result.hwnd, currentHeading, dirty, epochFields),
+    hwnd: result.hwnd,
+    pid: client.binding.pid,
+    foreground: result.foreground ?? false,
+    dialogs: [],
+    privateValuesPersisted: false,
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
+async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile) {
+  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
+  const bounds = contentBounds(result.nodes, result.windowRect);
+  const minX = typeof args.minX === "number" ? args.minX : bounds.minX;
+  const maxX = typeof args.maxX === "number" ? args.maxX : bounds.maxX;
+  const keep = /* @__PURE__ */ new Set(["Text", "DataItem", "Edit", "CheckBox", "Header", "RadioButton", "Button", "Hyperlink", "ComboBox"]);
+  const rows = result.nodes.filter((node2) => (node2.name || node2.val?.trim()) && node2.x >= minX && node2.x <= maxX && keep.has(node2.type)).sort(byPosition2);
+  const lines = [];
+  let anchor2;
+  for (const node2 of rows) {
+    const overlap = anchor2 ? Math.min(node2.y + node2.h, anchor2.y + anchor2.h) - Math.max(node2.y, anchor2.y) : 0;
+    if (!anchor2 || Math.abs(node2.y - anchor2.y) > 12 && overlap <= Math.max(1, Math.min(node2.h, anchor2.h)) / 2) {
+      anchor2 = node2;
+      lines.push({ y: node2.y, cells: [] });
+    }
+    lines.at(-1).cells.push(node2.val?.trim() ? node2.name ? `${node2.name} = ${node2.val}` : node2.val : node2.name);
+  }
+  return {
+    ok: true,
+    backend: "qt",
+    heading: heading(result.nodes, profile),
+    bounds,
+    lines,
+    stats: result.stats,
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
+function transmissionName2(name) {
+  const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
+}
+async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
+  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
+  const bounds = contentBounds(result.nodes, result.windowRect);
+  if (result.stats.truncated) throw new QtNativeTransportError("The subpage tree exceeds the native read bound.", "native-incomplete");
+  const pageNodes = result.nodes.filter((node2) => node2.aid.toLowerCase().includes(".redthreadcontent.") && node2.x >= bounds.minX && node2.x <= bounds.maxX);
+  const texts = pageNodes.filter((node2) => node2.type === "Text" && node2.name), values = pageNodes.filter((node2) => node2.type === "Edit");
+  const buttons = pageNodes.filter((node2) => node2.type === "Button" && (node2.name || node2.aid.toLowerCase().endsWith(".button")) || node2.type === "Hyperlink" && node2.name).filter((node2) => !["zurück", "weiter"].includes(node2.name.toLowerCase())).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
+  const seen = /* @__PURE__ */ new Set();
+  const subpages = [];
+  for (const button of buttons) {
+    if (transmissionName2(button.name)) continue;
+    const caption = texts.filter((node2) => node2.p === button.p).sort((a, b) => a.x - b.x)[0] ?? texts.filter((node2) => Math.abs(node2.y - button.y) <= 14 && node2.x < button.x).sort((a, b) => b.x - a.x)[0];
+    const value = values.filter((node2) => node2.p === button.p).sort((a, b) => a.x - b.x)[0];
+    const name = button.name || "Öffnen", key = `${name}|${caption?.name ?? ""}|${button.y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    subpages.push({
+      schalter: name,
+      fuehrt_zu: caption?.name ?? null,
+      wert: value?.val ?? null,
+      typ: button.type,
+      aktiviert: button.on,
+      aid: button.aid,
+      rid: button.rid,
+      y: button.y,
+      werkzeug: button.type === "Button" ? "sse_click (rid)" : "sse_click_point (nicht versteckt)"
+    });
+  }
+  return {
+    ok: true,
+    backend: "qt",
+    anzahl: subpages.length,
+    unterseiten: subpages,
+    nativeDurationMs: result.nativeDurationMs,
+    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad."
+  };
+}
+async function executeQtNativePositions(client, args, timeoutMs, signal, profile) {
+  const action = args.aktion === void 0 ? "list" : String(args.aktion);
+  if (action !== "list") {
+    if (action === "add" || action === "delete") {
+      return fail4("blocked", "Positionen anlegen oder loeschen bleibt ohne eigenen Seiten-, Feld-, Summen- und Dialogvertrag gesperrt.");
+    }
+    return fail4("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
+  }
+  const started = performance.now();
+  let boundHeading = null, nativeDurationMs = 0;
+  let incomplete;
+  for (let attempt = 1; ; attempt++) {
+    const remaining = Math.max(1, Math.floor(timeoutMs - (performance.now() - started)));
+    if (incomplete && remaining < MIN_READ_RETRY_BUDGET_MS) return incomplete;
+    const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, remaining, signal);
+    nativeDurationMs += result.nativeDurationMs;
+    if (!result.windowEnabled || result.modalBlocked)
+      return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+    const currentHeading = heading(result.nodes, profile, true);
+    if (attempt === 1) boundHeading = currentHeading;
+    if (currentHeading !== boundHeading)
+      return fail4("position-inventory-incomplete", "Die Positionsuebersicht wechselte waehrend der Lesung.");
+    const inventory = readPositionInventory(result.nodes, result.stats, currentHeading);
+    if (inventory.ok) {
+      const positionen = inventory.rows.map((row) => row.name);
+      return {
+        ok: true,
+        backend: "qt",
+        positionen,
+        anzahl: positionen.length,
+        hinweis: positionen.length ? null : "Die vollstaendig gelesene Uebersicht enthaelt keine Positionen.",
+        nativeDurationMs
+      };
+    }
+    incomplete = fail4("position-inventory-incomplete", inventory.error);
+    if (attempt === 3 || result.stats.truncated || !POSITION_OVERVIEW_HEADINGS.some((value) => value === currentHeading) || timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 75) return incomplete;
+    if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+    try {
+      await delay2(25, void 0, { signal });
+    } catch (error62) {
+      if (signal?.aborted) throw new QtNativeTransportError("Position inventory read cancelled.", "aborted");
+      throw error62;
+    }
+    if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) return incomplete;
+  }
+}
+var byPosition2, fail4;
+var init_qt_native_pages = __esm({
+  "src/qt-native-pages.ts"() {
+    "use strict";
+    init_zod();
+    init_product_profiles();
+    init_qt_native_client();
+    init_qt_native_snapshot();
+    init_position_inventory();
+    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
+    fail4 = (kind, error62) => ({ ok: false, backend: "qt", kind, error: error62 });
+  }
+});
+
+// src/qt-native-find.ts
+function nativeWildcard(pattern) {
+  const tokens = [];
+  const literal2 = (value) => tokens.push((character) => character.toLowerCase() === value.toLowerCase());
+  for (let index = 0; index < pattern.length; ++index) {
+    const character = pattern[index];
+    if (character === "`") {
+      if (index + 1 < pattern.length) literal2(pattern[++index]);
+      else if (pattern.length > 1) literal2("`");
+    } else if (character === "*") {
+      if (tokens.at(-1) !== "*") tokens.push("*");
+    } else if (character === "?") tokens.push(() => true);
+    else if (character === "[") {
+      const contents = [];
+      let closed = false, first = true;
+      while (++index < pattern.length) {
+        let value = pattern[index], escaped = false;
+        if (value === "]" && !first) {
+          closed = true;
+          break;
+        }
+        if (value === "`") {
+          first = false;
+          if (++index >= pattern.length) break;
+          value = pattern[index];
+          escaped = true;
+        }
+        contents.push({ value, dash: value === "-" && !escaped });
+        first = false;
+      }
+      if (!closed) throw invalid();
+      const matchers = [];
+      for (let part = 0; part < contents.length; ++part) {
+        const lower = contents[part].value;
+        if (part + 2 < contents.length && contents[part + 1].dash) {
+          const upper = contents[part + 2].value;
+          part += 2;
+          if (lower > upper) throw invalid();
+          const hex3 = (value) => `\\u${value.charCodeAt(0).toString(16).padStart(4, "0")}`;
+          const range = new RegExp(`[${hex3(lower)}-${hex3(upper)}]`, "i");
+          matchers.push((value) => range.test(value));
+        } else matchers.push((value) => value.toLowerCase() === lower.toLowerCase());
+      }
+      tokens.push((value) => matchers.some((match) => match(value)));
+    } else literal2(character);
+  }
+  let budget = 1e7;
+  return (text3) => {
+    let current = new Uint8Array(tokens.length + 1);
+    current[0] = 1;
+    const closure = (states) => {
+      for (let index = 0; index < tokens.length; ++index) if (states[index] && tokens[index] === "*") states[index + 1] = 1;
+    };
+    closure(current);
+    for (let offset = 0; offset < text3.length; ++offset) {
+      budget -= tokens.length;
+      if (budget < 0) throw new QtNativeTransportError("Wildcard evaluation exceeds the bounded selector budget.", "native-selector-limit");
+      const next = new Uint8Array(tokens.length + 1);
+      for (let index = 0; index < tokens.length; ++index) {
+        if (!current[index]) continue;
+        const token = tokens[index];
+        if (token === "*") next[index] = 1;
+        else if (token(text3[offset])) next[index + 1] = 1;
+      }
+      closure(next);
+      current = next;
+    }
+    return current[tokens.length] === 1;
+  };
+}
+async function executeQtNativeFind(client, args, timeoutMs, signal) {
+  const name = typeof args.name === "string" ? args.name : "", aid = typeof args.aid === "string" ? args.aid : "";
+  const type = typeof args.type === "string" ? args.type : "";
+  if (!name && !aid && !type || args.contains && !name) throw new QtNativeTransportError("find requires name, aid or type; contains requires name.", "bad-args");
+  const nameMatch = args.contains ? nativeWildcard(`*${name}*`) : void 0;
+  const aidMatch = nativeWildcard(`*${aid}`);
+  const equalitySelectors = { ...name && !args.contains ? { name } : {}, ...aid ? { aid } : {}, ...type ? { type } : {} };
+  const result = await readQtNativeSnapshot(client, { ...args, withValues: false, equalitySelectors }, timeoutMs, signal);
+  const exactName = new Set(result.exactMatches.name), exactAid = new Set(result.exactMatches.aid), exactType = new Set(result.exactMatches.type);
+  const hits = result.nodes.filter((node2) => (!name || (nameMatch ? nameMatch(node2.name) : exactName.has(node2.i))) && (!aid || exactAid.has(node2.i) || aidMatch(node2.aid)) && (!type || exactType.has(node2.i)));
+  return {
+    ok: true,
+    backend: "qt",
+    count: hits.length,
+    hits,
+    stats: result.stats,
+    incomplete: result.stats.truncated,
+    note: result.stats.truncated ? 'ACHTUNG: Der Baumlauf wurde abgeschnitten. "Nicht gefunden" ist hier KEIN Beweis fuer Abwesenheit.' : null,
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
+var invalid;
+var init_qt_native_find = __esm({
+  "src/qt-native-find.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_snapshot();
+    invalid = () => new QtNativeTransportError("Invalid PowerShell wildcard expression.", "bad-args");
   }
 });
 
@@ -30731,7 +30734,7 @@ var init_qt_native_owned_windows = __esm({
 import { performance as performance11 } from "node:perf_hooks";
 function pageFields(own2, bounds, textMinX) {
   const texts = own2.filter((node2) => node2.type === "Text" && node2.name && node2.x >= textMinX && node2.x <= bounds.maxX);
-  return own2.filter((node2) => FIELD_TYPES.has(node2.type) && inContent(node2, bounds)).sort(byPosition2).map((field) => {
+  return own2.filter((node2) => FIELD_TYPES.has(node2.type) && inContent(node2, bounds)).sort(byPosition).map((field) => {
     return {
       label: qtNativeFieldCaption(field, texts) || field.name,
       typ: field.type,
@@ -30745,7 +30748,7 @@ function pageFields(own2, bounds, textMinX) {
 }
 function pageTable(own2) {
   const heads = own2.filter((node2) => node2.type === "Header" && node2.name && node2.w > 0).sort((a, b) => a.x - b.x);
-  const cells = own2.filter((node2) => node2.type === "DataItem" && node2.w > 0).sort(byPosition2);
+  const cells = own2.filter((node2) => node2.type === "DataItem" && node2.w > 0).sort(byPosition);
   const rows = [];
   for (const cell of cells) {
     const current = rows.at(-1);
@@ -30767,7 +30770,7 @@ function pageActions(own2, bounds, windowTop) {
   const candidates = own2.filter((node2) => (node2.type === "Button" || node2.type === "Hyperlink") && node2.name).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
   const actions = [];
   for (const node2 of candidates) {
-    const gesperrt = transmissionName2(node2.name);
+    const gesperrt = transmissionName(node2.name);
     const bereich = node2.y < windowTop + 160 ? "werkzeugleiste" : inContent(node2, bounds) ? "seite" : "hilfespalte";
     if (actions.some((action) => psEquals(action.name, node2.name) && action.bereich === bereich)) continue;
     actions.push({
@@ -32957,7 +32960,7 @@ function projectSection(entries) {
 }
 function qtNativeHelpProjection(nodes, windowRect) {
   const bounds = contentBounds([...nodes], windowRect);
-  const rechts = nodes.filter((node2) => node2.x > bounds.maxX && node2.name).sort(byPosition2);
+  const rechts = nodes.filter((node2) => node2.x > bounds.maxX && node2.name).sort(byPosition);
   const abschnitte = new OrderedSections();
   let aktuell = "Allgemein";
   for (const node2 of rechts) {
@@ -33074,7 +33077,7 @@ function qtNativeTableProjection(nodes) {
     });
     return best;
   };
-  const cells = nodes.filter((node2) => psEquals(node2.type, "DataItem") && node2.w > 0).sort(byPosition2);
+  const cells = nodes.filter((node2) => psEquals(node2.type, "DataItem") && node2.w > 0).sort(byPosition);
   const rows = [];
   const rowDetails = [];
   let current = null;
@@ -33424,7 +33427,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
   }
   const target = page ? String(page.headingNumberedLabel || page.headingPrefix || page.heading || "") : args.ziel ?? "";
   if (!target) return { ok: false, backend: "qt", kind: "bad-args", error: "The target heading is empty." };
-  if (transmissionName2(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
+  if (transmissionName(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
   const activeProfile = profile, started = performance.now(), path = [], visited = [];
   let mutationStarted = false, nativeDurationMs = 0, steps = 0, lastHeading = null, phase = "precondition";
   const budget = () => {
@@ -33464,7 +33467,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
     nativeDurationMs
   });
   const dispatch = async (snapshot, node2, action, extra = {}) => {
-    if (!node2.on || node2.w <= 0 || node2.h <= 0 || transmissionName2(node2.name))
+    if (!node2.on || node2.w <= 0 || node2.h <= 0 || transmissionName(node2.name))
       throw new GotoError("The exact navigation control is inactive, invisible or blocked.", "stale");
     let reply;
     try {
@@ -33536,7 +33539,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
       const navName = page ? String(page.navigationTreeItemName || target) : target;
       const treePage = page && !page.navigationTreeItemName && !/^[1-9][0-9]*\.\s*$/u.test(String(page.headingPrefix ?? "")) ? page : void 0;
       const item = visibleNavigationItem(snapshot.nodes, navName, treePage);
-      if (item && !transmissionName2(item.name)) {
+      if (item && !transmissionName(item.name)) {
         phase = "navigation-tree";
         await dispatch(snapshot, item, "activate-navigation-item");
         steps++;

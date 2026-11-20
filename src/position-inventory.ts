@@ -1,11 +1,5 @@
-/** A complete business inventory needs positive page/body evidence, not just a finished tree walk. */
-export interface PositionInventoryNode {
-  type: string;
-  name: string;
-  aid: string;
-  on: boolean;
-  y: number;
-}
+import { containerDescendants } from "./qt-native-projections.js";
+import type { QtSnapshotNode } from "./qt-native-snapshot.js";
 
 type InventoryStats = { truncated?: boolean; err?: number; cyc?: number; valErr?: number; depthLimited?: boolean };
 type PositionInventory = { ok: true; rows: { name: string; net: string }[]; createCaption: string }
@@ -13,8 +7,9 @@ type PositionInventory = { ok: true; rows: { name: string; net: string }[]; crea
 
 export const POSITION_OVERVIEW_HEADINGS = ["Erlöse Lieferungen/Leistungen", "Betriebsausgaben: Eigene Positionen"] as const;
 
+/** A complete business inventory requires the bound overview and its guide subtree. */
 export function readPositionInventory(
-  nodes: readonly PositionInventoryNode[], stats: InventoryStats | undefined, heading: string | null,
+  nodes: readonly QtSnapshotNode[], stats: InventoryStats | undefined, heading: string | null,
   allowedHeadings: readonly string[] = POSITION_OVERVIEW_HEADINGS,
 ): PositionInventory {
   const fail = (error: string): PositionInventory => ({ ok: false, error });
@@ -22,7 +17,9 @@ export function readPositionInventory(
     || heading === null || !allowedHeadings.includes(heading)) {
     return fail("Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.");
   }
-  const links = nodes.filter(node => node.type === "Hyperlink" && node.aid.includes(".GuideViewer."));
+  const guideSuffix = ".ClientFrameSSE.GuideViewer";
+  const links = containerDescendants(nodes, guideSuffix, "Hyperlink", "Group");
+  const texts = containerDescendants(nodes, guideSuffix, "Text", "Group");
   const edits = links.flatMap(node => {
     const match = /^»(.*)« bearbeiten$/u.exec(node.name);
     return match ? [{ node, label: match[1]! }] : [];
@@ -43,13 +40,12 @@ export function readPositionInventory(
   }
   const rows: { name: string; net: string }[] = [];
   for (const row of edits) {
-    const amounts = nodes.filter(node => node.type === "Text" && node.on && node.aid.includes(".GuideViewer.")
+    const amounts = texts.filter(node => node.on
       && Math.abs(node.y - row.node.y) < 10 && /^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}$/u.test(node.name));
     if (amounts.length !== 1) return fail("Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.");
     rows.push({ name: row.label, net: amounts[0]!.name });
   }
-  const empty = nodes.filter(node => node.type === "Text" && node.on && node.aid.includes(".GuideViewer.")
-    && node.name === "Sie haben noch keine Angaben erfasst");
+  const empty = texts.filter(node => node.on && node.name === "Sie haben noch keine Angaben erfasst");
   const createCaption = rows.length ? "Weitere Position erfassen" : "Position erfassen";
   const commands = links.filter(node => node.on && ["Position erfassen", "Weitere Position erfassen"].includes(node.name));
   if (empty.length !== (rows.length ? 0 : 1) || commands.length !== 1 || commands[0]!.name !== createCaption) {

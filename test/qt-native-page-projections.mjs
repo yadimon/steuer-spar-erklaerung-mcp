@@ -495,39 +495,39 @@ export async function testNativePageProjections() {
   const exhausted = nativeWildcard("?".repeat(1000));
   assert.throws(() => exhausted("x".repeat(20_000)), error => error.kind === "native-selector-limit");
 
-  const draftPositionNodes = knownNodes.slice(0, 3).map(node => node.i === 2
+  const positionHeadingNodes = knownNodes.slice(0, 3).map(node => node.i === 2
     ? { ...node, name: "Erlöse Lieferungen/Leistungen" } : { ...node });
-  for (const [type, name] of [["Hyperlink", "»Synthetic draft« erfassen"], ["Text", "0,00"],
-    ["Hyperlink", "»Synthetic draft« löschen"], ["Hyperlink", "Weitere Position erfassen"]]) {
-    const i = draftPositionNodes.length;
-    draftPositionNodes.push({ ...knownNodes[3], i, p: 0, d: 1, rid: `42.42.4.${i}`, type, name,
-      aid: `window.GuideViewer.Synthetic${i}`, y: i === 6 ? 180 : 100, val: null, ro: null });
-  }
+  const guide = { ...knownNodes[3], type: "Group", aid: "window.ClientFrameSSE.GuideViewer", val: null, ro: null };
+  const firstPositionChild = guide.i + 1;
+  const positionNodes = rows => [...positionHeadingNodes, guide, ...rows.map(([type, name, y], index) => {
+    const i = firstPositionChild + index;
+    return { ...guide, i, p: guide.i, d: 2, rid: `42.42.4.${i}`, type, name, aid: `${guide.aid}.Synthetic${i}`, y };
+  })];
+  const draftPositionNodes = positionNodes([["Hyperlink", "»Synthetic draft« erfassen", 100], ["Text", "0,00", 100],
+    ["Hyperlink", "»Synthetic draft« löschen", 100], ["Hyperlink", "Weitere Position erfassen", 180]]);
   const incompletePositions = await executeQtNativePositions(knownSnapshotClient(draftPositionNodes),
     { hwnd: 42, aktion: "list" }, 5000, undefined, knownProfile);
-  const headerOnlyPositions = await executeQtNativePositions(knownSnapshotClient(draftPositionNodes.slice(0, 3)),
+  const headerOnlyPositions = await executeQtNativePositions(knownSnapshotClient(positionHeadingNodes),
     { hwnd: 42, aktion: "list" }, 5000, undefined, knownProfile);
   assert.deepEqual([incompletePositions.ok, headerOnlyPositions.ok], [false, false],
     "A generic draft or header-only page was falsely reported as an empty inventory.");
 
-  const completePositionNodes = draftPositionNodes.slice(0, 3);
-  for (const [type, name, y] of [["Hyperlink", "»Fahrzeugkosten« bearbeiten", 100],
+  const completePositionNodes = positionNodes([["Hyperlink", "»Fahrzeugkosten« bearbeiten", 100],
     ["Custom", "»Fahrzeugkosten« bearbeiten", 100], ["Text", "100,00", 100],
     ["Hyperlink", "»Fahrzeugkosten« löschen", 100], ["Hyperlink", "»Arbeitszimmer« bearbeiten", 140],
-    ["Text", "200,00", 140], ["Hyperlink", "Weitere Position erfassen", 200]]) {
-    const i = completePositionNodes.length;
-    completePositionNodes.push({ ...knownNodes[3], i, p: 0, d: 1, rid: `42.42.4.${i}`, type, name,
-      aid: `window.GuideViewer.Synthetic${i}`, y, val: null, ro: null });
-  }
+    ["Text", "200,00", 140], ["Hyperlink", "Weitere Position erfassen", 200]]);
+  const firstEdit = completePositionNodes[firstPositionChild];
+  const firstAmount = completePositionNodes[firstPositionChild + 2];
+  const firstDelete = completePositionNodes[firstPositionChild + 3];
+  const firstDraft = draftPositionNodes[firstPositionChild];
   const positionsClient = knownSnapshotClient(completePositionNodes);
   const positions = await executeQtNativePositions(positionsClient, { hwnd: 42, aktion: "list" }, 5000, undefined, knownProfile);
   assert.deepEqual(positions, { ok: true, backend: "qt", positionen: ["Fahrzeugkosten", "Arbeitszimmer"], anzahl: 2,
     hinweis: null, nativeDurationMs: 2 });
   assert.equal((await executeQtNativePositions(positionsClient, { aktion: "add" }, 5000)).kind, "blocked");
 
-  const emptyPositionNodes = [...completePositionNodes.slice(0, 3),
-    { ...completePositionNodes[3], type: "Text", name: "Sie haben noch keine Angaben erfasst" },
-    { ...completePositionNodes[4], type: "Hyperlink", name: "Position erfassen" }];
+  const emptyPositionNodes = positionNodes([["Text", "Sie haben noch keine Angaben erfasst", 100],
+    ["Hyperlink", "Position erfassen", 120]]);
   const delayedPositionClient = snapshots => {
     const calls = [];
     return { calls, binding: knownClient.binding, request: async (operation, args, timeout, signal) => {
@@ -539,12 +539,12 @@ export async function testNativePageProjections() {
       return knownSnapshotClient(nodes).request(operation, args, timeout, signal);
     } };
   };
-  const delayedEmpty = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const delayedEmpty = delayedPositionClient([positionHeadingNodes, emptyPositionNodes]);
   const readyEmpty = await executeQtNativePositions(delayedEmpty, { hwnd: 42 }, 5000, undefined, knownProfile);
   assert.equal(readyEmpty.ok, true); assert.deepEqual(readyEmpty.positionen, []);
   assert.equal(readyEmpty.nativeDurationMs, 4); assert.equal(delayedEmpty.calls.length, 2);
   assert(delayedEmpty.calls[1].timeout < delayedEmpty.calls[0].timeout, "A reread reset the request deadline.");
-  const delayedRows = delayedPositionClient([draftPositionNodes.slice(0, 3), draftPositionNodes, completePositionNodes]);
+  const delayedRows = delayedPositionClient([positionHeadingNodes, draftPositionNodes, completePositionNodes]);
   assert.deepEqual((await executeQtNativePositions(delayedRows, { hwnd: 42 }, 5000, undefined, knownProfile)).positionen,
     positions.positionen);
   assert.equal(delayedRows.calls.length, 3);
@@ -552,11 +552,11 @@ export async function testNativePageProjections() {
   assert.equal((await executeQtNativePositions(neverReady, { hwnd: 42 }, 5000, undefined, knownProfile)).kind,
     "position-inventory-incomplete");
   assert.equal(neverReady.calls.length, 3, "An incomplete inventory must stop after three reads.");
-  const lowBudget = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const lowBudget = delayedPositionClient([positionHeadingNodes, emptyPositionNodes]);
   assert.equal((await executeQtNativePositions(lowBudget, { hwnd: 42 }, 2000, undefined, knownProfile)).kind,
     "position-inventory-incomplete");
   assert.equal(lowBudget.calls.length, 1, "A short remaining budget must not submit a doomed reread.");
-  const truncatedInventory = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const truncatedInventory = delayedPositionClient([positionHeadingNodes, emptyPositionNodes]);
   const truncatedRead = truncatedInventory.request;
   truncatedInventory.request = async (...args) => {
     const response = await truncatedRead(...args);
@@ -565,7 +565,7 @@ export async function testNativePageProjections() {
   assert.equal((await executeQtNativePositions(truncatedInventory, { hwnd: 42 }, 5000, undefined, knownProfile)).ok, false);
   assert.equal(truncatedInventory.calls.length, 1, "A truncated tree must not be polled.");
   for (const obstruction of [{ windowEnabled: false }, { modalBlocked: true }]) {
-    const obstructed = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+    const obstructed = delayedPositionClient([positionHeadingNodes, emptyPositionNodes]);
     const read = obstructed.request;
     obstructed.request = async (...args) => {
       const response = await read(...args);
@@ -578,7 +578,7 @@ export async function testNativePageProjections() {
   const foreignPage = delayedPositionClient([knownNodes]);
   assert.equal((await executeQtNativePositions(foreignPage, { hwnd: 42 }, 5000, undefined, knownProfile)).ok, false);
   assert.equal(foreignPage.calls.length, 1, "A foreign page must not be polled.");
-  const changedOverview = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes.map(node => node.i === 2
+  const changedOverview = delayedPositionClient([positionHeadingNodes, emptyPositionNodes.map(node => node.i === 2
     ? { ...node, name: "Betriebsausgaben: Eigene Positionen" } : node)]);
   assert.equal((await executeQtNativePositions(changedOverview, { hwnd: 42 }, 5000, undefined, knownProfile)).ok, false);
   assert.equal(changedOverview.calls.length, 2, "Another valid overview must not replace the initial page binding.");
@@ -599,7 +599,7 @@ export async function testNativePageProjections() {
     { qtNativeClient: publicAbortClient }, 5000, publicAbort.signal, knownProfile);
   assert.equal(publicAbortResult.kind, "aborted"); assert.equal(publicAbortResult.outcomeUnknown, false);
   assert.equal(publicAbortClient.calls.length, 1, "The executor must preserve cancellation during the delay.");
-  const failedReread = delayedPositionClient([draftPositionNodes.slice(0, 3), emptyPositionNodes]);
+  const failedReread = delayedPositionClient([positionHeadingNodes, emptyPositionNodes]);
   const failedRead = failedReread.request;
   failedReread.request = async (...args) => {
     const response = await failedRead(...args);
@@ -611,35 +611,39 @@ export async function testNativePageProjections() {
   assert.equal(failedRereadResult.kind, "native-incomplete"); assert.equal(failedReread.calls.length, 2);
   const positionCases = [
     { label: "complete", nodes: completePositionNodes, ok: true },
+    { label: "blank leaf IDs", nodes: completePositionNodes.map(node => node.p === guide.i ? { ...node, aid: "" } : node), ok: true },
+    { label: "foreign position with a similar ID", nodes: [...completePositionNodes,
+      { ...firstDraft, i: completePositionNodes.length, rid: "42.42.4.999", p: 0, d: 1 }], ok: true },
+    { label: "ambiguous guide", nodes: [...completePositionNodes, { ...guide, i: completePositionNodes.length }], ok: false },
     { label: "empty", nodes: emptyPositionNodes, ok: true },
     { label: "draft", nodes: draftPositionNodes, ok: false },
-    { label: "named-plus-draft", nodes: [...completePositionNodes, ...draftPositionNodes.slice(3, 6)], ok: false },
-    { label: "erfassen-only-draft", nodes: [...completePositionNodes, { ...draftPositionNodes[3], y: 250 }], ok: false },
+    { label: "named-plus-draft", nodes: [...completePositionNodes, ...draftPositionNodes.slice(firstPositionChild, firstPositionChild + 3)], ok: false },
+    { label: "erfassen-only-draft", nodes: [...completePositionNodes, { ...firstDraft, y: 250 }], ok: false },
     ...["\n", "\r", "\u2028", "\u2029"].map(lineBreak => ({ label: `draft-line-break-${lineBreak.codePointAt(0)}`,
-      nodes: [...completePositionNodes, { ...draftPositionNodes[3], name: `»Synthetic${lineBreak}draft« erfassen`, y: 250 }], ok: false })),
-    { label: "edit-final-line-break", nodes: completePositionNodes.map((node, i) => i === 3
+      nodes: [...completePositionNodes, { ...firstDraft, name: `»Synthetic${lineBreak}draft« erfassen`, y: 250 }], ok: false })),
+    { label: "edit-final-line-break", nodes: completePositionNodes.map(node => node === firstEdit
       ? { ...node, name: node.name + "\n" } : node), ok: false },
-    { label: "amount-final-line-break", nodes: completePositionNodes.map((node, i) => i === 5
+    { label: "amount-final-line-break", nodes: completePositionNodes.map(node => node === firstAmount
       ? { ...node, name: node.name + "\n" } : node), ok: false },
-    { label: "non-ascii-digits", nodes: completePositionNodes.map((node, i) => i === 5
+    { label: "non-ascii-digits", nodes: completePositionNodes.map(node => node === firstAmount
       ? { ...node, name: "١٠٠,٠٠" } : node), ok: false },
-    { label: "header-only", nodes: completePositionNodes.slice(0, 3), ok: false },
+    { label: "header-only", nodes: positionHeadingNodes, ok: false },
     { label: "unmatched-delete", nodes: [...completePositionNodes,
-      { ...completePositionNodes[3], name: "»Unlisted« löschen" }], ok: false },
-    { label: "blank-edit-label", nodes: completePositionNodes.map((node, i) => i === 3
+      { ...firstEdit, name: "»Unlisted« löschen" }], ok: false },
+    { label: "blank-edit-label", nodes: completePositionNodes.map(node => node === firstEdit
       ? { ...node, name: "»« bearbeiten" } : node), ok: false },
-    { label: "duplicate-edit", nodes: [...completePositionNodes, completePositionNodes[3]], ok: false },
-    { label: "duplicate-delete", nodes: [...completePositionNodes, completePositionNodes[6]], ok: false },
-    { label: "disabled-edit", nodes: completePositionNodes.map((node, i) => i === 3
+    { label: "duplicate-edit", nodes: [...completePositionNodes, firstEdit], ok: false },
+    { label: "duplicate-delete", nodes: [...completePositionNodes, firstDelete], ok: false },
+    { label: "disabled-edit", nodes: completePositionNodes.map(node => node === firstEdit
       ? { ...node, on: false } : node), ok: false },
-    { label: "missing-amount", nodes: completePositionNodes.filter((_, i) => i !== 5), ok: false },
-    { label: "ambiguous-amount", nodes: [...completePositionNodes, completePositionNodes[5]], ok: false },
+    { label: "missing-amount", nodes: completePositionNodes.filter(node => node !== firstAmount), ok: false },
+    { label: "ambiguous-amount", nodes: [...completePositionNodes, firstAmount], ok: false },
     { label: "foreign-body", nodes: emptyPositionNodes.map(node => ({ ...node,
-      aid: node.aid.replace(".GuideViewer.", ".HelpViewer.") })), ok: false },
+      aid: node.aid.replace(".GuideViewer", ".HelpViewer") })), ok: false },
     { label: "wrong-case-guide", nodes: emptyPositionNodes.map(node => ({ ...node,
-      aid: node.aid.replace(".GuideViewer.", ".guideviewer.") })), ok: false },
+      aid: node.aid.replace(".GuideViewer", ".guideviewer") })), ok: false },
     { label: "empty-create-not-ready", nodes: emptyPositionNodes.filter(node => node.name !== "Position erfassen"), ok: false },
-    { label: "extra-empty-message", nodes: [...completePositionNodes, emptyPositionNodes[3]], ok: false },
+    { label: "extra-empty-message", nodes: [...completePositionNodes, emptyPositionNodes[firstPositionChild]], ok: false },
     { label: "wrong-heading", nodes: completePositionNodes, heading: "Foreign page", ok: false },
     { label: "expense", nodes: completePositionNodes, heading: "Betriebsausgaben: Eigene Positionen", ok: true },
     ...["truncated", "err", "cyc", "valErr", "depthLimited"].map(flag => ({ label: flag,
