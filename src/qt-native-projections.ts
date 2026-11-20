@@ -266,7 +266,9 @@ const RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
  * the inventory's proof instead, and a tree without the table is then 'open but unreadable'.
  */
 export function resultDetailsFromNodes(
-  nodes: readonly QtSnapshotNode[], stats: { truncated: boolean; cyc: number }, windowKnownOpen = false,
+  nodes: readonly QtSnapshotNode[],
+  stats: { truncated: boolean; cyc: number; err?: number; depthLimited?: boolean; valErr?: number; scrollErr?: number },
+  windowKnownOpen = false,
 ): ResultDetails {
   const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
   const unpositioned = allData.filter(node => node.w <= 0 || node.h <= 0);
@@ -308,7 +310,8 @@ export function resultDetailsFromNodes(
     }
   }
   const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4
-    && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc;
+    && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc
+    && !stats.err && !stats.depthLimited && !stats.valErr && !stats.scrollErr;
   // The worker pipes the row array into ConvertTo-Json: a single row serializes as one object.
   const fingerprintBody = powershellCompactJson(rows.length === 1 ? rows[0] : rows);
   return {

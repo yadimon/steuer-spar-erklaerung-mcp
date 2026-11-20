@@ -266,6 +266,10 @@ Invoke-Fehler nach Aktionsbeginn und eine saubere Ablehnung vor Dispatch.
 Ein gefangener terminaler Emit-Sentinel darf nicht überschrieben werden.
 Der bestehende Invoke-Zugriff außerhalb des Plans und die Knopfbindung des
 Klickwegs bleiben eigene Kontrollfälle.
+`result_details` vergleicht die gelesenen Ergebniszeilen mit der Zeilenzahl
+des gebundenen UIA-Tabellenmodells. Bei einem kleineren sichtbaren Ausschnitt
+liest es die nachgewiesenen vier Spalten über ihre Modellkoordinaten. Das
+liefert auch Zeilen außerhalb des Fensterausschnitts ohne Scrollaktion.
 `verified-point-failure-contract.ps1` führt die produktiven Cursorhelfer bei
 verweigerter Positionierung, unlesbarer Position und Drift vor dem Dispatch aus.
 Der Transaktionspfad

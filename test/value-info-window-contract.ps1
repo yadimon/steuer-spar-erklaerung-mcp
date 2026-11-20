@@ -484,6 +484,17 @@ $full = Result-Tree 2
 $changed = Result-Tree 2 '2.100,00'
 $parsedPrefix = Read-ResultDetailsFromTree $prefix
 Assert-True ($parsedPrefix.vollstaendig -and $parsedPrefix.anzahl -eq 1) 'The regression fixture must be a structurally complete prefix.'
+$modelRows = @(
+  [pscustomobject]@{cells=@('Refund','1.000,50','1.000,50','0,00')},
+  [pscustomobject]@{cells=@('Tax','2.000,00','2.000,00','0,00')}
+)
+$modelResult = Read-ResultDetailsFromTree $prefix $modelRows
+Assert-True ($modelResult.vollstaendig -and $modelResult.anzahl -eq 2 -and
+  $modelResult.zeilen[1].beobachteterWert -ceq 'Tax' -and $modelResult.zeilen[1].aktuell -ceq '2.000,00') `
+  'A logical row outside the visible prefix did not reach the public projection.'
+$walkError = Result-Tree 2
+$walkError.stats | Add-Member NoteProperty err 1
+Assert-True (-not (Read-ResultDetailsFromTree $walkError).vollstaendig) 'An errored UIA tree claimed complete values.'
 $beforeAssignments = @($trackedBody.FindAll({
   param($node)
   $node -is [Management.Automation.Language.AssignmentStatementAst] -and

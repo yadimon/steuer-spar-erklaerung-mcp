@@ -30100,7 +30100,7 @@ function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
       if (Math.abs(comparisonInvariantResidual(actual, held, difference)) > 0.011) invariantErrors.push({ ...row });
     }
   }
-  const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc;
+  const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc && !stats.err && !stats.depthLimited && !stats.valErr && !stats.scrollErr;
   const fingerprintBody = powershellCompactJson(rows.length === 1 ? rows[0] : rows);
   return {
     verfuegbar: rows.length > 0,

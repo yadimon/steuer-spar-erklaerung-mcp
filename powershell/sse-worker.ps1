@@ -7033,7 +7033,7 @@ function Convert-SSEComparableNumber($Value) {
 # Snapshot gelesen werden. Das spart gegenueber drei getrennten MCP-Aufrufen
 # mehrere Workerstarts und vermeidet gemischte Vorher-/Nachher-Zustaende.
 function Read-ResultDetailsFromTree {
-  param($Tree)
+  param($Tree, $ModelRows = $null)
   # Ueber den Tabellen-Container binden, nie ueber die Ids der Zellen:
   # Engine 30 laesst sowohl das Zwischenstueck 'WerteInfo' als auch die
   # AutomationIds der Zellen und Kopfzeilen weg. Das Endstueck des
@@ -7050,9 +7050,10 @@ function Read-ResultDetailsFromTree {
   $tabelle = Find-SSEContainerNode $Tree.nodes $wertetabelle 'Table'
   $scrollIncomplete = [bool]($tabelle -and $null -ne $tabelle.scroll -and $tabelle.scroll.vScrollable -and
     [double]$tabelle.scroll.vView -lt 99.999)
+  if ($null -ne $ModelRows) { $scrollIncomplete = $false; $unpositioned = @() }
   # Der Tabellen-Container ist selbst der Beleg, dass die Werte-Info offen ist.
   $windowOpen = [bool]$tabelle
-  if (-not $data.Count) {
+  if (-not $data.Count -and -not @($ModelRows | Where-Object { $null -ne $_ }).Count) {
     return [pscustomobject]@{
       verfuegbar = $false; fensterOffen = [bool]$windowOpen; anzahl = 0
       vollstaendig = $false; zeilen = @(); unvollstaendigeZeilen = @()
@@ -7073,17 +7074,28 @@ function Read-ResultDetailsFromTree {
   $malformed = New-Object System.Collections.ArrayList
   $invariantErrors = New-Object System.Collections.ArrayList
   $invariantChecked = 0
-  foreach ($group in @($data | Group-Object y | Sort-Object { [int]$_.Name })) {
-    $cells = @($group.Group | Sort-Object x)
+  $rowValues = $ModelRows
+  if ($null -eq $rowValues) {
+    $rowValues = @(foreach ($group in @($data | Group-Object y | Sort-Object { [int]$_.Name })) {
+      $cells = @($group.Group | Sort-Object x | ForEach-Object { [string]$_.name })
+      if ($cells.Count -ne 4) {
+        $null = $malformed.Add([pscustomobject]@{ y=[int]$group.Name; cells=$cells })
+      } else {
+        [pscustomobject]@{ cells=$cells }
+      }
+    })
+  }
+  foreach ($values in $rowValues) {
+    $cells = $values.cells
     if ($cells.Count -ne 4) {
-      $null = $malformed.Add([pscustomobject]@{ y=[int]$group.Name; cells=@($cells | ForEach-Object { $_.name }) })
+      $null = $malformed.Add([pscustomobject]@{ y=$null; cells=@($cells) })
       continue
     }
     $row = [pscustomobject]@{
-      beobachteterWert = [string]$cells[0].name
-      aktuell = [string]$cells[1].name
-      festgehalten = [string]$cells[2].name
-      differenz = [string]$cells[3].name
+      beobachteterWert = [string]$cells[0]
+      aktuell = [string]$cells[1]
+      festgehalten = [string]$cells[2]
+      differenz = [string]$cells[3]
     }
     $null = $rows.Add($row)
     $actual = Convert-SSEComparableNumber $row.aktuell
@@ -7101,7 +7113,8 @@ function Read-ResultDetailsFromTree {
   }
   $complete = [bool]($rows.Count -gt 0 -and -not $malformed.Count -and
     -not $unpositioned.Count -and $headers.Count -eq 4 -and -not $scrollIncomplete -and
-    -not $invariantErrors.Count -and -not $Tree.stats.truncated -and -not $Tree.stats.cyc)
+    -not $invariantErrors.Count -and -not $Tree.stats.truncated -and -not $Tree.stats.cyc -and
+    -not $Tree.stats.err -and -not $Tree.stats.depthLimited -and -not $Tree.stats.valErr -and -not $Tree.stats.scrollErr)
   $fingerprintBody = @($rows | ForEach-Object {
     [pscustomobject]@{
       beobachteterWert=$_.beobachteterWert; aktuell=$_.aktuell
@@ -7119,6 +7132,68 @@ function Read-ResultDetailsFromTree {
     vertikalUnvollstaendig = $scrollIncomplete
     fingerprint = $(if ($rows.Count) { Get-SSETextSha256 $fingerprintBody } else { $null })
     hinweis = 'Aktuell ist der gegenwaertige Wert; festgehalten ist der Vergleichsstand; Differenz ist die Wirkung gegen diesen Stand.'
+  }
+}
+
+function Read-SSEValueInfoResult($Window, $Tree) {
+  $result = Read-ResultDetailsFromTree $Tree
+  $hwnd = [IntPtr][int64]$Window.hwnd
+  $table = Find-SSEContainerNode $Tree.nodes 'obj_Wertetabelle' 'Table'
+  try {
+    if (-not $table.rid -or -not (Test-SSEDialogWindowCurrent $Window ([int]$Window.pid))) { throw 'Stale values-info table.' }
+    $element = Get-LiveElement $hwnd $table.rid $table.aid
+    if (-not (Test-SSEElementIdentity $element $table.rid $table.aid) -or
+        [int]$element.Current.ProcessId -ne [int]$Window.pid) { throw 'Unbound values-info table.' }
+    $grid = $element.GetCurrentPattern([Windows.Automation.GridPattern]::Pattern)
+    $rowCount = [int]$grid.Current.RowCount
+    $columnCount = [int]$grid.Current.ColumnCount
+    if ($rowCount -lt 1 -or $rowCount -gt 1000 -or $columnCount -lt 4) { throw 'Unproven values-info dimensions.' }
+    if ($result.vollstaendig -and $rowCount -eq $result.anzahl) { return $result }
+    $result.vertikalUnvollstaendig = $result.vertikalUnvollstaendig -or $rowCount -gt $result.anzahl
+    $visibleCells = @(Get-SSEContainerDescendants $Tree.nodes 'obj_Wertetabelle' 'DataItem' 'Table' |
+      Where-Object { $_.w -gt 0 -and $_.h -gt 0 } | Group-Object y |
+      Where-Object Count -EQ 4 | Select-Object -First 1 -ExpandProperty Group | Sort-Object x)
+    if ($visibleCells.Count -ne 4) { throw 'Unproven values-info columns.' }
+    $visibleRow = $null
+    $columns = @(foreach ($cell in $visibleCells) {
+      $live = Get-LiveElement $hwnd $cell.rid
+      if (-not (Test-SSEElementIdentity $live $cell.rid $cell.aid $cell.name) -or
+          [int]$live.Current.ProcessId -ne [int]$Window.pid) { throw 'A visible values-info cell changed.' }
+      $item = $live.GetCurrentPattern([Windows.Automation.GridItemPattern]::Pattern).Current
+      if ($null -eq $visibleRow) { $visibleRow = $item.Row }
+      if ($item.Row -ne $visibleRow -or $item.Column -lt 0 -or $item.Column -ge $columnCount -or
+          ($item.ContainingGrid.GetRuntimeId() -join '.') -cne $table.rid) { throw 'Unbound values-info columns.' }
+      $item.Column
+    })
+    if (@($columns | Select-Object -Unique).Count -ne 4) { throw 'Ambiguous values-info columns.' }
+    $seen = New-Object 'Collections.Generic.HashSet[string]'
+    $budget = [Diagnostics.Stopwatch]::StartNew()
+    $rows = @(for ($row = 0; $row -lt $rowCount; $row++) {
+      if ($budget.ElapsedMilliseconds -ge 8000) { throw 'Values-info grid read timed out.' }
+      $cells = @(foreach ($column in $columns) {
+        $live = $grid.GetItem($row, $column)
+        $item = $live.GetCurrentPattern([Windows.Automation.GridItemPattern]::Pattern).Current
+        $rid = $live.GetRuntimeId() -join '.'
+        $name = $live.Current.Name
+        if (-not $rid -or -not $seen.Add($rid) -or [int]$live.Current.ProcessId -ne [int]$Window.pid -or
+            ($item.ContainingGrid.GetRuntimeId() -join '.') -cne $table.rid -or $item.Row -ne $row -or
+            $item.Column -ne $column -or $item.RowSpan -ne 1 -or $item.ColumnSpan -ne 1 -or $name -isnot [string]) {
+          throw 'Unbound values-info model cell.'
+        }
+        ($name -replace "`r|`n|`t", ' ').Trim()
+      })
+      [pscustomobject]@{ cells=$cells }
+    })
+    if ($grid.Current.RowCount -ne $rowCount -or $grid.Current.ColumnCount -ne $columnCount -or
+        -not (Test-SSEElementIdentity $element $table.rid $table.aid) -or
+        -not (Test-SSEDialogWindowCurrent $Window ([int]$Window.pid))) { throw 'The values-info model changed.' }
+    for ($i = 0; $i -lt $visibleCells.Count; $i++) {
+      if ($rows[$visibleRow].cells[$i] -cne [string]$visibleCells[$i].name) { throw 'The values-info model disagrees with the snapshot.' }
+    }
+    return (Read-ResultDetailsFromTree $Tree $rows)
+  } catch {
+    $result.vollstaendig = $false
+    $result
   }
 }
 
@@ -14763,7 +14838,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $window = $valueWindows[0]
     $hwnd = [IntPtr][int64]$window.hwnd
     $tree = Walk-Tree $hwnd 4000 80 20 -WithValues -WithScroll
-    $result = Read-ResultDetailsFromTree $tree
+    $result = Read-SSEValueInfoResult $window $tree
     Emit ([pscustomobject]@{
       ok = $true
       geoeffnet = $opened

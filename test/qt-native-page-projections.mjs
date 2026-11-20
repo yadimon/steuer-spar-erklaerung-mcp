@@ -274,6 +274,7 @@ export async function testNativePageProjections() {
   const helpers = [
     { helper: "resultDetails", nodes: resultNodes, stats: { ...stats, n: resultNodes.length } },
     { helper: "resultDetails", nodes: singleRowNodes, stats: { ...stats, n: singleRowNodes.length } },
+    { helper: "resultDetails", nodes: singleRowNodes, stats: { ...stats, n: singleRowNodes.length, err: 1 } },
     { helper: "resultDetails", nodes: resultNodes.filter(node => node.type !== "DataItem"), stats: { ...stats, n: 5 } },
     { helper: "resultDetails", nodes: pageNodes, stats: pageStats },
     { helper: "checkerResults", nodes: pageNodes, stats: pageStats },
