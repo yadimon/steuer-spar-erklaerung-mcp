@@ -2,7 +2,7 @@ $ErrorActionPreference='Stop'
 # Reuse the synthetic UIA fixture; it loads no real worker, desktop or transport.
 . (Join-Path $PSScriptRoot 'table-footer-focus-contract.ps1')
 foreach ($name in @('Get-SSETableComboModelCellProof','Get-SSETableTypedEditorFocusProof','Get-SSETableComboCellValue','Complete-SSETableComboEditor')) {
-  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+  $definition=@($workerFunctions | Where-Object Name -CEQ $name)
   if ($definition.Count -ne 1) {throw 'Productive typed editor completion helper must be unique.'}
   . ([scriptblock]::Create($definition[0].Extent.Text))
 }

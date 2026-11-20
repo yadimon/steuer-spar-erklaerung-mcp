@@ -4,12 +4,11 @@ $source=[IO.File]::ReadAllText((Join-Path $Repository 'powershell/sse-worker.ps1
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Invalid production worker syntax'}
-$caption=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-SSEPageFieldLabel'},$true))
-if($caption.Count -ne 1){throw 'Missing production caption helper'}
-. ([scriptblock]::Create($caption[0].Extent.Text))
-foreach($name in @('Test-SSEUstvaTreeComplete','New-SSEUstvaReadBudget','Get-SSEUstvaReadRemaining','Get-SSEUstvaDialogState','Test-SSEUstvaHeadingBinding','Read-SSEUstvaPage')){
-  $definitions=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true))
-  if($definitions.Count -ne 1){throw 'Missing production UStVA helper'}
+$workerFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
+foreach($name in @('Get-SSEPageFieldLabel','Test-SSEUstvaTreeComplete','New-SSEUstvaReadBudget','Get-SSEUstvaReadRemaining',
+  'Get-SSEUstvaDialogState','Test-SSEUstvaHeadingBinding','Read-SSEUstvaPage')){
+  $definitions=@($workerFunctions | Where-Object Name -CEQ $name)
+  if($definitions.Count -ne 1){throw "Production UStVA helper '$name' is missing or ambiguous"}
   . ([scriptblock]::Create($definitions[0].Extent.Text))
 }
 function Assert-Equal($Actual,$Expected,[string]$Message){if($Actual -cne $Expected){throw $Message}}

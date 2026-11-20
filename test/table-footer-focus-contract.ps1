@@ -7,13 +7,14 @@ $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worke
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$parseErrors)
 if (@($parseErrors).Count) {throw 'Worker syntax is invalid.'}
+$workerFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
 foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-SSETableExceptionDiagnostic','Get-SSETableNumberAnchorFocusProof','Test-SSETableFocusedSource','Invoke-SSETableFooterFocus',
   'Get-SSETableCursorNumberCellProof',
   'Get-SSETableNativePositionNumberAuthority','Get-SSETableNativePositionCheckpointProof','Invoke-SSETableNativePositionPreparation','Test-SSETableCursorPhaseEditorAuthority',
   'Get-SSETableLiveInputState','Test-SSETableReadNumberEditor','Test-SSETableReadKeyboardTarget',
   'Invoke-SSETableReadAnchorSelection','Test-SSETableReadHomeSnapshotSemantics',
   'Get-SSETextSha256','New-SSESnapshotNodeIndex','Get-SSESnapshotParentLineageKey','Get-SSESnapshotPrivateComparisonKey','Compare-SSESnapshotNodes')) {
-  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+  $definition=@($workerFunctions | Where-Object Name -CEQ $name)
   if ($definition.Count -ne 1) {throw 'Productive helper is absent.'}
   . ([scriptblock]::Create($definition[0].Extent.Text))
 }
@@ -656,7 +657,7 @@ foreach ($case in @('home-align','home-offscreen-old-selection','home-already-se
   $evidence=$null;$before=Test-SSETableReadKeyboardTarget ([IntPtr]111) 7 $snapshot ([ref]$evidence) $tree
   if ($before -ne ($case -in @('home-already-selected','home-table'))) {throw "$case`: the actual keyboard guard changed acceptance of current versus selected row."}
   if ($script:selectionCalls -ne 0) {throw 'The keyboard proof itself performed Select.'}
-  $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Invoke-SSETableReadHomeSelection'},$true))
+  $definition=@($workerFunctions | Where-Object Name -CEQ 'Invoke-SSETableReadHomeSelection')
   if ($definition.Count -ne 1) {throw 'Planned HOME alignment helper is absent.'}
   . ([scriptblock]::Create($definition[0].Extent.Text))
   $script:keyboardWalks=0;$script:keyboardNumberRawReads=0

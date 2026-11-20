@@ -161,6 +161,7 @@ try {
   const regions = spawnSync(resolveWindowsPowerShell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-File",
     fileURLToPath(new URL("./ustva-region-contract.ps1", import.meta.url))],
   { encoding: "utf8", windowsHide: true, timeout: 20_000 });
+  if (regions.error) throw regions.error;
   assert.equal(regions.status, 0, regions.stderr || regions.stdout);
   assert.match(regions.stdout, /Bound UStVA regions/u);
   const beforePublicAttempt = calls.length;
