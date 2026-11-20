@@ -3576,19 +3576,20 @@ function Resolve-SSEToolWindowKind([string]$Title, [int]$Width, [int]$Height) {
   ''
 }
 
-function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y) {
+function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y, [switch]$BindingOnly) {
   $point = New-Object SW+PT
   $point.X = $X; $point.Y = $Y
   $hitWindow = [SW]::WindowFromPoint($point)
   $hitRoot = [SW]::GetAncestor($hitWindow, 2) # GA_ROOT
   $boundPid = 0; [SW]::GetWindowThreadProcessId($BoundWindow, [ref]$boundPid) | Out-Null
   $hitPid = 0; [SW]::GetWindowThreadProcessId($hitWindow, [ref]$hitPid) | Out-Null
+  $isBoundTarget = [bool]($hitPid -eq $boundPid -and [int64]$hitRoot -eq [int64]$BoundWindow)
+  if ($BindingOnly) { return $isBoundTarget }
   $processName = ''
   if ($hitPid -gt 0) {
     try { $processName = [string](Get-Process -Id $hitPid -ErrorAction Stop).ProcessName } catch { }
   }
   $className = Get-SSEWindowClassName $hitRoot
-  $isBoundTarget = [bool]($hitPid -eq $boundPid -and [int64]$hitRoot -eq [int64]$BoundWindow)
   $blockerKind = if ($isBoundTarget) {
     'none'
   } elseif ($hitPid -eq $boundPid) {
@@ -3938,7 +3939,7 @@ function Initialize-SSEMenuHover([IntPtr]$Window, $Node, $ExpectedInputTick, [In
     }
     try { $bound = & $BeforeClickCheck $Window $Binding $Point.x $Point.y }
     catch { & $OnFailure 'Menue-Bindung waehrend Hover nicht lesbar. NICHT geklickt.' 'stale' }
-    if (-not $bound -or -not (Get-SSEPointObstruction $Window $Point.x $Point.y).isBoundTarget) {
+    if (-not $bound -or -not (Get-SSEPointObstruction $Window $Point.x $Point.y -BindingOnly)) {
       & $OnFailure 'Menue-Popup waehrend Hover nicht mehr gebunden. NICHT geklickt.' 'stale'
     }
     $element = $null
