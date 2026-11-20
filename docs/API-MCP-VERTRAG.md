@@ -1178,7 +1178,10 @@ zwei Sekunden Rest startet keine UStVA-Mutation oder Bereichsnavigation mehr.
 Die UStVA-Lesung verlangt vollständige, fehlerfreie Beobachtungen. Der
 UIA-Pfad bindet Formular und rechte Hinweisspalte getrennt an dasselbe Fenster,
 prüft Überschrift und Spaltenbindung abschließend erneut und hält ein gemeinsames
-Lesebudget ein. Ein Zyklus in der übrigen Navigation ersetzt diese Nachweise
+Lesebudget ein. Die Überschrift muss als eindeutiges Textkind im gebundenen
+Header stehen. So bleibt sie auch mit fehlender AutomationId des Textknotens
+über Runtime-ID, Text und Elternbindung überprüfbar.
+Ein Zyklus in der übrigen Navigation ersetzt diese Nachweise
 nicht. Eine fehlende oder unlesbare Hinweisspalte führt zu `ustva-incomplete`;
 bei ausgeblendeter Spalte muss sie vor dem erneuten Lesen eingeblendet werden.
 Der optionale Qt-Pfad verwendet den vollständigen nativen Seitenleser mit

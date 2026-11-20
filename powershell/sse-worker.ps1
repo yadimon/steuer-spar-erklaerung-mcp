@@ -5978,6 +5978,19 @@ function Get-SSEUstvaDialogState([int]$ProcessId) {
   @($inventory | Where-Object {$_.kind -in @('native-dialog','qt-dialog')})
 }
 
+function Test-SSEUstvaHeadingBinding([IntPtr]$Hwnd, $Element, $Heading, $Header, $WindowBinding) {
+  if (-not (Test-SSEElementIdentity $Element $Heading.rid $Heading.aid $Heading.name) -or
+      -not (Test-SSEElementVisible $Element)) { return $false }
+  $current = $Element.Current
+  if ($current.ControlType.ProgrammaticName -cne 'ControlType.Text' -or
+      [int]$current.ProcessId -ne [int]$WindowBinding.processId -or
+      [string]$current.AutomationId -cne [string]$Heading.aid) { return $false }
+  $parent = $script:WLK.GetParent($Element)
+  [bool]((Test-SSEElementIdentity $parent $Header.rid $Header.aid) -and
+    (Test-SSEElementVisible $parent) -and
+    (Test-SSEMainContentAncestry $Hwnd $parent $WindowBinding))
+}
+
 # This producer is private to UStVA composition. Public page remains a whole-window read.
 function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
   function Incomplete-Ustva([string]$Reason) {
@@ -6006,16 +6019,22 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
       return (Incomplete-Ustva 'Die UStVA-Fensterbindung ist nicht belegt; keine Werte ausgegeben.')
     }
     $windowBinding=[pscustomobject]@{aid=$binding.windowAid;rid=$binding.windowRid;processId=$binding.pid}
-    $headingNode=Get-SSEContainerChild $form.nodes (Get-SSEMainWindowSelectors).heading 'Text'
-    if (-not $headingNode -or -not $headingNode.rid -or -not $headingNode.aid -or -not $headingNode.name) {
+    $header=Find-SSEContainerNode $form.nodes (Get-SSEMainWindowSelectors).heading 'Group'
+    if (-not $header -or -not $header.rid -or $null -eq $header.i) {
       return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist nicht eindeutig gebunden; keine Werte ausgegeben.')
     }
+    # The header is named in both engines. Its Text leaf can lack an AutomationId.
+    $headings=@($form.nodes | Where-Object {$_.p -eq $header.i -and $_.type -ceq 'Text' -and $_.name})
+    if ($headings.Count -ne 1 -or -not $headings[0].rid) {
+      return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist nicht eindeutig gebunden; keine Werte ausgegeben.')
+    }
+    $headingNode=$headings[0]
     # Keep the exact live leaf before a second snapshot can replace the element cache.
     if (-not $script:UIAElementCache.ContainsKey([string]$headingNode.rid)) {
       return (Incomplete-Ustva 'Die frische UStVA-Ueberschrift fehlt im Elementcache; keine Werte ausgegeben.')
     }
     $headingElement=$script:UIAElementCache[[string]$headingNode.rid]
-    if (-not (Test-SSEElementIdentity $headingElement $headingNode.rid $headingNode.aid $headingNode.name)) {
+    if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
       return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist veraltet; keine Werte ausgegeben.')
     }
     $null=Get-SSEUstvaReadRemaining $budget
@@ -6083,9 +6102,7 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
     foreach($key in @('rid','aid','type','on','x','y','w','h')){
       if($libraryAfter.$key -cne $library.root.$key){return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte sich; keine Werte ausgegeben.')}
     }
-    if (-not (Test-SSEElementIdentity $headingElement $headingNode.rid $headingNode.aid $headingNode.name) -or
-        -not (Test-SSEElementVisible $headingElement) -or
-        -not (Test-SSEMainContentAncestry $Hwnd $headingElement $windowBinding)) {
+    if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
       return (Incomplete-Ustva 'Die UStVA-Seite aenderte sich zwischen Formular- und Prueferlesung; keine Werte ausgegeben.')
     }
     $null=Get-SSEUstvaReadRemaining $budget
