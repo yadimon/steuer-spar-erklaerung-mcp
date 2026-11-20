@@ -88,6 +88,10 @@ aufgebaute Seite oder ein unvollständiger Eintrag mit „»…« erfassen“ li
 `position-inventory-incomplete`. Das gilt auch für einen Löschverweis ohne
 passenden Bearbeiten-Verweis und doppelte Namen. Ein abgeschlossener roher
 Baumdurchlauf allein beweist keine fachliche Seitenbereitschaft.
+Texte und Links werden über ihre Zugehörigkeit zum eindeutigen Formular-Guide
+gebunden. Dadurch bleiben die Blattknoten von 2024 ohne eigene AutomationId
+lesbar. Bei einem UIA-Lesefehler sind bis zu zwei erneute Beobachtungen derselben
+Übersicht möglich. Jede erfolgreiche Ausgabe braucht einen vollständigen Read.
 
 Dieselbe Bestandsprüfung schützt `position_create` vor dem ersten Klick.
 Ein vorhandener Teilbestand wird nicht durch eine weitere Anlage verdeckt.

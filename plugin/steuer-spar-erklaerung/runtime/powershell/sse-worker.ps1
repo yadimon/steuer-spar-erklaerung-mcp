@@ -5938,6 +5938,17 @@ function Get-SSEMainContentTree {
   } catch { return $null }
 }
 
+function Test-SSEMainContentBinding($Before,$After) {
+  if (-not $Before -or -not $After -or @($Before.rect).Count -ne 4 -or @($After.rect).Count -ne 4) { return $false }
+  foreach ($key in @('hwnd','pid','windowRid','windowAid','rid','aid','type')) {
+    if ($Before.$key -cne $After.$key) { return $false }
+  }
+  for ($edge=0; $edge -lt 4; $edge++) {
+    if ($Before.rect[$edge] -ne $After.rect[$edge]) { return $false }
+  }
+  $true
+}
+
 function Test-SSEUstvaTreeComplete($Tree) {
   if (-not $Tree -or -not $Tree.stats -or -not @($Tree.nodes).Count) { return $false }
   $stats=$Tree.stats
@@ -7278,6 +7289,38 @@ function Assert-SSEFullReadRange($Baseline, $Current, [double]$ExpectedValue) {
   } }
 }
 
+function Get-SSEPageReadSnapshot {
+  param([IntPtr]$Hwnd, [switch]$WithValues, [switch]$LegacyScroll, $RangeBinding, $Stage)
+  $tree = Get-SSEMainContentTree $Hwnd 5000 45 40 -WithValues:$WithValues -WithScroll:(-not $WithValues)
+  if (-not $tree -or $LegacyScroll) { return $tree }
+
+  # Bei einem Providerfehler den unveraenderten Ausschnitt begrenzt neu lesen.
+  # Keine Knoten aus unvollstaendigen Beobachtungen zusammenfuehren.
+  $origin = $tree.contentBinding
+  $heading = $null
+  for ($attempt=0; $attempt -lt 2; $attempt++) {
+    $stats = $tree.stats
+    if (-not $stats -or $stats.truncated -isnot [bool] -or $stats.truncated -or
+        $stats.depthLimited -isnot [bool] -or $stats.depthLimited -or $stats.cyc -ne 0 -or
+        $stats.valErr -ne 0 -or $stats.err -isnot [int] -or $stats.err -le 0) { break }
+    if ($attempt -eq 0) {
+      $heading = [string](Get-SSEHeading $tree).text
+      if (-not $heading) { break }
+    }
+    $tree = Get-SSEMainContentTree $Hwnd 5000 5 40 -WithValues:$WithValues -WithScroll:(-not $WithValues)
+    if (-not (Test-SSEMainContentBinding $origin $tree.contentBinding) -or
+        [string](Get-SSEHeading $tree).text -cne $heading) { return $null }
+  }
+  if ($attempt -gt 0 -and $RangeBinding) {
+    try {
+      $fresh = Read-SSEPageRangeState $RangeBinding
+      Assert-SSEFullReadRange $Stage $fresh $Stage.value
+      if ($fresh.rects.body.y -cne $Stage.rects.body.y) { return $null }
+    } catch { return $null }
+  }
+  $tree
+}
+
 function Get-SSEFullReadFailureCode($Failure) {
   switch -CaseSensitive ([string]$Failure.Message) {
     'Full-read scroll position changed.' { return 'position-changed' }
@@ -8542,7 +8585,9 @@ function Read-SSEPositionInventory($Tree, [string]$Heading,
       $Tree.stats.valErr -or $Tree.stats.depthLimited -or $AllowedHeadings -cnotcontains $Heading) {
     & $incomplete 'Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.'
   }
-  $links = @($Tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.aid -clike '*.GuideViewer.*' })
+  $guideSuffix = '.ClientFrameSSE.GuideViewer'
+  $links = @(Get-SSEContainerDescendants $Tree.nodes $guideSuffix 'Hyperlink' 'Group')
+  $texts = @(Get-SSEContainerDescendants $Tree.nodes $guideSuffix 'Text' 'Group')
   $edits = @($links | Where-Object { $_.name -cmatch '^»(.*)« bearbeiten\z' } | ForEach-Object {
     [pscustomobject]@{ node=$_; label=($_.name -creplace '^»(.*)« bearbeiten\z', '$1') }
   })
@@ -8566,15 +8611,14 @@ function Read-SSEPositionInventory($Tree, [string]$Heading,
   }
   $rows = @($edits | ForEach-Object {
     $row = $_
-    $amounts = @($Tree.nodes | Where-Object {
-      $_.type -eq 'Text' -and $_.on -and $_.aid -clike '*.GuideViewer.*' -and
+    $amounts = @($texts | Where-Object {
+      $_.on -and
       [Math]::Abs($_.y - $row.node.y) -lt 10 -and $_.name -match '^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}\z'
     })
     if ($amounts.Count -ne 1) { & $incomplete 'Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.' }
     [pscustomobject]@{ name=[string]$row.label; net=[string]$amounts[0].name }
   })
-  $empty = @($Tree.nodes | Where-Object { $_.type -eq 'Text' -and $_.on -and
-    $_.aid -clike '*.GuideViewer.*' -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
+  $empty = @($texts | Where-Object { $_.on -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
   $caption = $(if ($rows.Count) { 'Weitere Position erfassen' } else { 'Position erfassen' })
   $commands = @($links | Where-Object { $_.on -and $_.name -cin @('Position erfassen','Weitere Position erfassen') })
   if ($empty.Count -ne $(if ($rows.Count) {0} else {1}) -or $commands.Count -ne 1 -or $commands[0].name -cne $caption) {
@@ -9209,16 +9253,6 @@ function Get-SSETableLiveInputState {
     [pscustomobject]@{ok=$true; editorClosed=$true; reason='exact-table-without-editor'; table=$table;
       focusedType=$focusedType; selectedCount=$selected.Count; selectedRids=@($selectedRids | Sort-Object);keyboardEvidence=$reject.keyboardEvidence}
   } catch { $reject.reason='live-table-provider-error';$reject }
-}
-
-function Test-SSEGridContentBinding {
-  param($Before,$After)
-  if(-not $Before -or -not $After -or @($Before.rect).Count -ne 4 -or @($After.rect).Count -ne 4){return $false}
-  foreach($key in @('hwnd','pid','windowRid','windowAid','rid','aid','type')) {
-    if($Before.$key -cne $After.$key){return $false}
-  }
-  for($edge=0;$edge -lt 4;$edge++){if($Before.rect[$edge] -ne $After.rect[$edge]){return $false}}
-  $true
 }
 
 function Get-SSEGridReadUncachedTable {
@@ -20152,8 +20186,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     if ($was -ne 'list') { Fail "Unbekannte aktion '$was' (erlaubt: list)" 'bad-args' }
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
+    if (-not (Test-Canary $hwnd).ok) { Fail 'Positionsfenster antwortet nicht innerhalb der Lesefrist.' 'position-inventory-incomplete' }
     $t = Walk-Tree $hwnd -WithValues
-    try { $inventory = Read-SSEPositionInventory $t (Get-CurrentHeading $hwnd $t) }
+    $heading = Get-CurrentHeading $hwnd $t
+    # Each attempt needs its own complete observation of the same overview.
+    for ($read = 0; $read -lt 2 -and $heading -and $t.stats.err -gt 0 -and -not $t.stats.truncated; $read++) {
+      $fresh = Walk-Tree $hwnd 4000 5 -WithValues
+      if ((Get-CurrentHeading $hwnd $fresh) -cne $heading) {
+        Fail 'Positionsseite hat sich zwischen den Leseversuchen geaendert.' 'position-inventory-incomplete'
+      }
+      $t = $fresh
+    }
+    try { $inventory = Read-SSEPositionInventory $t $heading }
     catch {
       if ($_.Exception.Data['kind'] -ne 'position-inventory-incomplete') { throw }
       Fail $_.Exception.Message 'position-inventory-incomplete'
@@ -21041,7 +21085,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($mode -cnotin @('info','percent','amount')) { Fail 'Unbekannter Seiten-Rollmodus.' 'bad-args' }
     # Nur das exakt gebundene Formular bestimmt seinen Rollbereich. Ein
     # Zyklus in Navigation oder Tippsfenstern ist kein Formularbefund.
-    $t = Get-SSEMainContentTree $hwnd -MaxNodes 5000 -TimeoutSec 45 -MaxDepth 40 -WithScroll
+    $t = Get-SSEPageReadSnapshot $hwnd
     if (-not $t) { Fail 'Seitenformular ist nicht frisch und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
     try { $rangeBinding = Get-SSEPageRangeBinding $hwnd $t }
     catch { Fail 'Seiten-Rollbereich ist nicht vollstaendig und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
@@ -21087,11 +21131,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Qt haelt nur den sichtbaren Ausschnitt im Elementbaum; eine lange Seite
     # einmal zu lesen liefert also stillschweigend zu wenig.
     $hwnd = Resolve-Window $a
-    $pageScrollTree = Get-SSEMainContentTree $hwnd 5000 45 40 -WithScroll
+    $pageScrollTree = Get-SSEPageReadSnapshot $hwnd
     if (-not $pageScrollTree) { Fail 'Vollstaendiger Seitenread braucht einen frisch gebundenen Formularbereich; nichts gerollt.' 'scroll-state-unknown' }
     try { $pageRangeBinding = Get-SSEPageRangeBinding $hwnd $pageScrollTree }
     catch { Fail 'Vollstaendiger Seitenread braucht einen frischen eindeutigen Rollbereich.' 'scroll-state-unknown' }
     $rangeInitial = $null
+    $fullRangePrevious = $null
+    $legacyScroll = $null
     if ($pageRangeBinding) {
       try {
         $fullRangeBaseline = Read-SSEPageRangeState $pageRangeBinding
@@ -21104,13 +21150,19 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Assert-SSEFullReadRange $fullRangeBaseline $fullRangePrevious 0
         if ($fullRangePrevious.rects.body.y -lt $fullRangePrevious.rects.viewport.y) { throw 'Full-read top is clipped.' }
       } catch { Fail 'Seitenanfang und unveraenderter Lesebereich sind nicht bestaetigt.' 'incomplete' }
+    } else {
+      $b0 = Get-ContentBounds $pageScrollTree $hwnd
+      $legacyScroll = @($pageScrollTree.nodes | Where-Object {
+        $null -ne $_.scroll -and $_.scroll.vScrollable -and $_.x -ge ($b0.minX - 60) -and $_.x -le $b0.maxX
+      } | Sort-Object { -($_.w * $_.h) })[0]
     }
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
     $ueberschrift = $null
 
     $lies = {
-      $t = Get-SSEMainContentTree $hwnd 5000 45 40 -WithValues
+      $t = Get-SSEPageReadSnapshot $hwnd -WithValues -LegacyScroll:([bool]$legacyScroll) `
+        -RangeBinding $pageRangeBinding -Stage $fullRangePrevious
       if (-not $t) { Fail 'Der Formularbereich ist nicht mehr eindeutig gebunden; keinen Vollstaendigkeitsnachweis ausgeben.' 'incomplete' }
       if (-not $t.stats -or $t.stats.truncated -isnot [bool] -or $t.stats.depthLimited -isnot [bool] -or
           $t.stats.truncated -or $t.stats.depthLimited -or
@@ -21215,12 +21267,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($fullRangeFinal.rects.body.y -lt $fullRangeFinal.rects.viewport.y) { throw 'Final full-read top is clipped.' }
       } catch { Fail 'Unveraenderter vollstaendiger Seitenstand und Seitenanfang sind nicht frisch bestaetigt.' 'incomplete' }
     } else {
-      # Rollbereich suchen und in Stufen durchgehen
-      $t0 = $pageScrollTree
-      $b0 = Get-ContentBounds $t0 $hwnd
-      $roll = @($t0.nodes | Where-Object { $null -ne $_.scroll -and $_.scroll.vScrollable -and
-                                           $_.x -ge ($b0.minX - 60) -and $_.x -le $b0.maxX } |
-                Sort-Object { -($_.w * $_.h) })[0]
+      $roll = $legacyScroll
       $stufen = 0
       if ($roll) {
         foreach ($p in 20, 40, 60, 80, 100) {
@@ -22838,7 +22885,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $after=LiesZeilen $hwnd
         if(-not (& $gridGuard) -or -not $after.navigationBinding.editorFree -or
-            -not (Test-SSEGridContentBinding $gridContentBefore $latestTableSnapshot.tree.contentBinding) -or
+            -not (Test-SSEMainContentBinding $gridContentBefore $latestTableSnapshot.tree.contentBinding) -or
             -not (Test-SSETableReadSnapshotBinding $erst $after -BeforeNavigation) -or
             (Get-DirtyStateFast $hwnd) -ne $dirtyBefore -or
             (Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -cne $windowsBefore.fingerprint) {

@@ -37,6 +37,11 @@
         ["Fremdleistungen", "8.500,00 €"],
         ["Arbeitszimmer", "1.246,43 €"]
       ],
+      "positionInventory": {
+        "navigationItem": "Einnahmen/Ausgaben",
+        "heading": "Erlöse Lieferungen/Leistungen",
+        "names": ["Einnahmen"]
+      },
       "ustva": {
         "page": "Umsatzsteuer-Voranmeldungen 2024",
         "period": "quarterly:q1",

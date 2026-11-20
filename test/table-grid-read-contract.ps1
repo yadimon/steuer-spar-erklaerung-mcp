@@ -436,7 +436,7 @@ public static class SW {
  }
 }
 '@
-foreach($helper in @('Get-ContentBounds','LiesZeilen','Test-SSEGridContentBinding')) {
+foreach($helper in @('Get-ContentBounds','LiesZeilen','Test-SSEMainContentBinding')) {
   $definitions=@($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helper
   },$true))
@@ -605,20 +605,22 @@ Write-Output 'Grid rebind diagnosis: fixed raw failure categories, unknown text 
 
 $binding=[pscustomobject]@{hwnd=[long]4242;pid=123;windowRid='Window.1';windowAid='Synthetic';rid='Form.1';
   aid='Synthetic.Form';type='Group';rect=@(60.0,40.0,420.0,300.0)}
-Assert (Test-SSEGridContentBinding $binding (Copy-Scan $binding)) 'Equal scalar form bindings were rejected.'
+Assert (Test-SSEMainContentBinding $binding (Copy-Scan $binding)) 'Equal scalar form bindings were rejected.'
 foreach($field in @('hwnd','pid','windowRid','windowAid','rid','aid','type','rect')) {
   $changed=Copy-Scan $binding
   if($field -ceq 'rect'){$changed.rect[0]+=0.25}else{$changed.$field='changed'}
-  Assert (-not (Test-SSEGridContentBinding $binding $changed)) ('Grid form drift was ignored: '+$field)
+  Assert (-not (Test-SSEMainContentBinding $binding $changed)) ('Grid form drift was ignored: '+$field)
 }
-Assert (-not (Test-SSEGridContentBinding $binding $null)) 'A missing final form binding was accepted.'
+Assert (-not (Test-SSEMainContentBinding $binding $null)) 'A missing final form binding was accepted.'
 $gridCalls=@($ast.FindAll({param($node)
   $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$resolved' -and
   $node.Right.Extent.Text.StartsWith('Get-SSEGridReadUncachedTable ',[StringComparison]::Ordinal)
 },$true))
 Assert ($gridCalls.Count -eq 1) 'Grid lost its dedicated scoped raw bridge.'
 $finalRootChecks=@($ast.FindAll({param($node)
-  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Test-SSEGridContentBinding'
+  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Test-SSEMainContentBinding' -and
+  $node.CommandElements[1].Extent.Text -ceq '$gridContentBefore' -and
+  $node.CommandElements[2].Extent.Text -ceq '$latestTableSnapshot.tree.contentBinding'
 },$true))
 Assert ($finalRootChecks.Count -eq 1) 'Grid did not compare its fresh form binding after both scans.'
 $unknownEditor=New-FormReadFixture

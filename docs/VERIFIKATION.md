@@ -502,6 +502,8 @@ weiteren Anlage abgewiesen werden. Dabei bleiben Inventar und Dateien
 unverändert. Sie benötigt eine freie sichtbare Windows-Sitzung.
 Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
 Schritte; seine Einzelbelege ersetzen keine umfassende Paketabnahme.
+Für Profil 2024 prüft der Musterfall zusätzlich das genaue Positionsinventar
+seiner Einnahmenübersicht über den regulären Lesepfad.
 
 `npm run test:live-goto-search` prüft den UIA-Suchweg über MCP an drei eigenen
 Kopien des Hersteller-Gewinnermittlungsfalls im Profil 2025. Der erste Suchsprung
@@ -519,9 +521,11 @@ isolierten Ergebnisbereich der Test-API. Dieser getrennte opt-in Test ändert
 die Live-Bilanz erst durch die reguläre Ledger-Regeneration.
 
 `npm run test:live-tax-knowledge` prüft `tax_knowledge_search` über API und MCP.
-Vorher müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible Hersteller-
-Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner außerhalb
-des Repositorys gesetzt sein. Alle SSE-/Steuerwissen-Fenster müssen geschlossen
+Das vollständige Live-Gate stellt dafür selbst einen offiziellen Musterfall
+aus Profil 2025 und einen isolierten Testordner bereit.
+Für den Einzellauf müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible
+Hersteller-Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner
+außerhalb des Repositorys gesetzt sein. Alle SSE-/Steuerwissen-Fenster müssen geschlossen
 und die sichtbare Windows-Sitzung frei sein. Der Test kopiert die Musterdatei,
 prüft Treffer, wiederholte Suchbegriffe, bestätigte und wiederholte Nulltreffer,
 den Wechsel zurück zu Treffern sowie eine falsche Fensterbindung und
@@ -598,9 +602,11 @@ begrenzten Sprünge bei einer sehr langen Seite Leselücken lassen, wird der
 Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
 müssen zusätzlich überlappen.
 `read_full` bindet sowohl die anfängliche Rollaufnahme als auch jede
-Wertelesung an den profilierten Formularbereich. Fehlende oder unvollständige
-Teilbäume, Seitenwechsel und Geometrieänderungen ergeben weiterhin keinen
-Vollständigkeitsnachweis. Fehler zwischen den Lesestufen nennen einen festen
+Wertelesung an den profilierten Formularbereich. Bei einem UIA-Baumlauffehler
+dürfen `read_full` und `scroll_page` denselben Ausschnitt bis zu zweimal neu
+lesen. Die Prüfung verlangt dasselbe Formular, dieselbe Überschrift und bei
+gebundenen Qt-Lesestufen auch dieselbe Rollstellung. Nur der vollständige
+Snapshot zählt. Fehler zwischen den Lesestufen nennen einen festen
 Ursachencode; fremde Providertexte werden dabei nicht ausgegeben.
 Die UStVA-Mega-Reise stellt vor dem Betragscommit die Sichtbarkeit des konkreten
 Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
