@@ -102,8 +102,11 @@ assert.equal(byOperation.get("positions").subclassification, "dedicated-position
 const incomePositionSource = readFileSync("test/live-income-positions.mjs", "utf8");
 assert.match(incomePositionSource, /call\("positions"/u);
 assert.match(incomePositionSource, /call\("position_create"/u);
-assert.match(readFileSync("test/run-live-suite.mjs", "utf8"), /runIncomePositionCoverage\(\);/u,
+const liveSuiteSource = readFileSync("test/run-live-suite.mjs", "utf8");
+assert.match(liveSuiteSource, /runIsolated2025Fixture\([^\n]+, "test\/live-income-positions\.mjs"\);/u,
   "Die getrennte positive Positionsreise muss im vollstaendigen Live-Gate registriert bleiben.");
+assert.match(liveSuiteSource, /runIsolated2025Fixture\([^\n]+, "test\/live-tax-knowledge\.mjs",/u,
+  "Die positive Steuerwissen-Reise muss im vollstaendigen Live-Gate registriert bleiben.");
 assert.equal(JSON.parse(readFileSync("package.json", "utf8")).scripts["test:live-income-positions"],
   "npm run build && node test/with-api.mjs node test/live-income-positions.mjs");
 
