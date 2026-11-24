@@ -129,4 +129,46 @@ if ($dazwischen.Count) {
   throw "Zwischen Prewarm-Block und erster auftragsabhaengiger Anweisung liegen noch $($dazwischen.Count) Anweisung(en) ($orte). Sie gehoeren vor den Block."
 }
 
+# 4. Der Verzicht auf die Energiedrosselung gehoert JEDEM Arbeiter und vor die
+#    Bereitschaft. Windows drosselt Prozesse ohne Vordergrundfenster unter
+#    Energiesparplaenen wenige Sekunden nach ihrem Start; ein Reservearbeiter
+#    wartet meist laenger. Stuende der Aufruf hinter der Bereitschaft oder nur im
+#    Kaltpfad, liefe genau der vorbereitete Arbeiter gedrosselt.
+$drosselVerzicht = @($oberste | Where-Object {
+  $_ -is [Management.Automation.Language.TryStatementAst] -and $_.Extent.Text -match 'DisableOwnPowerThrottling'
+})
+$verzichtsAufrufe = @($ast.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $n.Member.Value -ceq 'DisableOwnPowerThrottling'
+}, $true))
+if ($drosselVerzicht.Count -ne 1 -or $verzichtsAufrufe.Count -ne 1 -or
+    $drosselVerzicht[0].Extent.Text -cne 'try { $null = [SW]::DisableOwnPowerThrottling() } catch { }' -or
+    $drosselVerzicht[0].Extent.EndLineNumber -ge $blockStart) {
+  throw 'Genau ein bedingungsloser, fehlertoleranter Verzicht auf die Energiedrosselung vor dem Prewarm-Block erwartet.'
+}
+$nativerLader = @($oberste | Where-Object {
+  $_ -isnot [Management.Automation.Language.FunctionDefinitionAst] -and $_.Extent.Text -match 'Import-SSENativeInterop'
+})
+if ($nativerLader.Count -ne 1 -or $nativerLader[0].Extent.EndLineNumber -ge $drosselVerzicht[0].Extent.StartLineNumber) {
+  throw 'Der Verzicht auf die Energiedrosselung braucht den zuvor geladenen nativen Helfer.'
+}
+# Der Helfer muss ausdruecklich "nicht gedrosselt" setzen. Ein gesetztes
+# Zustandsbit wuerde den Arbeiter im Gegenteil dauerhaft drosseln.
+$nativerQuelltext = [IO.File]::ReadAllText((Join-Path $root 'powershell\sse-native.cs'))
+$helferStart = $nativerQuelltext.IndexOf('public static bool DisableOwnPowerThrottling()')
+if ($helferStart -lt 0) { throw 'Nativer Verzicht auf die Energiedrosselung fehlt.' }
+$helfer = $nativerQuelltext.Substring($helferStart, $nativerQuelltext.IndexOf("`n  }`n", $helferStart) - $helferStart)
+foreach ($pflicht in @('state.Version = 1;', 'state.ControlMask = 1;', 'state.StateMask = 0;',
+    'SetProcessInformation(OwnProcessHandle(), 4, ref state')) {
+  if (-not $helfer.Contains($pflicht)) { throw "Nativer Verzicht auf die Energiedrosselung ohne '$pflicht'." }
+}
+# Gegenprobe am echten Helfer: Windows nimmt den Verzicht fuer den eigenen Prozess an.
+. (Join-Path $root 'powershell\load-native.ps1')
+$null = Import-SSENativeInterop
+if ([SW]::DisableOwnPowerThrottling() -ne $true) {
+  throw 'Windows hat den Verzicht auf die Energiedrosselung des eigenen Prozesses nicht angenommen.'
+}
+
 Write-Output "Prewarm-Block: hinter allen auftragsunabhaengigen Zeilen (bis $($blockStart - 1)), vor der ersten auftragsabhaengigen (Zeile $ersteAuftragszeile) - bestanden"
+Write-Output 'Energiedrosselung: jeder Arbeiter waehlt sie vor seiner Bereitschaft fuer den eigenen Prozess ab - bestanden'

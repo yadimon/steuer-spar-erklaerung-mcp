@@ -3100,6 +3100,15 @@ $script:INIT_TIMINGS.nativeDllHashMatch = $nativeLoad.dllHashMatch
 if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dllError }
 }
 
+# Unter Energiesparplaenen drosselt Windows Prozesse ohne Vordergrundfenster
+# wenige Sekunden nach ihrem Start: Effizienzkerne, niedriger Takt. Ein
+# wartender Reservearbeiter ist genau so ein Prozess - sein Auftrag liefe dann
+# um ein Mehrfaches langsamer, obwohl er vollstaendig vorbereitet ist. Der
+# Verzicht gilt nur fuer diesen einen Prozess und aendert keine
+# Systemeinstellung; ein wartender Arbeiter verbraucht weiterhin keine
+# Rechenzeit. Scheitert der Aufruf, bleibt der Arbeiter lediglich langsamer.
+try { $null = [SW]::DisableOwnPowerThrottling() } catch { }
+
 $desktopTempRoot = $(if ($env:TEMP) { $env:TEMP } elseif ($env:TMP) { $env:TMP } else { '.' })
 $script:DESKTOP_MARKE = Join-Path $desktopTempRoot 'sse-mcp-desktop.txt'
 $script:SSE_CENTER_TEST_OPERATIONS = @('center_cases','center_refresh')

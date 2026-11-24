@@ -313,6 +313,33 @@ public class SW {
   public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
   public delegate bool EP(IntPtr h,IntPtr l);
 
+  // Power throttling.
+  //
+  // Under power-saving plans Windows moves processes without a foreground
+  // window to efficiency cores at low clock speed a few seconds after their
+  // start. A waiting reserve worker is exactly such a process: once its job
+  // arrives, every statement and every tree walk would run several times
+  // slower. A worker executes one short, latency-sensitive job for the user,
+  // so it asks Windows not to throttle its own process. Only this process is
+  // affected, no system setting changes, and an idle worker still uses no CPU.
+  [StructLayout(LayoutKind.Sequential)]
+  private struct POWERTHROTTLING { public uint Version, ControlMask, StateMask; }
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool SetProcessInformation(IntPtr process,int informationClass,ref POWERTHROTTLING state,int size);
+  [DllImport("kernel32.dll", EntryPoint="GetCurrentProcess")] private static extern IntPtr OwnProcessHandle();
+  public static bool DisableOwnPowerThrottling() {
+    try {
+      var state = new POWERTHROTTLING();
+      state.Version = 1;      // PROCESS_POWER_THROTTLING_CURRENT_VERSION
+      state.ControlMask = 1;  // PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+      state.StateMask = 0;    // explicitly not throttled
+      // ProcessPowerThrottling = 4
+      return SetProcessInformation(OwnProcessHandle(), 4, ref state, Marshal.SizeOf(typeof(POWERTHROTTLING)));
+    } catch (EntryPointNotFoundException) {
+      return false;
+    }
+  }
+
   // Foreground through an own input sink.
   //
   // SetForegroundWindow and the AttachThreadInput route both fail while a

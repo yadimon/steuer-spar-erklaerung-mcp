@@ -348,6 +348,13 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Treffen Aufträge schneller ein, als Reserven nachwachsen, benötigt der
   nächste Auftrag einen Kaltstart.
   `SSE_WORKER_PREWARM_POOL_SIZE` übersteuert das und begrenzt den Vorrat auf 1 bis 4.
+- Jeder Worker wählt für seinen eigenen Prozess die Energiedrosselung ab, die
+  Windows unter Energiesparplänen wenige Sekunden nach dem Start auf Prozesse
+  ohne Vordergrundfenster legt. Ein wartender Reserveprozess führte seinen
+  Auftrag sonst um ein Mehrfaches langsamer aus, obwohl er vollständig
+  vorbereitet ist. Der Verzicht ändert keine Systemeinstellung und betrifft
+  keinen anderen Prozess; ein wartender Worker verbraucht weiterhin keine
+  Rechenzeit.
 - Ein gesetzter Privatdesktop-Marker wird vor dem Routing in Node und nach der
   Auftragsannahme im Worker weiterhin fail-closed auf Format und Eigentum
   geprüft. Nur die beiden statischen, mutexfreien Reads `page_objects` und
