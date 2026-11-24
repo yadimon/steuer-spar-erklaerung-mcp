@@ -6,11 +6,15 @@ const a = createTableWorkerCapability(), b = createTableWorkerCapability();
 assert.match(a, /^[a-f0-9]{64}$/u);
 assert.match(b, /^[a-f0-9]{64}$/u);
 assert.notEqual(a, b, "Distinct single-job workers need distinct capabilities.");
-const base = { SSE_INTERNAL_TABLE_CAPABILITY: "caller-controlled", SSE_PROFILE_ID: "2025" };
+const base = { SSE_INTERNAL_TABLE_CAPABILITY: "caller-controlled", SSE_INTERNAL_HOST_PROCESS_ID: "caller-controlled",
+  SSE_PROFILE_ID: "2025" };
 const environment = tableWorkerEnvironment(a, base);
 assert.equal(environment.SSE_INTERNAL_TABLE_CAPABILITY, a);
+assert.equal(environment.SSE_INTERNAL_HOST_PROCESS_ID, String(process.pid),
+  "A worker may opt only the process that actually started it out of power throttling.");
 assert.equal(environment.SSE_PROFILE_ID, "2025");
 assert.equal(base.SSE_INTERNAL_TABLE_CAPABILITY, "caller-controlled", "Do not mutate the API environment.");
+assert.equal(base.SSE_INTERNAL_HOST_PROCESS_ID, "caller-controlled", "Do not mutate the API environment.");
 const publicArgs = { hwnd: 42 };
 assert.equal(bindTableWorkerArguments(publicArgs, a), publicArgs);
 const cursor = { hwnd: 42, __tableCursorPlan: { phase: "prepare" } };

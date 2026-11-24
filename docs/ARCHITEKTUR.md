@@ -352,9 +352,14 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Windows unter Energiesparplänen wenige Sekunden nach dem Start auf Prozesse
   ohne Vordergrundfenster legt. Ein wartender Reserveprozess führte seinen
   Auftrag sonst um ein Mehrfaches langsamer aus, obwohl er vollständig
-  vorbereitet ist. Der Verzicht ändert keine Systemeinstellung und betrifft
-  keinen anderen Prozess; ein wartender Worker verbraucht weiterhin keine
-  Rechenzeit.
+  vorbereitet ist. Der Verzicht ändert keine Systemeinstellung; ein wartender
+  Worker verbraucht weiterhin keine Rechenzeit.
+- Auch der dauerhafte API-Prozess läuft ohne Fenster und bliebe für jede
+  Anfrage gedrosselt, die er weiterreicht. Er kann den Verzicht nicht selbst
+  erklären und nennt deshalb seinen Workern die eigene Prozess-ID. Ein Worker
+  folgt dieser Bitte ausschließlich für seinen tatsächlichen Elternprozess;
+  ohne die Angabe, etwa beim Direktstart aus einer Konsole, bleibt jeder
+  andere Prozess unberührt.
 - Ein gesetzter Privatdesktop-Marker wird vor dem Routing in Node und nach der
   Auftragsannahme im Worker weiterhin fail-closed auf Format und Eigentum
   geprüft. Nur die beiden statischen, mutexfreien Reads `page_objects` und

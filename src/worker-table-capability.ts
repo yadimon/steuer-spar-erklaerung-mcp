@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 const environmentKey = "SSE_INTERNAL_TABLE_CAPABILITY";
+const hostProcessKey = "SSE_INTERNAL_HOST_PROCESS_ID";
 const argumentKey = "__tableTransportCapability";
 
 /** One worker process, one job; never derive its authority from caller configuration. */
@@ -8,9 +9,15 @@ export function createTableWorkerCapability(): string {
   return randomBytes(32).toString("hex");
 }
 
+/**
+ * Child-only environment of one worker process. Besides the capability it
+ * names this process as the worker's host: a long-lived process without a
+ * window is power-throttled by Windows and cannot opt out by itself, so each
+ * worker makes that call for the exact parent that started it.
+ */
 export function tableWorkerEnvironment(capability: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
-  return { ...base, [environmentKey]: capability };
+  return { ...base, [environmentKey]: capability, [hostProcessKey]: String(process.pid) };
 }
 
 /** Called after selecting the concrete warm/cold worker, below the public argument schemas. */

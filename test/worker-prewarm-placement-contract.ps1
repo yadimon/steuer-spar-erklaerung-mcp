@@ -170,5 +170,82 @@ if ([SW]::DisableOwnPowerThrottling() -ne $true) {
   throw 'Windows hat den Verzicht auf die Energiedrosselung des eigenen Prozesses nicht angenommen.'
 }
 
+# 5. Der Prozess, der die Arbeiter startet, laeuft ebenfalls dauerhaft ohne
+#    Fenster und bliebe fuer jede weitergereichte Anfrage gedrosselt. Er kann den
+#    Aufruf nicht selbst absetzen und nennt deshalb seinen Arbeitern die eigene
+#    Prozess-Id. Jeder Arbeiter folgt der Bitte vor seiner Bereitschaft - aber
+#    nur fuer den tatsaechlichen Elternprozess, nie fuer einen fremden.
+$hostVerzicht = @($oberste | Where-Object {
+  $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'DisableHostPowerThrottling'
+})
+$hostAufrufe = @($ast.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $n.Member.Value -ceq 'DisableHostPowerThrottling'
+}, $true))
+$erwarteterHostVerzicht = @(
+  'if ([int]::TryParse([string]$env:SSE_INTERNAL_HOST_PROCESS_ID, [ref]$hostProcessId)) {',
+  '  try { $null = [SW]::DisableHostPowerThrottling($hostProcessId) } catch { }',
+  '}'
+) -join "`n"
+if ($hostVerzicht.Count -ne 1 -or $hostAufrufe.Count -ne 1 -or
+    ($hostVerzicht[0].Extent.Text -replace "`r", '') -cne $erwarteterHostVerzicht -or
+    $hostVerzicht[0].Extent.StartLineNumber -le $drosselVerzicht[0].Extent.EndLineNumber -or
+    $hostVerzicht[0].Extent.EndLineNumber -ge $blockStart) {
+  throw 'Genau ein fehlertoleranter Verzicht fuer den genannten Hostprozess zwischen eigenem Verzicht und Prewarm-Block erwartet.'
+}
+# Der startende Prozess muss sich selbst nennen - mit genau dem Namen, den der Arbeiter liest.
+$umgebungsQuelltext = [IO.File]::ReadAllText((Join-Path $root 'src\worker-table-capability.ts'))
+foreach ($pflicht in @('const hostProcessKey = "SSE_INTERNAL_HOST_PROCESS_ID";', '[hostProcessKey]: String(process.pid)')) {
+  if (-not $umgebungsQuelltext.Contains($pflicht)) { throw "Die Arbeiterumgebung nennt den startenden Prozess nicht ('$pflicht')." }
+}
+# Der Helfer darf nur dem tatsaechlichen Elternprozess folgen: die genannte Id
+# muss der eigene Elternprozess sein, und der darf nicht juenger sein als der
+# Arbeiter - eine wiederverwendete Id gehoerte einem spaeter erzeugten Prozess.
+$hostHelferStart = $nativerQuelltext.IndexOf('public static bool DisableHostPowerThrottling(int hostProcessId)')
+if ($hostHelferStart -lt 0) { throw 'Nativer Verzicht fuer den Hostprozess fehlt.' }
+$hostHelfer = $nativerQuelltext.Substring($hostHelferStart, $nativerQuelltext.IndexOf("`n  }`n", $hostHelferStart) - $hostHelferStart)
+foreach ($pflicht in @(
+    'if (hostProcessId <= 0) return false;',
+    'if (basics.InheritedFromUniqueProcessId.ToInt64() != hostProcessId) return false;',
+    'hostCreated > ownCreated) return false;',
+    'state.Version = 1;', 'state.ControlMask = 1;', 'state.StateMask = 0;',
+    'SetProcessInformation(host, 4, ref state',
+    'if (host != IntPtr.Zero) DSK.CloseHandle(host);')) {
+  if (-not $hostHelfer.Contains($pflicht)) { throw "Nativer Verzicht fuer den Hostprozess ohne '$pflicht'." }
+}
+# Gegenprobe an echten Prozessen: Ein frischer Host-Stellvertreter hat keinen
+# ausdruecklichen Zustand. Sein Arbeiter-Stellvertreter bittet zuerst fuer
+# diesen Testprozess (lebend, aber nicht sein Elternprozess) und ohne gueltige
+# Id - beides muss abgelehnt werden - und erst dann fuer den echten Elternprozess.
+$hostStart = New-Object Diagnostics.ProcessStartInfo
+$hostStart.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$hostStart.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+  (Join-Path $PSScriptRoot 'fixtures\power-throttling-host.ps1') + '" -Root "' + $root + '" -ForeignProcessId ' + $PID
+$hostStart.UseShellExecute = $false
+$hostStart.CreateNoWindow = $true
+$hostStart.RedirectStandardOutput = $true
+$hostStart.RedirectStandardError = $true
+$hostProzess = [Diagnostics.Process]::Start($hostStart)
+try {
+  $hostFehler = $hostProzess.StandardError.ReadToEndAsync()
+  $hostAusgabe = $hostProzess.StandardOutput.ReadToEnd()
+  $hostProzess.WaitForExit()
+  if ($hostProzess.ExitCode -ne 0) { throw "Host-Stellvertreter scheiterte: $($hostFehler.Result)" }
+} finally {
+  $hostProzess.Dispose()
+}
+$hostProbe = $hostAusgabe | ConvertFrom-Json
+if ($hostProbe.before.control -ne 0 -or $hostProbe.before.state -ne 0) {
+  throw 'Der frische Host-Stellvertreter hatte bereits einen ausdruecklichen Drosselzustand; die Gegenprobe waere wertlos.'
+}
+if ($hostProbe.worker.foreign -ne $false) { throw 'Der Helfer folgte der Bitte fuer einen Prozess, der nicht sein Elternprozess ist.' }
+if ($hostProbe.worker.invalid -ne $false) { throw 'Der Helfer folgte der Bitte ohne gueltige Prozess-Id.' }
+if ($hostProbe.worker.genuine -ne $true) { throw 'Der Helfer folgte der Bitte seines tatsaechlichen Elternprozesses nicht.' }
+if ($hostProbe.after.control -ne 1 -or $hostProbe.after.state -ne 0) {
+  throw "Der Hostprozess ist nach der Bitte nicht ausdruecklich ungedrosselt (control=$($hostProbe.after.control), state=$($hostProbe.after.state))."
+}
+
 Write-Output "Prewarm-Block: hinter allen auftragsunabhaengigen Zeilen (bis $($blockStart - 1)), vor der ersten auftragsabhaengigen (Zeile $ersteAuftragszeile) - bestanden"
 Write-Output 'Energiedrosselung: jeder Arbeiter waehlt sie vor seiner Bereitschaft fuer den eigenen Prozess ab - bestanden'
+Write-Output 'Energiedrosselung: der startende Prozess nennt sich, und der Arbeiter waehlt sie nur fuer seinen tatsaechlichen Elternprozess ab - bestanden'

@@ -340,6 +340,50 @@ public class SW {
     }
   }
 
+  // The process that started this worker - the API server - is a long-lived
+  // process without a window too and stays throttled for every request it
+  // relays. It cannot make this call itself, so it names its own process id to
+  // its workers. The request is honoured for the genuine parent only: the id
+  // must be this process's parent, and that process must not be younger than
+  // this one - a reused id would belong to a process created later.
+  [StructLayout(LayoutKind.Sequential)]
+  private struct PROCESSBASICS {
+    public IntPtr ExitStatus, PebBaseAddress, AffinityMask, BasePriority, UniqueProcessId, InheritedFromUniqueProcessId;
+  }
+  [DllImport("ntdll.dll")]
+  private static extern int NtQueryInformationProcess(IntPtr process,int informationClass,ref PROCESSBASICS basics,int size,out int returned);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern IntPtr OpenProcess(uint access,bool inheritHandle,int processId);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool GetProcessTimes(IntPtr process,out long creation,out long exit,out long kernel,out long user);
+  public static bool DisableHostPowerThrottling(int hostProcessId) {
+    IntPtr host = IntPtr.Zero;
+    try {
+      if (hostProcessId <= 0) return false;
+      var basics = new PROCESSBASICS();
+      int returned;
+      // ProcessBasicInformation = 0
+      if (NtQueryInformationProcess(OwnProcessHandle(), 0, ref basics, Marshal.SizeOf(typeof(PROCESSBASICS)), out returned) != 0) return false;
+      if (basics.InheritedFromUniqueProcessId.ToInt64() != hostProcessId) return false;
+      // PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION
+      host = OpenProcess(0x0200 | 0x1000, false, hostProcessId);
+      if (host == IntPtr.Zero) return false;
+      long hostCreated, ownCreated, exit, kernel, user;
+      if (!GetProcessTimes(host, out hostCreated, out exit, out kernel, out user) ||
+          !GetProcessTimes(OwnProcessHandle(), out ownCreated, out exit, out kernel, out user) ||
+          hostCreated > ownCreated) return false;
+      var state = new POWERTHROTTLING();
+      state.Version = 1;
+      state.ControlMask = 1;
+      state.StateMask = 0;
+      return SetProcessInformation(host, 4, ref state, Marshal.SizeOf(typeof(POWERTHROTTLING)));
+    } catch (EntryPointNotFoundException) {
+      return false;
+    } finally {
+      if (host != IntPtr.Zero) DSK.CloseHandle(host);
+    }
+  }
+
   // Foreground through an own input sink.
   //
   // SetForegroundWindow and the AttachThreadInput route both fail while a

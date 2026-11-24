@@ -103,7 +103,7 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','GetDpiForWindow','GetPhysicalClientOrigin','GetMonitorWorkArea','PostMessage',
       'SendMessage','GetForegroundWindow','GetDoubleClickTime','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText','EnterPhysicalDpiContext','RestoreDpiContext',
-      'ActivateThroughInputSink','DisableOwnPowerThrottling')
+      'ActivateThroughInputSink','DisableOwnPowerThrottling','DisableHostPowerThrottling')
     SSEWindowEnumerator=@('Describe','DescribeIncludingHidden','ToViews')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()

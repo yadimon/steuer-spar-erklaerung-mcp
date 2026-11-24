@@ -3108,6 +3108,16 @@ if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dl
 # Systemeinstellung; ein wartender Arbeiter verbraucht weiterhin keine
 # Rechenzeit. Scheitert der Aufruf, bleibt der Arbeiter lediglich langsamer.
 try { $null = [SW]::DisableOwnPowerThrottling() } catch { }
+# Der API-Prozess, der diesen Arbeiter gestartet hat, ist ebenfalls ein
+# dauerhafter Prozess ohne Fenster und bliebe fuer jede Anfrage gedrosselt, die
+# er weiterreicht. Selbst kann er den Aufruf nicht absetzen; deshalb nennt er
+# seinen Arbeitern die eigene Prozess-Id. Der Helfer folgt der Bitte nur fuer
+# den tatsaechlichen Elternprozess. Ohne die Angabe - etwa beim Direktstart aus
+# einer Konsole - bleibt jeder fremde Prozess unberuehrt.
+$hostProcessId = 0
+if ([int]::TryParse([string]$env:SSE_INTERNAL_HOST_PROCESS_ID, [ref]$hostProcessId)) {
+  try { $null = [SW]::DisableHostPowerThrottling($hostProcessId) } catch { }
+}
 
 $desktopTempRoot = $(if ($env:TEMP) { $env:TEMP } elseif ($env:TMP) { $env:TMP } else { '.' })
 $script:DESKTOP_MARKE = Join-Path $desktopTempRoot 'sse-mcp-desktop.txt'

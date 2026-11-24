@@ -1,0 +1,67 @@
+# Host-Stellvertreter fuer test/worker-prewarm-placement-contract.ps1.
+#
+# Ein frischer Prozess ohne ausdruecklichen Drosselzustand - so wie der
+# API-Prozess, der seine Arbeiter startet. Er liest den eigenen Zustand, laesst
+# einen Arbeiter-Stellvertreter laufen und liest den Zustand danach erneut. Der
+# Zustand wird nicht vererbt; was sich aendert, hat also der Arbeiter bewirkt.
+param(
+  [Parameter(Mandatory)][string]$Root,
+  [Parameter(Mandatory)][int]$ForeignProcessId
+)
+$ErrorActionPreference = 'Stop'
+
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class SSEPowerThrottlingProbe
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct State { public uint Version, ControlMask, StateMask; }
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessInformation(IntPtr process, int informationClass, ref State state, int size);
+
+    // { ControlMask, StateMask } des eigenen ausdruecklichen Zustands; ProcessPowerThrottling = 4.
+    public static int[] Read()
+    {
+        var state = new State();
+        state.Version = 1;
+        if (!GetProcessInformation(GetCurrentProcess(), 4, ref state, Marshal.SizeOf(typeof(State))))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Eigener Drosselzustand ist nicht lesbar.");
+        return new[] { (int)state.ControlMask, (int)state.StateMask };
+    }
+}
+'@
+
+$before = [SSEPowerThrottlingProbe]::Read()
+$start = New-Object Diagnostics.ProcessStartInfo
+$start.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$start.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+  (Join-Path $PSScriptRoot 'power-throttling-worker.ps1') + '" -Root "' + $Root + '" -HostProcessId ' + $PID +
+  ' -ForeignProcessId ' + $ForeignProcessId
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
+$worker = [Diagnostics.Process]::Start($start)
+try {
+  $workerErrors = $worker.StandardError.ReadToEndAsync()
+  $workerOutput = $worker.StandardOutput.ReadToEnd()
+  $worker.WaitForExit()
+  if ($worker.ExitCode -ne 0) { throw "Arbeiter-Stellvertreter scheiterte: $($workerErrors.Result)" }
+} finally {
+  $worker.Dispose()
+}
+$after = [SSEPowerThrottlingProbe]::Read()
+
+[Console]::Out.Write(([pscustomobject]@{
+  before = [pscustomobject]@{ control = $before[0]; state = $before[1] }
+  worker = ($workerOutput | ConvertFrom-Json)
+  after = [pscustomobject]@{ control = $after[0]; state = $after[1] }
+} | ConvertTo-Json -Compress -Depth 4))

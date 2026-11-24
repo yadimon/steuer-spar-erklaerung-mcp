@@ -39170,7 +39170,7 @@ function createTableWorkerCapability() {
 }
 function tableWorkerEnvironment(capability, base = process.env) {
   if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
-  return { ...base, [environmentKey]: capability };
+  return { ...base, [environmentKey]: capability, [hostProcessKey]: String(process.pid) };
 }
 function bindTableWorkerArguments(args, capability) {
   if (Object.hasOwn(args, argumentKey)) throw new TypeError("Caller-supplied internal worker capability is forbidden.");
@@ -39178,11 +39178,12 @@ function bindTableWorkerArguments(args, capability) {
   if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
   return { ...args, [argumentKey]: capability };
 }
-var environmentKey, argumentKey;
+var environmentKey, hostProcessKey, argumentKey;
 var init_worker_table_capability = __esm({
   "src/worker-table-capability.ts"() {
     "use strict";
     environmentKey = "SSE_INTERNAL_TABLE_CAPABILITY";
+    hostProcessKey = "SSE_INTERNAL_HOST_PROCESS_ID";
     argumentKey = "__tableTransportCapability";
   }
 });
