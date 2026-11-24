@@ -17651,10 +17651,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $t = Walk-Tree $hwnd
     $cands = @(Resolve-Nodes $t $a)
     if (-not $cands.Count) { Fail "Element '$(if($nm){$nm}else{$aid})' nicht gefunden." 'not-found' }
+    # Das Vorzeichen einer Bildschirmkoordinate sagt nichts ueber Sichtbarkeit:
+    # Links oder oberhalb des Hauptmonitors sind alle Koordinaten negativ. Dass
+    # der Punkt zum gebundenen Fenster gehoert, beweist der verifizierte Klick.
     $physicalTargets = @($cands | Where-Object {
       $safeDetailLink = $_.type -eq 'Hyperlink' -and $_.name -match '(?i)(erfassen|bearbeiten)$'
       ($_.type -eq 'TreeItem' -or $safeDetailLink) -and
-        $_.w -gt 0 -and $_.h -gt 0 -and $_.x -ge 0
+        $_.w -gt 0 -and $_.h -gt 0
     })
     if (-not $physicalTargets.Count) {
       Fail ('Physische MCP-Klicks sind nur fuer TreeItems des Navigations-/Prueferbaums und eng benannte ' +

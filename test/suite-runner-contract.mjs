@@ -37,6 +37,7 @@ const expectedNames = [
   "table-read-public-input",
   "verified-point-failure",
   "navigation-link",
+  "click-point-target",
   "ui-snapshot-depth",
   "get-value-worker-namespace",
   "uia-root-read",

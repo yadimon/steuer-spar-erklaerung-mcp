@@ -280,6 +280,11 @@ Der Transaktionspfad
 behält die Information, dass kein Klick gesendet wurde; der direkte Aufruf
 behält seinen terminalen Fehlervertrag. Auch eine normal zurückkehrende
 Fehlerroutine kann diese Schutzprüfung nicht aufheben.
+`click-point-target-contract.ps1` führt die produktive Zielauswahl des
+physischen Klicks aus: Baumeinträge und Detail-Links bleiben auch auf einem
+Monitor links oder oberhalb des Hauptmonitors wählbar, also bei negativen
+Bildschirmkoordinaten; Ziele ohne Fläche und andere Steuerelemente bleiben
+gesperrt.
 In `value-info-window-contract.ps1` durchläuft die Vorbereitung auch die
 tatsächliche Tracking-Hülle sowie Markenwechsel während Baumlesung und
 Fokusvorbereitung, ausgetauschte Knöpfe und ungebundene vorhandene Fenster.
