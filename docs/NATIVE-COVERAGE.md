@@ -125,6 +125,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `snapshot_compare` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `subpages` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `table_add` | Tabellen | Nicht umgestellt | funktional belegt |
+| `table_add_rows` | Tabellen | Nicht umgestellt | funktional belegt |
 | `table_delete` | Tabellen | Nicht umgestellt | funktional belegt |
 | `table_read` | Tabellen | **Qt optional** | funktional belegt |
 | `table_update` | Tabellen | Nicht umgestellt | funktional belegt |

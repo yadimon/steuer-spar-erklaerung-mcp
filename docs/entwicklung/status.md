@@ -28,9 +28,9 @@ Operationen, nicht alle noch fehlenden Produktfähigkeiten.
 | Seiten (`.dialog`-Dateien) | 672 | generische Lese-/Schreibmechanismen, kein Vollnachweis für alle Seiten; 22 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
-| Operationen | – | 102: 96 funktional live belegt, 6 nur Fehlerpfad, 0 live ungetestet; historisch aggregiert |
+| Operationen | – | 103: 97 funktional live belegt, 6 nur Fehlerpfad, 0 live ungetestet; historisch aggregiert |
 | Direkte Qt-DLL-Handler | – | Ausführungsweg und Grenzen je Operation in der [Native-Matrix](../NATIVE-COVERAGE.md) |
-| MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
+| MCP-Werkzeuge | – | 105: 103 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 
 Die Qt-Brücke enthält begrenzte, quittierte Belegänderungen und Navigation;
 allgemeine Schreibzugriffe und Speichern verwenden die bestehenden
@@ -44,7 +44,7 @@ Umstellung auf die C++-Qt-Brücke `sse-qt-read.dll`.
 Diese Zahl wird leicht falsch gelesen. Der Seitenkatalog ist **keine
 Zugangsschranke**, sondern eine Bequemlichkeits- und Sicherheitsschicht.
 
-Von den 102 Operationen brauchen genau **zwei** einen Katalogeintrag:
+Von den 103 Operationen brauchen genau **zwei** einen Katalogeintrag:
 
 | Operation | warum |
 | --- | --- |

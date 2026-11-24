@@ -140,6 +140,7 @@ var init_api_contract = __esm({
       "snapshot_compare",
       "subpages",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_read",
       "table_update",
@@ -20882,6 +20883,7 @@ var init_operation_schema_primitives = __esm({
       snapshotNodes: 5e3,
       snapshotTypes: 50,
       tableValues: 100,
+      tableAppendRows: 50,
       verifyExpectations: 500,
       vastPlan: 500,
       readbackChecks: 100,
@@ -21799,6 +21801,26 @@ var init_mcp_schemas_ui = __esm({
         ),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_table_add_rows": external_exports.object({
+        expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
+        zeilen: external_exports.array(external_exports.object({
+          werte: external_exports.array(external_exports.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).refine(
+            (werte) => werte.some((wert) => wert !== ""),
+            "Jede Zeile braucht mindestens einen zu schreibenden Wert."
+          ).describe(
+            "Werte dieser Zeile in Spaltenreihenfolge ab der ERSTEN Spalte ('kopf' aus sse_table_read); fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden"
+          )
+        }).strict()).min(1).max(SSE_OPERATION_LIMITS.tableAppendRows).describe(
+          `Eine bis ${SSE_OPERATION_LIMITS.tableAppendRows} neue Zeilen in der gewuenschten Reihenfolge`
+        ),
+        sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
+        sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
+        expectedBefore: external_exports.string().describe("Exakter Summenwert vor dem Anlegen"),
+        expectedAfter: external_exports.string().optional().describe(
+          "Optional: exakter Summenwert nach ALLEN Zeilen. Die Seitensumme addiert netto, nicht brutto. Weicht sie ab, werden alle eigenen Zeilen zurueckgenommen"
+        ),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_table_update": external_exports.object({
         expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
         text: external_exports.string().describe("Eindeutiger vorhandener Zelltext der Zielzeile"),
@@ -22259,6 +22281,7 @@ var init_operation_catalog = __esm({
       "sse_goto": "goto",
       "sse_table_read": "table_read",
       "sse_table_add": "table_add",
+      "sse_table_add_rows": "table_add_rows",
       "sse_table_update": "table_update",
       "sse_table_delete": "table_delete",
       "sse_menu": "menu",
@@ -22973,6 +22996,25 @@ var init_result_mutation_fields = __esm({
         checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
         newCheckerMessages: OPTIONAL_STRING_ARRAY,
         tableBinding: OPTIONAL_OBJECT,
+        inputGuard: OPTIONAL_OBJECT,
+        rollback: OPTIONAL_OBJECT,
+        ungespeichertVorher: OPTIONAL_BOOLEAN,
+        ungespeichertNachher: OPTIONAL_BOOLEAN
+      },
+      table_add_rows: {
+        verified: OPTIONAL_BOOLEAN,
+        mutationStarted: OPTIONAL_BOOLEAN,
+        page: OPTIONAL_STRING,
+        expectedPage: OPTIONAL_STRING,
+        sumLabel: OPTIONAL_STRING,
+        sumBefore: OPTIONAL_STRING,
+        sumAfter: OPTIONAL_STRING,
+        requestedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        zeilen: OPTIONAL_ARRAY,
+        mutationPostProof: OPTIONAL_OBJECT,
+        checkerMessagesBefore: OPTIONAL_STRING_ARRAY,
+        checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
+        newCheckerMessages: OPTIONAL_STRING_ARRAY,
         inputGuard: OPTIONAL_OBJECT,
         rollback: OPTIONAL_OBJECT,
         ungespeichertVorher: OPTIONAL_BOOLEAN,
@@ -43190,6 +43232,7 @@ var init_operation_traits = __esm({
       "save_as",
       "scenario_run",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_update",
       "toggle",
@@ -45111,6 +45154,14 @@ function registerUiTools(registry2) {
     {
       title: "Tabellenzeile anlegen",
       description: "Legt eine neue Tabellenzeile als gepruefte Transaktion an. Exakte Seite und Seitensumme vor der Aktion sind Pflicht; expectedAfter ist optional. Die freie Zielzeile wird geometrisch an genau diese Summenzeile und die davorliegende Summengrenze gebunden; auf Seiten mit mehreren Tabellen kann daher nicht die Leerzeile eines anderen Abschnitts gewaehlt werden. Profilierte ComboBoxen binden Seite, Summenregion und Spalte. Auch als UIA-DataItem wird nur per InvokePattern und exakt popupgebundenem SelectionItem gewaehlt. comboExpectedBefore ist Pflicht; interner, visueller und Pruefer-Readback laufen vor den Textzellen. Sichtbarer ValuePattern-Text allein ist nie ein Commit-Beweis. Textzellen werden rueckgelesen; Nachsumme und seitenweite neue Pruefermeldungen bilden gemeinsam den Kontrollvertrag. Bei einer normalen Nachbedingungsabweichung werden alle eigenen Zellwerte rueckwaerts wiederhergestellt und die Ausgangssumme bestaetigt. Bei fremder Eingabe oder veraenderter Fensterlage gibt es keinen blinden Rollback, sondern einen strukturierten Interference-Stopp. Ist die Leerzeile virtualisiert, wird sie vom Tabellenende aus rein navigierend gesucht. 'werte' ist eine Liste in SPALTENREIHENFOLGE (meist: Nr., Datum, Bezeichnung, ..., Betrag); leere Eintraege werden uebersprungen. AENDERT STEUERDATEN: vorher sse_backup_cases. Betraege deutsch mit Komma ('2.340,00')."
+    },
+    { timeoutMs: 3e5 }
+  );
+  registerApiTool(
+    "sse_table_add_rows",
+    {
+      title: "Mehrere Tabellenzeilen in einem Auftrag anlegen",
+      description: "Bevorzugt ab zwei neuen Zeilen: legt 1 bis 50 Zeilen in einem Arbeitsprozess an. Bindung ueber Seite, Kontrollsumme und Modellkoordinaten statt sichtbarer Geometrie: auch Zeilen jenseits des angezeigten Ausschnitts entstehen ohne Scrollen, Zeiger, Tasten oder Cursorlauf. Nach Erfolg sind alle Zeilen im vollstaendigen Modell nachgewiesen, fruehere Zeilen unveraendert. Eine normale Abweichung (Zellwert, Zeilenzahl, Nachsumme, Pruefermeldung) setzt die eigenen Werte zurueck; die geleerten Zeilen bleiben stehen. Fremde Eingabe stoppt ohne blinden Rollback; resultingState=unknown verlangt sse_table_read mit readMode:'grid'. Nur Text-/Betragszellen, nur sichtbarer Desktop; sonst sse_table_add. AENDERT STEUERDATEN: vorher sse_backup_cases."
     },
     { timeoutMs: 3e5 }
   );

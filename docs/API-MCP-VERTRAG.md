@@ -207,6 +207,7 @@ Direktzugriff auf Steuerdaten.
 | Ein Feld kontrolliert ändern | `tracked_set_value`, über MCP `sse_change_field` oder kataloggebunden `sse_change_known_field`: Ziel und Seite binden, Vorwert lesen und prüfen, schreiben, Commit ausführen und zurücklesen. Je nach Auftrag kommen Summen- oder Ergebnisprüfungen hinzu. |
 | Mehrere Felder derselben Seite ändern | `fill_fields` plant eine begrenzte Folge katalogisierter Feldänderungen und führt sie gemeinsam in einem Worker aus. |
 | Tabellenzeilen ändern | `table_add`, `table_update` und `table_delete` verwenden ihre eigenen Ziel-, Vorbedingungs- und Readback-Verträge. |
+| Mehrere Tabellenzeilen anlegen | `table_add_rows` legt eine begrenzte Folge neuer Zeilen gemeinsam in einem Worker an und bindet sie über Modellkoordinaten. |
 
 `set_value` ist auf das globale steuerneutrale Suchfeld begrenzt. Für fachliche
 Feldänderungen gilt der geprüfte Änderungsweg; ein ähnlicher Name oder eine
@@ -626,6 +627,60 @@ Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
 eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
 abgelehnt, statt Werte einer anderen Spalte zuzuordnen.
 
+## Mehrere Tabellenzeilen in einem Auftrag
+
+`table_add_rows` (MCP: `sse_table_add_rows`) legt eine bis 50 Zeilen in genau
+einem Worker an. Seite und Kontrollsumme binden die Tabelle wie bei den
+anderen Tabellenmutationen. Die Zeilen selbst werden über Modellkoordinaten
+gebunden: Die Anlegezeile ist die letzte Zeile des UIA-Grids, jede Zelle wird
+über Zeile und Spalte angesprochen. Sichtbare Geometrie, Rechtecke und
+Runtime-IDs sind dabei Beobachtungen, keine Zeilenschlüssel. Deshalb entstehen
+auch Zeilen jenseits des angezeigten Tabellenausschnitts ohne Scrollen,
+Mauszeiger, Tasten und ohne Cursorlauf.
+
+Der Ablauf:
+
+1. Seite und Vorsumme werden passiv verglichen. Eine falsche Seite oder eine
+   veraltete Summe wird abgelehnt, ohne das Fenster zu aktivieren.
+2. Das gebundene Hauptfenster kommt einmal nach vorn. Vordergrund und
+   Eingabe-Epoche gelten für die ganze Transaktion; ein weiteres unbekanntes
+   oder blockierendes Fenster der Anwendung führt zur Ablehnung.
+3. Der vollständige Tabellenzustand wird gelesen: zwei gleiche Grid-Lesungen,
+   Summenbindung, Editorlage. Auswahllisten-Spalten des Produktprofils,
+   Checkbox-Spalten, schreibgeschützte Zellen, Tabellen mit eigenem
+   Zeilenvertrag und eine nicht freie letzte Zeile werden vor der ersten
+   Schreibung abgelehnt.
+4. Je Zeile: Die Anlegezeile muss frei sein, die Rohwerte ihrer beschreibbaren
+   Zellen werden festgehalten, die Werte geschrieben und an derselben
+   Koordinate zurückgelesen. Danach muss das Modell um genau eine Zeile
+   gewachsen sein.
+5. Der vollständige Tabellenzustand wird erneut gelesen. Erfolg heißt: genau
+   die angeforderte Zahl neuer Zeilen steht direkt über einer unveränderten
+   Anlegezeile, alle früheren Zeilen sind unverändert, jede geschriebene Zelle
+   zeigt ihren Wert, die Nachsumme stimmt mit einer angegebenen Vorhersage
+   überein und die Seite zeigt keine neue Prüfermeldung.
+
+Bei einer normalen Abweichung - Zellwert, Zeilenzahl, Nachsumme oder neue
+Prüfermeldung - werden die eigenen Werte zurückgesetzt, letzte Zeile zuerst.
+Zurückgesetzt wird nur, was nachweislich den eigenen Wert zeigt; ein fremder
+Zellwert beendet die Rücknahme. Danach beweist ein vollständiger
+Tabellenzustand die früheren Zeilen, die Ausgangssumme und die Prüferlage.
+Qt gibt eine einmal entstandene Zeile beim Zurücksetzen ihrer Werte nicht
+wieder frei: Sie bleibt als Leerzeile stehen. Das Ergebnis nennt das als
+`resultingState: "values-restored"` mit `rollback.werteWiederhergestellt`,
+`rollback.strukturEntfernt` und `rollback.verbliebeneLeerzeilen`. Nur ein
+unverändertes Modell heißt `restored`.
+
+Fremde Eingabe, ein verlorener Vordergrund oder ein veränderter Fenstersatz
+stoppt die Transaktion als `interference` ohne blinde Rücknahme. Ist eine
+Schreibung bereits begonnen, lautet der Zustand `unknown`; der Aufrufer
+gleicht dann mit `table_read` und `readMode: "grid"` frisch ab. Ohne
+`expectedAfter` wird keine Summe vorhergesagt; die Seitensumme addiert netto.
+
+Die Operation läuft nur auf dem sichtbaren Desktop. Zeilen mit Auswahllisten
+oder Checkboxen und Tabellen mit eigenem Zeilenvertrag bleiben Aufgabe von
+`table_add`.
+
 ## Bekanntes Hilfsfenster vor Tabellenbindung schließen
 
 Vor einem öffentlichen Cursorread und dem ersten privaten nativen
@@ -969,7 +1024,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
   erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 104
   MCP-Werkzeuge veröffentlichen parallel ein vollständiges, redigiertes
-  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 102
+  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 103
   direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
   eigenen PC-blinden Kompositionsvertrag. `sse_api_control` ergänzt den
   getrennten API-Lebenszyklusvertrag.
@@ -984,7 +1039,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 102 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 103 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter

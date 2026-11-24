@@ -149,6 +149,23 @@ export function registerUiTools(registry: McpRegistry): void {
   );
 
   registerApiTool(
+    "sse_table_add_rows",
+    {
+      title: "Mehrere Tabellenzeilen in einem Auftrag anlegen",
+      description:
+        "Bevorzugt ab zwei neuen Zeilen: legt 1 bis 50 Zeilen in einem Arbeitsprozess an. Bindung ueber Seite, " +
+        "Kontrollsumme und Modellkoordinaten statt sichtbarer Geometrie: auch Zeilen jenseits des angezeigten " +
+        "Ausschnitts entstehen ohne Scrollen, Zeiger, Tasten oder Cursorlauf. Nach Erfolg sind alle Zeilen im " +
+        "vollstaendigen Modell nachgewiesen, fruehere Zeilen unveraendert. Eine normale Abweichung (Zellwert, " +
+        "Zeilenzahl, Nachsumme, Pruefermeldung) setzt die eigenen Werte zurueck; die geleerten Zeilen bleiben " +
+        "stehen. Fremde Eingabe stoppt " +
+        "ohne blinden Rollback; resultingState=unknown verlangt sse_table_read mit readMode:'grid'. Nur " +
+        "Text-/Betragszellen, nur sichtbarer Desktop; sonst sse_table_add. AENDERT STEUERDATEN: vorher sse_backup_cases.",
+    },
+    { timeoutMs: 300_000 },
+  );
+
+  registerApiTool(
     "sse_table_update",
     {
       title: "Sichtbare Tabellenzeile sicher aktualisieren",

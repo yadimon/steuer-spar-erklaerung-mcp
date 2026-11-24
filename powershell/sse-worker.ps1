@@ -3025,6 +3025,9 @@ if (-not (Test-Path -LiteralPath $tableGridHelpers -PathType Leaf)) { Fail 'Read
 $tableUiaDeleteHelpers=Join-Path $PSScriptRoot 'table-uia-delete.ps1'
 if (-not (Test-Path -LiteralPath $tableUiaDeleteHelpers -PathType Leaf)) { Fail 'UIA Grid deletion helper is missing.' 'not-found' }
 . $tableUiaDeleteHelpers
+$tableUiaAppendHelpers=Join-Path $PSScriptRoot 'table-uia-append.ps1'
+if (-not (Test-Path -LiteralPath $tableUiaAppendHelpers -PathType Leaf)) { Fail 'UIA Grid append helper is missing.' 'not-found' }
+. $tableUiaAppendHelpers
 $tableComboHelpers = Join-Path $PSScriptRoot 'table-combobox.ps1'
 if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
   Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
@@ -5354,8 +5357,8 @@ $script:SSE_FOREGROUND_CAPABLE_OPERATIONS = @(
   'desktop_stop','dialog_answer','export_csv','file_dialog_select','goto','goto_tree','menu','menu_click',
   'position_create','receipt_manager_action','receipt_manager_bulk_upsert','receipt_manager_classification_options',
   'receipt_manager_classify','receipt_manager_delete','receipt_manager_import','receipt_manager_link',
-  'receipt_manager_read','receipt_manager_update','result_details','save_as','table_add','table_delete',
-  'table_read','table_update','tracked_set_value','tree_scroll','tree_top','vast_mapping_options',
+  'receipt_manager_read','receipt_manager_update','result_details','save_as','table_add','table_add_rows',
+  'table_delete','table_read','table_update','tracked_set_value','tree_scroll','tree_top','vast_mapping_options',
   'vast_mapping_select','vast_row_details','vast_row_set_expanded'
 )
 # Shell-Oberflaechen, deren Eingabewarteschlange keine Kopplung zulaesst.
@@ -13292,7 +13295,7 @@ $buildDriftBlockedOps = @(
   'file_dialog_select', 'fill_fields', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
   'receipt_manager_action', 'receipt_manager_bulk_upsert', 'receipt_manager_classification_options', 'receipt_manager_classify',
   'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_link', 'receipt_manager_read', 'receipt_manager_update',
-  'table_add', 'table_delete', 'table_update', 'toggle',
+  'table_add', 'table_add_rows', 'table_delete', 'table_update', 'toggle',
   'tracked_set_value', 'ustva_change_value', 'ustva_open_section', 'ustva_select_period',
   'ustva_set_flag', 'vast_apply', 'vast_mapping_select',
   'vast_row_set_expanded'
@@ -24999,6 +25002,97 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$false
       }
     })
+  }
+
+  'table_add_rows' {
+    # Mehrere Zeilen in EINEM Auftrag in die Anlegezeile der gebundenen Tabelle
+    # schreiben. Gebunden wird ueber Modellkoordinaten (Grid-Zeile und -Spalte)
+    # statt ueber sichtbare Geometrie: Auch Zeilen jenseits des angezeigten
+    # Tabellenausschnitts entstehen ohne Scrollen, Zeiger und Tasten. Danach
+    # stehen entweder alle Zeilen nachgewiesen im Modell, oder die eigenen
+    # Zeilen werden zurueckgenommen und der Ausgangszustand wird bewiesen.
+    $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
+    $expectedPage = [string](Arg $a 'expectedPage')
+    $sumLabel = [string](Arg $a 'sumLabel')
+    $expectedBefore = [string](Arg $a 'expectedBefore')
+    if (-not $expectedPage -or -not $sumLabel -or -not $expectedBefore) {
+      Fail 'expectedPage, sumLabel und expectedBefore sind Pflicht.' 'bad-args'
+    }
+    $rows = @(Get-SSEBoundedArrayArg $a 'zeilen' 1 50)
+    foreach ($row in $rows) {
+      if (-not (Test-SSEExactProperties $row @('werte')) -or @($row.werte).Count -gt 100 -or
+          -not @(@($row.werte) | Where-Object { [string]$_ }).Count) {
+        Fail "Jede Zeile braucht genau 'werte' mit mindestens einem zu schreibenden Wert und hoechstens 100 Spalten." 'bad-args'
+      }
+    }
+    if ($script:DESKTOP_NAME) {
+      Fail ('Die Mehrzeilenanlage ist nur fuer den sichtbaren Desktop belegt. ' +
+            'Auf dem versteckten Desktop Zeilen einzeln mit sse_table_add anlegen.') 'hidden-desktop'
+    }
+    $targetPid = 0
+    [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
+    $preparation=Invoke-SSETablePreparation $hwnd $targetPid
+    if (-not $preparation.ok) { Emit $preparation }
+    $dialogsBefore = @(Get-DialogInventory | Where-Object {
+      [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
+    })
+    if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Zeilenanlage nicht begonnen.' 'precondition-failed' }
+
+    # Dieselbe Summenauswahl wie Add, Update und Delete: ein gemeinsamer
+    # Kandidatenbestand, hier ueber Vorkommen oder die gebundene AutomationId.
+    function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 1, [string]$boundAid = '') {
+      $tree = Walk-BoundTree $window -WithValues
+      $read = Read-LabeledValueFromTree $tree $window $label $occurrence
+      $selected = $read.selected
+      if ($boundAid) {
+        $boundMatches=@($read.candidates | Where-Object {[string]$_.aid -ceq $boundAid})
+        $selected=$(if($boundMatches.Count -eq 1){$boundMatches[0]}else{$null})
+      }
+      [pscustomobject]@{
+        value=$(if ($selected) { [string]$selected.value } else { $null })
+        selected=$selected; tree=$tree; candidates=$read.candidates; occurrence=$occurrence
+      }
+    }
+
+    $appendProcess=[Diagnostics.Process]::GetProcessById($targetPid)
+    try {
+      # Hold the kernel process identity through Emit's foreground cleanup.
+      $null=$appendProcess.Handle
+      $appended=Invoke-SSEUiaTableAppendRows $hwnd $targetPid $a $appendProcess
+      $appendInputGuard=[pscustomobject]@{
+        aktiv=$true; lockScreenIsolation=$false; foreignForegroundIsolation=$false
+        baseline=$appended.inputBaseline; beobachtet=$(Get-SSELastInputTick)
+        eingriffErkannt=[bool]($appended.kind -ceq 'interference')
+      }
+      if ($appended.ok) {
+        Emit ([pscustomobject]@{
+          ok=$true; verified=$true; page=$expectedPage; expectedPage=$expectedPage
+          sumLabel=$sumLabel; sumBefore=$appended.sumBefore; sumAfter=$appended.sumAfter
+          requestedCount=$rows.Count; zeilen=@($appended.rows)
+          mutationStarted=$true; outcomeUnknown=$false; resultingState=[string]$appended.resultingState
+          mutationPostProof=$appended.proof
+          checkerMessagesBefore=@($appended.checkerBefore); checkerMessagesAfter=@($appended.checkerAfter)
+          newCheckerMessages=@()
+          ungespeichertVorher=$appended.dirtyBefore; ungespeichertNachher=$appended.dirtyAfter
+          physicalInputAttempted=$false; physicalInputUsed=$false
+          inputGuard=$appendInputGuard
+        })
+      }
+      Emit ([pscustomobject]@{
+        ok=$false; verified=$false; kind=[string]$appended.kind; error=[string]$appended.error; phase=[string]$appended.phase
+        page=$expectedPage; expectedPage=$expectedPage
+        sumLabel=$sumLabel; sumBefore=$appended.sumBefore
+        requestedCount=$rows.Count; zeilen=@($appended.rows)
+        mutationStarted=[bool]$appended.mutationStarted; outcomeUnknown=[bool]$appended.outcomeUnknown
+        resultingState=[string]$appended.resultingState
+        reconciliationRequired=[bool]$appended.outcomeUnknown; retryable=$false
+        checkerMessagesBefore=@($appended.checkerBefore)
+        rollback=$appended.rollback
+        ungespeichertVorher=$appended.dirtyBefore
+        physicalInputAttempted=$false; physicalInputUsed=$false
+        inputGuard=$appendInputGuard
+      })
+    } finally {$appendProcess.Dispose()}
   }
 
   'table_update' {

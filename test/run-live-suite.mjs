@@ -367,25 +367,32 @@ const FIXTURE_SCRIPTS = [
 ];
 
 /**
- * Die grosse Schreibreise ist bewusst KEIN Eintrag in FIXTURE_SCRIPTS: sie
- * speichert ihre Wegwerfkopie mit voller Absicht, und genau dieser Hashwechsel
+ * Speichernde Reisen sind bewusst KEIN Eintrag in FIXTURE_SCRIPTS: sie
+ * speichern ihre Wegwerfkopie mit voller Absicht, und genau dieser Hashwechsel
  * ist ihr Beweis. Die Invarianten sind deshalb andere - die Kopie MUSS sich
  * aendern, waehrend der Musterfall weiterhin byteidentisch bleiben muss.
  */
-function runWriteJourney(profileId, template) {
+const SAVING_JOURNEYS = [
+  { label: "Grosse Schreibreise", script: "test/live-write-journey.mjs", fixtureVariable: "SSE_JOURNEY_FIXTURE" },
+  { label: "Mehrzeilenanlage", script: "test/live-table-add-rows.mjs", fixtureVariable: "SSE_ROWS_FIXTURE" },
+];
+
+function runSavingJourney(profileId, template, { label, script, fixtureVariable }) {
   const fixture = provisionDisposableCase(profileId, template);
-  process.stdout.write(`\n> Grosse Schreibreise (${profileId})\n`);
+  process.stdout.write(`
+> ${label} (${profileId})
+`);
   try {
     const run = spawnSync(
       process.execPath,
-      ["test/with-api.mjs", process.execPath, "test/live-write-journey.mjs"],
+      ["test/with-api.mjs", process.execPath, script],
       {
         cwd: root,
         env: {
           ...process.env,
           SSE_PROFILE_ID: profileId,
           SSE_CASE_DIR: fixture.directory,
-          SSE_JOURNEY_FIXTURE: fixture.copy,
+          [fixtureVariable]: fixture.copy,
         },
         stdio: "inherit",
         windowsHide: true,
@@ -393,14 +400,14 @@ function runWriteJourney(profileId, template) {
     );
     const leakedPids = ssePids();
     if (run.error) {
-      throw new Error(`Grosse Schreibreise (${profileId}) konnte nicht ausgefuehrt werden: ${run.error.message}`, { cause: run.error });
+      throw new Error(`${label} (${profileId}) konnte nicht ausgefuehrt werden: ${run.error.message}`, { cause: run.error });
     }
-    assert.equal(run.status, 0, `Grosse Schreibreise (${profileId}) scheiterte mit Exit ${run.status}.`);
-    assert.equal(leakedPids, "", `Nach der Schreibreise (${profileId}): verbliebene SSE-Prozesse (${leakedPids}).`);
+    assert.equal(run.status, 0, `${label} (${profileId}) scheiterte mit Exit ${run.status}.`);
+    assert.equal(leakedPids, "", `Nach ${label} (${profileId}): verbliebene SSE-Prozesse (${leakedPids}).`);
     assert.notEqual(sha256(fixture.copy), fixture.copyHash,
-      "Die Schreibreise hat ihre Kopie nie gespeichert; der Speicherbeweis fehlt.");
+      `${label} hat ihre Kopie nie gespeichert; der Speicherbeweis fehlt.`);
     assert.equal(sha256(fixture.source), fixture.sourceHash,
-      "Die Schreibreise veraenderte den offiziellen Musterfall.");
+      `${label} veraenderte den offiziellen Musterfall.`);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
@@ -429,7 +436,7 @@ function runFixtureScripts(profileId) {
   try {
     positionTemplate(profileId, template);
     for (const entry of FIXTURE_SCRIPTS) runFixtureScript(profileId, entry, template.copy);
-    runWriteJourney(profileId, template.copy);
+    for (const entry of SAVING_JOURNEYS) runSavingJourney(profileId, template.copy, entry);
   } finally {
     rmSync(template.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }

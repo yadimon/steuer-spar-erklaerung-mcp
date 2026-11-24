@@ -139,7 +139,7 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 102 Operationen identische
+  referenziert. Auch der für alle 103 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -1021,7 +1021,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 102
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 103
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

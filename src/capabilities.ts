@@ -51,7 +51,7 @@ const fallbackStages = [
   },
   {
     intent: "Standard: Verifizierte Transaktion",
-    operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
+    operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_add_rows", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
     rule: "Passendes Spezialwerkzeug mit frischem Vorwert und Readback verwenden. Native Tabellenmutationen positionieren ihr Ziel selbst; " +
       "keinen vollen Cursorlauf zur Schreibvorbereitung anfordern. Interne gebundene Positionierung bleibt Teil der Transaktion.",
   },

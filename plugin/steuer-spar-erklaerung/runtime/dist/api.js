@@ -148,6 +148,7 @@ var init_api_contract = __esm({
       "snapshot_compare",
       "subpages",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_read",
       "table_update",
@@ -21417,6 +21418,7 @@ var init_operation_schema_primitives = __esm({
       snapshotNodes: 5e3,
       snapshotTypes: 50,
       tableValues: 100,
+      tableAppendRows: 50,
       verifyExpectations: 500,
       vastPlan: 500,
       readbackChecks: 100,
@@ -22334,6 +22336,26 @@ var init_mcp_schemas_ui = __esm({
         ),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_table_add_rows": external_exports.object({
+        expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
+        zeilen: external_exports.array(external_exports.object({
+          werte: external_exports.array(external_exports.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).refine(
+            (werte) => werte.some((wert) => wert !== ""),
+            "Jede Zeile braucht mindestens einen zu schreibenden Wert."
+          ).describe(
+            "Werte dieser Zeile in Spaltenreihenfolge ab der ERSTEN Spalte ('kopf' aus sse_table_read); fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden"
+          )
+        }).strict()).min(1).max(SSE_OPERATION_LIMITS.tableAppendRows).describe(
+          `Eine bis ${SSE_OPERATION_LIMITS.tableAppendRows} neue Zeilen in der gewuenschten Reihenfolge`
+        ),
+        sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
+        sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
+        expectedBefore: external_exports.string().describe("Exakter Summenwert vor dem Anlegen"),
+        expectedAfter: external_exports.string().optional().describe(
+          "Optional: exakter Summenwert nach ALLEN Zeilen. Die Seitensumme addiert netto, nicht brutto. Weicht sie ab, werden alle eigenen Zeilen zurueckgenommen"
+        ),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_table_update": external_exports.object({
         expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
         text: external_exports.string().describe("Eindeutiger vorhandener Zelltext der Zielzeile"),
@@ -22799,6 +22821,7 @@ var init_operation_catalog = __esm({
       "sse_goto": "goto",
       "sse_table_read": "table_read",
       "sse_table_add": "table_add",
+      "sse_table_add_rows": "table_add_rows",
       "sse_table_update": "table_update",
       "sse_table_delete": "table_delete",
       "sse_menu": "menu",
@@ -23126,6 +23149,7 @@ var init_operation_traits = __esm({
       "save_as",
       "scenario_run",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_update",
       "toggle",
@@ -23178,6 +23202,7 @@ var init_operation_traits = __esm({
       "save_as",
       "set_value",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_update",
       "toggle",
@@ -23310,7 +23335,7 @@ var init_capabilities = __esm({
       },
       {
         intent: "Standard: Verifizierte Transaktion",
-        operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
+        operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_add_rows", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
         rule: "Passendes Spezialwerkzeug mit frischem Vorwert und Readback verwenden. Native Tabellenmutationen positionieren ihr Ziel selbst; keinen vollen Cursorlauf zur Schreibvorbereitung anfordern. Interne gebundene Positionierung bleibt Teil der Transaktion."
       },
       {
@@ -37038,6 +37063,25 @@ var init_result_mutation_fields = __esm({
         checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
         newCheckerMessages: OPTIONAL_STRING_ARRAY,
         tableBinding: OPTIONAL_OBJECT,
+        inputGuard: OPTIONAL_OBJECT,
+        rollback: OPTIONAL_OBJECT,
+        ungespeichertVorher: OPTIONAL_BOOLEAN,
+        ungespeichertNachher: OPTIONAL_BOOLEAN
+      },
+      table_add_rows: {
+        verified: OPTIONAL_BOOLEAN,
+        mutationStarted: OPTIONAL_BOOLEAN,
+        page: OPTIONAL_STRING,
+        expectedPage: OPTIONAL_STRING,
+        sumLabel: OPTIONAL_STRING,
+        sumBefore: OPTIONAL_STRING,
+        sumAfter: OPTIONAL_STRING,
+        requestedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        zeilen: OPTIONAL_ARRAY,
+        mutationPostProof: OPTIONAL_OBJECT,
+        checkerMessagesBefore: OPTIONAL_STRING_ARRAY,
+        checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
+        newCheckerMessages: OPTIONAL_STRING_ARRAY,
         inputGuard: OPTIONAL_OBJECT,
         rollback: OPTIONAL_OBJECT,
         ungespeichertVorher: OPTIONAL_BOOLEAN,

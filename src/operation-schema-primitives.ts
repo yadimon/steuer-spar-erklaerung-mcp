@@ -74,6 +74,7 @@ export const SSE_OPERATION_LIMITS = Object.freeze({
   snapshotNodes: 5_000,
   snapshotTypes: 50,
   tableValues: 100,
+  tableAppendRows: 50,
   verifyExpectations: 500,
   vastPlan: 500,
   readbackChecks: 100,

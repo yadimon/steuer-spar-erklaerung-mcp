@@ -156,11 +156,11 @@ for (const name of commonResultComponentNames) {
   assert(serialized.includes(`\"$ref\":\"#/components/schemas/${name}\"`),
     `Gemeinsame OpenAPI-Komponente '${name}' wird von keinem Result-Schema referenziert.`);
 }
-// Die operationsspezifischen Result-Schemas einschliesslich Positionsanlage
-// brauchen rund 352 KiB. Die Grenze soll versehentlich verdoppelte
+// Die operationsspezifischen Result-Schemas einschliesslich Positions- und
+// Mehrzeilenanlage brauchen rund 357 KiB. Die Grenze soll versehentlich verdoppelte
 // Schemas fangen - das kostet zweistellige KiB - und nicht schon bei einem
 // zusaetzlichen Beschreibungssatz zuschlagen.
-assert(Buffer.byteLength(serialized, "utf8") < 355 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
+assert(Buffer.byteLength(serialized, "utf8") < 360 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"));
 assert(!serialized.includes("allowSend") && !serialized.includes("confirmSend"));
 

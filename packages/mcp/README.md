@@ -75,10 +75,10 @@ npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --s
 - Cancellation bis zum lokalen API-Auftrag;
 - Größenlimits, protokollreines stdout und fail-closed Fehlerantworten.
 
-Der aktuelle Katalog umfasst **102 direkte API-Toolnamen**. Hinzu kommen der
+Der aktuelle Katalog umfasst **103 direkte API-Toolnamen**. Hinzu kommen der
 komponierte Preflight `sse_preflight` und das getrennte
 API-Lebenszykluswerkzeug `sse_api_control`.
-Alle 104 MCP-Werkzeugnamen werden als strukturierte Werkzeuge registriert.
+Alle 105 MCP-Werkzeugnamen werden als strukturierte Werkzeuge registriert.
 Die Zuordnung ist im versionierten Operationskatalog festgelegt. Die Anzahl
 der Werkzeugnamen ist getrennt von der Anzahl der API-Operationen zu lesen:
 Zwei Änderungswerkzeuge verwenden dieselbe API-Operation.

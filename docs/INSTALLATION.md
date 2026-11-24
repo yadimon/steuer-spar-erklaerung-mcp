@@ -231,7 +231,7 @@ Die Einrichtung ist erst nach dem Nachweis im Client vollständig:
    im TUI die aktiven Server. Ausgaben können private Pfade enthalten und
    gehören nicht unverändert in öffentliche Issues.
 2. Der vollständige Katalog ist der Modellinstanz tatsächlich zugänglich.
-   Der aktuelle Release registriert 104 MCP-Werkzeuge, darunter
+   Der aktuelle Release registriert 105 MCP-Werkzeuge, darunter
    `sse_preflight`, `sse_instances`, `sse_make_working_copy` und `sse_save`.
    Eine reine `tools/list`-Antwort beweist diese Verfügbarkeit noch nicht.
    Direkte Werkzeuge können außerhalb der verschachtelten Liste `ALL_TOOLS`

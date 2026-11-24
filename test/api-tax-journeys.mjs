@@ -968,6 +968,61 @@ test("22 a wrong expected sum rolls the table back completely", async () => {
   });
 });
 
+test("22b several rows are appended in one call and bound by page and sum", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("goto", { name: TABLE_PAGE });
+    const added = await harness.call("table_add_rows", {
+      expectedPage: TABLE_PAGE,
+      zeilen: [
+        { werte: ["", "01.03.2025", "Synthetische Einnahme A", "0,50"] },
+        { werte: ["", "02.03.2025", "Synthetische Einnahme B", "1,00"] },
+      ],
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "1,50",
+      expectedAfter: "3,00",
+    });
+    assert.equal(added.verified, true);
+    assert.equal(added.requestedCount, 2);
+    assert.equal(added.sumAfter, "3,00");
+    assert.equal(added.resultingState, "completed-verified");
+    assert.equal(added.mutationPostProof.outcome, "appended-exact");
+    assert.deepEqual(added.zeilen.map((zeile) => zeile.modelRow), [2, 3]);
+    const table = await harness.call("read_table", { hwnd: 4242 });
+    assert.equal(table.rowCount, 4);
+    assert.deepEqual(table.rows.slice(-2), [
+      ["01.03.2025", "Synthetische Einnahme A", "0,50"],
+      ["02.03.2025", "Synthetische Einnahme B", "1,00"],
+    ]);
+
+    const failed = (await harness.request("table_add_rows", {
+      expectedPage: TABLE_PAGE,
+      zeilen: [{ werte: ["", "03.03.2025", "Darf nicht bleiben", "0,25"] }],
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "3,00",
+      expectedAfter: "999,99",
+    })).body.result;
+    assert.equal(failed.ok, false);
+    assert.equal(failed.kind, "postcondition-failed");
+    assert.equal(failed.mutationStarted, true);
+    assert.equal(failed.outcomeUnknown, false);
+    assert.equal(failed.rollback.werteWiederhergestellt, true);
+    assert.equal(failed.rollback.summe, "3,00");
+    assert.deepEqual((await harness.call("read_table", { hwnd: 4242 })).rows, table.rows);
+
+    const stale = (await harness.request("table_add_rows", {
+      expectedPage: TABLE_PAGE,
+      zeilen: [{ werte: ["", "04.03.2025", "Veraltete Vorsumme", "0,25"] }],
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "0,01",
+    })).body.result;
+    assert.equal(stale.kind, "precondition-failed");
+    assert.equal(stale.mutationStarted, false);
+    assert.equal(stale.resultingState, "unchanged");
+    assert.deepEqual((await harness.call("read_table", { hwnd: 4242 })).rows, table.rows);
+  });
+});
+
 test("23 menu keeps ELSTER closed and opens only safe dialogs", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);

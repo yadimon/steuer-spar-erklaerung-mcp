@@ -8,7 +8,7 @@ Nachweis. Vorhandene Mechanismen werden erweitert; ihre Bindungs- und
 
 ## Aktueller Umsetzungsstand
 
-Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 102 Operationen.
+Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 103 Operationen.
 Die 22 dort als **Qt optional** markierten Operationen sind direkt an die
 optionale Qt-Brücke angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
 Teilmechanismen erfüllen nicht automatisch deren gesamten Abnahmevertrag.

@@ -92,7 +92,7 @@ for (const entry of MEGA_OPERATION_CATALOG) {
   assert(!byOperation.has(entry.operation), `${entry.operation}: doppelte Katalogzeile.`);
   byOperation.set(entry.operation, entry);
 }
-assert.equal(MEGA_OPERATION_CATALOG.length, 102, "Der aktuelle API-Katalog umfasst 102 Operationen.");
+assert.equal(MEGA_OPERATION_CATALOG.length, 103, "Der aktuelle API-Katalog umfasst 103 Operationen.");
 assert.deepEqual([...byOperation.keys()].sort(), [...SSE_API_OPERATIONS].sort(),
   "Jede aktuelle API-Operation braucht genau eine Mega-Klassifikation.");
 assert(MEGA_OPERATION_CATALOG.some((entry) => entry.classification !== "covered"),

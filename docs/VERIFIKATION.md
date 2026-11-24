@@ -280,6 +280,17 @@ Der Transaktionspfad
 behält die Information, dass kein Klick gesendet wurde; der direkte Aufruf
 behält seinen terminalen Fehlervertrag. Auch eine normal zurückkehrende
 Fehlerroutine kann diese Schutzprüfung nicht aufheben.
+`table-uia-append-contract.ps1` führt die produktive Mehrzeilenanlage gegen
+ein synthetisches Tabellenmodell aus, das weder Zeiger noch Tasten oder
+Scrollen anbietet: zwölf Zeilen über Modellkoordinaten, alle Ablehnungen vor
+der Aktivierung und vor der ersten Schreibung, die Wertrücknahme bei falschem
+Rücklesewert, fehlender neuer Anlegezeile, falscher Nachsumme und neuer
+Prüfermeldung sowie die Fälle ohne blinde Rücknahme. `table-grid-read-contract.ps1`
+hält die beiden reinen Modellvergleiche dazu fest: exakte Anlage und
+Wertrücknahme mit verbliebenen Leerzeilen. Am echten Programm legt
+`npm run test:live-table-add-rows` mehr Zeilen an, als die Tabelle anzeigt,
+liest sie über das vollständige Grid-Inventar nach, speichert, öffnet neu
+und prüft Ablehnung und Wertrücknahme; dieselbe Reise gehört zum Live-Gate.
 `click-point-target-contract.ps1` führt die produktive Zielauswahl des
 physischen Klicks aus: Baumeinträge und Detail-Links bleiben auch auf einem
 Monitor links oder oberhalb des Hauptmonitors wählbar, also bei negativen
@@ -470,7 +481,7 @@ produktfreie Testgrenzen; diese Regressionen ersetzen keine reale Abnahme.
 ## Live-Abdeckung
 
 Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;
-ein Vertragstest hält dieses Dokument dagegen. Dort stehen 96 der 102
+ein Vertragstest hält dieses Dokument dagegen. Dort stehen 97 der 103
 Operationen als live-funktional.
 
 Sechzehn Ledger-Einträge verwenden einen übernommenen separaten Nachweis statt
@@ -488,7 +499,7 @@ weiterhin nur als Fehlerpfad. Die Einteilung stammt aus
 `test/operation-coverage-contract.mjs` und darf nicht als Erfolg jeder Mutation
 gelesen werden.
 
-Noch 6 der 102 Operationen sind nicht live-funktional belegt.
+Noch 6 der 103 Operationen sind nicht live-funktional belegt.
 Diese Bilanz bezieht sich auf den aggregierten Release-Snapshot und ersetzt
 keinen erneuten Nachweis pro Paketversion, Backend und API-/MCP-Zugang.
 
@@ -559,7 +570,7 @@ Mutationen. Ein fehlgeschlagener Lauf bleibt ein fehlgeschlagener Live-Nachweis.
 
 ## Native-Integration getrennt zählen
 
-Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen
+Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 103 Operationen
 den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind 22
 Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
 `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`,

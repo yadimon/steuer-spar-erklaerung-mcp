@@ -99,6 +99,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_goto": "goto",
   "sse_table_read": "table_read",
   "sse_table_add": "table_add",
+  "sse_table_add_rows": "table_add_rows",
   "sse_table_update": "table_update",
   "sse_table_delete": "table_delete",
   "sse_menu": "menu",

@@ -20016,6 +20016,608 @@
         }
       }
     },
+    "table_add_rows": {
+      "offline": {
+        "profiles": [],
+        "fields": {
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "mutationPostProof": {
+            "types": [
+              "object:{\"afterFingerprint\":\"string-hex64\",\"beforeFingerprint\":\"string-hex64\",\"method\":\"string-other\",\"outcome\":\"string-other\",\"rowsAfter\":\"nonnegative-number\",\"rowsBefore\":\"nonnegative-number\",\"schemaVersion\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mutationStarted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "outcomeUnknown": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "physicalInputAttempted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "physicalInputUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "requestedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "object:{\"erfolgreich\":\"boolean\",\"methode\":\"string-other\",\"strukturEntfernt\":\"boolean\",\"summe\":\"string-other\",\"verbliebeneLeerzeilen\":\"nonnegative-number\",\"versucht\":\"boolean\",\"werteWiederhergestellt\":\"boolean\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "sumAfter": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "sumBefore": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "zeilen": {
+            "types": [
+              "array-empty",
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          }
+        }
+      },
+      "live": {
+        "profiles": [
+          "2025"
+        ],
+        "fields": {
+          "checkerMessagesAfter": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "checkerMessagesBefore": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "expectedPage": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "focusTelemetry": {
+            "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foreground\":\"object\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"inputEpoch\":\"object\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "freshRawFocusCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "freshRawFocusMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "freshRawResolvers": {
+            "types": [
+              "object:{\"focus\":\"object\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "inputGuard": {
+            "types": [
+              "object:{\"aktiv\":\"boolean\",\"baseline\":\"nonnegative-number\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\",\"foreignForegroundIsolation\":\"boolean\",\"lockScreenIsolation\":\"boolean\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "ms": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "mutationPostProof": {
+            "types": [
+              "object:{\"afterFingerprint\":\"string-hex64\",\"beforeFingerprint\":\"string-hex64\",\"method\":\"string-other\",\"outcome\":\"string-other\",\"rowsAfter\":\"nonnegative-number\",\"rowsBefore\":\"nonnegative-number\",\"schemaVersion\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mutationStarted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "newCheckerMessages": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "outcomeUnknown": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "page": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "phase": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "physicalInputAttempted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "physicalInputUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "reconciliationRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "requestedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "retryable": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "null",
+              "object:{\"erfolgreich\":\"boolean\",\"error\":\"null\",\"methode\":\"string-other\",\"strukturEntfernt\":\"boolean\",\"summe\":\"string-other\",\"ungespeichertNachher\":\"boolean\",\"verbliebeneLeerzeilen\":\"nonnegative-number\",\"versucht\":\"boolean\",\"werteWiederhergestellt\":\"boolean\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "sumAfter": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "sumBefore": {
+            "types": [
+              "null",
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "sumLabel": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "ungespeichertNachher": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ungespeichertVorher": {
+            "types": [
+              "boolean",
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "zeilen": {
+            "types": [
+              "array-empty",
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          }
+        }
+      }
+    },
     "table_delete": {
       "offline": {
         "profiles": [],
@@ -20693,6 +21295,17 @@
               "success"
             ]
           },
+          "backend": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "bindung": {
             "types": [
               "null",
@@ -20778,6 +21391,17 @@
           "freshRawResolvers": {
             "types": [
               "object:{\"focus\":\"object\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "gridRead": {
+            "types": [
+              "object:{\"atomic\":\"boolean\",\"consistency\":\"string-other\",\"inputSlotsIncluded\":\"boolean\",\"method\":\"string-other\",\"modelColumns\":\"nonnegative-number\",\"modelRows\":\"nonnegative-number\",\"readModelRows\":\"nonnegative-number\",\"rowFilter\":\"string-other\",\"visibleColumns\":\"array-many:nonnegative-number\"}"
             ],
             "labels": [
               "worker"
