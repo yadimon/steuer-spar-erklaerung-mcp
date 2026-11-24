@@ -29206,7 +29206,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       (-not $_.val -or -not "$($_.val)".Trim())
     } | ForEach-Object { [pscustomobject]@{ y=$_.y; aid=($_.aid -split '\.')[-1]; rid=$_.rid } })
     $dirty = Get-DirtyState $t
-    $ergebnis = Read-ResultDetailsFromTree $t
+    # Dieselbe Lesung wie sse_result_details: Liegen Ergebniszeilen ausserhalb
+    # des Fensterausschnitts, kommen sie aus dem gebundenen Tabellenmodell. Der
+    # Snapshot allein zeigt nur den sichtbaren Ausschnitt - ohne diesen Schritt
+    # meldeten beide Werkzeuge fuer dieselbe offene Werte-Info verschiedene
+    # Zeilen und verschiedene Fingerprints.
+    $werteInfoFenster = @($wins | Where-Object { $_.title -eq $script:WERTE_INFO_TITEL })
+    $ergebnis = $(
+      if ($werteInfoFenster.Count -eq 1) { Read-SSEValueInfoResult $werteInfoFenster[0] $t }
+      else { Read-ResultDetailsFromTree $t }
+    )
     $dialoge = @($fenster | Where-Object { $_.art -in @('dialog','warnung') })
     $warnungen = @($fenster | Where-Object { $_.art -eq 'warnung' })
     $unsicher = @($fenster | Where-Object { $_.art -in @('unbekannt','nicht-lesbar') })

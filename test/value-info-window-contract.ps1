@@ -519,3 +519,74 @@ $script:Trees.Enqueue($full)
 Invoke-Expression $beforeAssignments[0].Extent.Text
 Assert-True ($resultBefore.ok -and $script:Trees.Count -eq 0) 'An already open complete result window unnecessarily required fresh-open stability.'
 Write-Output 'Tracked baseline: real-parser prefixes, same-size content changes, deadline and borrowed-window readiness passed.'
+
+# sse_ui_state and sse_result_details describe the same open value window and
+# must read it through the same reader. The snapshot alone shows only the
+# visible part of the table; rows outside the window come from the bound table
+# model. With two different readers both tools reported different rows and
+# different fingerprints for one unchanged window.
+function Get-OperationBody([string]$Operation) {
+  $matching = @($operations | ForEach-Object { $_.Clauses } | Where-Object { $_.Item1.Value -ceq $Operation })
+  if ($matching.Count -ne 1) { throw "Operation '$Operation' is missing or ambiguous." }
+  $matching[0].Item2
+}
+function Get-ReaderCalls($Body, [string]$Reader) {
+  @($Body.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq $Reader
+  }, $true))
+}
+$resultDetailsBody = Get-OperationBody 'result_details'
+Assert-True (@(Get-ReaderCalls $resultDetailsBody 'Read-SSEValueInfoResult').Count -eq 1 -and
+  @(Get-ReaderCalls $resultDetailsBody 'Read-ResultDetailsFromTree').Count -eq 0) `
+  'result_details must read the value window through the model-aware reader only.'
+$uiStateBody = Get-OperationBody 'ui_state'
+$valueWindowSelections = @($uiStateBody.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$werteInfoFenster'
+}, $true))
+$resultReads = @($uiStateBody.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$ergebnis'
+}, $true))
+Assert-True ($valueWindowSelections.Count -eq 1 -and $resultReads.Count -eq 1 -and
+  $valueWindowSelections[0].Extent.EndOffset -lt $resultReads[0].Extent.StartOffset) `
+  'ui_state must select the value window exactly once before its single result read.'
+Assert-True (@(Get-ReaderCalls $uiStateBody 'Read-SSEValueInfoResult').Count -eq 1 -and
+  @(Get-ReaderCalls $uiStateBody 'Read-ResultDetailsFromTree').Count -eq 1) `
+  'ui_state must read result values in exactly one place.'
+$script:ReaderCalls = New-Object Collections.ArrayList
+function Read-SSEValueInfoResult($Window, $Tree) {
+  $null = $script:ReaderCalls.Add([pscustomobject]@{ reader='model'; hwnd=[int64]$Window.hwnd; tree=$Tree })
+  'model-result'
+}
+function Read-ResultDetailsFromTree {
+  param($Tree, $ModelRows = $null)
+  $null = $script:ReaderCalls.Add([pscustomobject]@{ reader='snapshot'; hwnd=$null; tree=$Tree })
+  'snapshot-result'
+}
+$t = [pscustomobject]@{ marker='ui-state-snapshot' }
+foreach ($case in @(
+  [pscustomobject]@{
+    name='no value window'; reader='snapshot'; hwnd=$null; result='snapshot-result'
+    wins=@((Fenster 42 'Einkommensteuer 2025: irgendein Hauptfenster' 111))
+  },
+  [pscustomobject]@{
+    name='exactly one value window'; reader='model'; hwnd=222; result='model-result'
+    wins=@((Fenster 42 'Einkommensteuer 2025: irgendein Hauptfenster' 111), (Fenster 42 $script:WERTE_INFO_TITEL 222))
+  },
+  [pscustomobject]@{
+    name='ambiguous value windows'; reader='snapshot'; hwnd=$null; result='snapshot-result'
+    wins=@((Fenster 42 $script:WERTE_INFO_TITEL 222), (Fenster 42 $script:WERTE_INFO_TITEL 333))
+  }
+)) {
+  $script:ReaderCalls.Clear()
+  $wins = $case.wins
+  Invoke-Expression $valueWindowSelections[0].Extent.Text
+  Invoke-Expression $resultReads[0].Extent.Text
+  Assert-True ($ergebnis -ceq $case.result -and $script:ReaderCalls.Count -eq 1 -and
+    $script:ReaderCalls[0].reader -ceq $case.reader -and $script:ReaderCalls[0].hwnd -eq $case.hwnd -and
+    [object]::ReferenceEquals($script:ReaderCalls[0].tree, $t)) `
+    "ui_state read the result values through the wrong reader: $($case.name)."
+}
+Write-Output 'Result values: ui_state and result_details read one open value window through the same model-aware reader.'

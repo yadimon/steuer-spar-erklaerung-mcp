@@ -270,6 +270,10 @@ Klickwegs bleiben eigene Kontrollfälle.
 des gebundenen UIA-Tabellenmodells. Bei einem kleineren sichtbaren Ausschnitt
 liest es die nachgewiesenen vier Spalten über ihre Modellkoordinaten. Das
 liefert auch Zeilen außerhalb des Fensterausschnitts ohne Scrollaktion.
+`ui_state` liest eine eindeutig offene Werte-Info über denselben Leser; beide
+Werkzeuge melden für ein unverändertes Fenster dieselben Zeilen und denselben
+Fingerprint. `value-info-window-contract.ps1` hält die gemeinsame Lesestelle
+fest, der Desktop-Lebenszyklus des Live-Gates den Gleichstand am echten Fenster.
 `verified-point-failure-contract.ps1` führt die produktiven Cursorhelfer bei
 verweigerter Positionierung, unlesbarer Position und Drift vor dem Dispatch aus.
 Der Transaktionspfad
