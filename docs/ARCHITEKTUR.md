@@ -342,6 +342,14 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
 - Der dauerhafte API-Server hält vollständig initialisierte, aber noch
   UIA-unbenutzte Reserveprozesse. Jeder davon übernimmt weiterhin genau einen
   Auftrag und endet danach; die Prozessisolation wird also nicht aufgeweicht.
+  Vor seiner Bereitschaft durchläuft ein Reserveprozess den Rahmen, den jeder
+  Auftrag um seine Operation herum braucht, einmal trocken mit eigenen,
+  bedeutungslosen Werten: Argumente prüfen, Prozesse und Fenster suchen,
+  Eingabe-Epoche lesen, Ergebnis schreiben. PowerShell übersetzt und bindet
+  Anweisungen erst bei der ersten Ausführung; so fällt dieser einmalige
+  Aufwand nicht in den Auftrag. Der Trockenlauf stellt keine UIA- oder
+  MSAA-Abfrage, nimmt keinen Sitzungsmutex, schreibt nichts, sendet keine
+  Eingabe und bewegt kein Fenster.
   Wie viele es sind, richtet sich nach der Ausstattung des Rechners: vier ab
   24 GiB Arbeitsspeicher und acht Kernen, drei ab 12 GiB und vier Kernen, sonst
   zwei. Der Vorrat berücksichtigt den Speicherbedarf wartender Prozesse.

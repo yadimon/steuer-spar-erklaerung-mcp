@@ -246,6 +246,124 @@ if ($hostProbe.after.control -ne 1 -or $hostProbe.after.state -ne 0) {
   throw "Der Hostprozess ist nach der Bitte nicht ausdruecklich ungedrosselt (control=$($hostProbe.after.control), state=$($hostProbe.after.state))."
 }
 
+# 6. Der Reservearbeiter durchlaeuft den Auftragsrahmen einmal trocken, damit
+#    dessen erste, teure Ausfuehrung nicht in den Auftrag faellt. Was er dabei
+#    aufruft, ist abschliessend aufgezaehlt: Jede Erweiterung muss hier bewusst
+#    eingetragen werden, und nichts davon darf UIA oder MSAA abfragen, den
+#    Sitzungsmutex nehmen, schreiben, Eingaben senden, Fenster bewegen oder warten.
+$rahmenDefinitionen = @($oberste | Where-Object {
+  $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Invoke-SSEJobFrameWarmup'
+})
+$rahmenAufrufe = @($ast.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Invoke-SSEJobFrameWarmup'
+}, $true))
+$ersteSammlung = @($block.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Extent.Text -ceq '[GC]::Collect()'
+}, $true) | Sort-Object { $_.Extent.StartLineNumber })[0]
+if ($rahmenDefinitionen.Count -ne 1 -or $rahmenDefinitionen[0].Extent.EndLineNumber -ge $blockStart -or
+    $rahmenAufrufe.Count -ne 1 -or $rahmenAufrufe[0].Extent.Text -cne 'Invoke-SSEJobFrameWarmup' -or
+    $rahmenAufrufe[0].Extent.StartLineNumber -le $warmlaufAufrufe[0].Extent.EndLineNumber -or
+    $rahmenAufrufe[0].Extent.EndLineNumber -ge $ersteSammlung.Extent.StartLineNumber -or
+    $ersteSammlung.Extent.EndLineNumber -ge $bereitschaft[0].Extent.StartLineNumber) {
+  throw 'Der Trockenlauf des Auftragsrahmens gehoert genau einmal in den Prewarm-Block: nach dem Dispatcher-Warmlauf, vor Sammlung und Bereitschaft.'
+}
+$rahmen = $rahmenDefinitionen[0]
+$erlaubteBefehle = [string[]]@(
+  'Add-Member', 'Assert-SSEWorkerArgumentBudget', 'ConvertFrom-Json', 'ConvertTo-Json', 'ConvertTo-SSEWindowDescriptors',
+  'Exit-SSEForegroundLease', 'Get-Command', 'Get-Process', 'Get-SSEBoundedArrayArg', 'Get-SSEBoundedIntegerArg',
+  'Get-SSEForegroundLeaseTelemetry', 'Get-SSEInputEpochEvidence', 'Get-SSELastInputTick', 'Get-SSEProcessIdentities',
+  'Get-SSEProcessIdentity', 'Join-Path', 'Read-SSEJsonFileStrict', 'Resolve-SSEWorkerArgsFile',
+  'Test-SSELastInputUnchanged', 'Test-SSEPrivateTableTransport')
+$rahmenBefehle = [string[]]@($rahmen.Body.FindAll({
+  param($n) $n -is [Management.Automation.Language.CommandAst]
+}, $true) | ForEach-Object { [string]$_.GetCommandName() } | Select-Object -Unique)
+[Array]::Sort($erlaubteBefehle, [StringComparer]::Ordinal)
+[Array]::Sort($rahmenBefehle, [StringComparer]::Ordinal)
+if (($rahmenBefehle -join ',') -cne ($erlaubteBefehle -join ',')) {
+  throw "Der Trockenlauf ruft andere Befehle auf als freigegeben: $($rahmenBefehle -join ', ')"
+}
+$erlaubteTypaufrufe = [string[]]@('[IO.Path]::GetTempPath()', '[SSEWindowEnumerator]::Describe([int[]]@($PID))')
+$rahmenTypaufrufe = [string[]]@($rahmen.Body.FindAll({
+  param($n) $n -is [Management.Automation.Language.InvokeMemberExpressionAst]
+}, $true) | ForEach-Object { [string]$_.Extent.Text })
+[Array]::Sort($erlaubteTypaufrufe, [StringComparer]::Ordinal)
+[Array]::Sort($rahmenTypaufrufe, [StringComparer]::Ordinal)
+if (($rahmenTypaufrufe -join "`n") -cne ($erlaubteTypaufrufe -join "`n")) {
+  throw "Der Trockenlauf ruft andere Methoden auf als freigegeben: $($rahmenTypaufrufe -join ', ')"
+}
+# Die freigegebenen Arbeiterfunktionen duerfen auch ueber ihre eigenen Aufrufe
+# nichts Verbotenes erreichen. Fail und Emit beenden den Prozess und werden mit
+# den gueltigen Werten des Trockenlaufs nicht erreicht; der Abschluss der
+# Vordergrund-Lease wird unten gesondert an seiner ersten Pruefung festgemacht.
+$alleFunktionen = @{}
+foreach ($datei in @(Get-ChildItem -LiteralPath (Join-Path $root 'powershell') -Filter '*.ps1')) {
+  $dateiFehler = $null
+  $dateiAst = [Management.Automation.Language.Parser]::ParseFile($datei.FullName, [ref]$null, [ref]$dateiFehler)
+  if ($dateiFehler.Count) { throw "Parserfehler in $($datei.Name): $($dateiFehler[0].Message)" }
+  foreach ($definition in @($dateiAst.FindAll({
+    param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst]
+  }, $true))) {
+    if (-not $alleFunktionen.ContainsKey($definition.Name)) { $alleFunktionen[$definition.Name] = $definition }
+  }
+}
+$ausgenommen = [string[]]@('Emit', 'Exit-SSEForegroundLease', 'Fail')
+$erreichbar = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+$offen = New-Object 'System.Collections.Generic.Queue[string]'
+foreach ($name in $erlaubteBefehle) { $offen.Enqueue($name) }
+while ($offen.Count) {
+  $name = $offen.Dequeue()
+  if ($ausgenommen -contains $name -or -not $alleFunktionen.ContainsKey($name) -or -not $erreichbar.Add($name)) { continue }
+  foreach ($aufruf in @($alleFunktionen[$name].Body.FindAll({
+    param($n) $n -is [Management.Automation.Language.CommandAst]
+  }, $true))) {
+    $ziel = [string]$aufruf.GetCommandName()
+    if ($ziel) { $offen.Enqueue($ziel) }
+  }
+}
+$verboten = '\$(script:)?AE\b|\$(script:)?WLK\b|\[SSEUiaTree\]|\[SSEUiaFreshRaw\]|\[SSEAccessible\]|Windows\.Automation|' +
+  'AutomationElement|Get-UiSnapshot|SSEWorkerControllerLease|mouse_event|keybd_event|SendUnicodeText|SendKeys|SendInput|' +
+  'SetCursorPos|SetForegroundWindow|ActivateThroughInputSink|SendMessage|PostMessage|ShowWindow|SetWindowPos|BringWindowToTop|' +
+  'Set-Content|Add-Content|Out-File|WriteAll|New-Item|Remove-Item|Start-Process|Start-Sleep|' +
+  'FileMode\]::(Create|CreateNew|Append|Truncate|OpenOrCreate)|FileAccess\]::(Write|ReadWrite)|' +
+  '\$(script:SSE_FOREGROUND_LEASE|lease)\.\w+\s*=[^=]'
+foreach ($name in @($erreichbar)) {
+  $treffer = [regex]::Match($alleFunktionen[$name].Extent.Text, $verboten, 'IgnoreCase')
+  if ($treffer.Success) { throw "Der Trockenlauf erreicht ueber '$name' etwas Verbotenes: $($treffer.Value)" }
+}
+foreach ($pflicht in @('Resolve-SSEWorkerArgsFile', 'Read-SSEBoundedUtf8File', 'Get-SSEExecutableIdentity', 'Resolve-SSEOwnedInputTick')) {
+  if (-not $erreichbar.Contains($pflicht)) { throw "Die Erreichbarkeitspruefung des Trockenlaufs hat '$pflicht' nicht erfasst." }
+}
+# Vor dem Auftrag gibt es keine Vordergrund-Lease. Ihr Abschluss muss deshalb
+# an seiner ersten Pruefung zurueckkehren, bevor er irgendetwas beruehrt - und
+# der Trockenlauf darf ihm kein Fenster nennen.
+$leaseAbschluss = $alleFunktionen['Exit-SSEForegroundLease']
+$abschlussAnweisungen = @($leaseAbschluss.Body.EndBlock.Statements)
+$erstePruefung = @($abschlussAnweisungen | Where-Object { $_ -is [Management.Automation.Language.IfStatementAst] })[0]
+$davorAnweisungen = @($abschlussAnweisungen | Where-Object { $_.Extent.StartOffset -lt $erstePruefung.Extent.StartOffset })
+if ($erstePruefung.Clauses[0].Item1.Extent.Text -cne '$null -eq $lease.watch' -or
+    @($erstePruefung.Clauses[0].Item2.Statements)[-1] -isnot [Management.Automation.Language.ReturnStatementAst] -or
+    @($davorAnweisungen | Where-Object { $_ -isnot [Management.Automation.Language.AssignmentStatementAst] }).Count -or
+    @($davorAnweisungen | Where-Object { $_.Extent.Text -match '^\$(script:SSE_FOREGROUND_LEASE|lease)\.' }).Count) {
+  throw 'Der Abschluss der Vordergrund-Lease kehrt ohne Lease nicht mehr an seiner ersten Pruefung zurueck.'
+}
+$leaseAnfang = @($oberste | Where-Object {
+  $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$script:SSE_FOREGROUND_LEASE'
+})
+if ($leaseAnfang.Count -ne 1 -or $leaseAnfang[0].Extent.Text -notmatch '(?m)^\s*watch=\$null\s*$') {
+  throw 'Die Vordergrund-Lease beginnt nicht mehr nachweislich ohne laufende Uebernahme.'
+}
+$abschlussImRahmen = @($rahmen.Body.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Exit-SSEForegroundLease'
+}, $true))
+if ($abschlussImRahmen.Count -ne 1 -or
+    $abschlussImRahmen[0].Extent.Text -cne "Exit-SSEForegroundLease -Force -Reason 'job-frame-warmup'") {
+  throw 'Der Trockenlauf darf den Lease-Abschluss nur ohne Fenster und genau einmal durchlaufen.'
+}
+
 Write-Output "Prewarm-Block: hinter allen auftragsunabhaengigen Zeilen (bis $($blockStart - 1)), vor der ersten auftragsabhaengigen (Zeile $ersteAuftragszeile) - bestanden"
 Write-Output 'Energiedrosselung: jeder Arbeiter waehlt sie vor seiner Bereitschaft fuer den eigenen Prozess ab - bestanden'
 Write-Output 'Energiedrosselung: der startende Prozess nennt sich, und der Arbeiter waehlt sie nur fuer seinen tatsaechlichen Elternprozess ab - bestanden'
+Write-Output "Auftragsrahmen: einmaliger Trockenlauf vor der Bereitschaft, $($erreichbar.Count) erreichbare Funktionen ohne UIA, Mutex, Eingabe, Schreiben oder Warten - bestanden"

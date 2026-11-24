@@ -29319,6 +29319,62 @@ if ($Prewarm) {
   $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
 }
 
+<#
+.SYNOPSIS
+Durchlaeuft den Auftragsrahmen einmal trocken, bevor der Reservearbeiter wartet.
+
+.DESCRIPTION
+Jeder Auftrag durchlaeuft um seine Operation herum dieselben Schritte:
+Argumentdatei pruefen und lesen, Argumente begrenzen, Prozesse und Fenster der
+Anwendung suchen, die Eingabe-Epoche lesen, die Vordergrund-Lease abschliessen
+und das Ergebnis schreiben. In einem frischen Prozess kostet jede dieser
+Anweisungen beim ersten Mal ein Vielfaches ihrer spaeteren Laufzeit, weil
+PowerShell Funktionen erst bei der ersten Ausfuehrung uebersetzt und ihre
+Aufrufstellen bindet. Der Reservearbeiter durchlaeuft den Rahmen deshalb
+einmal mit eigenen, bedeutungslosen Werten, solange niemand auf ihn wartet.
+
+Erlaubt ist hier nur, was nichts hinterlaesst und nichts beruehrt: keine
+UIA- oder MSAA-Abfrage (die Zusage "Reserve ohne UIA-Abfrage" gilt
+unveraendert), kein Sitzungsmutex, kein Schreiben, keine Eingabe, kein
+Fensterwechsel. Eine Vordergrund-Lease gibt es vor dem Auftrag nicht; ihr
+Abschluss kehrt deshalb an seiner ersten Pruefung zurueck.
+test/worker-prewarm-placement-contract.ps1 haelt die erlaubten Aufrufe fest.
+#>
+function Invoke-SSEJobFrameWarmup {
+  # Transport und Argumente. Die Argumentdatei gibt es nicht; ihre Pruefung
+  # laeuft trotzdem vollstaendig und endet in der eigenen Ablehnung.
+  try {
+    $null = Resolve-SSEWorkerArgsFile (Join-Path ([IO.Path]::GetTempPath()) ('sse-args-' + ('0' * 32) + '.json'))
+  } catch { }
+  $null = Read-SSEJsonFileStrict (Join-Path $script:SSE_PROFILE_DIR 'profile.json') 8MB
+  $frameArguments = '{"hwnd":1,"pid":1,"occurrence":1,"types":["warmup"]}' | ConvertFrom-Json
+  $null = Test-SSEPrivateTableTransport $frameArguments 'product_info' '' '' ''
+  $frameNodes = 0
+  Assert-SSEWorkerArgumentBudget $frameArguments 0 ([ref]$frameNodes)
+  $null = Get-SSEBoundedIntegerArg $frameArguments 'hwnd' 0 1 9007199254740991
+  $null = Get-SSEBoundedArrayArg $frameArguments 'types' 0 50
+
+  # Prozesse und Fenster: dieselbe lesende Suche, mit der fast jeder Auftrag
+  # beginnt - hier zusaetzlich fuer den eigenen Prozess, damit sie auch ohne
+  # laufende Anwendung vollstaendig durchlaufen wird.
+  $null = Get-SSEProcessIdentities
+  $null = Get-SSEProcessIdentity (Get-Process -Id $PID)
+  $null = ConvertTo-SSEWindowDescriptors ([SSEWindowEnumerator]::Describe([int[]]@($PID)))
+
+  # Eingabe-Epoche und Abschluss der hier nie erworbenen Vordergrund-Lease.
+  $frameTick = Get-SSELastInputTick
+  $null = Test-SSELastInputUnchanged $frameTick
+  $null = Get-SSEInputEpochEvidence $frameTick $frameTick 'job-frame-warmup'
+  Exit-SSEForegroundLease -Force -Reason 'job-frame-warmup'
+  $null = Get-SSEForegroundLeaseTelemetry
+
+  # Ergebnisausgang: dieselben Cmdlets wie in Emit, auf einem Wegwerfobjekt.
+  $frameResult = [pscustomobject]@{ ok=$true; rows=@([pscustomobject]@{ value=1 }) }
+  $frameResult | Add-Member -NotePropertyName ms -NotePropertyValue 0 -Force
+  $null = $frameResult | ConvertTo-Json -Depth 24 -Compress
+  $null = Get-Command Exit-SSEForegroundLease -CommandType Function -ErrorAction SilentlyContinue
+}
+
 if ($Prewarm) {
   # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
   # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
@@ -29340,6 +29396,10 @@ if ($Prewarm) {
   # frueher vorgezogen wurde (41 ms fuer Knoten, 19 ms fuer Fenster je frischem
   # Arbeitsprozess), gibt es nicht mehr - ein Warmlauf haette nur noch sich
   # selbst gewaermt und kostete Bereitschaftszeit.
+
+  # Den Rahmen, den jeder Auftrag um seine Operation herum durchlaeuft, einmal
+  # trocken ausfuehren - siehe Invoke-SSEJobFrameWarmup.
+  Invoke-SSEJobFrameWarmup
 
   # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
   # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
