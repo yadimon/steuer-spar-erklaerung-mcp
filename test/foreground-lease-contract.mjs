@@ -440,10 +440,27 @@ assert(sinkSource.includes("if (sink != IntPtr.Zero) DestroyWindow(sink);") &&
   sinkSource.indexOf("finally") < sinkSource.indexOf("DestroyWindow(sink)"),
   "Das eigene Fenster muss auf jedem Ausgang entfernt werden.");
 
+// Eine Epoche, die den Prozess verlaesst, muss die eigene Aktivierungseingabe
+// bereits enthalten: Die naechste Phase und die native Bruecke vergleichen roh.
+for (const exported of [
+  "inputEpoch=(Resolve-SSEOwnedInputTick $InputEpoch)",
+  "inputEpoch=(Resolve-SSEOwnedInputTick $inputBaseline)",
+  "inputEpoch=(Resolve-SSEOwnedInputTick $deleteInputBaseline)",
+]) assert.equal(worker.split(exported).length - 1, 1, `Weitergegebene Eingabe-Epoche fehlt oder ist mehrdeutig: ${exported}`);
+for (const raw of ["inputEpoch=$InputEpoch;", "inputEpoch=$inputBaseline;", "inputEpoch=$deleteInputBaseline;"]) {
+  assert(!worker.includes(raw), `Eine Phase gibt ihre Eingabe-Epoche ohne die eigene Aktivierung weiter: ${raw}`);
+}
+const cursorLease = readFileSync(new URL("../powershell/table-cursor-lease.ps1", import.meta.url), "utf8");
+assert(cursorLease.includes("$ownedTick=Resolve-SSEOwnedInputTick $InputTick") &&
+  cursorLease.includes("previousCursor=$lease.previousCursor;inputEpoch=$ownedTick}") &&
+  cursorLease.includes("@($lease.unattachableForeground) -contains [int64]$lease.previousForeground"),
+  "Die Lease-Uebergabe muss die fortgefuehrte Epoche und kein Fenster mit verweigerter Kopplung weitergeben.");
+
 const leaseInitializer = worker.match(/\$script:SSE_FOREGROUND_LEASE = \[ordered\]@\{[\s\S]*?\n\}\n/u)?.[0];
 assert(leaseInitializer, "Lease-Initialisierung fehlt.");
 const inputSinkProgram = `${[leaseInitializer,
-  ...["Enter-SSEForegroundInputSink(", "Test-SSELastInputUnchanged(", "Get-SSEInputEpochEvidence(", "Exit-SSEForegroundLease"]
+  ...["Enter-SSEForegroundInputSink(", "Resolve-SSEOwnedInputTick(", "Test-SSELastInputUnchanged(", "Get-SSEInputEpochEvidence(",
+    "Exit-SSEForegroundLease"]
     .map(functionBlock)].join("\n").replaceAll("[SW]::", "[InputSinkContract.Windows]::").replaceAll("SW+PT", "InputSinkContract.Point")}
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -492,6 +509,8 @@ Check ($script:SSE_FOREGROUND_LEASE.ownActivationInputs.Count -eq 1) 'Own activa
 Check ($script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 105 -and $script:SSE_FOREGROUND_LEASE.lastOwnedInputContext -ceq 'foreground-input-sink') 'Lease did not adopt its own activation input'
 Check ((Test-SSELastInputUnchanged ([uint64]100)) -and (Test-SSELastInputUnchanged ([uint64]105))) 'Own activation input was reported as foreign'
 Check (-not (Test-SSELastInputUnchanged ([uint64]98)) -and -not (Test-SSELastInputUnchanged $null)) 'Input before the own activation was hidden'
+Check ((Resolve-SSEOwnedInputTick ([uint64]100)) -eq 105 -and (Resolve-SSEOwnedInputTick ([uint64]105)) -eq 105 -and
+  (Resolve-SSEOwnedInputTick ([uint64]98)) -eq 98 -and $null -eq (Resolve-SSEOwnedInputTick $null)) 'A handed-over epoch must be carried across exactly the own activation'
 [InputSinkContract.Windows]::Tick = 106
 Check (-not (Test-SSELastInputUnchanged ([uint64]100)) -and -not (Test-SSELastInputUnchanged ([uint64]105))) 'Foreign input after the own activation was hidden'
 Reset-Fixture; $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick = [uint64]42
@@ -543,6 +562,8 @@ Remove-Variable -Name SSE_FOREGROUND_LEASE -Scope Script
 Set-StrictMode -Version Latest
 [InputSinkContract.Windows]::Tick = 100
 Check ((Test-SSELastInputUnchanged ([uint64]100)) -and -not (Test-SSELastInputUnchanged ([uint64]99))) 'The standalone input guard depends on lease state'
+Remove-Item -LiteralPath function:Resolve-SSEOwnedInputTick
+Check ((Test-SSELastInputUnchanged ([uint64]100)) -and -not (Test-SSELastInputUnchanged ([uint64]99))) 'The standalone input guard depends on the epoch resolver'
 [Console]::Write('passed')
 `;
 const inputSinkBehavior = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",

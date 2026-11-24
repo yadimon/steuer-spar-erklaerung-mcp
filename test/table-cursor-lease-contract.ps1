@@ -1,5 +1,14 @@
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '..\powershell\table-cursor-lease.ps1')
+# The handover carries the epoch across the worker's own activation input; load the actual resolver.
+$resolverSource=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
+$resolverErrors=$null
+$resolverAst=[Management.Automation.Language.Parser]::ParseInput($resolverSource,[ref]$null,[ref]$resolverErrors)
+if (@($resolverErrors).Count) {throw 'Worker PowerShell syntax failed.'}
+$resolver=@($resolverAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Resolve-SSEOwnedInputTick'},$true))
+if ($resolver.Count -ne 1) {throw 'Productive input epoch resolver must be unique.'}
+. ([scriptblock]::Create($resolver[0].Extent.Text))
 Add-Type -TypeDefinition @'
 using System;
 public static class SW {
@@ -51,6 +60,41 @@ foreach ($case in @('success','input','foreground','nonce','root','pid','start',
   if ($ok -ne ($case -eq 'success')) {throw "$case`: lease authority mismatch."}
   if (-not $ok -and $script:SSE_FOREGROUND_LEASE.watch) {throw 'Failed import installed restoration authority.'}
 }
+# The receiving phase is another process: it gets the epoch carried across this
+# worker's own activation input, and never a restore target that refused input
+# attachment. Any other epoch difference still withholds the handover.
+function New-ActivatedLease {
+  $activated=New-Lease
+  $activated | Add-Member NoteProperty ownActivationInputs (New-Object Collections.ArrayList)
+  $activated | Add-Member NoteProperty unattachableForeground (New-Object Collections.ArrayList)
+  $activated.watch=[Diagnostics.Stopwatch]::StartNew();$activated.depth=1;$activated.rootHwnd=111;$activated.targetPid=7
+  $activated.previousForeground=222;$activated.lastOwnedInputTick=10
+  $activated
+}
+# The guard mock accepts exactly the epoch this process proves as its own.
+function Test-SSELastInputUnchanged($Expected) {(Resolve-SSEOwnedInputTick $Expected) -eq (Resolve-SSEOwnedInputTick $script:tick)}
+[SW]::Foreground=[IntPtr]111;$script:tick=15
+$script:SSE_FOREGROUND_LEASE=New-ActivatedLease
+$null=$script:SSE_FOREGROUND_LEASE.ownActivationInputs.Add([pscustomobject]@{before=[uint64]10;after=[uint64]15})
+$ownActivation=Publish-SSETableCursorLeaseHandover ([IntPtr]111) 7 10
+if (-not $ownActivation -or $ownActivation.inputEpoch -ne 15 -or $ownActivation.previous.hwnd -ne 222) {
+  throw 'Own activation input was not carried into the handed-over epoch.'
+}
+$script:SSE_FOREGROUND_LEASE=New-ActivatedLease
+$null=$script:SSE_FOREGROUND_LEASE.ownActivationInputs.Add([pscustomobject]@{before=[uint64]10;after=[uint64]15})
+if (Publish-SSETableCursorLeaseHandover ([IntPtr]111) 7 11) {throw 'An epoch the lease does not own was handed over.'}
+$script:SSE_FOREGROUND_LEASE=New-ActivatedLease
+$script:SSE_FOREGROUND_LEASE.lastOwnedInputTick=7
+if (Publish-SSETableCursorLeaseHandover ([IntPtr]111) 7 15) {throw 'A current epoch outside the lease ownership was handed over.'}
+$script:tick=10
+$script:SSE_FOREGROUND_LEASE=New-ActivatedLease
+$null=$script:SSE_FOREGROUND_LEASE.unattachableForeground.Add([int64]222)
+$refusedPrevious=Publish-SSETableCursorLeaseHandover ([IntPtr]111) 7 10
+if (-not $refusedPrevious -or $refusedPrevious.inputEpoch -ne 10 -or $refusedPrevious.previous.hwnd -ne 0 -or
+    $refusedPrevious.previous.pid -ne 0 -or $refusedPrevious.previous.start -cne '0' -or $refusedPrevious.previous.class -cne '') {
+  throw 'A window that refused input attachment was handed over as restore target.'
+}
+function Test-SSELastInputUnchanged($Expected) {$Expected -eq $script:tick}
 # This test only imports function definitions: no real Worker or native UIA.
 $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
 $parseErrors=$null

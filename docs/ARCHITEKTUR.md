@@ -407,7 +407,10 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   genau eine eigene Eingabe: einen Klick auf ein eigenes, praktisch
   unsichtbares Fenster unter dem unbewegten Mauszeiger. Der Klick erreicht kein
   fremdes Fenster. Sein Vorher-/Nachher-Paar der Eingabe-Epoche gilt als eigene
-  Eingabe; jede andere Änderung bleibt ein Eingriff. An ein solches Fenster
+  Eingabe; jede andere Änderung bleibt ein Eingriff. Gibt eine Phase ihre
+  Epoche an die nächste Phase oder an die native Brücke weiter, enthält der
+  weitergegebene Wert diese eigene Eingabe bereits, denn dort wird ohne Kenntnis
+  des abgebenden Prozesses verglichen. An ein solches Fenster
   gibt der Cleanup den Vordergrund nicht zurück
   (`restoreSkippedReason: previous-window-refused-input-attachment`), weil er
   von dort nicht wieder zu holen wäre. Auf dem privaten Desktop, vor dem

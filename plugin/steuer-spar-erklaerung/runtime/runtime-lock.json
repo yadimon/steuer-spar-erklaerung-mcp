@@ -103,8 +103,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "4081565138888cc9cc5b92c7a15111dacb9010c49f731f87d3ffad0f48c3c23c",
-      "size": 1703087
+      "sha256": "7fdcdd1d8d94331a500b34bc9f14c14e7f46fe48282434bb68bfc3d57847415a",
+      "size": 1703692
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -123,8 +123,8 @@
     },
     {
       "path": "powershell/table-cursor-lease.ps1",
-      "sha256": "454794df283bfcdd46cb1496a1835b626ba033fc6f7685e141884b12dbb32035",
-      "size": 3345
+      "sha256": "94c3a441a18297152227e420262db6c47a8bc0d0d9c99fff9f7531b70e976705",
+      "size": 3896
     },
     {
       "path": "powershell/table-grid-read.ps1",

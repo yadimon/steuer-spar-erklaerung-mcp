@@ -14,13 +14,21 @@ function Get-SSETableCursorPreviousWindowIdentity {
 function Export-SSETableCursorLease {
   param([IntPtr]$Hwnd,[int]$ProcessId,$InputTick)
   $lease=$script:SSE_FOREGROUND_LEASE
+  # The next phase runs in another process and knows nothing about this
+  # worker's own activation input: hand over the epoch carried across it.
+  $ownedTick=Resolve-SSEOwnedInputTick $InputTick
   if (-not $lease.watch -or $lease.rootHwnd -ne [int64]$Hwnd -or $lease.targetPid -ne $ProcessId -or
       $null -eq $InputTick -or -not (Test-SSELastInputUnchanged $InputTick) -or
-      [SW]::GetForegroundWindow() -ne $Hwnd -or $lease.lastOwnedInputTick -ne $InputTick) {return $null}
-  $previous=Get-SSETableCursorPreviousWindowIdentity ([IntPtr][int64]$lease.previousForeground)
+      [SW]::GetForegroundWindow() -ne $Hwnd -or (Resolve-SSEOwnedInputTick $lease.lastOwnedInputTick) -ne $ownedTick) {return $null}
+  # A window that refused input attachment is never a restore target; the
+  # receiving phase must not hand the foreground back to it either.
+  $previousWindow=$(if ($lease.unattachableForeground -and @($lease.unattachableForeground) -contains [int64]$lease.previousForeground) {
+    [IntPtr]::Zero
+  } else { [IntPtr][int64]$lease.previousForeground })
+  $previous=Get-SSETableCursorPreviousWindowIdentity $previousWindow
   if (-not $previous) {return $null}
   [pscustomobject]@{schemaVersion=1;nonce=[guid]::NewGuid().ToString();rootHwnd=[int64]$Hwnd;targetPid=$ProcessId;
-    previous=$previous;previousCursor=$lease.previousCursor;inputEpoch=$InputTick}
+    previous=$previous;previousCursor=$lease.previousCursor;inputEpoch=$ownedTick}
 }
 
 function Import-SSETableCursorLease {

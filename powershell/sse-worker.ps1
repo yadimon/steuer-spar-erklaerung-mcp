@@ -8161,20 +8161,30 @@ function Get-SSELastInputTick {
   } catch { $null }
 }
 
+# Fuehrt eine Eingabe-Epoche ueber die eigenen Aktivierungseingaben dieses
+# Auftrags fort: genau ihre festgehaltenen Vorher-/Nachher-Paare, in zeitlicher
+# Reihenfolge, sonst nichts. Wer eine Epoche an eine spaetere Phase oder einen
+# anderen Prozess weitergibt, gibt diese fortgefuehrte Epoche weiter - dort
+# kennt niemand mehr die eigene Eingabe dieses Prozesses.
+function Resolve-SSEOwnedInputTick($Tick) {
+  if ($null -eq $Tick) { return $null }
+  $resolved = [uint64]$Tick
+  foreach ($ownInput in @($script:SSE_FOREGROUND_LEASE.ownActivationInputs)) {
+    if ($null -ne $ownInput -and [uint64]$ownInput.before -eq $resolved) { $resolved = [uint64]$ownInput.after }
+  }
+  $resolved
+}
+
 function Test-SSELastInputUnchanged($ExpectedTick) {
   if ($null -eq $ExpectedTick) { return $false }
   $current = Get-SSELastInputTick
   if ($null -eq $current) { return $false }
   if ([uint64]$current -eq [uint64]$ExpectedTick) { return $true }
-  # Die einzige weitere gueltige Epoche ist die eigene Aktivierungseingabe:
-  # genau ihr festgehaltenes Vorher-/Nachher-Paar, in zeitlicher Reihenfolge.
-  $ownInputs = $null
-  try { $ownInputs = $script:SSE_FOREGROUND_LEASE.ownActivationInputs } catch { }
-  $expected = [uint64]$ExpectedTick
-  foreach ($ownInput in @($ownInputs)) {
-    if ($null -ne $ownInput -and [uint64]$ownInput.before -eq $expected) { $expected = [uint64]$ownInput.after }
-  }
-  [bool]([uint64]$current -eq $expected)
+  # Die einzige weitere gueltige Epoche ist die eigene Aktivierungseingabe.
+  # Ohne Lease-Zustand gibt es keine; dann bleibt jede Abweichung ein Eingriff.
+  $resolved = $null
+  try { $resolved = Resolve-SSEOwnedInputTick $ExpectedTick } catch { }
+  [bool]($null -ne $resolved -and [uint64]$current -eq [uint64]$resolved)
 }
 
 function Get-SSEInputEpochEvidence($Baseline, $Observed, [string]$OwnActionContext) {
@@ -23085,7 +23095,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       param($Snapshot,$InputEpoch)
       $clientOrigin=@([SW]::GetPhysicalClientOrigin($hwnd))
       if ($clientOrigin.Count -ne 2) { Fail 'Physischer HWND-Clientursprung konnte nicht gebunden werden.' 'precondition-failed' }
-      [pscustomobject]@{hwnd=[int64]$hwnd;pid=[int]$main.pid;inputEpoch=$InputEpoch;dirty=[bool]$dirtyBefore;
+      [pscustomobject]@{hwnd=[int64]$hwnd;pid=[int]$main.pid;inputEpoch=(Resolve-SSEOwnedInputTick $InputEpoch);dirty=[bool]$dirtyBefore;
         windowTitle=Get-SSEWindowTitleText $hwnd;
         clientOrigin=$clientOrigin;
         dpi=[int][SW]::GetDpiForWindow($hwnd);windowFingerprint=(Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint;
@@ -25476,7 +25486,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       versteckterDesktop=[bool]$script:DESKTOP_NAME
     }
-    if ($mutationAuthority) {$mutationSuccess | Add-Member NoteProperty mutationPostProof ([pscustomobject]@{inputEpoch=$inputBaseline;dirty=[bool](Get-DirtyState $afterTree)})}
+    if ($mutationAuthority) {$mutationSuccess | Add-Member NoteProperty mutationPostProof ([pscustomobject]@{inputEpoch=(Resolve-SSEOwnedInputTick $inputBaseline);dirty=[bool](Get-DirtyState $afterTree)})}
     Emit $mutationSuccess
   }
 
@@ -25946,7 +25956,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         selectionCount=$selectionCount;selectionNames=$selectionNames;selectionYs=$selectionYs
         tableBinding=[pscustomobject]@{sumOccurrence=$sumOccurrence;sumY=$regionUpperY;previousSummaryY=$targetRegion.previousSummaryY;rowY=$zelle.y}
         searchSteps=$searchSteps
-        mutationPostProof=[pscustomobject]@{inputEpoch=$deleteInputBaseline;dirty=[bool](Get-DirtyStateFast $hwnd);nativeVerificationPending=$true}
+        mutationPostProof=[pscustomobject]@{inputEpoch=(Resolve-SSEOwnedInputTick $deleteInputBaseline);dirty=[bool](Get-DirtyStateFast $hwnd);nativeVerificationPending=$true}
       })
     }
     throw 'Native deletion did not return its complete-model verification handoff.'
