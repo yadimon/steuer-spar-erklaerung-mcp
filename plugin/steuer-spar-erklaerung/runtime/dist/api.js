@@ -39217,6 +39217,9 @@ function poolSizeForHost(speicherGiB, kerne) {
 function defaultPoolSize() {
   return poolSizeForHost(totalmem() / 1024 ** 3, availableParallelism());
 }
+function notifyPoolChange() {
+  for (const listener of [...poolChangeListeners]) listener();
+}
 function lastPrewarmFailure() {
   return failureReason;
 }
@@ -39255,6 +39258,7 @@ function discard(candidate, reason) {
   candidate.child.stdin.destroy();
   candidate.child.stdout.destroy();
   candidate.child.stderr.destroy();
+  notifyPoolChange();
 }
 function startWarmSpare() {
   let child;
@@ -39279,6 +39283,7 @@ function startWarmSpare() {
     ready: false,
     discarded: false,
     startupPending: true,
+    startedAt: performance.now(),
     release: () => void 0
   };
   starting++;
@@ -39328,7 +39333,9 @@ function startWarmSpare() {
       return;
     }
     candidate.ready = true;
+    observedStartupMs = performance.now() - candidate.startedAt;
     failureReason = null;
+    notifyPoolChange();
   };
   const onStderr = (chunk) => {
     if (stderrText.length < MAX_HANDSHAKE_BYTES) stderrText += chunk.toString("utf8");
@@ -39398,6 +39405,38 @@ function takeWarmSpare() {
   setSparePriority(candidate.child, osConstants.priority.PRIORITY_NORMAL);
   return { child: candidate.child, transportCapability: candidate.transportCapability, residualStdout: candidate.residualStdout };
 }
+function oldestStartingSpare() {
+  const fingerprint = environmentFingerprint();
+  return spares.find((candidate) => !candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
+}
+function startingSpareWaitMs() {
+  if (!enabled || PREWARM_DISABLED || shuttingDown || observedStartupMs === null) return 0;
+  const oldest = oldestStartingSpare();
+  if (!oldest) return 0;
+  const elapsedMs = performance.now() - oldest.startedAt;
+  if (elapsedMs < observedStartupMs * STARTING_SPARE_MIN_PROGRESS) return 0;
+  return Math.max(0, Math.ceil(observedStartupMs * STARTING_SPARE_PATIENCE - elapsedMs));
+}
+function waitForStartingSpare(maxWaitMs, signal) {
+  const budgetMs = Math.min(maxWaitMs, startingSpareWaitMs());
+  if (!(budgetMs > 0) || signal?.aborted || isWarmSpareReady()) return Promise.resolve();
+  const awaited = oldestStartingSpare();
+  if (awaited) setSparePriority(awaited.child, osConstants.priority.PRIORITY_NORMAL);
+  return new Promise((resolve17) => {
+    const finish = () => {
+      clearTimeout(timer);
+      poolChangeListeners.delete(onPoolChange);
+      signal?.removeEventListener("abort", finish);
+      resolve17();
+    };
+    const onPoolChange = () => {
+      if (isWarmSpareReady() || startingSpareWaitMs() <= 0) finish();
+    };
+    const timer = setTimeout(finish, budgetMs);
+    poolChangeListeners.add(onPoolChange);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
 function enableWorkerPrewarm() {
   enabled = true;
   shuttingDown = false;
@@ -39408,7 +39447,7 @@ function shutdownWarmSpare() {
   enabled = false;
   for (const candidate of [...spares]) discard(candidate, "API wurde beendet.");
 }
-var HERE, WORKER_SCRIPT, MAX_HANDSHAKE_BYTES, PREWARM_STARTUP_TIMEOUT_MS, PREWARM_RETRY_DELAY_MS, PREWARM_POOL_SIZE, PREWARM_DISABLED, enabled, spares, starting, blockedUntil, shuttingDown, failureReason;
+var HERE, WORKER_SCRIPT, MAX_HANDSHAKE_BYTES, PREWARM_STARTUP_TIMEOUT_MS, PREWARM_RETRY_DELAY_MS, PREWARM_POOL_SIZE, PREWARM_DISABLED, STARTING_SPARE_MIN_PROGRESS, STARTING_SPARE_PATIENCE, enabled, spares, starting, blockedUntil, shuttingDown, failureReason, observedStartupMs, poolChangeListeners;
 var init_worker_prewarm = __esm({
   "src/worker-prewarm.ts"() {
     "use strict";
@@ -39427,12 +39466,16 @@ var init_worker_prewarm = __esm({
     );
     PREWARM_POOL_SIZE = boundedPoolSizeFromEnvironment();
     PREWARM_DISABLED = process.env.SSE_WORKER_PREWARM === "0";
+    STARTING_SPARE_MIN_PROGRESS = 0.25;
+    STARTING_SPARE_PATIENCE = 1.5;
     enabled = false;
     spares = [];
     starting = 0;
     blockedUntil = 0;
     shuttingDown = false;
     failureReason = null;
+    observedStartupMs = null;
+    poolChangeListeners = /* @__PURE__ */ new Set();
   }
 });
 
@@ -39799,7 +39842,22 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
   );
 }
 async function dispatchWorkerOnDesktop(op, args, timeoutMs, signal, desk, markerAllowsWarmSpare) {
-  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
+  let spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
+  if (!spare && !desk) {
+    const waitBudgetMs = Math.min(startingSpareWaitMs(), Math.floor(timeoutMs / 2));
+    if (waitBudgetMs > 0) {
+      const waitStarted = performance.now();
+      await waitForStartingSpare(waitBudgetMs, signal);
+      if (signal?.aborted) {
+        throw new WorkerError(
+          "API-Client hat den Aufruf waehrend des Wartens auf einen Reservearbeiter abgebrochen; kein Worker wurde gestartet.",
+          "aborted"
+        );
+      }
+      timeoutMs = Math.max(1, timeoutMs - Math.ceil(performance.now() - waitStarted));
+      spare = takeWarmSpare();
+    }
+  }
   const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
   let argsFile;
   try {

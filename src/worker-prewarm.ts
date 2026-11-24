@@ -117,8 +117,29 @@ interface PooledSpare extends WarmSpare {
   ready: boolean;
   discarded: boolean;
   startupPending: boolean;
+  /** Monotonic time at which this child's preparation began. */
+  startedAt: number;
   release: () => void;
 }
+
+/**
+ * Warten statt Kaltstart, wenn keine Reserve bereit ist.
+ *
+ * Ein Kaltstart zerlegt dasselbe Skript noch einmal von vorn. Eine Reserve,
+ * die schon eine Weile startet, ist frueher fertig: Der Aufruf spart genau
+ * ihren Vorsprung. Zwei Grenzen halten das ehrlich.
+ *
+ * Eine eben erst gestartete Reserve hat keinen Vorsprung. Auf sie zu warten
+ * kostete so viel wie der Kaltstart, naehme einer dichten Aufruffolge aber den
+ * zusaetzlichen Arbeiter, den der Kaltstart mitbringt. Gewartet wird deshalb
+ * erst, wenn sie ein Viertel des beobachteten Startbedarfs hinter sich hat.
+ *
+ * Eine Reserve, die nicht bereit wird, darf den Aufruf nicht aufhalten.
+ * Gewartet wird hoechstens bis zum Anderthalbfachen des beobachteten
+ * Startbedarfs; danach startet der Aufruf kalt wie zuvor.
+ */
+const STARTING_SPARE_MIN_PROGRESS = 0.25;
+const STARTING_SPARE_PATIENCE = 1.5;
 
 /**
  * Vorgewaermt wird nur im dauerhaft laufenden API-Server. Ein kurzlebiger
@@ -131,6 +152,18 @@ let starting = 0;
 let blockedUntil = 0;
 let shuttingDown = false;
 let failureReason: string | null = null;
+/**
+ * Vorbereitungsdauer der zuletzt bereit gewordenen Reserve. Sie ist der
+ * einzige Massstab dafuer, wie weit eine noch startende Reserve ist. Solange
+ * keine bereit wurde, fehlt er - dann wartet auch niemand.
+ */
+let observedStartupMs: number | null = null;
+/** Wartende Aufrufe; geweckt, sobald eine Reserve bereit wird oder ausscheidet. */
+const poolChangeListeners = new Set<() => void>();
+
+function notifyPoolChange(): void {
+  for (const listener of [...poolChangeListeners]) listener();
+}
 
 /** Letzter Grund, warum kein Reservearbeiter bereitsteht; null heisst: alles gut. */
 export function lastPrewarmFailure(): string | null {
@@ -189,6 +222,7 @@ function discard(candidate: PooledSpare, reason: string): void {
   candidate.child.stdin.destroy();
   candidate.child.stdout.destroy();
   candidate.child.stderr.destroy();
+  notifyPoolChange();
 }
 
 /**
@@ -222,6 +256,7 @@ function startWarmSpare(): boolean {
     ready: false,
     discarded: false,
     startupPending: true,
+    startedAt: performance.now(),
     release: () => undefined,
   };
   starting++;
@@ -272,7 +307,9 @@ function startWarmSpare(): boolean {
       return;
     }
     candidate.ready = true;
+    observedStartupMs = performance.now() - candidate.startedAt;
     failureReason = null;
+    notifyPoolChange();
   };
 
   const onStderr = (chunk: Buffer) => {
@@ -361,6 +398,56 @@ export function takeWarmSpare(): WarmSpare | null {
   // hinter anderer Arbeit zurueckstehen.
   setSparePriority(candidate.child, osConstants.priority.PRIORITY_NORMAL);
   return { child: candidate.child, transportCapability: candidate.transportCapability, residualStdout: candidate.residualStdout };
+}
+
+/** `spares` steht in Startreihenfolge: Die erste noch startende Reserve ist die aelteste. */
+function oldestStartingSpare(): PooledSpare | undefined {
+  const fingerprint = environmentFingerprint();
+  return spares.find((candidate) =>
+    !candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
+}
+
+/**
+ * Wie viele Millisekunden lohnt es, auf die aelteste startende Reserve zu
+ * warten, statt kalt zu starten? 0 heisst: nicht warten.
+ */
+export function startingSpareWaitMs(): number {
+  if (!enabled || PREWARM_DISABLED || shuttingDown || observedStartupMs === null) return 0;
+  const oldest = oldestStartingSpare();
+  if (!oldest) return 0;
+  const elapsedMs = performance.now() - oldest.startedAt;
+  if (elapsedMs < observedStartupMs * STARTING_SPARE_MIN_PROGRESS) return 0;
+  return Math.max(0, Math.ceil(observedStartupMs * STARTING_SPARE_PATIENCE - elapsedMs));
+}
+
+/**
+ * Wartet, bis eine Reserve bereit ist, sich das Warten nicht mehr lohnt, die
+ * Frist ablaeuft oder der Aufrufer abbricht - was zuerst eintritt.
+ *
+ * Entnommen wird hier bewusst nichts: Das tut weiterhin der Aufrufer mit
+ * `takeWarmSpare`, damit die Entnahme und das Anhaengen seiner eigenen
+ * Listener in derselben Ereignisschleifenrunde bleiben.
+ */
+export function waitForStartingSpare(maxWaitMs: number, signal?: AbortSignal): Promise<void> {
+  const budgetMs = Math.min(maxWaitMs, startingSpareWaitMs());
+  if (!(budgetMs > 0) || signal?.aborted || isWarmSpareReady()) return Promise.resolve();
+  // Auf diese Reserve wartet jetzt ein Auftrag; sie steht nicht mehr hinter anderer Arbeit zurueck.
+  const awaited = oldestStartingSpare();
+  if (awaited) setSparePriority(awaited.child, osConstants.priority.PRIORITY_NORMAL);
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      poolChangeListeners.delete(onPoolChange);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const onPoolChange = () => {
+      if (isWarmSpareReady() || startingSpareWaitMs() <= 0) finish();
+    };
+    const timer = setTimeout(finish, budgetMs);
+    poolChangeListeners.add(onPoolChange);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
 }
 
 /**

@@ -345,8 +345,13 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Wie viele es sind, richtet sich nach der Ausstattung des Rechners: vier ab
   24 GiB Arbeitsspeicher und acht Kernen, drei ab 12 GiB und vier Kernen, sonst
   zwei. Der Vorrat berücksichtigt den Speicherbedarf wartender Prozesse.
-  Treffen Aufträge schneller ein, als Reserven nachwachsen, benötigt der
-  nächste Auftrag einen Kaltstart.
+  Treffen Aufträge schneller ein, als Reserven nachwachsen, wartet der nächste
+  Auftrag auf eine Reserve, die schon mindestens ein Viertel ihres zuletzt
+  beobachteten Startbedarfs hinter sich hat - sie ist früher fertig als ein
+  Kaltstart. Das Warten endet spätestens beim Anderthalbfachen dieses Bedarfs
+  und verbraucht höchstens die Hälfte der Frist des Auftrags; die Wartezeit
+  zählt zu dieser Frist. Ohne eine solche Reserve, nach Ablauf der Wartezeit
+  und auf einem markierten Privatdesktop bleibt es beim Kaltstart.
   `SSE_WORKER_PREWARM_POOL_SIZE` übersteuert das und begrenzt den Vorrat auf 1 bis 4.
 - Jeder Worker wählt für seinen eigenen Prozess die Energiedrosselung ab, die
   Windows unter Energiesparplänen wenige Sekunden nach dem Start auf Prozesse

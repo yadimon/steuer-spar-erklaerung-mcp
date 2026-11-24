@@ -281,7 +281,7 @@ public static class Program {
       mutex.WaitOne();
       try {
         launch = File.Exists(state) ? File.ReadAllLines(state).Length + 1 : 1;
-        string launchLine = (mode == "assigned-timeout" || mode == "inherited-pipe")
+        string launchLine = (mode == "assigned-timeout" || mode == "inherited-pipe" || mode == "delayed-ready")
           ? "launch|" + launch + "|" + pid
           : launch + "|" + pid;
         File.AppendAllText(state, launchLine + Environment.NewLine);
@@ -319,6 +319,29 @@ public static class Program {
         return 0;
       }
       Console.WriteLine("{\\\"ok\\\":true,\\\"fixture\\\":\\\"replacement\\\"}");
+      Console.Out.Flush();
+      return 0;
+    }
+    if (mode == "delayed-ready") {
+      // A reserve needs a fixed, generous time until readiness; a cold start
+      // answers at once - except for the one operation that never answers.
+      // Each result names its own launch and kind.
+      bool reserve = Array.IndexOf(args, "-Prewarm") >= 0;
+      Append(state, mutexName, "kind|" + launch + "|" + (reserve ? "reserve" : "cold"));
+      if (!reserve) {
+        if (args[Array.IndexOf(args, "-Op") + 1] == "health") {
+          Thread.Sleep(Timeout.Infinite);
+          return 0;
+        }
+        Console.WriteLine("{\\\"ok\\\":true,\\\"fixture\\\":\\\"cold\\\",\\\"launch\\\":" + launch + "}");
+        Console.Out.Flush();
+        return 0;
+      }
+      Thread.Sleep(int.Parse(Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_READY_DELAY_MS")));
+      Console.WriteLine("{\\\"prewarm\\\":\\\"ready\\\",\\\"pid\\\":" + pid + "}");
+      Console.Out.Flush();
+      if (Console.ReadLine() == null) return 0;
+      Console.WriteLine("{\\\"ok\\\":true,\\\"fixture\\\":\\\"reserve\\\",\\\"launch\\\":" + launch + "}");
       Console.Out.Flush();
       return 0;
     }
@@ -501,6 +524,45 @@ try {
       throw new AggregateError(
         [error, ...cleanupErrors],
         "Assigned warm-timeout fixture and exact process cleanup both failed.",
+      );
+    }
+    throw error;
+  }
+
+  // Without a ready reserve a call waits for one that is well into its
+  // startup instead of starting cold, bounded by its own deadline.
+  const awaitedState = join(sandbox, "await-starting-state.txt");
+  try {
+    const awaitedOutput = execFileSync(
+      process.execPath,
+      [join(root, "test", "fixtures", "worker-warm-await-starting.mjs")],
+      {
+        cwd: root,
+        windowsHide: true,
+        timeout: 120_000,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEMP: sandbox,
+          TMP: sandbox,
+          SSE_POWERSHELL_EXE: fixtureExecutable,
+          SSE_WORKER_PREWARM_POOL_SIZE: "1",
+          SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "30000",
+          SSE_WORKER_PREWARM_RETRY_DELAY_MS: "1000",
+          SSE_PREWARM_FIXTURE_STATE: awaitedState,
+          SSE_PREWARM_FIXTURE_MUTEX: `Local\\SSEAwaitStarting${randomUUID().replaceAll("-", "")}`,
+          SSE_PREWARM_FIXTURE_MODE: "delayed-ready",
+          SSE_PREWARM_FIXTURE_READY_DELAY_MS: "6000",
+        },
+      },
+    );
+    assert.match(awaitedOutput, /Starting reserve: awaited with a head start/u);
+  } catch (error) {
+    const cleanupErrors = cleanupAssignedFixtureProcesses(awaitedState, fixtureExecutable);
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "Starting-reserve fixture and exact process cleanup both failed.",
       );
     }
     throw error;
