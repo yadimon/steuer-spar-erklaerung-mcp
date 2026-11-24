@@ -149,6 +149,7 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
     `export const shutdownWarmSpare=()=>{record('worker-prewarm');${prewarmFailure ? "setInterval(()=>{},1000);throw new Error('synthetic prewarm shutdown failure');" : ""}};`,
     "export const warmSparePoolStatus=()=>({ready:1,starting:0,target:1});",
     "export const ensureWarmSpare=()=>{throw new Error('Real workers forbidden.');};export const takeWarmSpare=()=>{throw new Error('Real workers forbidden.');};",
+    "export const startingSpareWaitMs=()=>{throw new Error('Real workers forbidden.');};export const waitForStartingSpare=()=>{throw new Error('Real workers forbidden.');};",
   ].join("\n");
   const preloader = [
     "import fs from 'node:fs';import http from 'node:http';import {basename,dirname,resolve} from 'node:path';import {registerHooks,syncBuiltinESMExports} from 'node:module';",
@@ -225,6 +226,7 @@ function runPendingOrStartup(name, { pending, startup, code = 23, holdHandle = t
     startup === "prewarm" ? "throw new Error('synthetic-startup-prewarm');" : "",
     "};export const isWarmSpareReady=()=>true;export const lastPrewarmFailure=()=>null;export const prewarmStartupTimeoutMs=()=>1000;",
     "export const warmSparePoolStatus=()=>({target:1});export const ensureWarmSpare=()=>{};export const takeWarmSpare=()=>null;",
+    "export const startingSpareWaitMs=()=>0;export const waitForStartingSpare=()=>Promise.resolve();",
     "export const shutdownWarmSpare=()=>{record('worker-prewarm');",
     pending === "worker-prewarm" ? "return hang();" : "",
     "};",
