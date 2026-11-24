@@ -410,7 +410,10 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Eingabe; jede andere Änderung bleibt ein Eingriff. Gibt eine Phase ihre
   Epoche an die nächste Phase oder an die native Brücke weiter, enthält der
   weitergegebene Wert diese eigene Eingabe bereits, denn dort wird ohne Kenntnis
-  des abgebenden Prozesses verglichen. An ein solches Fenster
+  des abgebenden Prozesses verglichen. Hält eine Shell-Oberfläche den
+  Vordergrund, geschieht die Aktivierung für Operationen, die den Vordergrund
+  ohnehin holen können, schon vor dem Auftrag und damit vor jedem
+  Eingabewächter; reine Leser lösen sie nie aus. An ein solches Fenster
   gibt der Cleanup den Vordergrund nicht zurück
   (`restoreSkippedReason: previous-window-refused-input-attachment`), weil er
   von dort nicht wieder zu holen wäre. Auf dem privaten Desktop, vor dem

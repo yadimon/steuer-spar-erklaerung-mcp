@@ -5335,6 +5335,55 @@ function Enter-SSEForegroundInputSink([IntPtr]$Hwnd, [IntPtr]$DeniedForeground) 
   [bool]($evidence[5] -eq 1 -and [SW]::GetForegroundWindow() -eq $Hwnd)
 }
 
+# Operationen, die den Vordergrund holen koennen: die statische Huelle aller
+# Wege zu Show-SSEWindow, Enter-SSEForegroundLease, Enter-SSEPopupForeground
+# und Set-SSEForegroundWindowCore. test/foreground-lease-contract.mjs rechnet
+# sie am Syntaxbaum nach; reine Leser stehen nicht darin.
+$script:SSE_FOREGROUND_CAPABLE_OPERATIONS = @(
+  'bulk_action','checker_detail','checker_open_plan','checker_reset','click','click_point','combo_select',
+  'desktop_stop','dialog_answer','export_csv','file_dialog_select','goto','goto_tree','menu','menu_click',
+  'position_create','receipt_manager_action','receipt_manager_bulk_upsert','receipt_manager_classification_options',
+  'receipt_manager_classify','receipt_manager_delete','receipt_manager_import','receipt_manager_link',
+  'receipt_manager_read','receipt_manager_update','result_details','save_as','table_add','table_delete',
+  'table_read','table_update','tracked_set_value','tree_scroll','tree_top','vast_mapping_options',
+  'vast_mapping_select','vast_row_details','vast_row_set_expanded'
+)
+# Shell-Oberflaechen, deren Eingabewarteschlange keine Kopplung zulaesst.
+$script:SSE_SHELL_SURFACE_PROCESSES = @('ShellExperienceHost','StartMenuExperienceHost','SearchHost','SearchApp')
+
+# Vor dem Auftrag, bevor irgendein Pfad eine Eingabe-Epoche festhaelt: Haelt
+# eine Shell-Oberflaeche den Vordergrund, holt ihn eine Operation, die ihn
+# ohnehin braucht, sofort ueber die eigene Eingabe. Danach sehen alle
+# Eingabewaechter - auch die, die ihre Epoche roh vergleichen oder an eine
+# spaetere Phase weitergeben - nur die Epoche NACH dieser Eingabe, und die
+# Lease merkt sich das eigene Fenster statt der Shell-Oberflaeche als vorigen
+# Vordergrund. Reine Leser holen den Vordergrund nie. Ist das Ziel nicht
+# eindeutig, geschieht nichts: Die Operation meldet ihren Bindungsfehler selbst.
+function Initialize-SSEForegroundReachability([string]$Operation, $Arguments) {
+  if ($script:DESKTOP_NAME -or $script:SSE_FOREGROUND_CAPABLE_OPERATIONS -cnotcontains $Operation) { return }
+  if ($Operation -ceq 'table_read' -and $null -eq (Arg $Arguments '__tableCursorPlan') -and
+      ((Arg $Arguments 'noKeys' $false) -ne $false -or [string](Arg $Arguments 'readMode') -ceq 'grid')) { return }
+  $foreground = [SW]::GetForegroundWindow()
+  if ($foreground -eq [IntPtr]::Zero -or (Get-SSEWindowClassName $foreground) -cne 'Windows.UI.Core.CoreWindow') { return }
+  $foregroundPid = 0
+  [SW]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+  $foregroundName = ''
+  if ($foregroundPid -gt 0) {
+    try { $foregroundName = [string](Get-Process -Id $foregroundPid -ErrorAction Stop).ProcessName } catch { }
+  }
+  if ($script:SSE_SHELL_SURFACE_PROCESSES -cnotcontains $foregroundName) { return }
+  $windows = @(Get-Windows 'SSE')
+  $requestedHwnd = Arg $Arguments 'hwnd'
+  $requestedPid = Arg $Arguments 'pid'
+  $targets = @(if ($requestedHwnd) {
+    $windows | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd }
+  } else {
+    Get-SSEMainWindowCandidates $windows | Where-Object { -not $requestedPid -or [int]$_.pid -eq [int]$requestedPid }
+  })
+  if ($targets.Count -ne 1 -or $targets[0].minimiert -or $targets[0].hung) { return }
+  $null = Enter-SSEForegroundInputSink ([IntPtr][int64]$targets[0].hwnd) $foreground
+}
+
 function Enter-SSEForegroundLease([IntPtr]$Hwnd, [switch]$ObserveOnly, $ExpectedInputTick = $null) {
   $lease = $script:SSE_FOREGROUND_LEASE
   if ($ObserveOnly -and $null -ne $lease.watch) { return $false }
@@ -29521,6 +29570,7 @@ if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
   }
 }
 Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
+Initialize-SSEForegroundReachability $Op $a
 
 # Beide Startpfade haben dieselbe Dispatcherdefinition bereits registriert.
 # Der vorgewaermte Pfad hat zusaetzlich die Uebersetzung vor der Bereitschaft

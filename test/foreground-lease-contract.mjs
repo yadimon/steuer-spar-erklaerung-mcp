@@ -409,8 +409,29 @@ assert.match(topmostCore,
   "Die Eingabe-Aktivierung darf nur dem eigenen Ziel nach verweigerter Kopplung dienen.");
 assert.equal((topmostCore.match(/Enter-SSEForegroundInputSink/gu) ?? []).length, 1,
   "Die Eingabe-Aktivierung hat genau einen Aufrufer.");
-assert.equal((worker.match(/Enter-SSEForegroundInputSink \$/gu) ?? []).length, 1,
-  "Kein anderer Workerpfad darf die Eingabe-Aktivierung direkt ausloesen.");
+assert.equal((worker.match(/Enter-SSEForegroundInputSink [$(]/gu) ?? []).length, 2,
+  "Nur die dritte Aktivierungsstufe und die Pruefung vor dem Auftrag duerfen die Eingabe-Aktivierung ausloesen.");
+
+// Vor dem Auftrag: Eine Operation, die den Vordergrund ohnehin braucht, holt ihn
+// von einer Shell-Oberflaeche, BEVOR irgendein Pfad eine Eingabe-Epoche festhaelt.
+const reachability = functionBlock("Initialize-SSEForegroundReachability(");
+assert.match(worker,
+  /\nAssert-SSEVerifiedBuildForOperation \$profilePolicyOperation \$a\nInitialize-SSEForegroundReachability \$Op \$a\n/u,
+  "Die Vordergrundpruefung muss nach allen Freigaben und unmittelbar vor dem Dispatcher laufen.");
+assert.equal((worker.match(/Initialize-SSEForegroundReachability \$/gu) ?? []).length, 1,
+  "Die Vordergrundpruefung vor dem Auftrag hat genau einen Aufrufer.");
+assert(reachability.indexOf("$script:SSE_FOREGROUND_CAPABLE_OPERATIONS -cnotcontains $Operation") <
+  reachability.indexOf("[SW]::GetForegroundWindow()") &&
+  reachability.indexOf("$script:SSE_SHELL_SURFACE_PROCESSES -cnotcontains $foregroundName") <
+  reachability.indexOf("Enter-SSEForegroundInputSink ("),
+  "Reine Leser und gewoehnliche Vordergrundfenster duerfen keine Eingabe-Aktivierung ausloesen.");
+assert(!reachability.includes("Fail ") && !reachability.includes("Emit "),
+  "Die Vordergrundpruefung darf den Auftrag nie selbst beenden.");
+const capableList = worker.match(/\$script:SSE_FOREGROUND_CAPABLE_OPERATIONS = @\(([\s\S]*?)\n\)\n/u)?.[1];
+assert(capableList, "Liste der vordergrundfaehigen Operationen fehlt.");
+const declaredCapable = [...capableList.matchAll(/'([a-z_]+)'/gu)].map((match) => match[1]);
+assert.deepEqual(declaredCapable, [...declaredCapable].sort(), "Die Liste der vordergrundfaehigen Operationen ist nicht sortiert.");
+assert.equal(new Set(declaredCapable).size, declaredCapable.length, "Die Liste der vordergrundfaehigen Operationen enthaelt Dubletten.");
 assert.equal((worker.match(/\[SW\]::ActivateThroughInputSink\(/gu) ?? []).length, 1,
   "Der native Eingabe-Helfer hat genau einen Aufrufer.");
 const inputSink = functionBlock("Enter-SSEForegroundInputSink(");
@@ -573,6 +594,127 @@ const inputSinkBehavior = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", 
 assert.equal(inputSinkBehavior.error, undefined, "PowerShell-Gegenproben der Eingabe-Aktivierung konnten nicht abgeschlossen werden.");
 assert.equal(inputSinkBehavior.status, 0, inputSinkBehavior.stderr);
 assert.equal(inputSinkBehavior.stdout.trim(), "passed");
+
+// Die Liste ist die statische Huelle aller Wege zu einer Vordergrundanforderung,
+// berechnet am Syntaxbaum des Workers und seiner Hilfsskripte. Eine neue
+// Operation mit physischer Eingabe kann sie damit nicht verfehlen.
+const closureProgram = `
+$ErrorActionPreference = 'Stop'
+$directory = '${fileURLToPath(new URL("../powershell/", import.meta.url)).replaceAll("'", "''")}'
+$functions = @{}
+foreach ($file in Get-ChildItem -LiteralPath $directory -Filter '*.ps1') {
+  $errors = $null
+  $ast = [Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors)
+  if ($errors.Count) { throw "$($file.Name): $($errors[0].Message)" }
+  foreach ($definition in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+    if (-not $functions.ContainsKey($definition.Name)) { $functions[$definition.Name] = $definition }
+  }
+}
+function Get-CalledNames($node) {
+  @($node.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true) |
+    ForEach-Object { $_.GetCommandName() } | Where-Object { $_ } | Select-Object -Unique)
+}
+$reaching = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($entry in @('Show-SSEWindow','Enter-SSEForegroundLease','Enter-SSEPopupForeground','Set-SSEForegroundWindowCore')) {
+  if (-not $functions.ContainsKey($entry)) { throw "Missing foreground entry point: $entry" }
+  [void]$reaching.Add($entry)
+}
+$calls = @{}
+foreach ($name in $functions.Keys) { $calls[$name] = @(Get-CalledNames $functions[$name].Body | Where-Object { $functions.ContainsKey($_) }) }
+do {
+  $added = 0
+  foreach ($name in $functions.Keys) {
+    if (-not $reaching.Contains($name) -and @($calls[$name] | Where-Object { $reaching.Contains($_) }).Count) { [void]$reaching.Add($name); $added++ }
+  }
+} while ($added)
+$dispatcher = @($functions['Invoke-SSEWorkerOperation'].Body.FindAll({ param($n) $n -is [Management.Automation.Language.SwitchStatementAst] }, $false))[0]
+$capable = [string[]]@($dispatcher.Clauses | Where-Object { @(Get-CalledNames $_.Item2 | Where-Object { $reaching.Contains($_) }).Count } |
+  ForEach-Object { $_.Item1.Extent.Text.Trim("'") })
+[Array]::Sort($capable, [StringComparer]::Ordinal)
+[Console]::Write(($capable -join ','))
+`;
+const closure = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+  Buffer.from(bootstrap, "utf16le").toString("base64")], {
+  input: JSON.stringify({ program: closureProgram }), encoding: "utf8", windowsHide: true, timeout: 120_000, maxBuffer: 1024 * 1024,
+});
+assert.equal(closure.error, undefined, "Aufrufhuelle der Vordergrundanforderungen konnte nicht berechnet werden.");
+assert.equal(closure.status, 0, closure.stderr);
+assert.deepEqual(declaredCapable, closure.stdout.trim().split(","),
+  "Die Liste der vordergrundfaehigen Operationen weicht von der Aufrufhuelle des Workers ab.");
+
+const reachabilityProgram = `${["Arg(", "Initialize-SSEForegroundReachability("].map(functionBlock).join("\n")}
+${worker.match(/\$script:SSE_FOREGROUND_CAPABLE_OPERATIONS = @\([\s\S]*?\n\)\n/u)[0]}
+${worker.match(/\$script:SSE_SHELL_SURFACE_PROCESSES = @\([^\n]*\)\n/u)[0]}
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+namespace ReachabilityContract {
+  public static class SW {
+    public static IntPtr Foreground; public static int ForegroundPid;
+    public static IntPtr GetForegroundWindow() { return Foreground; }
+    public static uint GetWindowThreadProcessId(IntPtr h, out int pid) { pid = ForegroundPid; return 1; }
+  }
+}
+'@
+function Check($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+function Get-SSEWindowClassName($Window) { $script:foregroundClass }
+function Get-Process { param($Id, $ErrorAction) [pscustomobject]@{ ProcessName = $script:foregroundProcess } }
+function Get-Windows($Application) { @($script:windows) }
+function Get-SSEMainWindowCandidates($Windows) { @($Windows | Where-Object { $_.main }) }
+function Enter-SSEForegroundInputSink($Window, $Denied) { $script:sinkTargets.Add([int64]$Window); $script:sinkDenied = [int64]$Denied; $true }
+function New-Window([int64]$Handle, [int]$ProcessId, [bool]$Main) {
+  [pscustomobject]@{ hwnd = $Handle; pid = $ProcessId; main = $Main; minimiert = $false; hung = $false }
+}
+function Reset-Fixture {
+  $script:DESKTOP_NAME = $null; $script:sinkTargets = New-Object 'System.Collections.Generic.List[long]'; $script:sinkDenied = 0
+  $script:foregroundClass = 'Windows.UI.Core.CoreWindow'; $script:foregroundProcess = 'ShellExperienceHost'
+  [ReachabilityContract.SW]::Foreground = [IntPtr]99; [ReachabilityContract.SW]::ForegroundPid = 9
+  $script:windows = @((New-Window 91 51 $true), (New-Window 92 51 $false))
+}
+$none = [pscustomobject]@{}
+Reset-Fixture; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 1 -and $script:sinkTargets[0] -eq 91 -and $script:sinkDenied -eq 99) 'A foreground-bound operation did not take the foreground from the shell surface'
+Reset-Fixture; Initialize-SSEForegroundReachability 'dialog_answer' ([pscustomobject]@{ hwnd = 92 })
+Check ($script:sinkTargets.Count -eq 1 -and $script:sinkTargets[0] -eq 92) 'An explicitly bound window was not the activation target'
+Reset-Fixture; $script:windows += New-Window 93 52 $true; Initialize-SSEForegroundReachability 'table_add' ([pscustomobject]@{ pid = 52 })
+Check ($script:sinkTargets.Count -eq 1 -and $script:sinkTargets[0] -eq 93) 'A process-bound operation did not select its own main window'
+Reset-Fixture; $script:windows += New-Window 93 52 $true; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'An ambiguous target received activation input'
+Reset-Fixture; Initialize-SSEForegroundReachability 'table_add' ([pscustomobject]@{ hwnd = 77 })
+Check ($script:sinkTargets.Count -eq 0) 'A stale window handle received activation input'
+Reset-Fixture; Initialize-SSEForegroundReachability 'page' $none
+Check ($script:sinkTargets.Count -eq 0) 'A pure reader took the foreground'
+Reset-Fixture; Initialize-SSEForegroundReachability 'snapshot' ([pscustomobject]@{ hwnd = 91 })
+Check ($script:sinkTargets.Count -eq 0) 'A bound pure reader took the foreground'
+Reset-Fixture; Initialize-SSEForegroundReachability 'table_read' ([pscustomobject]@{ noKeys = $true })
+Check ($script:sinkTargets.Count -eq 0) 'A model read without keys took the foreground'
+Reset-Fixture; Initialize-SSEForegroundReachability 'table_read' ([pscustomobject]@{ readMode = 'grid' })
+Check ($script:sinkTargets.Count -eq 0) 'A read-only grid read took the foreground'
+Reset-Fixture; Initialize-SSEForegroundReachability 'table_read' ([pscustomobject]@{ noKeys = $false })
+Check ($script:sinkTargets.Count -eq 1) 'A cursor table read did not prepare its foreground'
+Reset-Fixture; Initialize-SSEForegroundReachability 'table_read' ([pscustomobject]@{ noKeys = $true; __tableCursorPlan = [pscustomobject]@{ phase = 'prebind' } })
+Check ($script:sinkTargets.Count -eq 1) 'A private cursor phase did not prepare its foreground'
+Reset-Fixture; $script:foregroundClass = 'Chrome_WidgetWin_1'; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'An ordinary foreground window received activation input before the job'
+Reset-Fixture; $script:foregroundProcess = 'CredentialUIBroker'; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'A foreign immersive window received activation input before the job'
+Reset-Fixture; [ReachabilityContract.SW]::Foreground = [IntPtr]::Zero; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'A missing foreground window received activation input'
+Reset-Fixture; $script:DESKTOP_NAME = 'SyntheticDesktop'; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'A private desktop received activation input before the job'
+Reset-Fixture; $script:windows[0].minimiert = $true; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'A minimized window received activation input'
+Reset-Fixture; $script:windows[0].hung = $true; Initialize-SSEForegroundReachability 'table_add' $none
+Check ($script:sinkTargets.Count -eq 0) 'A hung window received activation input'
+[Console]::Write('passed')
+`.replaceAll("[SW]::", "[ReachabilityContract.SW]::");
+const reachabilityBehavior = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+  Buffer.from(bootstrap, "utf16le").toString("base64")], {
+  input: JSON.stringify({ program: reachabilityProgram }), encoding: "utf8", windowsHide: true, timeout: 60_000, maxBuffer: 1024 * 1024,
+});
+assert.equal(reachabilityBehavior.error, undefined, "PowerShell-Gegenproben der Vordergrundpruefung konnten nicht abgeschlossen werden.");
+assert.equal(reachabilityBehavior.status, 0, reachabilityBehavior.stderr);
+assert.equal(reachabilityBehavior.stdout.trim(), "passed");
 
 process.stdout.write(
   "Foreground-Lease: sofortiger Physical-Cleanup, bounded polling, Cursor/Fokus-Restore und Input-Race vertraglich gebunden.\n",
