@@ -401,6 +401,158 @@ assert(topmostCore.includes("Wait-SSEExactForeground $hwnd 150") &&
   !topmostCore.includes("Start-Sleep -Milliseconds 200"),
 "Foreground-Aktivierung verwendet weiterhin feste Wartezeiten statt bounded polling.");
 
+// Dritte Aktivierungsstufe: Nur wenn das Vordergrundfenster die Kopplung seiner
+// Eingabewarteschlange verweigert, darf das eigene Ziel ueber genau eine eigene
+// Eingabe aktiviert werden. Die Rueckgabe an ein solches Fenster entfaellt.
+assert.match(topmostCore,
+  /Wait-SSEExactForeground \$hwnd 200\) \{ return \$true \}\s+#[^\n]*\n\s+#[^\n]*\n\s+if \(\$Topmost -and \$vorne -ne \[IntPtr\]::Zero -and \$tidFremd -ne 0 -and \$tidFremd -ne \$tidSelbst -and\s+-not \$attachedForeground\) \{\s+return \(Enter-SSEForegroundInputSink \$hwnd \$vorne\)/u,
+  "Die Eingabe-Aktivierung darf nur dem eigenen Ziel nach verweigerter Kopplung dienen.");
+assert.equal((topmostCore.match(/Enter-SSEForegroundInputSink/gu) ?? []).length, 1,
+  "Die Eingabe-Aktivierung hat genau einen Aufrufer.");
+assert.equal((worker.match(/Enter-SSEForegroundInputSink \$/gu) ?? []).length, 1,
+  "Kein anderer Workerpfad darf die Eingabe-Aktivierung direkt ausloesen.");
+assert.equal((worker.match(/\[SW\]::ActivateThroughInputSink\(/gu) ?? []).length, 1,
+  "Der native Eingabe-Helfer hat genau einen Aufrufer.");
+const inputSink = functionBlock("Enter-SSEForegroundInputSink(");
+assert(inputSink.indexOf("$lease.unattachableForeground.Add([int64]$DeniedForeground)") <
+  inputSink.indexOf("[SW]::ActivateThroughInputSink($Hwnd, 600)"),
+  "Das verweigernde Fenster muss vor jedem Aktivierungsversuch festgehalten werden.");
+assert.match(inputSink,
+  /if \(\$script:DESKTOP_NAME -or \[int\]\$lease\.inputSinkAttempts -ge 3 -or\s+\(Test-SSEWindowIsLockScreen \$DeniedForeground\)\) \{ return \$false \}/u,
+  "Privater Desktop, Sperrbildschirm und die Versuchsgrenze muessen vor der Eingabe stoppen.");
+assert(!inputSink.includes("mouse_event") && !inputSink.includes("SendKeys") && !inputSink.includes("SetCursorPos"),
+  "Die Eingabe-Aktivierung darf keinen zweiten Eingabeweg neben dem nativen Helfer besitzen.");
+assert(exit.indexOf("'previous-window-refused-input-attachment'") > exit.indexOf("$lease.restoreSkippedReason = $PreserveForegroundReason") &&
+  exit.indexOf("'previous-window-refused-input-attachment'") < exit.indexOf("Set-SSEForegroundWindowCore $previous"),
+  "An ein Fenster mit verweigerter Kopplung darf der Vordergrund nicht zurueckgegeben werden.");
+const nativeSource = readFileSync(new URL("../powershell/sse-native.cs", import.meta.url), "utf8");
+const sinkStart = nativeSource.indexOf("public static long[] ActivateThroughInputSink(");
+assert(sinkStart >= 0, "Nativer Eingabe-Helfer fehlt.");
+const sinkSource = nativeSource.slice(sinkStart, nativeSource.indexOf("\n  }\n", sinkStart));
+assert(sinkSource.indexOf("WindowFromPoint(current) != sink") < sinkSource.indexOf("SendInput(2, click"),
+  "Der eigene Klick darf erst nach der Punktbindung an das eigene Fenster gesendet werden.");
+assert(sinkSource.includes("current.X != pointer.X || current.Y != pointer.Y"),
+  "Ein inzwischen bewegter Mauszeiger muss die Eingabe verhindern.");
+assert.equal((sinkSource.match(/SendInput\(/gu) ?? []).length, 1, "Der Helfer sendet genau eine Eingabefolge.");
+assert(!sinkSource.includes("SetCursorPos") && !sinkSource.includes("mouse_event") && !sinkSource.includes("keybd_event"),
+  "Der Helfer darf weder den Mauszeiger bewegen noch Tasten senden.");
+assert(sinkSource.includes("if (sink != IntPtr.Zero) DestroyWindow(sink);") &&
+  sinkSource.indexOf("finally") < sinkSource.indexOf("DestroyWindow(sink)"),
+  "Das eigene Fenster muss auf jedem Ausgang entfernt werden.");
+
+const leaseInitializer = worker.match(/\$script:SSE_FOREGROUND_LEASE = \[ordered\]@\{[\s\S]*?\n\}\n/u)?.[0];
+assert(leaseInitializer, "Lease-Initialisierung fehlt.");
+const inputSinkProgram = `${[leaseInitializer,
+  ...["Enter-SSEForegroundInputSink(", "Test-SSELastInputUnchanged(", "Get-SSEInputEpochEvidence(", "Exit-SSEForegroundLease"]
+    .map(functionBlock)].join("\n").replaceAll("[SW]::", "[InputSinkContract.Windows]::").replaceAll("SW+PT", "InputSinkContract.Point")}
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+namespace InputSinkContract {
+  public struct Point { public int X, Y; }
+  public static class Windows {
+    public static IntPtr Foreground; public static long Tick; public static long[] Evidence; public static bool Throws;
+    public static int SinkCalls; public static int TargetPid; public static IntPtr ForegroundAfterSink;
+    public static long[] ActivateThroughInputSink(IntPtr target, int timeoutMs) {
+      SinkCalls++;
+      if (Throws) throw new InvalidOperationException("synthetic sink failure");
+      if (Evidence[2] == 1 && Evidence[7] >= 0) Tick = Evidence[7];
+      Foreground = ForegroundAfterSink;
+      return (long[])Evidence.Clone();
+    }
+    public static IntPtr GetForegroundWindow() { return Foreground; }
+    public static bool IsWindow(IntPtr h) { return h != IntPtr.Zero; }
+    public static bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags) { return true; }
+    public static uint GetWindowThreadProcessId(IntPtr h, out int pid) { pid = h == new IntPtr(91) ? TargetPid : 7; return 1; }
+    public static bool GetCursorPos(out Point p) { p = new Point(); return true; }
+    public static bool SetCursorPos(int x, int y) { return true; }
+  }
+}
+'@
+function Check($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+function Get-SSELastInputTick { if ([InputSinkContract.Windows]::Tick -lt 0) { $null } else { [uint64][InputSinkContract.Windows]::Tick } }
+function Test-SSEWindowIsLockScreen($Window) { [bool]$script:lockScreen }
+function Set-SSEForegroundWindowCore($Window) { $script:restores++; [InputSinkContract.Windows]::Foreground = $Window; $true }
+function Reset-Fixture {
+  $lease = $script:SSE_FOREGROUND_LEASE
+  $lease.unattachableForeground.Clear(); $lease.ownActivationInputs.Clear(); $lease.inputSinkAttempts = 0
+  $lease.lastOwnedInputTick = $null; $lease.lastOwnedInputContext = $null; $lease.watch = $null; $lease.depth = 0
+  $lease.raisedWindows.Clear(); $lease.previousCursor = $null; $lease.ownedCursorPoint = $null
+  $lease.previousForeground = [int64]0; $lease.targetPid = 0; $lease.restoreSkippedReason = $null; $lease.foregroundRestored = $false
+  $script:DESKTOP_NAME = $null; $script:lockScreen = $false; $script:restores = 0
+  [InputSinkContract.Windows]::Tick = 100; [InputSinkContract.Windows]::Foreground = [IntPtr]99
+  [InputSinkContract.Windows]::ForegroundAfterSink = [IntPtr]91; [InputSinkContract.Windows]::Throws = $false
+  [InputSinkContract.Windows]::SinkCalls = 0; [InputSinkContract.Windows]::TargetPid = 51
+  [InputSinkContract.Windows]::Evidence = [long[]]@(1,1,1,1,1,1,100,105)
+}
+Reset-Fixture; $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick = [uint64]100
+Check (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)) 'A delivered own click with exact foreground was not accepted'
+Check ([InputSinkContract.Windows]::SinkCalls -eq 1 -and @($script:SSE_FOREGROUND_LEASE.unattachableForeground) -contains [int64]99) 'Denied window was not recorded'
+Check ($script:SSE_FOREGROUND_LEASE.ownActivationInputs.Count -eq 1) 'Own activation input was not recorded exactly once'
+Check ($script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 105 -and $script:SSE_FOREGROUND_LEASE.lastOwnedInputContext -ceq 'foreground-input-sink') 'Lease did not adopt its own activation input'
+Check ((Test-SSELastInputUnchanged ([uint64]100)) -and (Test-SSELastInputUnchanged ([uint64]105))) 'Own activation input was reported as foreign'
+Check (-not (Test-SSELastInputUnchanged ([uint64]98)) -and -not (Test-SSELastInputUnchanged $null)) 'Input before the own activation was hidden'
+[InputSinkContract.Windows]::Tick = 106
+Check (-not (Test-SSELastInputUnchanged ([uint64]100)) -and -not (Test-SSELastInputUnchanged ([uint64]105))) 'Foreign input after the own activation was hidden'
+Reset-Fixture; $script:SSE_FOREGROUND_LEASE.lastOwnedInputTick = [uint64]42
+$null = Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)
+Check ($script:SSE_FOREGROUND_LEASE.lastOwnedInputTick -eq 42 -and $null -eq $script:SSE_FOREGROUND_LEASE.lastOwnedInputContext) 'Lease adopted an unrelated epoch'
+Reset-Fixture
+$null = Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)
+[InputSinkContract.Windows]::Evidence = [long[]]@(1,1,1,1,1,1,105,111); [InputSinkContract.Windows]::Foreground = [IntPtr]99
+Check (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)) 'Second own activation failed'
+Check ((Test-SSELastInputUnchanged ([uint64]100)) -and (Test-SSELastInputUnchanged ([uint64]105)) -and (Test-SSELastInputUnchanged ([uint64]111))) 'Consecutive own activations were not followed in order'
+Check (@($script:SSE_FOREGROUND_LEASE.unattachableForeground).Count -eq 1) 'Denied window was recorded twice'
+Reset-Fixture; [InputSinkContract.Windows]::Evidence = [long[]]@(1,0,0,0,0,0,-1,-1); [InputSinkContract.Windows]::ForegroundAfterSink = [IntPtr]99
+Check (-not (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99))) 'Unsent input was reported as activation'
+Check ($script:SSE_FOREGROUND_LEASE.ownActivationInputs.Count -eq 0 -and @($script:SSE_FOREGROUND_LEASE.unattachableForeground) -contains [int64]99) 'Unsent input changed the epoch record or lost the denied window'
+Reset-Fixture; [InputSinkContract.Windows]::Evidence = [long[]]@(1,1,1,1,1,0,100,105); [InputSinkContract.Windows]::ForegroundAfterSink = [IntPtr]99
+Check (-not (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99))) 'Missing target foreground was reported as activation'
+Check ($script:SSE_FOREGROUND_LEASE.ownActivationInputs.Count -eq 1 -and (Test-SSELastInputUnchanged ([uint64]100))) 'A sent own click must stay attributable even without foreground'
+Reset-Fixture; [InputSinkContract.Windows]::Evidence = [long[]]@(1,1,1,1,1,1,100,105); [InputSinkContract.Windows]::ForegroundAfterSink = [IntPtr]77
+Check (-not (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99))) 'Helper evidence replaced the exact foreground readback'
+Reset-Fixture; [InputSinkContract.Windows]::Evidence = [long[]]@(1,1,1,1,1,1,-1,-1)
+$null = Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)
+[InputSinkContract.Windows]::Tick = 105
+Check ($script:SSE_FOREGROUND_LEASE.ownActivationInputs.Count -eq 0 -and -not (Test-SSELastInputUnchanged ([uint64]100))) 'An unreadable own epoch was guessed'
+Reset-Fixture; [InputSinkContract.Windows]::Throws = $true
+Check (-not (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)) -and $script:SSE_FOREGROUND_LEASE.ownActivationInputs.Count -eq 0) 'A failing helper was reported as activation'
+Reset-Fixture; $script:DESKTOP_NAME = 'SyntheticDesktop'
+Check (-not (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)) -and [InputSinkContract.Windows]::SinkCalls -eq 0) 'Private desktop sent activation input'
+Reset-Fixture; $script:lockScreen = $true
+Check (-not (Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99)) -and [InputSinkContract.Windows]::SinkCalls -eq 0) 'Lock screen received activation input'
+Reset-Fixture; [InputSinkContract.Windows]::ForegroundAfterSink = [IntPtr]99
+for ($attempt = 0; $attempt -lt 5; $attempt++) { $null = Enter-SSEForegroundInputSink ([IntPtr]91) ([IntPtr]99) }
+Check ([InputSinkContract.Windows]::SinkCalls -eq 3) 'Activation input was not bounded per job'
+# Rueckgabe: nie an ein Fenster mit verweigerter Kopplung, sonst unveraendert.
+Reset-Fixture
+$lease = $script:SSE_FOREGROUND_LEASE
+$null = $lease.unattachableForeground.Add([int64]99)
+$lease.watch = [Diagnostics.Stopwatch]::StartNew(); $lease.previousForeground = [int64]99; $lease.targetPid = 51
+$lease.lastOwnedInputTick = [uint64]100; [InputSinkContract.Windows]::Foreground = [IntPtr]91
+Exit-SSEForegroundLease -Force -Reason 'emit'
+Check ($script:restores -eq 0 -and $lease.restoreSkippedReason -ceq 'previous-window-refused-input-attachment' -and -not $lease.foregroundRestored) 'Foreground was handed back to a window that refuses input attachment'
+Check ($null -eq $lease.watch -and [InputSinkContract.Windows]::Foreground -eq [IntPtr]91) 'Skipped restore did not finish the lease or moved the foreground'
+Reset-Fixture
+$lease.watch = [Diagnostics.Stopwatch]::StartNew(); $lease.previousForeground = [int64]88; $lease.targetPid = 51
+$lease.lastOwnedInputTick = [uint64]100; [InputSinkContract.Windows]::Foreground = [IntPtr]91
+Exit-SSEForegroundLease -Force -Reason 'emit'
+Check ($script:restores -eq 1 -and $lease.foregroundRestored -and $null -eq $lease.restoreSkippedReason) 'An ordinary previous window was no longer restored'
+# Vertragsfixtures laden den Waechter einzeln, auch im strikten Modus und ohne Lease.
+Remove-Variable -Name SSE_FOREGROUND_LEASE -Scope Script
+Set-StrictMode -Version Latest
+[InputSinkContract.Windows]::Tick = 100
+Check ((Test-SSELastInputUnchanged ([uint64]100)) -and -not (Test-SSELastInputUnchanged ([uint64]99))) 'The standalone input guard depends on lease state'
+[Console]::Write('passed')
+`;
+const inputSinkBehavior = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+  Buffer.from(bootstrap, "utf16le").toString("base64")], {
+  input: JSON.stringify({ program: inputSinkProgram }), encoding: "utf8", windowsHide: true, timeout: 60_000, maxBuffer: 1024 * 1024,
+});
+assert.equal(inputSinkBehavior.error, undefined, "PowerShell-Gegenproben der Eingabe-Aktivierung konnten nicht abgeschlossen werden.");
+assert.equal(inputSinkBehavior.status, 0, inputSinkBehavior.stderr);
+assert.equal(inputSinkBehavior.stdout.trim(), "passed");
+
 process.stdout.write(
   "Foreground-Lease: sofortiger Physical-Cleanup, bounded polling, Cursor/Fokus-Restore und Input-Race vertraglich gebunden.\n",
 );

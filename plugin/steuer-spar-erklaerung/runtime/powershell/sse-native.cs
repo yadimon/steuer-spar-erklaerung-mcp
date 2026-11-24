@@ -312,6 +312,134 @@ public class SW {
   [StructLayout(LayoutKind.Sequential)]
   public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
   public delegate bool EP(IntPtr h,IntPtr l);
+
+  // Foreground through an own input sink.
+  //
+  // SetForegroundWindow and the AttachThreadInput route both fail while a
+  // window owns the foreground whose input queue cannot be joined, such as the
+  // shell's notification surface. Windows always lets the process that just
+  // received real input hand the foreground on. The sink is an own, nearly
+  // transparent 5x5 window under the pointer: one injected click on it is the
+  // only input, it cannot reach a foreign window, and the pointer never moves.
+  // Returned evidence, all values 0/1 except the two ticks (-1 = unreadable):
+  //   [0] sinkCreated [1] pointBound [2] inputSent [3] clickReceived
+  //   [4] sinkForeground [5] targetForeground [6] inputTickBefore [7] inputTickAfter
+  private delegate IntPtr SinkProc(IntPtr h,uint m,IntPtr w,IntPtr l);
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+  private struct SINKCLASS {
+    public uint cbSize, style;
+    public SinkProc lpfnWndProc;
+    public int cbClsExtra, cbWndExtra;
+    public IntPtr hInstance, hIcon, hCursor, hbrBackground;
+    public string lpszMenuName, lpszClassName;
+    public IntPtr hIconSm;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  private struct SINKMSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public PT pt; }
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
+  private static extern ushort RegisterClassExW(ref SINKCLASS windowClass);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
+  private static extern bool UnregisterClassW(string name,IntPtr instance);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
+  private static extern IntPtr CreateWindowExW(uint exStyle,string className,string title,uint style,
+    int x,int y,int width,int height,IntPtr parent,IntPtr menu,IntPtr instance,IntPtr parameter);
+  [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
+  private static extern IntPtr DefWindowProcW(IntPtr h,uint m,IntPtr w,IntPtr l);
+  [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(IntPtr h,uint key,byte alpha,uint flags);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
+  private static extern bool PeekMessageW(out SINKMSG message,IntPtr h,uint minimum,uint maximum,uint remove);
+  [DllImport("user32.dll")] private static extern bool TranslateMessage(ref SINKMSG message);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
+  private static extern IntPtr DispatchMessageW(ref SINKMSG message);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)]
+  private static extern IntPtr GetModuleHandleW(string name);
+  private static readonly SinkProc sinkProcedure = SinkWindowProcedure;
+  private static bool sinkButtonDown, sinkButtonUp;
+  private static IntPtr SinkWindowProcedure(IntPtr h,uint m,IntPtr w,IntPtr l) {
+    // Swapped mouse buttons deliver the injected primary click as the right pair.
+    if (m == 0x0201 || m == 0x0204) sinkButtonDown = true;
+    else if (m == 0x0202 || m == 0x0205) sinkButtonUp = true;
+    return DefWindowProcW(h, m, w, l);
+  }
+  private static void PumpSink(IntPtr sink,int milliseconds) {
+    var watch = Stopwatch.StartNew();
+    while (true) {
+      SINKMSG message;
+      while (PeekMessageW(out message, sink, 0, 0, 1)) {
+        TranslateMessage(ref message);
+        DispatchMessageW(ref message);
+      }
+      if (watch.ElapsedMilliseconds >= milliseconds) return;
+      System.Threading.Thread.Sleep(1);
+    }
+  }
+  private static long ReadLastInputTick() {
+    var info = new LASTINPUTINFO();
+    info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+    return GetLastInputInfo(ref info) ? (long)info.dwTime : -1;
+  }
+  public static long[] ActivateThroughInputSink(IntPtr target,int timeoutMs) {
+    var evidence = new long[] { 0, 0, 0, 0, 0, 0, -1, -1 };
+    if (target == IntPtr.Zero || !IsWindow(target) || timeoutMs < 100 || timeoutMs > 2000) return evidence;
+    IntPtr previousContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    IntPtr instance = GetModuleHandleW(null);
+    string className = "SSEForegroundInputSink." + Guid.NewGuid().ToString("N");
+    IntPtr sink = IntPtr.Zero;
+    bool registered = false;
+    try {
+      PT pointer;
+      if (!GetCursorPos(out pointer)) return evidence;
+      var windowClass = new SINKCLASS();
+      windowClass.cbSize = (uint)Marshal.SizeOf(typeof(SINKCLASS));
+      windowClass.lpfnWndProc = sinkProcedure;
+      windowClass.hInstance = instance;
+      windowClass.lpszClassName = className;
+      if (RegisterClassExW(ref windowClass) == 0) return evidence;
+      registered = true;
+      // WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WS_POPUP: no taskbar entry, no frame.
+      sink = CreateWindowExW(0x00080000 | 0x00000080 | 0x00000008, className, "", 0x80000000,
+        pointer.X - 2, pointer.Y - 2, 5, 5, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
+      if (sink == IntPtr.Zero) return evidence;
+      evidence[0] = 1;
+      sinkButtonDown = false;
+      sinkButtonUp = false;
+      SetLayeredWindowAttributes(sink, 0, 1, 0x2); // LWA_ALPHA: hit-testable, practically invisible
+      ShowWindow(sink, 4); // SW_SHOWNOACTIVATE
+      SetWindowPos(sink, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+      var watch = Stopwatch.StartNew();
+      PumpSink(sink, 30);
+      // The click is sent only while the unmoved pointer provably rests on the sink.
+      PT current;
+      if (!GetCursorPos(out current) || current.X != pointer.X || current.Y != pointer.Y ||
+          WindowFromPoint(current) != sink) return evidence;
+      evidence[1] = 1;
+      evidence[6] = ReadLastInputTick();
+      var click = new INPUT[2];
+      click[0].type = 0;
+      click[0].input.mouse.dwFlags = 0x0002;
+      click[1].type = 0;
+      click[1].input.mouse.dwFlags = 0x0004;
+      if (SendInput(2, click, Marshal.SizeOf(typeof(INPUT))) != 2) return evidence;
+      evidence[2] = 1;
+      while (watch.ElapsedMilliseconds < timeoutMs && !(sinkButtonDown && sinkButtonUp)) PumpSink(sink, 5);
+      evidence[3] = sinkButtonDown ? 1 : 0;
+      evidence[7] = ReadLastInputTick();
+      while (watch.ElapsedMilliseconds < timeoutMs && GetForegroundWindow() != sink) PumpSink(sink, 5);
+      if (GetForegroundWindow() == sink) {
+        evidence[4] = 1;
+        BringWindowToTop(target);
+        SetForegroundWindow(target);
+        while (watch.ElapsedMilliseconds < timeoutMs && GetForegroundWindow() != target) PumpSink(sink, 5);
+      }
+      evidence[5] = GetForegroundWindow() == target ? 1 : 0;
+      return evidence;
+    } finally {
+      if (sink != IntPtr.Zero) DestroyWindow(sink);
+      if (registered) UnregisterClassW(className, instance);
+      if (previousContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousContext);
+    }
+  }
 }
 
 // Plain records returned to PowerShell after the native callback has finished.

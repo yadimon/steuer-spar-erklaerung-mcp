@@ -5200,6 +5200,12 @@ $script:SSE_FOREGROUND_LEASE = [ordered]@{
   foregroundHeldMs=0; foregroundRestored=$false; cursorRestored=$false
   releasedByEmit=$false; restoreSkippedReason=$null; cleanupError=$null
   watch=$null
+  # Auftragsweit, nicht je Lease: Fenster, deren Eingabewarteschlange keine
+  # Kopplung zulaesst, und die eigenen Aktivierungseingaben als Vorher-/
+  # Nachher-Paar der Eingabe-Epoche (siehe Enter-SSEForegroundInputSink).
+  unattachableForeground=(New-Object System.Collections.ArrayList)
+  ownActivationInputs=(New-Object System.Collections.ArrayList)
+  inputSinkAttempts=0
 }
 
 function Test-SSEWindowIsLockScreen([IntPtr]$Hwnd) {
@@ -5275,7 +5281,49 @@ function Set-SSEForegroundWindowCore([IntPtr]$hwnd, [switch]$Topmost) {
   }
   if (Wait-SSEExactForeground $hwnd 200) { return $true }
 
+  # Verweigert das Vordergrundfenster die Kopplung seiner Eingabewarteschlange,
+  # bleibt fuer das eigene Ziel nur die Aktivierung ueber eigene Eingabe.
+  if ($Topmost -and $vorne -ne [IntPtr]::Zero -and $tidFremd -ne 0 -and $tidFremd -ne $tidSelbst -and
+      -not $attachedForeground) {
+    return (Enter-SSEForegroundInputSink $hwnd $vorne)
+  }
   return $false
+}
+
+# Dritte Aktivierungsstufe. Die beiden eingabefreien Wege scheitern, solange
+# ein Fenster den Vordergrund haelt, dessen Eingabewarteschlange sich nicht
+# koppeln laesst - etwa die Benachrichtigungsflaeche der Shell, auf die der
+# Vordergrund faellt, sobald das zuvor aktive Fenster schliesst. Windows reicht
+# den Vordergrund dann nur an einen Prozess weiter, der selbst gerade Eingabe
+# erhalten hat. Genau ein eigener Klick auf ein eigenes, praktisch
+# unsichtbares 5x5-Fenster unter dem unbewegten Mauszeiger liefert das; er
+# erreicht kein fremdes Fenster.
+#
+# Diese eine Eingabe gehoert dem Worker. Ihr Vorher-/Nachher-Paar der
+# Eingabe-Epoche wird festgehalten, damit Test-SSELastInputUnchanged sie nicht
+# als fremde Eingabe wertet - und ausschliesslich sie: jede andere Aenderung
+# der Epoche bleibt ein Eingriff.
+function Enter-SSEForegroundInputSink([IntPtr]$Hwnd, [IntPtr]$DeniedForeground) {
+  $lease = $script:SSE_FOREGROUND_LEASE
+  if (@($lease.unattachableForeground) -notcontains [int64]$DeniedForeground) {
+    $null = $lease.unattachableForeground.Add([int64]$DeniedForeground)
+  }
+  if ($script:DESKTOP_NAME -or [int]$lease.inputSinkAttempts -ge 3 -or
+      (Test-SSEWindowIsLockScreen $DeniedForeground)) { return $false }
+  $lease.inputSinkAttempts = [int]$lease.inputSinkAttempts + 1
+  $evidence = $null
+  try { $evidence = [SW]::ActivateThroughInputSink($Hwnd, 600) } catch { return $false }
+  if ($null -eq $evidence -or $evidence.Count -ne 8 -or $evidence[2] -ne 1) { return $false }
+  if ($evidence[6] -ge 0 -and $evidence[7] -ge 0 -and $evidence[6] -ne $evidence[7]) {
+    $null = $lease.ownActivationInputs.Add([pscustomobject]@{
+      before=[uint64]$evidence[6]; after=[uint64]$evidence[7]
+    })
+    if ($null -ne $lease.lastOwnedInputTick -and [uint64]$lease.lastOwnedInputTick -eq [uint64]$evidence[6]) {
+      $lease.lastOwnedInputTick = [uint64]$evidence[7]
+      $lease.lastOwnedInputContext = 'foreground-input-sink'
+    }
+  }
+  [bool]($evidence[5] -eq 1 -and [SW]::GetForegroundWindow() -eq $Hwnd)
 }
 
 function Enter-SSEForegroundLease([IntPtr]$Hwnd, [switch]$ObserveOnly, $ExpectedInputTick = $null) {
@@ -5419,6 +5467,10 @@ function Exit-SSEForegroundLease {
     # A rejected delegate must not be committed indirectly by restoring the
     # caller. Revoke this lease and remove TOPMOST without changing focus.
     $lease.restoreSkippedReason = $PreserveForegroundReason
+  } elseif ($lease.unattachableForeground -and @($lease.unattachableForeground) -contains [int64]$previous) {
+    # Von dort liesse sich der Vordergrund nicht wieder holen; die Rueckgabe
+    # wuerde die naechste Aktivierung dieses und jedes folgenden Auftrags sperren.
+    $lease.restoreSkippedReason = 'previous-window-refused-input-attachment'
   } elseif (-not $inputUnchanged) {
     $lease.restoreSkippedReason = 'input-changed'
   } elseif ($previous -eq [IntPtr]::Zero -or -not [SW]::IsWindow($previous)) {
@@ -8103,7 +8155,17 @@ function Get-SSELastInputTick {
 function Test-SSELastInputUnchanged($ExpectedTick) {
   if ($null -eq $ExpectedTick) { return $false }
   $current = Get-SSELastInputTick
-  [bool]($null -ne $current -and [uint64]$current -eq [uint64]$ExpectedTick)
+  if ($null -eq $current) { return $false }
+  if ([uint64]$current -eq [uint64]$ExpectedTick) { return $true }
+  # Die einzige weitere gueltige Epoche ist die eigene Aktivierungseingabe:
+  # genau ihr festgehaltenes Vorher-/Nachher-Paar, in zeitlicher Reihenfolge.
+  $ownInputs = $null
+  try { $ownInputs = $script:SSE_FOREGROUND_LEASE.ownActivationInputs } catch { }
+  $expected = [uint64]$ExpectedTick
+  foreach ($ownInput in @($ownInputs)) {
+    if ($null -ne $ownInput -and [uint64]$ownInput.before -eq $expected) { $expected = [uint64]$ownInput.after }
+  }
+  [bool]([uint64]$current -eq $expected)
 }
 
 function Get-SSEInputEpochEvidence($Baseline, $Observed, [string]$OwnActionContext) {

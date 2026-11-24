@@ -393,6 +393,18 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   werden vorheriges Vordergrundfenster und eigener Mauszeiger best effort
   wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
   in API und MCP messbar.
+  Hält ein Fenster den Vordergrund, dessen Eingabewarteschlange sich nicht
+  koppeln lässt – etwa die Benachrichtigungsfläche der Shell, auf die der
+  Vordergrund fällt, wenn das zuvor aktive Fenster schließt –, scheitern beide
+  eingabefreien Aktivierungswege. Nur dann aktiviert der Worker sein Ziel über
+  genau eine eigene Eingabe: einen Klick auf ein eigenes, praktisch
+  unsichtbares Fenster unter dem unbewegten Mauszeiger. Der Klick erreicht kein
+  fremdes Fenster. Sein Vorher-/Nachher-Paar der Eingabe-Epoche gilt als eigene
+  Eingabe; jede andere Änderung bleibt ein Eingriff. An ein solches Fenster
+  gibt der Cleanup den Vordergrund nicht zurück
+  (`restoreSkippedReason: previous-window-refused-input-attachment`), weil er
+  von dort nicht wieder zu holen wäre. Auf dem privaten Desktop, vor dem
+  Sperrbildschirm und nach drei Versuchen je Auftrag unterbleibt diese Stufe.
   Menüklicks aktivieren das Popup nicht erneut. Auch beim zusammengesetzten
   Speichern-unter-Ablauf und beim ersten Speichern eines neuen Falls bleibt
   der ursprüngliche Vordergrund- und Cursor-Kontext bis zum Cleanup erhalten.
