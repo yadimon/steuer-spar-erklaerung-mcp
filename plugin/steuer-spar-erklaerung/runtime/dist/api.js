@@ -39409,8 +39409,13 @@ function oldestStartingSpare() {
   const fingerprint = environmentFingerprint();
   return spares.find((candidate) => !candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
 }
+function isMatchingSpareReady() {
+  const fingerprint = environmentFingerprint();
+  return spares.some((candidate) => candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
+}
 function startingSpareWaitMs() {
   if (!enabled || PREWARM_DISABLED || shuttingDown || observedStartupMs === null) return 0;
+  if (isMatchingSpareReady()) return 0;
   const oldest = oldestStartingSpare();
   if (!oldest) return 0;
   const elapsedMs = performance.now() - oldest.startedAt;
@@ -39842,8 +39847,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
   );
 }
 async function dispatchWorkerOnDesktop(op, args, timeoutMs, signal, desk, markerAllowsWarmSpare) {
-  let spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
-  if (!spare && !desk) {
+  if (!desk) {
     const waitBudgetMs = Math.min(startingSpareWaitMs(), Math.floor(timeoutMs / 2));
     if (waitBudgetMs > 0) {
       const waitStarted = performance.now();
@@ -39855,9 +39859,9 @@ async function dispatchWorkerOnDesktop(op, args, timeoutMs, signal, desk, marker
         );
       }
       timeoutMs = Math.max(1, timeoutMs - Math.ceil(performance.now() - waitStarted));
-      spare = takeWarmSpare();
     }
   }
+  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
   let argsFile;
   try {

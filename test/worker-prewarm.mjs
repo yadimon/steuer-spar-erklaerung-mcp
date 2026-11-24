@@ -568,6 +568,45 @@ try {
     throw error;
   }
 
+  // A ready reserve is taken at once, even while another reserve that is
+  // well into its startup would otherwise be worth waiting for.
+  const readyFirstState = join(sandbox, "ready-first-state.txt");
+  try {
+    const readyFirstOutput = execFileSync(
+      process.execPath,
+      [join(root, "test", "fixtures", "worker-warm-ready-beats-starting.mjs")],
+      {
+        cwd: root,
+        windowsHide: true,
+        timeout: 120_000,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEMP: sandbox,
+          TMP: sandbox,
+          SSE_POWERSHELL_EXE: fixtureExecutable,
+          SSE_WORKER_PREWARM_POOL_SIZE: "2",
+          SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "30000",
+          SSE_WORKER_PREWARM_RETRY_DELAY_MS: "1000",
+          SSE_PREWARM_FIXTURE_STATE: readyFirstState,
+          SSE_PREWARM_FIXTURE_MUTEX: `Local\\SSEReadyFirst${randomUUID().replaceAll("-", "")}`,
+          SSE_PREWARM_FIXTURE_MODE: "delayed-ready",
+          SSE_PREWARM_FIXTURE_READY_DELAY_MS: "6000",
+        },
+      },
+    );
+    assert.match(readyFirstOutput, /Ready reserve: taken at once while another one is still starting/u);
+  } catch (error) {
+    const cleanupErrors = cleanupAssignedFixtureProcesses(readyFirstState, fixtureExecutable);
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "Ready-reserve fixture and exact process cleanup both failed.",
+      );
+    }
+    throw error;
+  }
+
   process.env.SSE_POWERSHELL_EXE = fixtureExecutable;
   process.env.SSE_WORKER_PREWARM_POOL_SIZE = "2";
   process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS = String(fixtureStartupTimeoutMs);

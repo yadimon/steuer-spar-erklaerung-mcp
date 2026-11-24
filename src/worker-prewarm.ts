@@ -407,12 +407,21 @@ function oldestStartingSpare(): PooledSpare | undefined {
     !candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
 }
 
+/** Steht eine Reserve bereit, die zur jetzigen Umgebung passt - die `takeWarmSpare` also herausgibt? */
+function isMatchingSpareReady(): boolean {
+  const fingerprint = environmentFingerprint();
+  return spares.some((candidate) =>
+    candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
+}
+
 /**
  * Wie viele Millisekunden lohnt es, auf die aelteste startende Reserve zu
- * warten, statt kalt zu starten? 0 heisst: nicht warten.
+ * warten, statt kalt zu starten? 0 heisst: nicht warten - weil keine Reserve
+ * weit genug im Start ist oder weil schon eine passende bereitsteht.
  */
 export function startingSpareWaitMs(): number {
   if (!enabled || PREWARM_DISABLED || shuttingDown || observedStartupMs === null) return 0;
+  if (isMatchingSpareReady()) return 0;
   const oldest = oldestStartingSpare();
   if (!oldest) return 0;
   const elapsedMs = performance.now() - oldest.startedAt;

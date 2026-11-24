@@ -310,15 +310,12 @@ async function dispatchWorkerOnDesktop(
   desk: string | null, markerAllowsWarmSpare: boolean,
 ): Promise<WorkerResult> {
 
-  // The private plan belongs to this concrete child, including an already
-  // warmed spare. Caller environment never supplies the capability.
-  let spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
-  if (!spare && !desk) {
-    // Keine Reserve ist bereit, aber vielleicht ist eine schon weit im Start:
-    // Sie ist dann frueher fertig als ein Kaltstart, der dasselbe Skript noch
-    // einmal von vorn zerlegt. Ob und wie lange sich das lohnt, entscheidet der
-    // Vorrat; die Wartezeit zaehlt zur Frist dieses Aufrufs und nimmt ihr
-    // hoechstens die Haelfte. Der markierte Desktop behaelt seinen Kaltstart.
+  if (!desk) {
+    // Ist keine Reserve bereit, aber eine schon weit im Start, dann ist sie
+    // frueher fertig als ein Kaltstart, der dasselbe Skript noch einmal von
+    // vorn zerlegt. Ob und wie lange sich das lohnt, entscheidet der Vorrat;
+    // die Wartezeit zaehlt zur Frist dieses Aufrufs und nimmt ihr hoechstens
+    // die Haelfte. Der markierte Desktop behaelt seinen Kaltstart.
     const waitBudgetMs = Math.min(startingSpareWaitMs(), Math.floor(timeoutMs / 2));
     if (waitBudgetMs > 0) {
       const waitStarted = performance.now();
@@ -330,9 +327,11 @@ async function dispatchWorkerOnDesktop(
         );
       }
       timeoutMs = Math.max(1, timeoutMs - Math.ceil(performance.now() - waitStarted));
-      spare = takeWarmSpare();
     }
   }
+  // The private plan belongs to this concrete child, including an already
+  // warmed spare. Caller environment never supplies the capability.
+  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
   let argsFile: string;
   try {
