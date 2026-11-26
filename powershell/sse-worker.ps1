@@ -7501,15 +7501,19 @@ function Get-SSEPageReadSnapshot {
   if (-not $tree -or $LegacyScroll) { return $tree }
 
   # Bei einem Providerfehler den unveraenderten Ausschnitt begrenzt neu lesen.
-  # Keine Knoten aus unvollstaendigen Beobachtungen zusammenfuehren.
+  # Keine Knoten aus unvollstaendigen Beobachtungen zusammenfuehren. Liest ein
+  # zweiter UIA-Client dasselbe Fenster, bleibt der Formularbaum fuer einige
+  # hundert Millisekunden unlesbar. Die kurze Pause vor jeder neuen Lesung
+  # laesst diese Stoerung ablaufen, statt alle Versuche in ihr zu verbrauchen.
   $origin = $tree.contentBinding
   $heading = $null
-  for ($attempt=0; $attempt -lt 2; $attempt++) {
+  for ($attempt=0; $attempt -lt 5; $attempt++) {
     if (-not (Test-SSESnapshotHasOnlyWalkErrors $tree.stats)) { break }
     if ($attempt -eq 0) {
       $heading = [string](Get-SSEHeading $tree).text
       if (-not $heading) { break }
     }
+    Start-Sleep -Milliseconds 150
     $tree = Get-SSEMainContentTree $Hwnd 5000 5 40 -WithValues:$WithValues -WithScroll:(-not $WithValues)
     if (-not (Test-SSEMainContentBinding $origin $tree.contentBinding) -or
         [string](Get-SSEHeading $tree).text -cne $heading) { return $null }

@@ -655,8 +655,11 @@ Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
 müssen zusätzlich überlappen.
 `read_full` bindet sowohl die anfängliche Rollaufnahme als auch jede
 Wertelesung an den profilierten Formularbereich. Bei einem UIA-Baumlauffehler
-dürfen `read_full` und `scroll_page` denselben Ausschnitt bis zu zweimal neu
-lesen. Die Prüfung verlangt dasselbe Formular, dieselbe Überschrift und bei
+dürfen `read_full` und `scroll_page` denselben Ausschnitt bis zu fünfmal neu
+lesen, jeweils nach einer kurzen Pause: Liest ein zweiter UIA-Client dasselbe
+Fenster, bleibt der Formularbaum für einige hundert Millisekunden unlesbar,
+und unmittelbar aufeinanderfolgende Lesungen fielen alle in diese Störung.
+Die Prüfung verlangt dasselbe Formular, dieselbe Überschrift und bei
 gebundenen Qt-Lesestufen auch dieselbe Rollstellung. Nur der vollständige
 Snapshot zählt. Fehler zwischen den Lesestufen nennen einen festen
 Ursachencode; fremde Providertexte werden dabei nicht ausgegeben.
