@@ -416,6 +416,17 @@
             "outcomes": [
               "success"
             ]
+          },
+          "userInput": {
+            "types": [
+              "object:{\"interferenceKind\":\"string-other\",\"policies\":\"object\",\"policyField\":\"string-other\",\"rule\":\"string-other\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       }
@@ -22158,7 +22169,9 @@
         "fields": {}
       },
       "live": {
-        "profiles": [],
+        "profiles": [
+          "2025"
+        ],
         "fields": {
           "abschnitte": {
             "types": [
