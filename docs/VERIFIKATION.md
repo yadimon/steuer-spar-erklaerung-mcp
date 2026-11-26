@@ -309,6 +309,13 @@ physischen Klicks aus: Baumeinträge und Detail-Links bleiben auch auf einem
 Monitor links oder oberhalb des Hauptmonitors wählbar, also bei negativen
 Bildschirmkoordinaten; Ziele ohne Fläche und andere Steuerelemente bleiben
 gesperrt.
+`tax-knowledge-search-contract.ps1` belegt, dass die Eingabe des Steuerwissens
+nicht vom aktiven Tastaturlayout abhängt: Der Suchbegriff wird als
+Unicode-Eingabe gesendet, Strg+A als virtuelle Tasten in fester Reihenfolge
+einschließlich Loslassen, und nur die benannte Eingabetaste läuft als
+Tastenfolge. Ein zweiter Begriff ersetzt den ersten, eine unvollständig
+angenommene Eingabe wird nicht abgeschickt, und die Bestätigung des Feldwerts
+wartet begrenzt auf das Feld, statt nach drei Lesungen aufzugeben.
 In `value-info-window-contract.ps1` durchläuft die Vorbereitung auch die
 tatsächliche Tracking-Hülle sowie Markenwechsel während Baumlesung und
 Fokusvorbereitung, ausgetauschte Knöpfe und ungebundene vorhandene Fenster.

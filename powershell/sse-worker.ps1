@@ -3551,24 +3551,6 @@ function Complete-FailedDesktopStart([IntPtr]$ProcessHandle, [string]$DesktopNam
   }
 }
 
-function ConvertTo-SendKeysLiteral([string]$Text) {
-  $out = New-Object Text.StringBuilder
-  foreach ($ch in $Text.ToCharArray()) {
-    switch ([string]$ch) {
-      '+' { $null = $out.Append('{+}') }
-      '^' { $null = $out.Append('{^}') }
-      '%' { $null = $out.Append('{%}') }
-      '~' { $null = $out.Append('{~}') }
-      '(' { $null = $out.Append('{(}') }
-      ')' { $null = $out.Append('{)}') }
-      '{' { $null = $out.Append('{{}') }
-      '}' { $null = $out.Append('{}}') }
-      default { $null = $out.Append($ch) }
-    }
-  }
-  $out.ToString()
-}
-
 function ConvertTo-MenuLabel([string]$Text) {
   if (-not $Text) { return '' }
   $withoutShortcut = $Text -replace '\s+(?:(?:Strg|Ctrl|Alt|Umschalt|Shift)\+)+(?:F?\d+|[A-Z])$', ''

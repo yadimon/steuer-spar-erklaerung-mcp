@@ -205,7 +205,7 @@ function Update-SSEKnowledgeInputEpoch($InputState) {
   if ($null -eq $InputState.tick) { Fail 'Eigene Eingabe-Epoche ist nicht lesbar.' 'interference' }
 }
 
-function Send-SSEKnowledgeInput($Binding, $Field, [string]$Keys, $InputState) {
+function Assert-SSEKnowledgeInputFocus($Binding, $Field, $InputState) {
   if ($null -eq $InputState.tick) { Fail 'Eingabe-Epoche fehlt vor Tasteneingabe.' 'interference' }
   Assert-SSEKnowledgeTarget $Binding $true $InputState.tick
   try { $focused = [SSEAccessible]::DescribeDocumentFocus([int64]$Binding.hwnd) }
@@ -214,8 +214,40 @@ function Send-SSEKnowledgeInput($Binding, $Field, [string]$Keys, $InputState) {
     Fail 'Das gebundene Steuerwissen-Suchfeld hat den Tastaturfokus verloren.' 'precondition-failed'
   }
   Assert-SSEKnowledgeTarget $Binding $true $InputState.tick
+}
+
+# Nothing the search sends may depend on the active keyboard layout. A key
+# sequence is translated through that layout, and a layout without Latin
+# letters has no key for one: the letter of a chord then arrives as a
+# character instead of a key and the chord is lost. A key sequence is therefore
+# reserved for named keys.
+function Send-SSEKnowledgeInput($Binding, $Field, [string]$Keys, $InputState) {
+  Assert-SSEKnowledgeInputFocus $Binding $Field $InputState
   [System.Windows.Forms.SendKeys]::SendWait($Keys)
   Update-SSEKnowledgeInputEpoch $InputState
+  Assert-SSEKnowledgeTarget $Binding $true
+}
+
+# Ctrl+A as virtual keys with their scan codes: the same key pair under every
+# layout, exactly what the keyboard itself sends.
+function Send-SSEKnowledgeSelectAll($Binding, $Field, $InputState) {
+  Assert-SSEKnowledgeInputFocus $Binding $Field $InputState
+  [SW]::keybd_event(0x11, 0x1D, 0, [IntPtr]::Zero)
+  [SW]::keybd_event(0x41, 0x1E, 0, [IntPtr]::Zero)
+  [SW]::keybd_event(0x41, 0x1E, 0x0002, [IntPtr]::Zero)
+  [SW]::keybd_event(0x11, 0x1D, 0x0002, [IntPtr]::Zero)
+  Update-SSEKnowledgeInputEpoch $InputState
+  Assert-SSEKnowledgeTarget $Binding $true
+}
+
+# The term as Unicode input, which carries the character itself.
+function Send-SSEKnowledgeText($Binding, $Field, [string]$Text, $InputState) {
+  Assert-SSEKnowledgeInputFocus $Binding $Field $InputState
+  $sent = [SW]::SendUnicodeText($Text)
+  Update-SSEKnowledgeInputEpoch $InputState
+  if (-not $sent) {
+    Fail 'Der Suchbegriff konnte nicht vollstaendig eingegeben werden; Suche nicht abgeschickt.' 'precondition-failed'
+  }
   Assert-SSEKnowledgeTarget $Binding $true
 }
 
@@ -236,14 +268,18 @@ function Test-SSEKnowledgePoint($Binding, $Field, [int]$X, [int]$Y) {
 }
 
 function Wait-SSEKnowledgeInputValue($Binding, $Field, [string]$Term, $InputState) {
-  for ($attempt=1; $attempt -le 3; $attempt++) {
+  # The helper processes injected input after it was queued. The field must
+  # show the complete term within the bound; every reading stays bound to the
+  # same window, focus and input epoch.
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  do {
     Assert-SSEKnowledgeTarget $Binding $true $InputState.tick
     try { $focused=[SSEAccessible]::DescribeDocumentFocus([int64]$Binding.hwnd) }
     catch { Fail 'Der Steuerwissen-Feldwert ist nicht lesbar; Suche nicht abgeschickt.' 'precondition-failed' }
     Assert-SSEKnowledgeTarget $Binding $true $InputState.tick
     if ((Test-SSEKnowledgeFieldTarget $Field $focused -RequireFocus) -and [string]$focused.Value -ceq $Term) { return }
-    if ($attempt -lt 3) { Start-Sleep -Milliseconds 75 }
-  }
+    Start-Sleep -Milliseconds 50
+  } while ($watch.ElapsedMilliseconds -lt 1500)
   Fail 'Der eingegebene Suchbegriff ist nicht exakt bestaetigt; Suche nicht abgeschickt.' 'precondition-failed'
 }
 
@@ -359,10 +395,10 @@ function Invoke-SSEKnowledgeQuery($Binding, [string]$Term, [int]$Minimum, [int]$
   [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
   [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
   Update-SSEKnowledgeInputEpoch $inputState
-  Send-SSEKnowledgeInput $binding $liveField '^a' $inputState
+  Send-SSEKnowledgeSelectAll $binding $liveField $inputState
   $elements = [Globalization.StringInfo]::GetTextElementEnumerator($term)
   while ($elements.MoveNext()) {
-    Send-SSEKnowledgeInput $binding $liveField (ConvertTo-SendKeysLiteral $elements.GetTextElement()) $inputState
+    Send-SSEKnowledgeText $binding $liveField $elements.GetTextElement() $inputState
   }
   Wait-SSEKnowledgeInputValue $binding $liveField $Term $InputState
   Send-SSEKnowledgeInput $binding $liveField '{ENTER}' $inputState

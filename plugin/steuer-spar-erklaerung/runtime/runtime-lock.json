@@ -103,8 +103,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "cc3768dd6645681502d2a9cf655eb75386c2edd45b06986b1437e778288f14b7",
-      "size": 1715854
+      "sha256": "89ac69e2b040950a349d1e1cdf79e3421c4ffc5bb166055394e8d6d0c513534e",
+      "size": 1715293
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -163,8 +163,8 @@
     },
     {
       "path": "powershell/tax-knowledge.ps1",
-      "sha256": "7b7d50f587145f46eba644ec5744c2cefe34930c09005ac47777aba78d5710da",
-      "size": 19239
+      "sha256": "decda6617bd81623fabefda48494069783d63ee53821be81423ffc2e339f71f4",
+      "size": 20925
     },
     {
       "path": "powershell/window-close.ps1",
