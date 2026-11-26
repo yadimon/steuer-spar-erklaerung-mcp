@@ -30,7 +30,7 @@ namespace System.Windows.Automation {
     public ValueState Current = new ValueState();
     public void SetValue(string value) {
       SW.Events.Add("focusless-set"); Current.Value=value;
-      if(SW.UpdateNameOnSet) SW.BoundTarget.Current.Name=value;
+      if(SW.UpdateNameOnSet) SW.BoundTarget.Current.Name=SW.SetNameOverrideEnabled?SW.SetName:value;
       if(SW.SetRawOverrideEnabled) Current.Value=SW.SetRaw;
     }
   }
@@ -67,7 +67,7 @@ public sealed class CommitRectangle { public double X=20, Y=30, Width=80, Height
 public sealed class CommitMainCurrent { public int ProcessId=100; }
 public sealed class CommitMain {
   public CommitMainCurrent Current=new CommitMainCurrent();
-  public void SetFocus() { }
+  public void SetFocus() { SW.MainFocusCalls++; }
 }
 public sealed class CommitControlType { public string ProgrammaticName = "ControlType.Edit"; }
 public sealed class CommitCurrent {
@@ -89,6 +89,7 @@ public sealed class CommitTarget {
     return false;
   }
   public void SetFocus() {
+    SW.FocusCalls++;
     if(SW.FocusMutationEnabled) SW.Value.Current.Value=SW.FocusNull?null:SW.FocusRaw;
     if(SW.FocusNameMutationEnabled) Current.Name=SW.FocusName;
     if(SW.FocusReadOnly) SW.Value.Current.IsReadOnly=true;
@@ -113,8 +114,9 @@ public static class SW {
   public static bool SelectMutationEnabled=false, SelectNull=false, SelectNameMutationEnabled=false;
   public static string SelectRaw="", SelectName="";
   public static bool SelectionAvailable=true, SelectionAccepted=true, UpdateNameOnSet=false, SetRawOverrideEnabled=false;
-  public static string SetRaw="";
-  public static int SelectionCalls=0, ParentReads=0;
+  public static bool SetNameOverrideEnabled=false;
+  public static string SetRaw="", SetName="";
+  public static int SelectionCalls=0, ParentReads=0, FocusCalls=0, MainFocusCalls=0;
   public static System.Windows.Automation.SelectionItemPattern Selection=new System.Windows.Automation.SelectionItemPattern();
   public static CommitTarget TableParent;
   public static CommitTarget BoundTarget;
@@ -213,9 +215,10 @@ function Complete-SSEPhysicalSection { param($Hwnd) $script:completed++ }
 function Start-Sleep {
   param($Milliseconds)
   $script:sleeps.Add([int]$Milliseconds); [SW]::FlushModel()
-  # Only the table-focus fixture uses the production 500 ms focus timeout.
-  # Bound its polling without changing the production clock or focus logic.
-  if ($script:tableFocusWait) { [Threading.Thread]::Sleep([int]$Milliseconds) }
+  # Only the fixtures that run into a production focus or readback timeout
+  # sleep for real. That bounds their polling without changing the production
+  # clock or logic.
+  if ($script:boundedPolling) { [Threading.Thread]::Sleep([int]$Milliseconds) }
 }
 function Get-SSEWindowClassName { param($Hwnd) 'foreign-test-window' }
 function Get-SSEWindowTitleText { param($Hwnd) 'foreign-test-window' }
@@ -235,14 +238,15 @@ function Reset-TestState {
   [SW]::SelectNameMutationEnabled=$false;[SW]::SelectName=''
   [SW]::SelectionAvailable=$true;[SW]::SelectionAccepted=$true
   [SW]::Selection=new-object System.Windows.Automation.SelectionItemPattern
-  [SW]::SelectionCalls=0;[SW]::ParentReads=0
+  [SW]::SelectionCalls=0;[SW]::ParentReads=0;[SW]::FocusCalls=0;[SW]::MainFocusCalls=0
   [SW]::UpdateNameOnSet=$false;[SW]::SetRawOverrideEnabled=$false;[SW]::SetRaw=''
+  [SW]::SetNameOverrideEnabled=$false;[SW]::SetName=''
   $script:target = New-Object CommitTarget
   [SW]::BoundTarget=$script:target;[SW]::ClickMutationEnabled=$false;[SW]::ClickNull=$false;[SW]::ClickRaw='';[SW]::ClickFocusAccepted=$true
   [System.Windows.Automation.AutomationElement]::FocusedElement=$null
   [SW]::TableParent=New-Object CommitTarget
   [SW]::TableParent.Current.ControlType=[System.Windows.Automation.ControlType]::Table
-  $script:WLK=New-Object CommitWalker;$script:tableFocusWait=$false
+  $script:WLK=New-Object CommitWalker;$script:boundedPolling=$false
   $script:node = [pscustomobject]@{ rid='7.1'; aid='bound-field'; x=20; y=30; w=80; h=20 }
   [SW]::Value.Current.Value = 'before'; [SW]::Value.Current.IsReadOnly = $false
   [SW]::Events.Clear(); [SW]::LastText=$null; [SW]::Tick=1
@@ -389,45 +393,34 @@ foreach ($phase in @('initial','focus','point')) {
   }
 }
 
-# The profiled focusless amount is a currency DataItem. Model ValuePattern and
-# SelectionItemPattern separately, including a selected cell in a focused table.
-foreach ($phase in @('select','focus','table')) {
-  foreach ($case in @(
-    @{kind='currency';raw='';name='12,00';business='12,00';changedName='13,00';changeName=$true},
-    @{kind='date';raw='15.07';name='15.07.2026';business='15.07';changedName='15.07';changeName=$true;changeRaw=$true;changedRaw='15.07.2027'},
-    @{kind='date';raw='15.07.2026';name='15.07';business='15.07';changedName='15.07.2027';changeName=$true;changeRaw=$true;changedRaw='15.07'},
-    @{kind='currency';raw='12';name='12,00';business='12';changedName='13,00';changeName=$true},
-    @{kind='currency';raw='';name='12,00';business='12,00';nullRaw=$true},
-    @{kind='date';raw='15.07';name='15.07';business='15.07.2026';changedName='15.07.2027';changeName=$true}
-  )) {
-    Initialize-DataItemFixture $case.raw $case.name
-    $script:DESKTOP_NAME='synthetic'
-    $snapshot=[pscustomobject]@{raw=$case.raw;name=$case.name;value=$case.business}
-    switch ($phase) {
-      'select' {
-        [SW]::SelectNameMutationEnabled=[bool]$case.changeName;[SW]::SelectName=[string]$case.changedName
-        [SW]::SelectMutationEnabled=([bool]$case.nullRaw -or [bool]$case.changeRaw);[SW]::SelectNull=[bool]$case.nullRaw;[SW]::SelectRaw=[string]$case.changedRaw
-      }
-      'focus' {
-        [SW]::FocusNameMutationEnabled=[bool]$case.changeName;[SW]::FocusName=[string]$case.changedName
-        [SW]::FocusMutationEnabled=([bool]$case.nullRaw -or [bool]$case.changeRaw);[SW]::FocusNull=[bool]$case.nullRaw;[SW]::FocusRaw=[string]$case.changedRaw
-      }
-      'table' {
-        $script:target.Current.HasKeyboardFocus=$false;$script:tableFocusWait=$true
-        [SW]::FocusNameMutationEnabled=[bool]$case.changeName;[SW]::FocusName=[string]$case.changedName
-        [SW]::FocusMutationEnabled=([bool]$case.nullRaw -or [bool]$case.changeRaw);[SW]::FocusNull=[bool]$case.nullRaw;[SW]::FocusRaw=[string]$case.changedRaw
-      }
-    }
-    $result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node '24,00' $snapshot $case.kind
-    Assert-True ($result.method -ceq 'epoch-value-changed-after-focus') ('DataItem focusless drift passed boundary: '+$phase+'/'+$case.kind+'; '+$result.method)
-    Assert-True ([SW]::SelectionCalls -eq 1 -and [SW]::Selection.Current.IsSelected) 'DataItem did not execute its actual selection branch.'
-    Assert-True ([SW]::Events.Count -eq 0) 'DataItem late refusal called SetValue or queued TAB.'
-    Assert-True ($result.interference -and -not $result.inputInterference -and -not $result.details.mutationStarted) 'Focusless DataItem drift blamed foreign input.'
-    if($phase -ceq 'table'){Assert-True ([SW]::ParentReads -eq 1) 'Selected-cell table-focus branch was not exercised.'}
-  }
+# A table cell takes ValuePattern straight into its model. The focusless
+# commit binds Raw, Name and business value directly before that one write and
+# leaves selection and keyboard focus alone, whatever state they are in.
+foreach ($case in @(
+  @{id='name';kind='currency';raw='';name='12,00';business='12,00';drift={$script:target.Current.Name='13,00'}},
+  @{id='year-to-raw';kind='date';raw='15.07';name='15.07.2026';business='15.07';drift={$script:target.Current.Name='15.07';[SW]::Value.Current.Value='15.07.2027'}},
+  @{id='year-to-name';kind='date';raw='15.07.2026';name='15.07';business='15.07';drift={$script:target.Current.Name='15.07.2027';[SW]::Value.Current.Value='15.07'}},
+  @{id='name-with-raw';kind='currency';raw='12';name='12,00';business='12';drift={$script:target.Current.Name='13,00'}},
+  @{id='null-raw';kind='currency';raw='';name='12,00';business='12,00';drift={[SW]::SetRawNull()}},
+  @{id='name-year';kind='date';raw='15.07';name='15.07';business='15.07.2026';drift={$script:target.Current.Name='15.07.2027'}},
+  @{id='readonly';kind='currency';raw='12';name='12,00';business='12';drift={[SW]::Value.Current.IsReadOnly=$true}}
+)) {
+  Initialize-DataItemFixture $case.raw $case.name
+  $script:DESKTOP_NAME='synthetic'
+  $snapshot=[pscustomobject]@{raw=$case.raw;name=$case.name;value=$case.business}
+  & $case.drift
+  $result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node '24,00' $snapshot $case.kind
+  Assert-True ($result.method -ceq 'epoch-value-changed') ('DataItem focusless drift passed boundary: '+$case.id+'; '+$result.method)
+  Assert-True ([SW]::Events.Count -eq 0) ('DataItem refusal called SetValue or queued TAB: '+$case.id)
+  Assert-True ([SW]::SelectionCalls -eq 0 -and [SW]::FocusCalls -eq 0 -and [SW]::MainFocusCalls -eq 0) ('DataItem refusal changed selection or keyboard focus: '+$case.id)
+  Assert-True ($result.interference -and -not $result.inputInterference -and -not $result.details.mutationStarted) 'Focusless DataItem drift blamed foreign input.'
 }
 
-foreach ($mode in @('exact-element','selected-item-focused-table')) {
+foreach ($state in @(
+  @{id='nothing-focused-or-selectable';arrange={$script:target.Current.HasKeyboardFocus=$false;[SW]::TableParent.Current.HasKeyboardFocus=$false;[SW]::SelectionAvailable=$false}},
+  @{id='selection-refused';arrange={$script:target.Current.HasKeyboardFocus=$false;[SW]::SelectionAccepted=$false}},
+  @{id='cell-focused';arrange={$script:target.Current.HasKeyboardFocus=$true}}
+)) {
   foreach ($case in @(
     @{kind='currency';raw='1234';name='1.234,00';business='1234';formatted='1234,00';requested='2345,00'},
     @{kind='currency';raw='';name='12,00';business='12';formatted='12,00';requested='24,00'},
@@ -440,30 +433,44 @@ foreach ($mode in @('exact-element','selected-item-focused-table')) {
     Initialize-DataItemFixture $case.raw $case.name
     $script:DESKTOP_NAME='synthetic'
     $snapshot=[pscustomobject]@{raw=$case.raw;name=$case.name;value=$case.business}
-    [SW]::FocusNameMutationEnabled=$true;[SW]::FocusName=$case.formatted
-    if($mode -ceq 'selected-item-focused-table'){
-      $script:target.Current.HasKeyboardFocus=$false;$script:tableFocusWait=$true
-    }
+    $script:target.Current.Name=$case.formatted
+    & $state.arrange
     $result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node $case.requested $snapshot $case.kind
-    Assert-True ($result.method -ceq 'verified-focusless-value-pattern-tab' -and $result.details.focusMode -ceq $mode) ('DataItem positive focusless control failed: '+$mode+'/'+$case.kind+'; '+$result.method)
-    Assert-True ($result.details.selectedByPattern -and [SW]::SelectionCalls -eq 1) 'Positive DataItem control bypassed selection.'
-    Assert-True (([SW]::Events -join '|') -ceq 'focusless-set|post-tab-down|post-tab-up') 'DataItem input was skipped, reordered or replayed.'
-    Assert-True ([SW]::Value.Current.Value -ceq $case.requested -and $script:target.Current.Name -ceq $case.requested) 'Positive DataItem model did not retain the requested value.'
+    Assert-True ($result.method -ceq 'verified-focusless-value-pattern' -and $result.details.strategy -ceq 'value-pattern') ('DataItem positive focusless control failed: '+$state.id+'/'+$case.kind+'; '+$result.method)
+    Assert-True (([SW]::Events -join '|') -ceq 'focusless-set') ('DataItem write was skipped, replayed or followed by a queued key: '+$state.id)
+    Assert-True ([SW]::SelectionCalls -eq 0 -and [SW]::FocusCalls -eq 0 -and [SW]::MainFocusCalls -eq 0 -and [SW]::ParentReads -eq 0) ('DataItem write changed or inspected selection and keyboard focus: '+$state.id)
+    Assert-True ($result.details.foregroundLeaseUsed -eq $false -and $result.details.physicalInputUsed -eq $false -and -not $result.interference) 'DataItem write lost its declared input boundary.'
+    Assert-True ([SW]::Value.Current.Value -ceq $case.requested -and $script:target.Current.Name -ceq $case.requested -and $result.details.observedValue -ceq $case.requested) 'Positive DataItem model did not retain the requested value.'
   }
 }
 
-foreach ($denial in @('selection-unavailable','selection-denied','table-unfocused')) {
-  Initialize-DataItemFixture '12' '12,00'
-  $script:DESKTOP_NAME='synthetic';$script:target.Current.HasKeyboardFocus=$false;$script:tableFocusWait=$true
-  $snapshot=[pscustomobject]@{raw='12';name='12,00';value='12'}
-  switch($denial){
-    'selection-unavailable' {[SW]::SelectionAvailable=$false}
-    'selection-denied' {[SW]::SelectionAccepted=$false}
-    'table-unfocused' {[SW]::TableParent.Current.HasKeyboardFocus=$false}
-  }
-  $result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node '24,00' $snapshot 'currency'
-  Assert-True ($result.method -ceq 'focus-mismatch' -and [SW]::Events.Count -eq 0) ('Unproved DataItem table focus allowed SetValue: '+$denial)
-}
+# The model may format what it took. The commit accepts the equal amount and
+# reports the text it read back, not the text it sent.
+Initialize-DataItemFixture '12' '12,00'
+$script:DESKTOP_NAME='synthetic';[SW]::SetNameOverrideEnabled=$true;[SW]::SetName='24,00'
+$snapshot=[pscustomobject]@{raw='12';name='12,00';value='12'}
+$result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node '24' $snapshot 'currency'
+Assert-True ($result.method -ceq 'verified-focusless-value-pattern' -and $result.details.observedValue -ceq '24,00') ('A formatted cell readback was not reported as read: '+$result.method+'/'+$result.details.observedValue)
+Assert-True (([SW]::Events -join '|') -ceq 'focusless-set') 'A formatted cell readback repeated the write or queued a key.'
+
+# A model that keeps its displayed value refuted the write. The commit reports
+# that once; it neither repeats the write nor falls back to a key or to focus.
+Initialize-DataItemFixture '12' '12,00'
+$script:DESKTOP_NAME='synthetic';[SW]::UpdateNameOnSet=$false;$script:boundedPolling=$true
+$snapshot=[pscustomobject]@{raw='12';name='12,00';value='12'}
+$result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node '24,00' $snapshot 'currency'
+Assert-True ($result.method -ceq 'focusless-write-readback-mismatch' -and $result.details.requested -ceq '24,00' -and $result.details.observedValue -ceq '12,00') ('An unconfirmed DataItem write was not reported as such: '+$result.method)
+Assert-True (([SW]::Events -join '|') -ceq 'focusless-set') 'An unconfirmed DataItem write was repeated or followed by a queued key.'
+Assert-True ([SW]::SelectionCalls -eq 0 -and [SW]::FocusCalls -eq 0 -and [SW]::MainFocusCalls -eq 0 -and -not $result.interference) 'An unconfirmed DataItem write changed focus or blamed an interference.'
+
+# Every other field still needs proven focus on exactly that field: its queued
+# Tab commit goes to whatever Qt has focused.
+Reset-TestState;$script:DESKTOP_NAME='synthetic';$script:boundedPolling=$true
+$script:node|Add-Member NoteProperty type 'Edit';$script:target.Current.ProcessId=100
+$script:target.Current.HasKeyboardFocus=$false
+$result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node 'Synthetic New' 'before' 'text'
+Assert-True ($result.method -ceq 'focus-mismatch' -and [SW]::Events.Count -eq 0) ('An unfocused Edit allowed SetValue or a queued key: '+$result.method)
+Assert-True ([SW]::FocusCalls -eq 1 -and [SW]::MainFocusCalls -eq 1 -and [SW]::SelectionCalls -eq 0) 'The Edit focus proof was skipped or changed a selection.'
 
 foreach ($case in @(
   @{kind='currency';raw='0';name='0,00';business='0,00';requested='1,00'},
@@ -477,27 +484,27 @@ foreach ($case in @(
   Assert-True ($result.method -ceq 'verified-keyboard-replace' -and ([SW]::Events -join '|') -ceq '^a|unicode|{TAB}') 'Physical DataItem empty/zero/suffix positive control failed or replayed.'
 }
 
-foreach ($commitName in @('Commit-TrackedValue','Commit-TrackedValueFocusless')) {
-  foreach ($case in @(
-    @{kind='currency';raw='0,00';name='0,00';business='0';formatted=''},
-    @{kind='currency';raw='';name='';business='';formatted='0,00'}
-  )) {
-    Initialize-DataItemFixture $case.raw $case.name
-    $snapshot=[pscustomobject]@{raw=$case.raw;name=$case.name;value=$case.business}
-    [SW]::FocusMutationEnabled=$true;[SW]::FocusRaw=$case.formatted
-    [SW]::FocusNameMutationEnabled=$true;[SW]::FocusName=$case.formatted
-    if($commitName -ceq 'Commit-TrackedValueFocusless'){$script:DESKTOP_NAME='synthetic'}
-    $result=& $commitName ([IntPtr]7) $script:node '1,00' $snapshot $case.kind
-    Assert-True ($result.method -ceq 'epoch-value-changed-after-focus' -and [SW]::Events.Count -eq 0) 'Empty and zero became interchangeable at the commit boundary.'
-  }
-  Initialize-DataItemFixture '12' '12,00'
-  $snapshot=[pscustomobject]@{raw='12';name='12,00';value='12'}
-  [SW]::FocusReadOnly=$true
-  if($commitName -ceq 'Commit-TrackedValueFocusless'){$script:DESKTOP_NAME='synthetic'}
-  $result=& $commitName ([IntPtr]7) $script:node '24,00' $snapshot 'currency'
-  Assert-True ($result.method -ceq 'epoch-value-changed-after-focus' -and [SW]::Events.Count -eq 0) 'Readonly drift after focus allowed a value write.'
+foreach ($case in @(
+  @{kind='currency';raw='0,00';name='0,00';business='0';formatted=''},
+  @{kind='currency';raw='';name='';business='';formatted='0,00'}
+)) {
+  $snapshot=[pscustomobject]@{raw=$case.raw;name=$case.name;value=$case.business}
+  Initialize-DataItemFixture $case.raw $case.name
+  [SW]::FocusMutationEnabled=$true;[SW]::FocusRaw=$case.formatted
+  [SW]::FocusNameMutationEnabled=$true;[SW]::FocusName=$case.formatted
+  $result=Commit-TrackedValue ([IntPtr]7) $script:node '1,00' $snapshot $case.kind
+  Assert-True ($result.method -ceq 'epoch-value-changed-after-focus' -and [SW]::Events.Count -eq 0) 'Empty and zero became interchangeable at the physical commit boundary.'
+  Initialize-DataItemFixture $case.formatted $case.formatted
+  $script:DESKTOP_NAME='synthetic'
+  $result=Commit-TrackedValueFocusless ([IntPtr]7) $script:node '1,00' $snapshot $case.kind
+  Assert-True ($result.method -ceq 'epoch-value-changed' -and [SW]::Events.Count -eq 0) 'Empty and zero became interchangeable at the focusless cell boundary.'
 }
-Write-Output 'DataItem commits: fresh Name/raw/business guards and exact/table focus paths passed without native input.'
+Initialize-DataItemFixture '12' '12,00'
+$snapshot=[pscustomobject]@{raw='12';name='12,00';value='12'}
+[SW]::FocusReadOnly=$true
+$result=Commit-TrackedValue ([IntPtr]7) $script:node '24,00' $snapshot 'currency'
+Assert-True ($result.method -ceq 'epoch-value-changed-after-focus' -and [SW]::Events.Count -eq 0) 'Readonly drift after focus allowed a value write.'
+Write-Output 'DataItem commits: fresh Name/raw/business guards passed; the focusless cell write needs no selection, focus or queued key.'
 
 $unicode = -join [char[]]@(0x00e4,0x00d6,0x00df,0x20ac,0x0395,0x03bb,0x03bb,0x0423,0x043a,0x0440,0xd83d,0xde80)
 foreach ($text in @('literal +^%~(){}[]', '15.01.2025', '12,34')) {

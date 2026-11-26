@@ -296,7 +296,7 @@
       "valueKind": "currency",
       "automationIdSuffix": ".Bankgebuehren.Tab",
       "columnHeader": "Betrag",
-      "commitMethod": "value-pattern-plus-posted-tab",
+      "commitMethod": "value-pattern",
       "resultTracking": false,
       "requiredSumChecks": [
         {
@@ -306,7 +306,6 @@
       ],
       "verification": [
         "exact-runtime-id-and-automation-id",
-        "selected-item-with-focused-table",
         "field-readback",
         "page-total-readback",
         "dirty-state",

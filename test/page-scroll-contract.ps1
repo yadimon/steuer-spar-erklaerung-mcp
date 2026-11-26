@@ -23,7 +23,9 @@ foreach($name in @('Arg','Test-SSEElementIdentity','Test-SSEMainContentBinding',
 }
 function Test-SSEMainContentAncestry { $script:ancestryValid }
 function Get-LiveElement {throw 'A page scroll must not search outside its exact snapshot cache'}
-function Start-Sleep {param($Milliseconds) if($Milliseconds -ne 450){throw 'Unexpected wait'};$script:waits++}
+# 450 ms settles an own scroll movement, 150 ms lets a provider disturbance pass
+# before the bound form is read again. No other wait belongs to these paths.
+function Start-Sleep {param($Milliseconds) if($Milliseconds -notin @(150,450)){throw 'Unexpected wait'};$script:waitsByDuration[[int]$Milliseconds]++}
 function Assert-Equal($Actual,$Expected,$Message){if($Actual -cne $Expected){throw $Message}}
 Assert-Equal (Get-SSEFullReadFailureCode ([InvalidOperationException]::new('Full-read range changed.'))) 'range-changed' 'Fixed read failure was not classified'
 Assert-Equal (Get-SSEFullReadFailureCode ([InvalidOperationException]::new('synthetic-provider-detail'))) 'unproven-state' 'Untrusted provider details escaped through a read error'
@@ -36,7 +38,7 @@ function New-Element($Id,$Aid,$Type,$Bounds,$Parent){
  $e
 }
 function New-Fixture([double]$Scale=1,[double]$Value=0){
- $script:sets=0;$script:waits=0;$script:ancestryValid=$true;$script:patternSupported=$true;$script:afterSet='normal';$script:scale=$Scale;$script:valueFailure='none';$script:scopeMissing=$false;$script:throwProvider=$false
+ $script:sets=0;$script:waitsByDuration=@{150=0;450=0};$script:disturbedWalks=0;$script:ancestryValid=$true;$script:patternSupported=$true;$script:afterSet='normal';$script:scale=$Scale;$script:valueFailure='none';$script:scopeMissing=$false;$script:throwProvider=$false
  $script:targets=New-Object 'Collections.Generic.List[double]'
  [PageScrollTestAutomation]::Reads=0;[PageScrollTestAutomation]::ChangeAt=0;[PageScrollTestAutomation]::BeforeRead=$null
  $root=New-Element 'root' 'SyntheticRoot' ([Windows.Automation.ControlType]::Window) (New-Rect 0 0 800 800) ''
@@ -285,6 +287,9 @@ function Get-SSEMainContentTree {
  $heading='Synthetic scroll page'
  if($script:valueFailure -ceq 'late-heading' -and $script:pattern.Current.Value -eq 185){$heading='Different page'}
  if($script:valueFailure -ceq 'transient-initial' -and $script:scopedWalks -eq 1){$stats.err=1}
+ # A disturbance that outlasts several immediate readings: the first
+ # $script:disturbedWalks walks of the form meet a provider error.
+ if($script:scopedWalks -le $script:disturbedWalks){$stats.err=1}
  if($WithValues -and $script:valueFailure -in @('transient-value','retry-different-form','retry-different-page','retry-different-position')) {
   if($script:scopedWalks -eq 3){
    $stats.err=1
@@ -323,6 +328,23 @@ $script:valueFailure='transient-initial'
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'Fresh bound scroll read did not recover a transient traversal failure'
 Assert-Equal $script:scopedWalks 2 'Scroll did not independently reobserve the form'
 Assert-Equal $script:sets 1 'Scroll verification replayed a movement'
+Assert-Equal $script:waitsByDuration[150] 1 'The form was read again without letting the disturbance pass'
+# Another UIA client reading the same window can keep the form unreadable for
+# some hundred milliseconds. The bound form is read again after a short pause,
+# at most five times, and nothing of a disturbed reading is used.
+New-Fixture
+$script:disturbedWalks=5
+$outlasted=Run-Operation 'scroll_page' ([pscustomobject]@{})
+Assert-Equal $outlasted.ok $true 'A disturbance of five readings was not outlasted'
+Assert-Equal $outlasted.position 0 'An outlasted disturbance changed the reported position'
+Assert-Equal $script:scopedWalks 6 'A disturbed form was not read again exactly until it was complete'
+Assert-Equal $script:waitsByDuration[150] 5 'Every new reading of a disturbed form waits once first'
+Assert-Equal $script:sets 0 'Reading a disturbed form again moved the page'
+New-Fixture
+$script:disturbedWalks=6
+Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{})).kind 'scroll-state-unknown' 'A form that stays unreadable was accepted'
+Assert-Equal $script:scopedWalks 6 'A form that stays unreadable was read without a bound'
+Assert-Equal $script:waitsByDuration[150] 5 'A form that stays unreadable waited without a bound'
 New-Fixture
 $script:scopeMissing=$true
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).kind 'scroll-state-unknown' 'A missing form scope fell through to global traversal'

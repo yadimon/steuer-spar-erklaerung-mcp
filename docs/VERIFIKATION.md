@@ -309,6 +309,13 @@ physischen Klicks aus: Baumeinträge und Detail-Links bleiben auch auf einem
 Monitor links oder oberhalb des Hauptmonitors wählbar, also bei negativen
 Bildschirmkoordinaten; Ziele ohne Fläche und andere Steuerelemente bleiben
 gesperrt.
+`tax-knowledge-search-contract.ps1` belegt, dass die Eingabe des Steuerwissens
+nicht vom aktiven Tastaturlayout abhängt: Der Suchbegriff wird als
+Unicode-Eingabe gesendet, Strg+A als virtuelle Tasten in fester Reihenfolge
+einschließlich Loslassen, und nur die benannte Eingabetaste läuft als
+Tastenfolge. Ein zweiter Begriff ersetzt den ersten, eine unvollständig
+angenommene Eingabe wird nicht abgeschickt, und die Bestätigung des Feldwerts
+wartet begrenzt auf das Feld, statt nach drei Lesungen aufzugeben.
 In `value-info-window-contract.ps1` durchläuft die Vorbereitung auch die
 tatsächliche Tracking-Hülle sowie Markenwechsel während Baumlesung und
 Fokusvorbereitung, ausgetauschte Knöpfe und ungebundene vorhandene Fenster.
@@ -352,23 +359,31 @@ ausdrückliche Jahre bei einer Vorgabe ohne Jahr bleiben als Positivfälle erhal
 eines strengeren Testersatzes. Der echte Commit-Code muss Änderungen von
 Text, Großschreibung, Leerzeichen, Satzzeichen und Zahlenwert sowie fehlende
 Roh- oder Vorwerte vor der Texteingabe abweisen. Das gilt vor dem Fokus und
-nach UIA- oder Klickfokus. Beim fokuslosen Ablauf wird zusätzlich nach der
-Fokusvorbereitung vor `SetValue` geprüft. Der zustandsbehaftete Provider hält
+nach UIA- oder Klickfokus. Beim fokuslosen Ablauf eines Eingabefelds wird
+zusätzlich nach der Fokusvorbereitung vor `SetValue` geprüft; ohne bewiesenen
+Fokus genau dieses Feldes gibt es dort weder `SetValue` noch den eingereihten
+Tab. Der zustandsbehaftete Provider hält
 echtes `null` von lesbarem leerem Text getrennt und simuliert erfolgreiche
 sowie verweigerte Klickfokuswechsel. Positive Währungs- und Datumsformatierung
 darf die Vorwertprüfung weiterhin passieren. Die tatsächlichen Beleg-Commit-
 und Rücknahmeblöcke müssen ihren Formatvertrag ebenfalls weitergeben.
 Für DataItems werden Raw, Name und fachliche Vorgabe gemeinsam bis zur letzten
-Vorwertprüfung gebunden. Eigene Auswahl- und Tabellenprovider führen den
-fokuslosen DataItem-Pfad vollständig aus, sowohl mit exakt fokussierter Zelle
-als auch mit ausgewählter Zelle in einer fokussierten Tabelle. Änderungen nach
-Auswahl, UIA-Fokus oder Klick, widersprüchliche Jahre, fehlender Rohwert und
-nachträglicher Schreibschutz dürfen keine Werteingabe auslösen. Positive
+Vorwertprüfung gebunden. Auf dem physischen Weg dürfen Änderungen nach
+UIA-Fokus oder Klick, widersprüchliche Jahre, fehlender Rohwert und
+nachträglicher Schreibschutz keine Werteingabe auslösen. Der fokuslose Weg
+einer Tabellenzelle prüft dieselbe Bindung einmal unmittelbar vor der
+Schreibung, schreibt genau einmal über `ValuePattern` und liest die Zelle
+zurück. Zähler an den Auswahl-, Fokus- und Elternprovidern belegen, dass er
+Auswahl und Tastaturfokus weder ändert noch abfragt und keinen Tab einreiht:
+bei fokussierter Zelle, ganz ohne Fokus und bei verweigerter Auswahl. Bleibt
+die Anzeige nach der Schreibung beim alten Wert, meldet der Weg das einmal;
+er wiederholt die Schreibung nicht und weicht auf keinen Tastenweg aus. Positive
 Währungsformatierung, leere Datums-/Währungsfelder und Nullbeträge bleiben
 prüfbar; leer und null Euro sind dabei keine austauschbaren Vorwerte. Ein
 Währungssuffix im Namen verdeckt keinen lesbaren numerischen Rohwert.
-Nicht bestätigte Auswahl und fehlender Tabellenfokus stoppen ebenfalls vor
-`SetValue`. Der Handlervertrag prüft vollständige Namen unabhängig von einer
+`focusless-commit-contract.mjs` hält den Profilkatalog an diesen Wegen: Ein
+freigegebener Feldpfad nennt den Schreibweg seiner Steuerelementart und nur
+die Nachweise, die dieser Weg führt. Der Handlervertrag prüft vollständige Namen unabhängig von einer
 vereinheitlichten Baumdarstellung und verweigert `null` bei Vorher-, Nachher-
 oder Rücknahmenamen. Ein leerer oder unlesbarer DataItem-Rohwert darf bei der
 Rücknahme keine Platzhaltereingabe anstelle des bestätigten ursprünglichen
@@ -640,8 +655,11 @@ Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
 müssen zusätzlich überlappen.
 `read_full` bindet sowohl die anfängliche Rollaufnahme als auch jede
 Wertelesung an den profilierten Formularbereich. Bei einem UIA-Baumlauffehler
-dürfen `read_full` und `scroll_page` denselben Ausschnitt bis zu zweimal neu
-lesen. Die Prüfung verlangt dasselbe Formular, dieselbe Überschrift und bei
+dürfen `read_full` und `scroll_page` denselben Ausschnitt bis zu fünfmal neu
+lesen, jeweils nach einer kurzen Pause: Liest ein zweiter UIA-Client dasselbe
+Fenster, bleibt der Formularbaum für einige hundert Millisekunden unlesbar,
+und unmittelbar aufeinanderfolgende Lesungen fielen alle in diese Störung.
+Die Prüfung verlangt dasselbe Formular, dieselbe Überschrift und bei
 gebundenen Qt-Lesestufen auch dieselbe Rollstellung. Nur der vollständige
 Snapshot zählt. Fehler zwischen den Lesestufen nennen einen festen
 Ursachencode; fremde Providertexte werden dabei nicht ausgegeben.

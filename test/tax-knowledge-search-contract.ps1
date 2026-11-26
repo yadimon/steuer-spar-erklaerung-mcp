@@ -27,6 +27,17 @@ public static class SW {
   public static void mouse_event(uint flags,uint x,uint y,uint data,IntPtr extra) {
     Clicks++; Tick++; if(flags==4 && LoseAfterClick) Foreground=999;
   }
+  public static bool SendUnicodeText(string text) { return SseKnowledgeFixture.SendKeys.Text(text); }
+  // The only accepted key events are the four of one Ctrl+A chord, in order:
+  // Ctrl down, A down, A up, Ctrl up. The chord takes effect at A down.
+  public static int ChordStep=0;
+  public static void keybd_event(byte vk,byte scan,uint flags,IntPtr extra) {
+    byte[] keys={0x11,0x41,0x41,0x11}; uint[] transitions={0,0,2,2};
+    Tick++;
+    if(vk!=keys[ChordStep] || flags!=transitions[ChordStep]) { SseKnowledgeFixture.SendKeys.Keys.Add("unexpected-key:"+vk+":"+flags);return; }
+    ChordStep=(ChordStep+1)%4;
+    if(ChordStep==2) SseKnowledgeFixture.SendKeys.SelectAll();
+  }
 }
 public sealed class KnowledgeFakeAcc {
   public int Role=42, State=1048580, X=10, Y=20, W=100, H=25;
@@ -61,16 +72,28 @@ namespace SseKnowledgeFixture {
   public static class SendKeys {
     public static List<string> Keys=new List<string>();
     public static int LoseAfter=0, LoseFieldAfter=0;
-    public static bool Uppercase=false;
+    public static bool Uppercase=false, UnicodeComplete=true;
     public static string Value="";
     public static bool Submitted=false;
     public static string SubmittedTerm=null;
     public static List<string> QueryTerms=new List<string>();
+    // A key sequence passes through the active keyboard layout. Only a named
+    // key means the same in every layout: a letter has no key in a layout
+    // without it, so a letter chord or a literal recorded here would arrive
+    // as something else. The fixture therefore gives them no effect.
     public static void SendWait(string key) {
       Keys.Add(key); SW.Tick++;
-      if(key=="^a") Value="";
-      else if(key=="{ENTER}") { Submitted=true;SubmittedTerm=Value;QueryTerms.Add(Value); }
-      else Value+=Uppercase ? key.ToUpperInvariant() : key;
+      if(key=="{ENTER}") { Submitted=true;SubmittedTerm=Value;QueryTerms.Add(Value); }
+      After();
+    }
+    public static void SelectAll() { Keys.Add("select-all"); Value=""; After(); }
+    public static bool Text(string text) {
+      Keys.Add("text:"+text); SW.Tick++;
+      Value+=Uppercase ? text.ToUpperInvariant() : text;
+      After();
+      return UnicodeComplete;
+    }
+    static void After() {
       if(LoseAfter!=0 && Keys.Count==LoseAfter) SW.Foreground=999;
       if(LoseFieldAfter!=0 && Keys.Count==LoseFieldAfter) FocusedElsewhere();
     }
@@ -94,12 +117,14 @@ function Get-SSEWindowTitleText { 'Steuerwissen' }
 function Get-SSELastInputTick {
   $script:tickReads++
   if ($script:tickReads -eq $script:nullTickAt) { return $null }
-  [SW]::Tick
+  $tick=[SW]::Tick
+  # Foreign input directly after the search took this reading as its own.
+  [SW]::Tick += [int]($script:tickReads -eq $script:foreignInputAfterTickRead)
+  $tick
 }
 function Test-SSELastInputUnchanged($Expected) { $Expected -eq [SW]::Tick }
 function Set-SSECursorPoint { [SW]::Tick++ }
 function Assert-SSECursorPoint {}
-function ConvertTo-SendKeysLiteral($Text) { & $script:onLiteral; $Text }
 function Get-Process {
   [CmdletBinding()]param($Name,$Id)
   $script:fakeProcesses | Where-Object { -not $PSBoundParameters.ContainsKey('Id') -or $_.Id -eq $Id }
@@ -118,17 +143,18 @@ function Reset-Scenario {
   $script:identity=New-Identity
   $script:unobstructed=$true; $script:exactPoint=$true; $script:hitPid=42
   $script:mode='fresh'; $script:reads=0
-  $script:tickReads=0; $script:nullTickAt=-1; $script:onLiteral={}
+  $script:tickReads=0; $script:nullTickAt=-1; $script:foreignInputAfterTickRead=-1
   $script:baselineText='A previous unrelated paragraph with sufficient length to resemble actual knowledge content.'
   $script:resultText='Alpha is the requested term in a new manufacturer paragraph with sufficient meaningful content.'
   $script:initialCount=1; $script:resultCount=1
   [SW]::Foreground=100; [SW]::Tick=10; [SW]::WindowPid=42; [SW]::Clicks=0
   [SW]::Visible=$true; [SW]::Iconic=$false; [SW]::Acquire=$true; [SW]::LoseAfterClick=$false
-  [SW]::Hung=$false
+  [SW]::Hung=$false; [SW]::ChordStep=0
   [SW]::DpiAvailable=$true; [SW]::DpiEntries=0; [SW]::DpiRestores=0
   [SseKnowledgeFixture.SendKeys]::Keys.Clear()
   [SseKnowledgeFixture.SendKeys]::LoseAfter=0
   [SseKnowledgeFixture.SendKeys]::LoseFieldAfter=0; [SseKnowledgeFixture.SendKeys]::Uppercase=$false
+  [SseKnowledgeFixture.SendKeys]::UnicodeComplete=$true
   [SseKnowledgeFixture.SendKeys]::Value=''; [SseKnowledgeFixture.SendKeys]::Submitted=$false
   [SseKnowledgeFixture.SendKeys]::SubmittedTerm=$null; [SseKnowledgeFixture.SendKeys]::QueryTerms.Clear()
   [SSEAccessible]::Focused=New-Object KnowledgeFakeAcc
@@ -174,6 +200,7 @@ function Must-Fail([scriptblock]$Action,[string]$Kind,[string]$MessagePart='') {
   if (-not $failure -or $failure.Exception.Message -notlike "$Kind*" ) { throw "Expected $Kind, got $failure" }
   if ($MessagePart -and -not $failure.Exception.Message.Contains($MessagePart)) { throw "Wrong guard for $Kind`: $failure" }
   if ([SW]::DpiEntries -ne [SW]::DpiRestores) { throw 'A rejected search leaked its physical DPI context.' }
+  if ([SW]::ChordStep -ne 0) { throw 'A rejected search left a key of its chord down.' }
 }
 function Assert-NoInput {
   if ([SW]::Clicks -ne 0 -or [SseKnowledgeFixture.SendKeys]::Keys.Count -ne 0) { throw 'Rejected target received physical input.' }
@@ -276,16 +303,29 @@ Reset-Scenario
 [SseKnowledgeFixture.SendKeys]::LoseAfter=4
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed'
 if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 4 -or [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'Term input continued after focus loss.' }
-Reset-Scenario
-$inputState=[pscustomobject]@{tick=0}
-Must-Fail { Send-SSEKnowledgeInput $binding $field '^a' $inputState } 'interference'
-Assert-NoInput
-$inputState.tick=$null
-Must-Fail { Send-SSEKnowledgeInput $binding $field '^a' $inputState } 'interference'
-Assert-NoInput
+foreach ($sender in @(
+  { Send-SSEKnowledgeSelectAll $binding $field $inputState },
+  { Send-SSEKnowledgeText $binding $field 'A' $inputState },
+  { Send-SSEKnowledgeInput $binding $field '{ENTER}' $inputState }
+)) {
+  Reset-Scenario
+  $inputState=[pscustomobject]@{tick=0}
+  Must-Fail $sender 'interference'
+  Assert-NoInput
+  $inputState.tick=$null
+  Must-Fail $sender 'interference'
+  Assert-NoInput
+}
 Reset-Scenario
 [SseKnowledgeFixture.SendKeys]::Value='Alpha'
 [SSEAccessible]::FocusDelayReads=2
+Wait-SSEKnowledgeInputValue $binding $field 'Alpha' ([pscustomobject]@{tick=10})
+Assert-NoInput
+# Injected input is processed after it was queued: a field that shows the
+# complete term a little later is still confirmed.
+Reset-Scenario
+[SseKnowledgeFixture.SendKeys]::Value='Alpha'
+[SSEAccessible]::FocusDelayReads=8
 Wait-SSEKnowledgeInputValue $binding $field 'Alpha' ([pscustomobject]@{tick=10})
 Assert-NoInput
 
@@ -302,9 +342,14 @@ Reset-Scenario
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed' 'Tastaturfokus'
 if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 1) { throw 'Typing continued after in-window focus changed.' }
 Reset-Scenario
-$script:onLiteral={ [SW]::Tick++ }
+# The fourth reading is the search's own mark after Ctrl+A.
+$script:foreignInputAfterTickRead=4
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'interference' 'Epoche'
-if ([SseKnowledgeFixture.SendKeys]::Keys.Count -ne 1 -or [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'External inter-step input was absorbed.' }
+if (([SseKnowledgeFixture.SendKeys]::Keys -join '|') -cne 'select-all' -or [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'External inter-step input was absorbed.' }
+Reset-Scenario
+[SseKnowledgeFixture.SendKeys]::UnicodeComplete=$false
+Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'precondition-failed' 'vollstaendig'
+if (([SseKnowledgeFixture.SendKeys]::Keys -join '|') -cne 'select-all|text:A' -or [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'An incomplete term input was continued or submitted.' }
 Reset-Scenario
 [SSEAccessible]::InterfereOnFocus=$true
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'} } 'interference' 'Epoche'
@@ -345,7 +390,25 @@ $success=Invoke-SSETaxKnowledgeSearch @{begriff='Alpha';fenster=100}
 if (-not $success.ok -or $success.pid -ne 42 -or $success.fenster -ne 100 -or $success.abschnitte.Count -ne 1) { throw 'Genuine new content was not returned.' }
 if ($success.trefferAnzahl -ne 1 -or $success.abschnitte[0].text -cne $script:resultText) { throw 'Navigation leaked into the scoped search result.' }
 if (-not [SseKnowledgeFixture.SendKeys]::Submitted) { throw 'Successful search was not submitted.' }
-if (([SseKnowledgeFixture.SendKeys]::Keys -join '|') -cne '^a|A|l|p|h|a|{ENTER}' -or [SW]::Clicks -ne 2) { throw 'Unexpected successful input sequence.' }
+# Nothing of the search passes through the active keyboard layout: the chord
+# is sent as virtual keys, the term as Unicode input, and the only key
+# sequence is a named key.
+if (([SseKnowledgeFixture.SendKeys]::Keys -join '|') -cne 'select-all|text:A|text:l|text:p|text:h|text:a|{ENTER}' -or [SW]::Clicks -ne 2) { throw 'Unexpected successful input sequence.' }
+if ([SW]::ChordStep -ne 0) { throw 'The successful search left a key of its chord down.' }
+Reset-Scenario
+$umlaut='Geb'+[char]0x00fc+'hr '+[char]0x0423
+$script:resultText=$umlaut+' is the requested term in a new manufacturer paragraph with sufficient meaningful content.'
+$unicode=Invoke-SSETaxKnowledgeSearch @{begriff=$umlaut}
+if (-not $unicode.ok -or [SseKnowledgeFixture.SendKeys]::SubmittedTerm -cne $umlaut -or
+    @([SseKnowledgeFixture.SendKeys]::Keys | Where-Object { $_ -cnotin @('select-all','{ENTER}') -and -not $_.StartsWith('text:') }).Count) {
+  throw 'A term with non-ASCII letters was not sent as Unicode input.'
+}
+# A second search in the same field replaces the first term instead of
+# extending it; that is what the chord is for.
+Reset-Scenario
+[SseKnowledgeFixture.SendKeys]::Value='Earlier term'
+$replaced=Invoke-SSETaxKnowledgeSearch @{begriff='Alpha'}
+if (-not $replaced.ok -or [SseKnowledgeFixture.SendKeys]::SubmittedTerm -cne 'Alpha') { throw 'A search over an earlier term did not replace it.' }
 if ([SW]::DpiEntries -ne 1 -or [SW]::DpiRestores -ne 1) { throw 'Successful search did not restore its DPI context.' }
 Reset-Scenario
 $script:baselineText=$script:resultText
@@ -390,4 +453,9 @@ Reset-Scenario
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff='x'} } 'bad-args'
 Must-Fail { Invoke-SSETaxKnowledgeSearch @{begriff="Alpha`nBeta"} } 'bad-args'
 Assert-NoInput
-Write-Output 'Steuerwissen: Fenster-/Lebenszeitbindung, Feldfokus, Eingabe-Epochen zwischen Schritten und Ergebnisvertrag deterministisch geprueft.'
+foreach ($script in @('tax-knowledge.ps1','sse-worker.ps1')) {
+  if ((Get-Content -LiteralPath (Join-Path $PSScriptRoot "../powershell/$script") -Raw).Contains('ConvertTo-SendKeysLiteral')) {
+    throw "The helper that types literal text through the keyboard layout is back in $script."
+  }
+}
+Write-Output 'Steuerwissen: Fenster-/Lebenszeitbindung, Feldfokus, layoutunabhaengige Begriffseingabe, Eingabe-Epochen zwischen Schritten und Ergebnisvertrag deterministisch geprueft.'

@@ -5,7 +5,7 @@ Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 . (Join-Path $Repo 'powershell/table-values.ps1')
 $errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($WorkerPath,[ref]$null,[ref]$errors)
 if($errors.Count){throw 'Actual worker source parse failed'}
-foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-KnownPageHeading','Test-KnownPageFields','Test-SSELastInputUnchanged','Get-SSETrackedCharacterSubstitution')){
+foreach($name in @('Arg','Get-SSETrackedDateParts','Test-SSETrackedValueEquivalent','Test-SSETrackedFieldValue','Test-SSEVerifiedCommitMethod','Test-KnownPageHeading','Test-KnownPageFields','Test-SSELastInputUnchanged','Get-SSETrackedCharacterSubstitution')){
  $f=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));if($f.Count -ne 1){throw 'Actual helper must be unique'}
  . ([scriptblock]::Create($f[0].Extent.Text))
 }
@@ -155,8 +155,8 @@ $opaqueRestore.reverse.forceRaw=$true;$opaqueRestore.reverse.raw='opaque-date-va
 $opaqueRestore.reverse.forceName=$true;$opaqueRestore.reverse.name='15.07'
 Assert-Restoration (Invoke-DisplayCase $opaqueRestore) $true 2 'opaque-date-value' 'opaque-date-value'
 $opaqueRestore|Add-Member NoteProperty hidden $true
-$opaqueRestore.forward.method='verified-focusless-value-pattern-tab';$opaqueRestore.reverse.method='verified-focusless-value-pattern-tab'
-Assert-Restoration (Invoke-DisplayCase $opaqueRestore) $true 2 'opaque-date-value' 'opaque-date-value' 'verified-focusless-value-pattern-tab'
+$opaqueRestore.forward.method='verified-focusless-value-pattern';$opaqueRestore.reverse.method='verified-focusless-value-pattern'
+Assert-Restoration (Invoke-DisplayCase $opaqueRestore) $true 2 'opaque-date-value' 'opaque-date-value' 'verified-focusless-value-pattern'
 $unchanged=New-TextFixture '';$unchanged.forward.preserve=$true;$unchanged.forward.method='epoch-value-changed'
 $noWrite=Invoke-DisplayCase $unchanged
 Assert-Restoration $noWrite $true 1 'Test' 'Test' 'not-needed-value-unchanged'
@@ -250,11 +250,17 @@ $hidden=New-TextFixture '';$hidden|Add-Member NoteProperty hidden $true
 $hidden.expectedAfter=$hidden.requested;$hidden.forward.method='verified-focusless-value-pattern-tab'
 $hiddenForward=Invoke-DisplayCase $hidden
 if(-not $hiddenForward.result.ok -or $hiddenForward.commits.Count -ne 1){throw 'Hidden handler lost the forwarded text kind'}
-$hiddenDate=New-TextFixture '15.07';$hiddenDate|Add-Member NoteProperty hidden $true;$hiddenDate.type='DataItem';$hiddenDate.valueKind='date';$hiddenDate.raw='15.07.2026';$hiddenDate.expectedBefore='15.07.2026';$hiddenDate.requested='16.07.2026';$hiddenDate.forward.method='verified-focusless-value-pattern-tab';$hiddenDate.reverse.method='verified-focusless-value-pattern-tab'
-Assert-Restoration (Invoke-DisplayCase $hiddenDate) $true 2 '15.07.2026' '15.07.2026' 'verified-focusless-value-pattern-tab'
+$hiddenDate=New-TextFixture '15.07';$hiddenDate|Add-Member NoteProperty hidden $true;$hiddenDate.type='DataItem';$hiddenDate.valueKind='date';$hiddenDate.raw='15.07.2026';$hiddenDate.expectedBefore='15.07.2026';$hiddenDate.requested='16.07.2026';$hiddenDate.forward.method='verified-focusless-value-pattern';$hiddenDate.reverse.method='verified-focusless-value-pattern'
+Assert-Restoration (Invoke-DisplayCase $hiddenDate) $true 2 '15.07.2026' '15.07.2026' 'verified-focusless-value-pattern'
 $hiddenDate.raw='';$hiddenDate.expectedBefore='15.07';$hiddenDate|Add-Member NoteProperty restoreInput '15.07'
 $hiddenDate.reverse.forceRaw=$true;$hiddenDate.reverse.raw='';$hiddenDate.reverse.forceName=$true;$hiddenDate.reverse.name='15.07'
-Assert-Restoration (Invoke-DisplayCase $hiddenDate) $true 2 '' '15.07' 'verified-focusless-value-pattern-tab'
+Assert-Restoration (Invoke-DisplayCase $hiddenDate) $true 2 '' '15.07' 'verified-focusless-value-pattern'
+$hiddenCell=New-TextFixture '12,00';$hiddenCell|Add-Member NoteProperty hidden $true;$hiddenCell.type='DataItem';$hiddenCell.valueKind='currency'
+$hiddenCell.raw='12,00';$hiddenCell.expectedBefore='12,00';$hiddenCell.requested='24,00';$hiddenCell.expectedAfter='24,00'
+$hiddenCell.forward.method='verified-focusless-value-pattern'
+$hiddenCellForward=Invoke-DisplayCase $hiddenCell
+if(-not $hiddenCellForward.result.ok -or -not $hiddenCellForward.result.verified -or $hiddenCellForward.commits.Count -ne 1 -or
+ $hiddenCellForward.result.commit -cne 'verified-focusless-value-pattern'){throw 'A verified focusless cell write was not accepted as the forward commit'}
 $ownedAfter=New-TextFixture '';$ownedAfter.forward.method='unproved-commit';$ownedAfter.forward.forceRaw=$true
 $ownedAfter.forward.raw='Synthetic formatted';$ownedAfter.expectedAfter='Synthetic formatted'
 $ownedAfter|Add-Member NoteProperty rollbackExpectedValue 'Synthetic formatted'
