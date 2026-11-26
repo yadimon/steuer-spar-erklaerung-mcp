@@ -235,15 +235,24 @@ try {
 } finally {
   $hostProzess.Dispose()
 }
+# Den ausdruecklichen Zustand kann ein Prozess erst ab Windows 11 22H2
+# zuruecklesen. Aeltere Systeme nehmen die Bitte an und verweigern die Abfrage;
+# dort belegt die Gegenprobe genau diese Verweigerung und die Antworten des
+# Helfers, statt einen gelesenen Zustand zu behaupten.
+$zustandLesbar = [bool]([Environment]::OSVersion.Version.Build -ge 22621)
+$erwarteterZustand = @{
+  $true = [pscustomobject]@{ vorher = 'lesbar:0/0'; nachher = 'lesbar:1/0' }
+  $false = [pscustomobject]@{ vorher = 'nicht-lesbar'; nachher = 'nicht-lesbar' }
+}[$zustandLesbar]
 $hostProbe = $hostAusgabe | ConvertFrom-Json
-if ($hostProbe.before.control -ne 0 -or $hostProbe.before.state -ne 0) {
-  throw 'Der frische Host-Stellvertreter hatte bereits einen ausdruecklichen Drosselzustand; die Gegenprobe waere wertlos.'
+if ($hostProbe.before -cne $erwarteterZustand.vorher) {
+  throw "Der frische Host-Stellvertreter meldet vor der Bitte '$($hostProbe.before)' statt '$($erwarteterZustand.vorher)'; die Gegenprobe waere wertlos."
 }
 if ($hostProbe.worker.foreign -ne $false) { throw 'Der Helfer folgte der Bitte fuer einen Prozess, der nicht sein Elternprozess ist.' }
 if ($hostProbe.worker.invalid -ne $false) { throw 'Der Helfer folgte der Bitte ohne gueltige Prozess-Id.' }
 if ($hostProbe.worker.genuine -ne $true) { throw 'Der Helfer folgte der Bitte seines tatsaechlichen Elternprozesses nicht.' }
-if ($hostProbe.after.control -ne 1 -or $hostProbe.after.state -ne 0) {
-  throw "Der Hostprozess ist nach der Bitte nicht ausdruecklich ungedrosselt (control=$($hostProbe.after.control), state=$($hostProbe.after.state))."
+if ($hostProbe.after -cne $erwarteterZustand.nachher) {
+  throw "Der Hostprozess meldet nach der Bitte '$($hostProbe.after)' statt '$($erwarteterZustand.nachher)'."
 }
 
 # 6. Der Reservearbeiter durchlaeuft den Auftragsrahmen einmal trocken, damit

@@ -12,7 +12,6 @@ $ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @'
 using System;
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 public static class SSEPowerThrottlingProbe
@@ -27,14 +26,15 @@ public static class SSEPowerThrottlingProbe
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessInformation(IntPtr process, int informationClass, ref State state, int size);
 
-    // { ControlMask, StateMask } des eigenen ausdruecklichen Zustands; ProcessPowerThrottling = 4.
-    public static int[] Read()
+    // "lesbar:<ControlMask>/<StateMask>" des eigenen ausdruecklichen Zustands; ProcessPowerThrottling = 4.
+    // Aeltere Systeme nehmen die Bitte an, kennen aber die Abfrage nicht: dann "nicht-lesbar".
+    public static string Read()
     {
         var state = new State();
         state.Version = 1;
         if (!GetProcessInformation(GetCurrentProcess(), 4, ref state, Marshal.SizeOf(typeof(State))))
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Eigener Drosselzustand ist nicht lesbar.");
-        return new[] { (int)state.ControlMask, (int)state.StateMask };
+            return "nicht-lesbar";
+        return "lesbar:" + state.ControlMask + "/" + state.StateMask;
     }
 }
 '@
@@ -61,7 +61,7 @@ try {
 $after = [SSEPowerThrottlingProbe]::Read()
 
 [Console]::Out.Write(([pscustomobject]@{
-  before = [pscustomobject]@{ control = $before[0]; state = $before[1] }
+  before = $before
   worker = ($workerOutput | ConvertFrom-Json)
-  after = [pscustomobject]@{ control = $after[0]; state = $after[1] }
+  after = $after
 } | ConvertTo-Json -Compress -Depth 4))
