@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.61",
+  "packageVersion": "0.1.0-beta.62",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.61",
+  "pluginVersion": "0.1.0-beta.62",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,12 +18,12 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "80bdfb55d0e96c670ac3d314e7e0d739eaabfa879f98da2b4c8f14e3259889b6",
+      "sha256": "ed4ca13d88b8f0a4f8fd232201d7ce227e38a5ce3eccec9155885d26a28243db",
       "size": 1794797
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "d5ee31cbed353c1fdde720732ce9290c16f9972c5f45aa2a096bb48fa5939f31",
+      "sha256": "d24a4be4f2261197ab05af09b4bf41920a597d331fce439ecad46f712a5152b4",
       "size": 1815376
     },
     {
