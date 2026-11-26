@@ -317,6 +317,35 @@ try {
   assert.equal(stillBefore.felder.find((field) => field.label === sumRule.label)?.wert, sumField.wert,
     "Abgewiesenes Result-Tracking hat den Seitenwert veraendert.");
 
+  // A violated page total must take the cell back to its exact original value
+  // on the same focusless path: the total cannot rise by 2,00 when the cell
+  // rises by 1,00. The watcher covers this write and its rollback as well.
+  const rollbackStartedAt = Date.now();
+  const rolledBackRaw = await callRaw("sse_change_field", {
+    ...commonArgs, trackResults: false,
+    sumChecks: [{ ...sumChecks[0], after: formatAmount(sumBefore + 2) }],
+  }, 300_000);
+  const rollbackMs = Date.now() - rollbackStartedAt;
+  assert.equal(rolledBackRaw?.isError, true, "Eine verletzte Summenbedingung muss die Transaktion scheitern lassen.");
+  const rolledBack = parsedText(rolledBackRaw, "sse_change_field");
+  assert.equal(rolledBack.kind, "postcondition-failed", `Falsche Fehlerart: ${JSON.stringify(rolledBack)}`);
+  assert.equal(rolledBack.commit, "verified-focusless-value-pattern",
+    `Die Schreibung vor der Ruecknahme ging einen anderen Weg: ${JSON.stringify(rolledBack)}`);
+  assert.equal(rolledBack.summen?.[0]?.nachher, sumAfterExpected,
+    `Die Summe folgte der Schreibung nicht, bevor sie zurueckgenommen wurde: ${JSON.stringify(rolledBack.summen)}`);
+  assert.equal(rolledBack.rollback?.ok, true, `Ruecknahme ist nicht bewiesen: ${JSON.stringify(rolledBack.rollback)}`);
+  assert.equal(rolledBack.rollback?.methode, "verified-focusless-value-pattern",
+    `Ruecknahme ging einen anderen Weg: ${JSON.stringify(rolledBack.rollback)}`);
+  assert.equal(rolledBack.rollback?.wert, valueBefore, `Ruecknahme stellte einen anderen Wert her: ${JSON.stringify(rolledBack.rollback)}`);
+  const pageRestored = await call("sse_page", { hwnd });
+  assert.equal(pageRestored.felder.find((field) => field.label === sumRule.label)?.wert, sumField.wert,
+    "Separater lesender API-Aufruf bestaetigt die wiederhergestellte Summe nicht.");
+  const cellRestored = await call("sse_find", { hwnd, aid: policy.automationIdSuffix, type: "DataItem" });
+  assert(cellRestored.hits.some((cell) =>
+    cell.x === targetCell.x && cell.y === targetCell.y && cell.name === valueBefore),
+  "Separater lesender API-Aufruf bestaetigt die wiederhergestellte Zielzelle nicht.");
+  assert.equal(sha256(target), sourceHash, "Zurueckgenommene Transaktion schrieb auf Disk.");
+
   const transactionStartedAt = Date.now();
   const changedRaw = await callRaw("sse_change_field", { ...commonArgs, trackResults }, 300_000);
   const transactionMs = Date.now() - transactionStartedAt;
@@ -351,9 +380,11 @@ try {
   assert.notEqual(watcher.inputDesktopBefore, desktopName);
   assert.notEqual(watcher.inputDesktopAfter, desktopName);
   assert.equal(changed.verified, true, `Transaktion ist nicht verifiziert: ${JSON.stringify(changed)}`);
-  assert.equal(changed.commit, "verified-focusless-value-pattern-tab",
+  assert.equal(changed.commit, "verified-focusless-value-pattern",
     `Falscher Commitpfad: ${JSON.stringify(changed)}`);
   assert.equal(changed.focuslessPolicy, policyId);
+  assert.equal(changed.commitDetails?.strategy, policy.commitMethod,
+    "Commit ging nicht den im Katalog genannten Weg.");
   assert.equal(changed.commitDetails?.foregroundLeaseUsed, false, "Commit verwendete eine Foreground-Lease.");
   assert.equal(changed.commitDetails?.physicalInputUsed, false, "Commit verwendete physische Eingabe.");
   assert.equal(Object.hasOwn(changed, "focusTelemetry"), false, "Commit erzeugte sichtbare Fokus-Telemetrie.");
@@ -399,6 +430,7 @@ try {
     sum: { label: sumRule.label, before: sumField.wert, after: sumAfterExpected },
     resultChanges: changed.ergebnisDiff,
     phases: changed.zeitmessung,
+    rollback: { method: rolledBack.rollback.methode, restored: rolledBack.rollback.wert, ms: rollbackMs },
     transactionMs,
     foreground: watcher,
     totalMs: Date.now() - startedAt,

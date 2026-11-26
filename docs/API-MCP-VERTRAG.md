@@ -219,7 +219,9 @@ bleiben Groß-/Kleinschreibung und Leerzeichen maßgeblich. Die ausdrücklich
 gewählten Verträge `currency` und `date` behalten ihren Formatabgleich.
 Dieser Vertrag gilt auch für die Vorwertprüfung im eigentlichen Commit und
 erneut nach der Fokusvorbereitung, unmittelbar vor der Wertänderung. Das gilt
-für UIA-Fokus, den geprüften Klickpfad und fokusloses `SetValue`. Ein unbekannter
+für UIA-Fokus, den geprüften Klickpfad und fokusloses `SetValue`; der fokuslose
+Weg einer Tabellenzelle hat keine Fokusvorbereitung und prüft einmal
+unmittelbar vor der Wertänderung. Ein unbekannter
 Vorwert wird vor dieser Prüfung nicht in einen leeren Text umgewandelt.
 Bei DataItems bleiben der erfasste Rohwert, der erfasste Name und die fachliche
 Vorbedingung nach dem gewählten Formatvertrag bis zu dieser Grenze gebunden. Dadurch kann auch ein leerer
@@ -261,6 +263,19 @@ Der Datumsvergleich trennt Tag und Monat; eine Zahlengleichheit wie `10.10`
 und `10.1` ist keine Datumsgleichheit.
 Fehlende Nachweise können als Bindungs-/Interferenzfehler enden; sie erlauben
 keine zusätzliche Eingabe allein zur Bestätigung.
+
+Auf dem privaten Desktop schreibt nur ein im Profil freigegebener Feldpfad,
+ohne Vordergrund, Zeiger und physische Eingabe. Eine Tabellenzelle übernimmt
+`ValuePattern` unmittelbar in ihr Modell: Der Weg schreibt einmal, liest die
+Zelle zurück und meldet `commit: "verified-focusless-value-pattern"`. Auswahl
+und Tastaturfokus der Tabelle werden dabei weder geändert noch vorausgesetzt.
+Jedes andere Feld übernimmt seinen Wert erst mit einem eingereihten Tab, der
+an das fokussierte Steuerelement geht. Dieser Weg verlangt deshalb zuvor den
+bewiesenen Fokus genau dieses Feldes, endet ohne ihn mit `focus-mismatch` vor
+jeder Schreibung und meldet sonst
+`commit: "verified-focusless-value-pattern-tab"`. Feld-, Summen- und
+Änderungsnachweis des Feldkommandos und die Rücknahme bei verletzter
+Nachbedingung gelten für beide Wege unverändert.
 
 Bei der Unicode-Texteingabe des Feldcommits bleibt die nach der eigenen Auswahl geprüfte
 Eingabemarke bis zum ersten Textblock erhalten. Nach dem letzten Textblock

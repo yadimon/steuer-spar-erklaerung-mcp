@@ -8392,6 +8392,13 @@ function Get-SSEPhaseReport($Log) {
   }
 }
 
+# The methods with which a tracked field write proves its own commit: physical
+# keyboard replacement, the focusless write of a table cell, and the focusless
+# write of any other field with its queued Tab.
+function Test-SSEVerifiedCommitMethod([string]$Method) {
+  [bool]($Method -cin @('verified-keyboard-replace','verified-focusless-value-pattern','verified-focusless-value-pattern-tab'))
+}
+
 function New-SSECommitResult([string]$Method, $InputBefore = $null, $InputAfter = $null, $Details = $null) {
   $guardStop = [bool](
     $Method -like 'interference-*' -or $Method -like 'epoch-*' -or
@@ -12856,14 +12863,18 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurr
 }
 
 function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $ExpectedCurrent, [string]$ValueKind = '') {
-  # The exact UIA field is bound on the private desktop. Qt receives only a
-  # queued Tab commit after ValuePattern replacement; the visible desktop and
-  # physical input channel are never touched.
+  # The exact UIA field is bound on the private desktop; the visible desktop
+  # and the physical input channel are never touched. Qt takes ValuePattern on
+  # a table cell straight into its model: a cell needs neither keyboard focus
+  # nor a commit key and is proven by reading it back. Every other field
+  # receives a queued Tab commit after the replacement, and that key goes to
+  # whatever Qt has focused, so only such a field needs the focus proof.
   if (-not $script:DESKTOP_NAME) {
     return New-SSECommitResult 'none-focusless-desktop-required'
   }
   if (-not [SW]::IsWindow($Hwnd)) { return New-SSECommitResult 'stale-window' }
-  $strategy = 'value-pattern-tab'
+  $cellWrite = [bool]([string]$Node.type -ceq 'DataItem')
+  $strategy = $(if ($cellWrite) { 'value-pattern' } else { 'value-pattern-tab' })
 
   try {
     $expectedPid = 0
@@ -12883,74 +12894,54 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $Exp
       return New-SSECommitResult 'focusless-process-mismatch'
     }
 
-    # A just-closed nonmodal result window does not return Qt's active focus
-    # to the main window. Activate the top-level UIA element inside the same
-    # private desktop before binding the exact child field.
-    $mainElement = [System.Windows.Automation.AutomationElement]::FromHandle($Hwnd)
-    if (-not $mainElement -or [int]$mainElement.Current.ProcessId -ne $expectedPid) {
-      return New-SSECommitResult 'focusless-main-window-mismatch'
-    }
-    $mainElement.SetFocus()
-    Start-Sleep -Milliseconds 30
+    if (-not $cellWrite) {
+      # A just-closed nonmodal result window does not return Qt's active focus
+      # to the main window. Activate the top-level UIA element inside the same
+      # private desktop before binding the exact child field.
+      $mainElement = [System.Windows.Automation.AutomationElement]::FromHandle($Hwnd)
+      if (-not $mainElement -or [int]$mainElement.Current.ProcessId -ne $expectedPid) {
+        return New-SSECommitResult 'focusless-main-window-mismatch'
+      }
+      $mainElement.SetFocus()
+      Start-Sleep -Milliseconds 30
 
-    $selectedByPattern = $false
-    if ([string]$Node.type -eq 'DataItem') {
-      $selectionItem = $null
-      if ($target.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionItem)) {
-        $selectionItem.Select()
-        $selectedByPattern = $true
-        Start-Sleep -Milliseconds 30
+      $target.SetFocus()
+      $focusWatch = [Diagnostics.Stopwatch]::StartNew()
+      $focusBound = $false
+      while ($focusWatch.ElapsedMilliseconds -lt 500) {
+        $focusBound = $(try { [bool]$target.Current.HasKeyboardFocus } catch { $false })
+        if ($focusBound) { break }
+        Start-Sleep -Milliseconds 20
       }
-    }
-    $target.SetFocus()
-    $focusWatch = [Diagnostics.Stopwatch]::StartNew()
-    $focusBound = $false
-    $tableParent = $null
-    while ($focusWatch.ElapsedMilliseconds -lt 500) {
-      $focusBound = $(try { [bool]$target.Current.HasKeyboardFocus } catch { $false })
-      if ($focusBound) { break }
-      Start-Sleep -Milliseconds 20
-    }
-    $focusMode = $(if ($focusBound) { 'exact-element' } else { '' })
-    if (-not $focusBound -and $selectedByPattern -and $selectionItem) {
-      $selectedExactly = $(try { [bool]$selectionItem.Current.IsSelected } catch { $false })
-      $tableParent = $(try { $WLK.GetParent($target) } catch { $null })
-      $tableFocused = [bool]($tableParent -and
-        $(try { $tableParent.Current.ControlType -eq [System.Windows.Automation.ControlType]::Table } catch { $false }) -and
-        $(try { [bool]$tableParent.Current.HasKeyboardFocus } catch { $false }))
-      if ($selectedExactly -and $tableFocused) {
-        $focusBound = $true
-        $focusMode = 'selected-item-focused-table'
-      }
-    }
-    if (-not $focusBound) {
-      $focusHierarchy = New-Object System.Collections.ArrayList
-      $focusProbe = $target
-      for ($focusLevel = 0; $focusLevel -lt 8 -and $focusProbe; $focusLevel++) {
-        $null = $focusHierarchy.Add([pscustomobject]@{
-          level=$focusLevel
-          rid=$(try { $focusProbe.GetRuntimeId() -join '.' } catch { '' })
-          aid=$(try { [string]$focusProbe.Current.AutomationId } catch { '' })
-          type=$(try { $focusProbe.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
-          hasKeyboardFocus=$(try { [bool]$focusProbe.Current.HasKeyboardFocus } catch { $false })
-          keyboardFocusable=$(try { [bool]$focusProbe.Current.IsKeyboardFocusable } catch { $false })
+      if (-not $focusBound) {
+        $focusHierarchy = New-Object System.Collections.ArrayList
+        $focusProbe = $target
+        for ($focusLevel = 0; $focusLevel -lt 8 -and $focusProbe; $focusLevel++) {
+          $null = $focusHierarchy.Add([pscustomobject]@{
+            level=$focusLevel
+            rid=$(try { $focusProbe.GetRuntimeId() -join '.' } catch { '' })
+            aid=$(try { [string]$focusProbe.Current.AutomationId } catch { '' })
+            type=$(try { $focusProbe.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
+            hasKeyboardFocus=$(try { [bool]$focusProbe.Current.HasKeyboardFocus } catch { $false })
+            keyboardFocusable=$(try { [bool]$focusProbe.Current.IsKeyboardFocusable } catch { $false })
+          })
+          try { $focusProbe = $WLK.GetParent($focusProbe) } catch { $focusProbe = $null }
+        }
+        return New-SSECommitResult 'focus-mismatch' $null $null ([pscustomobject]@{
+          desktop=[string]$script:DESKTOP_NAME; expectedPid=[int]$expectedPid
+          expectedRid=[string]$Node.rid; expectedAid=[string]$Node.aid
+          focusMs=[int64]$focusWatch.ElapsedMilliseconds
+          hierarchy=@($focusHierarchy)
         })
-        try { $focusProbe = $WLK.GetParent($focusProbe) } catch { $focusProbe = $null }
       }
-      return New-SSECommitResult 'focus-mismatch' $null $null ([pscustomobject]@{
-        desktop=[string]$script:DESKTOP_NAME; expectedPid=[int]$expectedPid
-        expectedRid=[string]$Node.rid; expectedAid=[string]$Node.aid
-        focusMs=[int64]$focusWatch.ElapsedMilliseconds; selectedByPattern=$selectedByPattern
-        hierarchy=@($focusHierarchy)
-      })
+      if (-not (Test-SSETrackedCommitPrecondition $target $vp $Node $ExpectedCurrent $ValueKind)) {
+        return New-SSECommitResult 'epoch-value-changed-after-focus'
+      }
     }
 
     $writeWatch = [Diagnostics.Stopwatch]::StartNew()
     # Qt recalculates the whole page inside SetValue, so this single call is
     # measured separately from the bounded readback loops that follow it.
-    if (-not (Test-SSETrackedCommitPrecondition $target $vp $Node $ExpectedCurrent $ValueKind)) {
-      return New-SSECommitResult 'epoch-value-changed-after-focus'
-    }
     $setValueWatch = [Diagnostics.Stopwatch]::StartNew()
     $vp.SetValue($Value)
     $setValueWatch.Stop()
@@ -12959,7 +12950,8 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $Exp
     $typeWatch = [Diagnostics.Stopwatch]::StartNew()
     while ($typeWatch.ElapsedMilliseconds -lt 1200) {
       Start-Sleep -Milliseconds 20
-      if ([string]$Node.type -eq 'DataItem') {
+      if ($cellWrite) {
+        # The cell exposes its model value as Name.
         $typedTarget = Get-LiveElement $Hwnd $Node.rid $Node.aid
         $typedValue = $(if ($typedTarget) { [string]$typedTarget.Current.Name } else { $null })
       } else {
@@ -12972,6 +12964,17 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $Exp
         desktop=[string]$script:DESKTOP_NAME; strategy=$strategy
         requested=$Value; observedValue=$typedValue
         typeMs=[int64]$typeWatch.ElapsedMilliseconds
+      })
+    }
+    if ($cellWrite) {
+      return New-SSECommitResult 'verified-focusless-value-pattern' $null $null ([pscustomobject]@{
+        desktop=[string]$script:DESKTOP_NAME; targetPid=[int]$expectedPid
+        strategy=$strategy
+        writeMs=[int64]$writeWatch.ElapsedMilliseconds
+        setValueMs=[int64]$setValueWatch.ElapsedMilliseconds
+        readbackMs=[int64]$typeWatch.ElapsedMilliseconds
+        observedValue=$typedValue
+        foregroundLeaseUsed=$false; physicalInputUsed=$false
       })
     }
 
@@ -12995,12 +12998,7 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $Exp
     while ($settleWatch.ElapsedMilliseconds -lt 1200) {
       Start-Sleep -Milliseconds 40
       $settleAttempts++
-      if ([string]$Node.type -eq 'DataItem') {
-        $settledTarget = Get-LiveElement $Hwnd $Node.rid $Node.aid
-        $settledValue = $(if ($settledTarget) { [string]$settledTarget.Current.Name } else { $null })
-      } else {
-        $settledValue = [string]$vp.Current.Value
-      }
+      $settledValue = [string]$vp.Current.Value
       if (Test-SSEScalarEqual $settledValue $Value) { $settledEarly = $true; break }
     }
     if (-not $settledEarly) {
@@ -13011,9 +13009,8 @@ function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, $Exp
     }
     New-SSECommitResult 'verified-focusless-value-pattern-tab' $null $null ([pscustomobject]@{
       desktop=[string]$script:DESKTOP_NAME; targetPid=[int]$expectedPid
-      strategy=$strategy; focusVerified=$focusBound; focusMode=$focusMode
+      strategy=$strategy; focusVerified=$focusBound; focusMode='exact-element'
       focusMs=[int64]$focusWatch.ElapsedMilliseconds
-      selectedByPattern=$selectedByPattern
       writeMs=[int64]$writeWatch.ElapsedMilliseconds
       setValueMs=[int64]$setValueWatch.ElapsedMilliseconds
       typeMs=[int64]$typeWatch.ElapsedMilliseconds
@@ -16724,7 +16721,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $fieldOk = [bool]($afterValueRead -and
       (Test-SSETrackedFieldValue $afterRaw $afterDisplay $expectedAfter $valueKind ([string]$afterNode.type)))
-    $commitOk = ($commitMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab'))
+    $commitOk = Test-SSEVerifiedCommitMethod $commitMethod
     $allOk = [bool]($fieldOk -and $sumOk -and $resultOk -and $commitOk)
     if (-not $allOk) {
       $rollbackMethod = 'not-attempted'
@@ -16814,7 +16811,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             Commit-TrackedValue $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent $valueKind $commitResult.inputAfter
           })
           $rollbackMethod = [string]$rollbackResult.method
-          $rollbackReason = $(if ($rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab')) { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
+          $rollbackReason = $(if (Test-SSEVerifiedCommitMethod $rollbackMethod) { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
         } catch {
           $rollbackMethod = 'failed'
           $rollbackReason = $_.Exception.Message
@@ -16836,7 +16833,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           }
         }
         $rollbackOk = [bool](
-          $rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab') -and
+          (Test-SSEVerifiedCommitMethod $rollbackMethod) -and
           $verifyValueRead -and
           (Test-SSEScalarEqual $restoredRaw $beforeRaw) -and
           (Test-SSETrackedValueEquivalent $restoredDisplay $beforeDisplay $valueKind) -and

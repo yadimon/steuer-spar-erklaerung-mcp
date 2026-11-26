@@ -103,8 +103,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "6c0c21f08e7cac1df9fbb2e9b869ef2ae5b10bc0e2a4c48aef5f4c208b976ca7",
-      "size": 1715971
+      "sha256": "cc3768dd6645681502d2a9cf655eb75386c2edd45b06986b1437e778288f14b7",
+      "size": 1715854
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -193,8 +193,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "47c4b965cf3072bf6c900831b2552f6b297a6f863171917037d63984cbf24602",
-      "size": 148702
+      "sha256": "1c9ecd5a157e5024b9489abe417dbdd405f28e08f7ddbbe3c03e564f56c60981",
+      "size": 148642
     },
     {
       "path": "profiles/2025/profile.json",
