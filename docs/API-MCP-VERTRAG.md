@@ -511,6 +511,12 @@ ein Undo geprüft. Für einzelne Raw-Läufe muss ebenfalls Zeitreserve bleiben;
 fehlt sie, beginnt keine Löschung. Spätere Providerfehler, längere Aufrufe
 oder ein früherer Auftragsabbruch können trotzdem einen ungewissen Ausgang
 verlangen. Die Reserve ist keine Laufzeitgarantie.
+Meldet ein Baumlauf des Zustandslesers ausschließlich Providerfehler - etwa
+weil die Anwendung nach der Mutation ein eigenes Fenster neu aufbaut -, liest
+er dieselbe gebundene Summe höchstens zweimal erneut. Aus einer
+unvollständigen Beobachtung wird nichts übernommen. Abgeschnittene, zyklische
+oder wertfehlerhafte Beobachtungen und eine geänderte Fensterlage werden nicht
+erneut gelesen. Löschung und Mehrzeilenanlage verwenden denselben Leser.
 Dies beweist beobachtete Konsistenz, keine atomare Änderung und keine
 Wiederherstellung verborgener interner Datensatz- oder Belegidentitäten.
 

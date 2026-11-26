@@ -122,7 +122,11 @@ Editorprüfungen erhalten zusätzliche Gegenfälle: aktiver Editor außerhalb
 der abwärts enumerierten Kinder, fremde oder zusätzliche Editoren,
 abweichender Wert, verborgene und Checkbox-Ziele, angeschnittene Zellen und
 ein anderer tatsächlicher Punkttreffer. Der Raw-Leser wird außerdem mit mehr
-als 2048 synthetischen Zellen geprüft. Die API-Verträge prüfen den echten
+als 2048 synthetischen Zellen geprüft. Derselbe Vertrag hält das begrenzte
+Nachlesen des Zustandslesers fest: Ein Baumlauf, der ausschließlich
+Providerfehler meldet, wird höchstens zweimal erneut gelesen; abgeschnittene
+oder wertfehlerhafte Beobachtungen und eine geänderte Fensterlage nicht. Die
+API-Verträge prüfen den echten
 Executor ohne Qt-Backend und verwerfen unbewiesene Erfolgs-/Rollbackangaben.
 Die vollständige reale Abnahme benötigt eigene Fallkopien und muss den
 Restbestand, übrige Felder sowie Speichern und Wiederöffnen einbeziehen.

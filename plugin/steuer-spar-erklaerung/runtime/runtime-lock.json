@@ -153,8 +153,8 @@
     },
     {
       "path": "powershell/table-uia-delete.ps1",
-      "sha256": "a5a21a939b8d640dd76df16b70a1469b2e54e334ff247b087952c61823e1ad48",
-      "size": 45323
+      "sha256": "2a0dad05aa618c8d004bf31892d1e3d0cf1451b487d45ba41e00711f33879f29",
+      "size": 45937
     },
     {
       "path": "powershell/table-values.ps1",
