@@ -579,3 +579,43 @@ Assert $missingBounds.failed 'An unreadable editor coordinate was treated as zer
 Same $missingBounds.keys @() 'An unreadable editor geometry authorized Escape.'
 $script:target.Current.BoundingRectangle.X=100.0
 Write-Output 'UIA delete transaction: exact and zero removal, ineffective command, full/failed undo, wrong rows, provider failure, focus interference and no replay passed.'
+
+# A provider walk error leaves an incomplete observation of the summary tree.
+# The state reader reads the same bound summary again, at most twice; every
+# other defect and a changed epoch are not read again.
+$workerAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Repo 'powershell/sse-worker.ps1'),[ref]$null,[ref]$null)
+$walkErrorPolicy=@($workerAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSESnapshotHasOnlyWalkErrors'},$true))
+Assert ($walkErrorPolicy.Count -eq 1) 'The walk error policy is not unique.'
+. ([scriptblock]::Create($walkErrorPolicy[0].Extent.Text))
+function New-RereadTree([int]$Errors,[bool]$Truncated=$false,[int]$ValueErrors=0){
+ [pscustomobject]@{stats=[pscustomobject]@{truncated=$Truncated;depthLimited=$false;err=$Errors;cyc=0;valErr=$ValueErrors;scrollErr=0;n=1};nodes=@()}
+}
+function Read-LabeledValue {
+ $script:labeledReads++
+ $script:windowSetChanged=[bool]($script:labeledReads -ge $script:windowChangeAtRead)
+ [pscustomobject]@{tree=$script:rereadTrees[[Math]::Min($script:labeledReads,$script:rereadTrees.Count)-1];value='300,00';selected=[pscustomobject]@{aid='Synthetic.Sum'}}
+}
+function Invoke-Reread([object[]]$Trees,[int]$WindowChangeAtRead=99){
+ $script:rereadTrees=$Trees;$script:labeledReads=0;$script:windowChangeAtRead=$WindowChangeAtRead
+ $script:windowSetChanged=$false;$script:tickDuringWindowInventory=$false
+ $binding=[pscustomobject]@{hwnd=[IntPtr]1;processId=[SW]::ProcessId;sumLabel='Summe';expectedBefore='300,00';sumOccurrence=1;guard={$true}
+  transaction=[pscustomobject]@{windows=[pscustomobject]@{fingerprint='synthetic-fixed-window-set'}}}
+ Read-SSEUiaDeleteLabeledValue $binding 'Synthetic.Sum'
+}
+$read=Invoke-Reread @((New-RereadTree 0))
+Assert ($script:labeledReads -eq 1 -and $read.tree.stats.err -eq 0) 'A clean summary tree was read again.'
+$read=Invoke-Reread @((New-RereadTree 1),(New-RereadTree 0))
+Assert ($script:labeledReads -eq 2 -and $read.tree.stats.err -eq 0) 'A provider walk error was not read again.'
+$read=Invoke-Reread @((New-RereadTree 2),(New-RereadTree 1),(New-RereadTree 0))
+Assert ($script:labeledReads -eq 3 -and $read.tree.stats.err -eq 0) 'The second re-read of a provider walk error is missing.'
+$read=Invoke-Reread @((New-RereadTree 1))
+Assert ($script:labeledReads -eq 3 -and $read.tree.stats.err -eq 1) 'Persistent provider walk errors were not read exactly three times.'
+$refused=$null;try{$null=Get-SSEUiaDeleteTableRoot $read.tree ([pscustomobject]@{ok=$true;cells=@(1)}) ''}catch{$refused=$_.Exception.Message}
+Assert ($refused -ceq 'The complete summary-bound table tree is unavailable.') 'An observation with persistent walk errors was accepted.'
+$read=Invoke-Reread @((New-RereadTree 1 $true),(New-RereadTree 0))
+Assert ($script:labeledReads -eq 1 -and $read.tree.stats.truncated) 'A truncated observation was treated as a mere walk error.'
+$read=Invoke-Reread @((New-RereadTree 1 $false 1),(New-RereadTree 0))
+Assert ($script:labeledReads -eq 1 -and $read.tree.stats.valErr -eq 1) 'An observation with value errors was treated as a mere walk error.'
+$lost=$null;try{$null=Invoke-Reread @((New-RereadTree 1),(New-RereadTree 0)) 1}catch{$lost=$_.Exception.Message}
+Assert ($lost -ceq 'The deletion window or input epoch changed.' -and $script:labeledReads -eq 1) 'A re-read went on although the window set changed.'
+Write-Output 'UIA state reader: a provider walk error is read again at most twice; other defects and a changed epoch are not.'

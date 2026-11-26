@@ -88,6 +88,10 @@ aufgebaute Seite oder ein unvollständiger Eintrag mit „»…« erfassen“ li
 `position-inventory-incomplete`. Das gilt auch für einen Löschverweis ohne
 passenden Bearbeiten-Verweis und doppelte Namen. Ein abgeschlossener roher
 Baumdurchlauf allein beweist keine fachliche Seitenbereitschaft.
+Texte und Links werden über ihre Zugehörigkeit zum eindeutigen Formular-Guide
+gebunden. Dadurch bleiben die Blattknoten von 2024 ohne eigene AutomationId
+lesbar. Bei einem UIA-Baumlauffehler sind bis zu zwei erneute Beobachtungen derselben
+Übersicht möglich. Jede erfolgreiche Ausgabe braucht einen vollständigen Read.
 
 Dieselbe Bestandsprüfung schützt `position_create` vor dem ersten Klick.
 Ein vorhandener Teilbestand wird nicht durch eine weitere Anlage verdeckt.
@@ -203,6 +207,7 @@ Direktzugriff auf Steuerdaten.
 | Ein Feld kontrolliert ändern | `tracked_set_value`, über MCP `sse_change_field` oder kataloggebunden `sse_change_known_field`: Ziel und Seite binden, Vorwert lesen und prüfen, schreiben, Commit ausführen und zurücklesen. Je nach Auftrag kommen Summen- oder Ergebnisprüfungen hinzu. |
 | Mehrere Felder derselben Seite ändern | `fill_fields` plant eine begrenzte Folge katalogisierter Feldänderungen und führt sie gemeinsam in einem Worker aus. |
 | Tabellenzeilen ändern | `table_add`, `table_update` und `table_delete` verwenden ihre eigenen Ziel-, Vorbedingungs- und Readback-Verträge. |
+| Mehrere Tabellenzeilen anlegen | `table_add_rows` legt eine begrenzte Folge neuer Zeilen gemeinsam in einem Worker an und bindet sie über Modellkoordinaten. |
 
 `set_value` ist auf das globale steuerneutrale Suchfeld begrenzt. Für fachliche
 Feldänderungen gilt der geprüfte Änderungsweg; ein ähnlicher Name oder eine
@@ -506,6 +511,12 @@ ein Undo geprüft. Für einzelne Raw-Läufe muss ebenfalls Zeitreserve bleiben;
 fehlt sie, beginnt keine Löschung. Spätere Providerfehler, längere Aufrufe
 oder ein früherer Auftragsabbruch können trotzdem einen ungewissen Ausgang
 verlangen. Die Reserve ist keine Laufzeitgarantie.
+Meldet ein Baumlauf des Zustandslesers ausschließlich Providerfehler - etwa
+weil die Anwendung nach der Mutation ein eigenes Fenster neu aufbaut -, liest
+er dieselbe gebundene Summe höchstens zweimal erneut. Aus einer
+unvollständigen Beobachtung wird nichts übernommen. Abgeschnittene, zyklische
+oder wertfehlerhafte Beobachtungen und eine geänderte Fensterlage werden nicht
+erneut gelesen. Löschung und Mehrzeilenanlage verwenden denselben Leser.
 Dies beweist beobachtete Konsistenz, keine atomare Änderung und keine
 Wiederherstellung verborgener interner Datensatz- oder Belegidentitäten.
 
@@ -621,6 +632,118 @@ Abgleich; ein vorgeschalteter Erfolg erlaubt keine Wiederholung der Mutation.
 Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
 eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
 abgelehnt, statt Werte einer anderen Spalte zuzuordnen.
+
+## Mehrere Tabellenzeilen in einem Auftrag
+
+`table_add_rows` (MCP: `sse_table_add_rows`) legt eine bis 50 Zeilen in genau
+einem Worker an. Seite und Kontrollsumme binden die Tabelle wie bei den
+anderen Tabellenmutationen. Die Zeilen selbst werden über Modellkoordinaten
+gebunden: Die Anlegezeile ist die letzte Zeile des UIA-Grids, jede Zelle wird
+über Zeile und Spalte angesprochen. Sichtbare Geometrie, Rechtecke und
+Runtime-IDs sind dabei Beobachtungen, keine Zeilenschlüssel. Deshalb entstehen
+auch Zeilen jenseits des angezeigten Tabellenausschnitts ohne Scrollen,
+Mauszeiger, Tasten und ohne Cursorlauf.
+
+Der Ablauf:
+
+1. Seite und Vorsumme werden passiv verglichen. Eine falsche Seite oder eine
+   veraltete Summe wird mit ihrem eigenen Grund abgelehnt.
+2. Das gebundene Hauptfenster kommt einmal nach vorn: Das Programm aktiviert
+   sein Fenster ohnehin selbst, sobald eine Zelle geschrieben wird, und die
+   Vordergrund-Lease gibt den Vordergrund mit dem Ergebnis zurück. Eingaben
+   des Menschen und der Vordergrund werden danach nicht überwacht: Die
+   Operation sendet keine Eingabe, die fehlgehen könnte. Was geschrieben
+   wurde, entscheidet allein der gelesene Tabellenzustand. Ein weiteres
+   unbekanntes oder blockierendes Fenster der Anwendung führt zur Ablehnung.
+3. Der vollständige Tabellenzustand wird gelesen: zwei gleiche Grid-Lesungen,
+   Summenbindung, Editorlage. Auswahllisten-Spalten des Produktprofils,
+   Checkbox-Spalten, schreibgeschützte Zellen, Tabellen mit eigenem
+   Zeilenvertrag und eine nicht freie letzte Zeile werden vor der ersten
+   Schreibung abgelehnt.
+4. Je Zeile: Die Bindung wird geprüft, die Anlegezeile muss frei sein, die
+   Rohwerte ihrer beschreibbaren Zellen werden festgehalten, die Werte
+   geschrieben und an derselben Koordinate zurückgelesen. Danach muss das
+   Modell um genau eine Zeile gewachsen sein. Eine begonnene Zeile wird zu
+   Ende geschrieben; ein Stopp trifft deshalb nur ganze Zeilen.
+5. Der vollständige Tabellenzustand wird erneut gelesen. Erfolg heißt: genau
+   die angeforderte Zahl neuer Zeilen steht direkt über einer unveränderten
+   Anlegezeile, alle früheren Zeilen sind unverändert, jede geschriebene Zelle
+   zeigt ihren Wert, die Nachsumme stimmt mit einer angegebenen Vorhersage
+   überein und die Seite zeigt keine neue Prüfermeldung.
+
+Bei einer normalen Abweichung - Zellwert, Zeilenzahl, Nachsumme oder neue
+Prüfermeldung - werden die eigenen Werte zurückgesetzt, letzte Zeile zuerst.
+Zurückgesetzt wird nur, was nachweislich den eigenen Wert zeigt; ein fremder
+Zellwert beendet die Rücknahme. Danach beweist ein vollständiger
+Tabellenzustand die früheren Zeilen, die Ausgangssumme und die Prüferlage.
+Qt gibt eine einmal entstandene Zeile beim Zurücksetzen ihrer Werte nicht
+wieder frei: Sie bleibt als Leerzeile stehen. Das Ergebnis nennt das als
+`resultingState: "values-restored"` mit `rollback.werteWiederhergestellt`,
+`rollback.strukturEntfernt` und `rollback.verbliebeneLeerzeilen`. Nur ein
+unverändertes Modell heißt `restored`.
+
+Verschwindet das Fenster, erscheint ein weiteres Fenster der Anwendung oder
+ändert sich ihr Fenstersatz, stoppt die Transaktion vor der nächsten Zeile
+als `interference`, ohne Rücknahme in die veränderte Lage. Danach liest der
+Worker den vollständigen Tabellenzustand noch einmal passiv,
+gebunden nur an dasselbe lebende Fenster. Stehen genau die vollständig
+angelegten Zeilen über einer freien Anlegezeile und zeigen sie ihre Werte,
+lautet der Zustand `partially-completed-verified`: `completedCount` nennt die
+Zahl dieser Zeilen - die ersten des Auftrags -, `sumAfter` die Summe danach,
+und `retryable: true` erlaubt, die übrigen Zeilen mit `sumAfter` als neuer
+Vorsumme erneut anzufordern. Ein Stopp vor der ersten Schreibung meldet
+`unchanged` und ist ebenfalls wiederholbar. Lässt sich der Zustand nicht
+belegen, lautet er `unknown`; der Aufrufer gleicht dann mit `table_read` und
+`readMode: "grid"` frisch ab. Ohne `expectedAfter` wird keine Summe
+vorhergesagt; die Seitensumme addiert netto.
+
+Arbeitet der Mensch währenddessen selbst im Programm, entscheidet derselbe
+Vergleich: Ändert er eine frühere Zeile oder eine der neuen, stimmt der
+Tabellenzustand nicht mit dem Auftrag überein, und das Ergebnis sagt, was
+belegt ist. Ein Agent liest dann frisch nach und fragt den Menschen, statt zu
+wiederholen; das Fehlerergebnis trägt diese Anweisung im Feld `hint`. Nicht
+sichtbar ist dem Vergleich nur, was noch nicht im Tabellenmodell steht - etwa
+eine angefangene, noch nicht übernommene Eingabe des Menschen in derselben
+Tabelle. Weil das Programmfenster während der Anlage vorn liegt, landen
+Tasten des Menschen in dieser Zeit im Programm; die Operation gehört deshalb
+zu den Werkzeugen mit Eingabepause.
+
+Die Operation läuft nur auf dem sichtbaren Desktop. Zeilen mit Auswahllisten
+oder Checkboxen und Tabellen mit eigenem Zeilenvertrag bleiben Aufgabe von
+`table_add`.
+
+## Eingaben des Menschen während eines Auftrags
+
+Viele Operationen holen das Programmfenster nach vorn und bedienen es mit
+Zeiger und Tasten, oder sie überwachen die systemweite Eingabe-Epoche. Eine
+Eingabe des Menschen stoppt sie mit `kind: "interference"`. Welche Operationen
+das sind, wird nicht geschätzt: Es sind genau die Worker-Klauseln, die eine
+Vordergrundanforderung oder den Leser der Eingabe-Epoche erreichen können,
+berechnet am Syntaxbaum des Workers. Dazu kommen die zusammengesetzten
+Operationen, deren Executor solche Worker-Operationen auslöst.
+
+`capabilities` nennt die Regel je Operation in
+`operationPolicy.<operation>.userInput` und erklärt die Werte in `userInput`:
+
+| Wert | Bedeutung |
+|---|---|
+| `free` | Der Mensch darf Maus und Tastatur weiter benutzen. |
+| `hands-off` | Solange der Aufruf läuft, darf der Mensch Maus und Tastatur nicht benutzen. |
+| `hands-off-with-cursor-run` | `table_read`: Nur der ausdrücklich angeforderte Cursorlauf (`noKeys: false`) braucht die Eingabepause. |
+
+`table_add_rows` ist `hands-off`, weil das Programmfenster während der Anlage
+vorn liegt. Die Operation selbst sendet und überwacht keine Eingabe; ihr
+Beleg ist der Tabellenzustand vor und nach dem Schreiben. Die vollständige
+Grid-Lesung von `table_read` ist an Fenster, Tabelle, Summe und Fenstersatz
+gebunden, nicht an Eingaben des Menschen oder den Vordergrund.
+
+Im MCP trägt jedes betroffene Werkzeug die Marke `[Eingabepause]` am Ende
+seiner Beschreibung, bei `sse_table_read` mit dem Zusatz für den Cursorlauf. Die
+Server-Hinweise verlangen, den Menschen vor dem ersten solchen Aufruf einer
+Aufgabe darauf hinzuweisen. Ein Fehlerergebnis mit `kind: "interference"`
+trägt die Anweisung im Feld `hint`: bei `retryable: true` nur den fehlenden
+Teil mit den gemeldeten Werten erneut anfordern, sonst zuerst lesend
+abgleichen.
 
 ## Bekanntes Hilfsfenster vor Tabellenbindung schließen
 
@@ -965,7 +1088,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
   erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 104
   MCP-Werkzeuge veröffentlichen parallel ein vollständiges, redigiertes
-  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 102
+  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 103
   direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
   eigenen PC-blinden Kompositionsvertrag. `sse_api_control` ergänzt den
   getrennten API-Lebenszyklusvertrag.
@@ -980,7 +1103,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 102 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 103 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter
@@ -1178,7 +1301,14 @@ zwei Sekunden Rest startet keine UStVA-Mutation oder Bereichsnavigation mehr.
 Die UStVA-Lesung verlangt vollständige, fehlerfreie Beobachtungen. Der
 UIA-Pfad bindet Formular und rechte Hinweisspalte getrennt an dasselbe Fenster,
 prüft Überschrift und Spaltenbindung abschließend erneut und hält ein gemeinsames
-Lesebudget ein. Ein Zyklus in der übrigen Navigation ersetzt diese Nachweise
+Lesebudget ein. Die Überschrift muss als eindeutiges Textkind im gebundenen
+Header stehen. So bleibt sie auch mit fehlender AutomationId des Textknotens
+über Runtime-ID, Text und Elternbindung überprüfbar.
+Bei einem UIA-Baumlauffehler kann derselbe Prüferbereich innerhalb des
+gemeinsamen Budgets bis zu zweimal neu gelesen werden. Fenster, Überschrift
+und Spaltengeometrie müssen weiterhin dieselbe Bindung bestätigen. Die
+Hinweise stammen aus einem vollständigen Snapshot.
+Ein Zyklus in der übrigen Navigation ersetzt diese Nachweise
 nicht. Eine fehlende oder unlesbare Hinweisspalte führt zu `ustva-incomplete`;
 bei ausgeblendeter Spalte muss sie vor dem erneuten Lesen eingeblendet werden.
 Der optionale Qt-Pfad verwendet den vollständigen nativen Seitenleser mit
@@ -1246,7 +1376,9 @@ Menüeintrags und die ursprüngliche Eingabemarke. Bei einem eigenen
 Qt-Popup bleibt das bereits aktive Hauptfenster gebunden; der Klick aktiviert
 weder Popup noch Hauptfenster erneut. Derselbe Prozess, die bekannte
 Popup-Klasse, das vollständige Menüinventar und der tatsächliche Punktnachweis
-sind Pflicht. Die nur beobachtende Vordergrundbindung behält den geschützten
+sind Pflicht. Das Inventar bindet den gewünschten Eintrag. Beim Hover liest der
+Helfer Sichtbarkeit, Fenster- und Prozessbindung direkt am gebundenen Popup.
+Die nur beobachtende Vordergrundbindung behält den geschützten
 Cursor-Rückweg; ein Fokus- oder Eingabewechsel erlaubt keinen Klick.
 Vor dem einzigen Klick bereitet der Helfer denselben Menüeintrag mit zehn
 verschiedenen Hover-Punkten innerhalb seiner Fläche vor und endet am

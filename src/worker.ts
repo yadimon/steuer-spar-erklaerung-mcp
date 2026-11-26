@@ -32,7 +32,7 @@ import {
   DESKTOP_MARKER_PATH,
   resolveDesktopMarkerForOperation,
 } from "./desktop-marker.js";
-import { ensureWarmSpare, takeWarmSpare } from "./worker-prewarm.js";
+import { ensureWarmSpare, startingSpareWaitMs, takeWarmSpare, waitForStartingSpare } from "./worker-prewarm.js";
 import { bindTableWorkerArguments, createTableWorkerCapability, tableWorkerEnvironment } from "./worker-table-capability.js";
 import { bindDesktopStartDeadline } from "./worker-start-deadline.js";
 import { bindUstvaReadDeadline } from "./worker-read-deadline.js";
@@ -275,7 +275,8 @@ async function callWorkerUnsynchronised(
   signal?: AbortSignal,
 ): Promise<WorkerResult> {
   // Freeze the shared startup deadline before borrowing a child. Cold parsing
-  // consumes this budget; time spent waiting in the prewarm pool does not.
+  // and a short wait for a starting spare consume this budget; the time a
+  // ready spare spent idle in the prewarm pool does not.
   try {
     args = bindDesktopStartDeadline(op, args, timeoutMs);
     args = bindUstvaReadDeadline(op, args, timeoutMs);
@@ -309,6 +310,25 @@ async function dispatchWorkerOnDesktop(
   desk: string | null, markerAllowsWarmSpare: boolean,
 ): Promise<WorkerResult> {
 
+  if (!desk) {
+    // Ist keine Reserve bereit, aber eine schon weit im Start, dann ist sie
+    // frueher fertig als ein Kaltstart, der dasselbe Skript noch einmal von
+    // vorn zerlegt. Ob und wie lange sich das lohnt, entscheidet der Vorrat;
+    // die Wartezeit zaehlt zur Frist dieses Aufrufs und nimmt ihr hoechstens
+    // die Haelfte. Der markierte Desktop behaelt seinen Kaltstart.
+    const waitBudgetMs = Math.min(startingSpareWaitMs(), Math.floor(timeoutMs / 2));
+    if (waitBudgetMs > 0) {
+      const waitStarted = performance.now();
+      await waitForStartingSpare(waitBudgetMs, signal);
+      if (signal?.aborted) {
+        throw new WorkerError(
+          "API-Client hat den Aufruf waehrend des Wartens auf einen Reservearbeiter abgebrochen; kein Worker wurde gestartet.",
+          "aborted",
+        );
+      }
+      timeoutMs = Math.max(1, timeoutMs - Math.ceil(performance.now() - waitStarted));
+    }
+  }
   // The private plan belongs to this concrete child, including an already
   // warmed spare. Caller environment never supplies the capability.
   const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;

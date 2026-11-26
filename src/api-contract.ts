@@ -100,6 +100,7 @@ export const SSE_API_OPERATIONS = [
   "snapshot_compare",
   "subpages",
   "table_add",
+  "table_add_rows",
   "table_delete",
   "table_read",
   "table_update",

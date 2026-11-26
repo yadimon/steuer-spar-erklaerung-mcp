@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.60",
+  "packageVersion": "0.1.0-beta.61",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.60",
+  "pluginVersion": "0.1.0-beta.61",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "6580c233bef6dda4794d3a842198dd72650e9edfb73a665f5d4029ba88037c23",
-      "size": 1786138
+      "sha256": "80bdfb55d0e96c670ac3d314e7e0d739eaabfa879f98da2b4c8f14e3259889b6",
+      "size": 1794797
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "07480e2a5a56c45d328a7a62e2d2e53a614de05591aa59f962f2bd8b954f1a00",
-      "size": 1806036
+      "sha256": "d5ee31cbed353c1fdde720732ce9290c16f9972c5f45aa2a096bb48fa5939f31",
+      "size": 1815376
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -63,8 +63,8 @@
     },
     {
       "path": "powershell/load-native.ps1",
-      "sha256": "a60b21e7591a2b2c019ebc0654bba679564c85821fecd0bd3d226c79ccf43683",
-      "size": 9626
+      "sha256": "caed17ee87cb187db754c73e4b7ccbaa0300005b5fd05069ebb5e591dfdc1d0e",
+      "size": 9717
     },
     {
       "path": "powershell/ocr-image.ps1",
@@ -88,23 +88,23 @@
     },
     {
       "path": "powershell/sse-native.cs",
-      "sha256": "00f6437ad3358faef4f365931a18c4d48e917b9cfd25c51a9b07c1a074301d71",
-      "size": 78606
+      "sha256": "05719178a05a7d1c56c51a294f2c66f985cc68cd591eb79f079884e46a9edbbf",
+      "size": 89574
     },
     {
       "path": "powershell/sse-native.dll",
-      "sha256": "02d04cbc07b1d240b198ad599e439b5ee05da364add82b2f7b7680359f56d902",
-      "size": 52224
+      "sha256": "22c4e864a1a8e9be23db4fb9ba02b7161f391e614c7c21a2454518e00b82cd99",
+      "size": 56320
     },
     {
       "path": "powershell/sse-native.sha256",
-      "sha256": "e35a7ebe896bc3717430fa12117d34710d31cc9dbce0d15d5d35495b3e5915ed",
+      "sha256": "4e89696cb984e925dbd2f51416e482c2120743aad6451b5f2f2c2fcd0bd89c15",
       "size": 181
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "06059a7b85fc7e8229204617185ebe58861bb330a7645af8d945d0513e312e4b",
-      "size": 1690197
+      "sha256": "6c0c21f08e7cac1df9fbb2e9b869ef2ae5b10bc0e2a4c48aef5f4c208b976ca7",
+      "size": 1715971
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -123,13 +123,13 @@
     },
     {
       "path": "powershell/table-cursor-lease.ps1",
-      "sha256": "454794df283bfcdd46cb1496a1835b626ba033fc6f7685e141884b12dbb32035",
-      "size": 3345
+      "sha256": "94c3a441a18297152227e420262db6c47a8bc0d0d9c99fff9f7531b70e976705",
+      "size": 3896
     },
     {
       "path": "powershell/table-grid-read.ps1",
-      "sha256": "fdccaf21ce9cc519496f1e05bd6ef66ef12921d61868e349e6b2e3d986b55c45",
-      "size": 18352
+      "sha256": "7267a7d69ebf5b2ff24123516f97985fd562dcd7ac2c869e6db05f4b117e2afa",
+      "size": 20849
     },
     {
       "path": "powershell/table-number-click.ps1",
@@ -147,9 +147,14 @@
       "size": 9928
     },
     {
+      "path": "powershell/table-uia-append.ps1",
+      "sha256": "8ac1ff4276d9e6c9f70e2f5dd336b43e7bbfc4ccd2c4ed2be46f8f0378fbde91",
+      "size": 24920
+    },
+    {
       "path": "powershell/table-uia-delete.ps1",
-      "sha256": "a5a21a939b8d640dd76df16b70a1469b2e54e334ff247b087952c61823e1ad48",
-      "size": 45323
+      "sha256": "2a0dad05aa618c8d004bf31892d1e3d0cf1451b487d45ba41e00711f33879f29",
+      "size": 45937
     },
     {
       "path": "powershell/table-values.ps1",
@@ -178,8 +183,8 @@
     },
     {
       "path": "profiles/2024/page-objects.json",
-      "sha256": "57228f057c16611ee48e03d6c64a8db18a4584443581aa596a1572f670f66639",
-      "size": 1505
+      "sha256": "9119dc80b9940886ea2cfdd7a4de4c3776b4c18b3a39d44a94974c5484b53c30",
+      "size": 1617
     },
     {
       "path": "profiles/2024/profile.json",

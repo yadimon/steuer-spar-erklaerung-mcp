@@ -291,3 +291,44 @@ function Get-SSEGridDeleteOutcome {
   for($index=0;$index -lt $expected.Count;$index++){if($After.rowKeys[$index] -cne $expected[$index]){return 'unexpected'}}
   'deleted-exact'
 }
+
+function Test-SSEGridLogicalModelIntact {
+  param($Model)
+  [bool]($Model -and $Model.rows -is [int] -and $Model.rows -ge 0 -and $Model.rows -le 1000 -and
+    $Model.structure -is [string] -and $Model.structure -and @($Model.rowKeys).Count -eq $Model.rows -and
+    -not @($Model.rowKeys|Where-Object{$_ -isnot [string]}).Count -and
+    $Model.key -ceq ($Model.structure+'|'+(ConvertTo-Json -InputObject @($Model.rowKeys) -Compress)) -and
+    $Model.fingerprint -ceq (Get-SSEGridLogicalFingerprint $Model.key))
+}
+
+# The input slot is the last model row. An exact append leaves every earlier
+# row in place, puts exactly Count rows directly above a slot that equals the
+# former one, and changes nothing else. What the new rows contain is the
+# caller's contract; this only proves where they stand.
+function Get-SSEGridAppendOutcome {
+  param($Before,$After,[int]$Count)
+  if(-not (Test-SSEGridLogicalModelIntact $Before) -or -not (Test-SSEGridLogicalModelIntact $After)){return 'unexpected'}
+  if($Count -lt 1 -or $Before.rows -lt 1 -or $Before.structure -cne $After.structure){return 'unexpected'}
+  if($After.key -ceq $Before.key){return 'unchanged'}
+  if($After.rows -ne $Before.rows+$Count){return 'unexpected'}
+  $slot=$Before.rows-1
+  for($index=0;$index -lt $slot;$index++){if($After.rowKeys[$index] -cne $Before.rowKeys[$index]){return 'unexpected'}}
+  if($After.rowKeys[$After.rows-1] -cne $Before.rowKeys[$slot]){return 'unexpected'}
+  'appended-exact'
+}
+
+# Qt does not give a materialized row back when its values are restored: the
+# row stays as an empty one. After a restore every former row must be in place
+# and everything behind them - at most MaxRows left-over rows and the input
+# slot - must equal the former input slot.
+function Get-SSEGridAppendRestoreOutcome {
+  param($Before,$After,[int]$MaxRows)
+  if(-not (Test-SSEGridLogicalModelIntact $Before) -or -not (Test-SSEGridLogicalModelIntact $After)){return 'unexpected'}
+  if($MaxRows -lt 1 -or $Before.rows -lt 1 -or $Before.structure -cne $After.structure){return 'unexpected'}
+  if($After.key -ceq $Before.key){return 'unchanged'}
+  if($After.rows -le $Before.rows -or $After.rows -gt $Before.rows+$MaxRows){return 'unexpected'}
+  $slot=$Before.rows-1
+  for($index=0;$index -lt $slot;$index++){if($After.rowKeys[$index] -cne $Before.rowKeys[$index]){return 'unexpected'}}
+  for($index=$slot;$index -lt $After.rows;$index++){if($After.rowKeys[$index] -cne $Before.rowKeys[$slot]){return 'unexpected'}}
+  'emptied-exact'
+}

@@ -139,7 +139,7 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 102 Operationen identische
+  referenziert. Auch der für alle 103 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -342,12 +342,37 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
 - Der dauerhafte API-Server hält vollständig initialisierte, aber noch
   UIA-unbenutzte Reserveprozesse. Jeder davon übernimmt weiterhin genau einen
   Auftrag und endet danach; die Prozessisolation wird also nicht aufgeweicht.
+  Vor seiner Bereitschaft durchläuft ein Reserveprozess den Rahmen, den jeder
+  Auftrag um seine Operation herum braucht, einmal trocken mit eigenen,
+  bedeutungslosen Werten: Argumente prüfen, Prozesse und Fenster suchen,
+  Eingabe-Epoche lesen, Ergebnis schreiben. PowerShell übersetzt und bindet
+  Anweisungen erst bei der ersten Ausführung; so fällt dieser einmalige
+  Aufwand nicht in den Auftrag. Der Trockenlauf stellt keine UIA- oder
+  MSAA-Abfrage, nimmt keinen Sitzungsmutex, schreibt nichts, sendet keine
+  Eingabe und bewegt kein Fenster.
   Wie viele es sind, richtet sich nach der Ausstattung des Rechners: vier ab
   24 GiB Arbeitsspeicher und acht Kernen, drei ab 12 GiB und vier Kernen, sonst
   zwei. Der Vorrat berücksichtigt den Speicherbedarf wartender Prozesse.
-  Treffen Aufträge schneller ein, als Reserven nachwachsen, benötigt der
-  nächste Auftrag einen Kaltstart.
+  Treffen Aufträge schneller ein, als Reserven nachwachsen, wartet der nächste
+  Auftrag auf eine Reserve, die schon mindestens ein Viertel ihres zuletzt
+  beobachteten Startbedarfs hinter sich hat - sie ist früher fertig als ein
+  Kaltstart. Das Warten endet spätestens beim Anderthalbfachen dieses Bedarfs
+  und verbraucht höchstens die Hälfte der Frist des Auftrags; die Wartezeit
+  zählt zu dieser Frist. Ohne eine solche Reserve, nach Ablauf der Wartezeit
+  und auf einem markierten Privatdesktop bleibt es beim Kaltstart.
   `SSE_WORKER_PREWARM_POOL_SIZE` übersteuert das und begrenzt den Vorrat auf 1 bis 4.
+- Jeder Worker wählt für seinen eigenen Prozess die Energiedrosselung ab, die
+  Windows unter Energiesparplänen wenige Sekunden nach dem Start auf Prozesse
+  ohne Vordergrundfenster legt. Ein wartender Reserveprozess führte seinen
+  Auftrag sonst um ein Mehrfaches langsamer aus, obwohl er vollständig
+  vorbereitet ist. Der Verzicht ändert keine Systemeinstellung; ein wartender
+  Worker verbraucht weiterhin keine Rechenzeit.
+- Auch der dauerhafte API-Prozess läuft ohne Fenster und bliebe für jede
+  Anfrage gedrosselt, die er weiterreicht. Er kann den Verzicht nicht selbst
+  erklären und nennt deshalb seinen Workern die eigene Prozess-ID. Ein Worker
+  folgt dieser Bitte ausschließlich für seinen tatsächlichen Elternprozess;
+  ohne die Angabe, etwa beim Direktstart aus einer Konsole, bleibt jeder
+  andere Prozess unberührt.
 - Ein gesetzter Privatdesktop-Marker wird vor dem Routing in Node und nach der
   Auftragsannahme im Worker weiterhin fail-closed auf Format und Eigentum
   geprüft. Nur die beiden statischen, mutexfreien Reads `page_objects` und
@@ -393,6 +418,24 @@ verbleibenden Grenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
   werden vorheriges Vordergrundfenster und eigener Mauszeiger best effort
   wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
   in API und MCP messbar.
+  Hält ein Fenster den Vordergrund, dessen Eingabewarteschlange sich nicht
+  koppeln lässt – etwa die Benachrichtigungsfläche der Shell, auf die der
+  Vordergrund fällt, wenn das zuvor aktive Fenster schließt –, scheitern beide
+  eingabefreien Aktivierungswege. Nur dann aktiviert der Worker sein Ziel über
+  genau eine eigene Eingabe: einen Klick auf ein eigenes, praktisch
+  unsichtbares Fenster unter dem unbewegten Mauszeiger. Der Klick erreicht kein
+  fremdes Fenster. Sein Vorher-/Nachher-Paar der Eingabe-Epoche gilt als eigene
+  Eingabe; jede andere Änderung bleibt ein Eingriff. Gibt eine Phase ihre
+  Epoche an die nächste Phase oder an die native Brücke weiter, enthält der
+  weitergegebene Wert diese eigene Eingabe bereits, denn dort wird ohne Kenntnis
+  des abgebenden Prozesses verglichen. Hält eine Shell-Oberfläche den
+  Vordergrund, geschieht die Aktivierung für Operationen, die den Vordergrund
+  ohnehin holen können, schon vor dem Auftrag und damit vor jedem
+  Eingabewächter; reine Leser lösen sie nie aus. An ein solches Fenster
+  gibt der Cleanup den Vordergrund nicht zurück
+  (`restoreSkippedReason: previous-window-refused-input-attachment`), weil er
+  von dort nicht wieder zu holen wäre. Auf dem privaten Desktop, vor dem
+  Sperrbildschirm und nach drei Versuchen je Auftrag unterbleibt diese Stufe.
   Menüklicks aktivieren das Popup nicht erneut. Auch beim zusammengesetzten
   Speichern-unter-Ablauf und beim ersten Speichern eines neuen Falls bleibt
   der ursprüngliche Vordergrund- und Cursor-Kontext bis zum Cleanup erhalten.
@@ -978,7 +1021,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 102
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 103
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

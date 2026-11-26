@@ -1553,6 +1553,67 @@ export function createStatefulSseWorker({
           rows.push({ datum, text, betrag: cents });
           return { added: { datum, text, betrag: cents } };
         });
+      case "table_add_rows": {
+        // All or nothing: every row stands in the model, or none of them does.
+        const caseState = model.openCase();
+        if (!caseState) return { ok: false, kind: "not-found", error: "Kein Steuerfall offen." };
+        const unchanged = (kind, error) => ({
+          ok: false, verified: false, kind, error, mutationStarted: false, outcomeUnknown: false,
+          resultingState: "unchanged", requestedCount: args.zeilen.length, completedCount: 0, retryable: false, zeilen: [],
+        });
+        if (currentPage !== String(args.expectedPage)) {
+          return unchanged("precondition-failed", `Aktuelle Seite '${currentPage}', erwartet '${args.expectedPage}'.`);
+        }
+        if (String(args.sumLabel) !== TABLE_SUM_LABEL) {
+          return unchanged("precondition-failed", `Summenzeile '${args.sumLabel}' fehlt auf dieser Seite.`);
+        }
+        const before = formatCents(tableSumCents(caseState));
+        if (before !== String(args.expectedBefore)) {
+          return unchanged("precondition-failed", `Vorsumme '${before}', erwartet '${args.expectedBefore}'.`);
+        }
+        const backup = clone(caseState.values.sonstigeEinnahmen);
+        const zeilen = [];
+        for (const [index, entry] of args.zeilen.entries()) {
+          const [, datum, text, betrag] = entry.werte.map((value) => String(value ?? ""));
+          const cents = parseGermanCents(betrag);
+          if (cents === null) {
+            caseState.values.sonstigeEinnahmen = backup;
+            return unchanged("bad-args", `Betrag '${betrag}' in Zeile ${index + 1} ist kein deutscher Geldwert.`);
+          }
+          caseState.values.sonstigeEinnahmen.push({ datum, text, betrag: cents });
+          zeilen.push({ index, modelRow: backup.length + index, zellen: [
+            { spalte: 1, gewuenscht: datum, ist: datum, ok: true },
+            { spalte: 2, gewuenscht: text, ist: text, ok: true },
+            { spalte: 3, gewuenscht: betrag, ist: formatCents(cents), ok: true },
+          ] });
+        }
+        const after = formatCents(tableSumCents(caseState));
+        if (args.expectedAfter !== undefined && after !== String(args.expectedAfter)) {
+          caseState.values.sonstigeEinnahmen = backup;
+          return {
+            ok: false, verified: false, kind: "postcondition-failed",
+            error: `Nachsumme '${after}', erwartet '${args.expectedAfter}'. Eigene Zeilen zurueckgenommen.`,
+            mutationStarted: true, outcomeUnknown: false, resultingState: "restored",
+            sumBefore: before, requestedCount: args.zeilen.length, completedCount: 0, retryable: false, zeilen,
+            rollback: { versucht: true, methode: "raw-value-row-restore", erfolgreich: true, werteWiederhergestellt: true,
+              strukturEntfernt: true, verbliebeneLeerzeilen: 0, summe: before },
+          };
+        }
+        caseState.dirty = true;
+        epoch += 1;
+        return {
+          ok: true, verified: true, sumBefore: before, sumAfter: after,
+          requestedCount: args.zeilen.length, completedCount: args.zeilen.length, zeilen,
+          mutationStarted: true, outcomeUnknown: false, resultingState: "completed-verified",
+          mutationPostProof: {
+            schemaVersion: 1, method: "uia-grid-logical-model", outcome: "appended-exact",
+            rowsBefore: backup.length + 1, rowsAfter: caseState.values.sonstigeEinnahmen.length + 1,
+            beforeFingerprint: sha256(JSON.stringify(backup)).toLowerCase(),
+            afterFingerprint: sha256(JSON.stringify(caseState.values.sonstigeEinnahmen)).toLowerCase(),
+          },
+          physicalInputAttempted: false, physicalInputUsed: false,
+        };
+      }
       case "table_update":
         return mutateTable("table_update", args, (rows) => {
           const index = rows.findIndex((row) => row.text === String(args.text));

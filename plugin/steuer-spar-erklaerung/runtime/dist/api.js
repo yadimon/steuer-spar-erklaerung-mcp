@@ -148,6 +148,7 @@ var init_api_contract = __esm({
       "snapshot_compare",
       "subpages",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_read",
       "table_update",
@@ -21417,6 +21418,7 @@ var init_operation_schema_primitives = __esm({
       snapshotNodes: 5e3,
       snapshotTypes: 50,
       tableValues: 100,
+      tableAppendRows: 50,
       verifyExpectations: 500,
       vastPlan: 500,
       readbackChecks: 100,
@@ -22334,6 +22336,26 @@ var init_mcp_schemas_ui = __esm({
         ),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_table_add_rows": external_exports.object({
+        expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
+        zeilen: external_exports.array(external_exports.object({
+          werte: external_exports.array(external_exports.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).refine(
+            (werte) => werte.some((wert) => wert !== ""),
+            "Jede Zeile braucht mindestens einen zu schreibenden Wert."
+          ).describe(
+            "Werte dieser Zeile in Spaltenreihenfolge ab der ERSTEN Spalte ('kopf' aus sse_table_read); fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden"
+          )
+        }).strict()).min(1).max(SSE_OPERATION_LIMITS.tableAppendRows).describe(
+          `Eine bis ${SSE_OPERATION_LIMITS.tableAppendRows} neue Zeilen in der gewuenschten Reihenfolge`
+        ),
+        sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
+        sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
+        expectedBefore: external_exports.string().describe("Exakter Summenwert vor dem Anlegen"),
+        expectedAfter: external_exports.string().optional().describe(
+          "Optional: exakter Summenwert nach ALLEN Zeilen. Die Seitensumme addiert netto, nicht brutto. Weicht sie ab, werden alle eigenen Zeilen zurueckgenommen"
+        ),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_table_update": external_exports.object({
         expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
         text: external_exports.string().describe("Eindeutiger vorhandener Zelltext der Zielzeile"),
@@ -22799,6 +22821,7 @@ var init_operation_catalog = __esm({
       "sse_goto": "goto",
       "sse_table_read": "table_read",
       "sse_table_add": "table_add",
+      "sse_table_add_rows": "table_add_rows",
       "sse_table_update": "table_update",
       "sse_table_delete": "table_delete",
       "sse_menu": "menu",
@@ -23126,6 +23149,7 @@ var init_operation_traits = __esm({
       "save_as",
       "scenario_run",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_update",
       "toggle",
@@ -23178,6 +23202,7 @@ var init_operation_traits = __esm({
       "save_as",
       "set_value",
       "table_add",
+      "table_add_rows",
       "table_delete",
       "table_update",
       "toggle",
@@ -23282,7 +23307,89 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.60";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.61";
+  }
+});
+
+// src/user-input-policy.ts
+function userInputPolicy(operation) {
+  if (operation === "table_read") return "hands-off-with-cursor-run";
+  return GUARDED.has(operation) ? "hands-off" : "free";
+}
+var SSE_INPUT_GUARDED_WORKER_OPERATIONS, SSE_INPUT_GUARDED_COMPOSED_OPERATIONS, GUARDED, SSE_USER_INPUT;
+var init_user_input_policy = __esm({
+  "src/user-input-policy.ts"() {
+    "use strict";
+    SSE_INPUT_GUARDED_WORKER_OPERATIONS = [
+      "bulk_action",
+      "checker_detail",
+      "checker_open_plan",
+      "checker_reset",
+      "click",
+      "click_point",
+      "collect",
+      "combo_select",
+      "desktop_stop",
+      "dialog_answer",
+      "export_csv",
+      "file_dialog_select",
+      "goto",
+      "goto_tree",
+      "menu",
+      "menu_click",
+      "position_create",
+      "receipt_manager_action",
+      "receipt_manager_bulk_upsert",
+      "receipt_manager_classification_options",
+      "receipt_manager_classify",
+      "receipt_manager_delete",
+      "receipt_manager_import",
+      "receipt_manager_link",
+      "receipt_manager_read",
+      "receipt_manager_update",
+      "result_details",
+      "save_as",
+      "set_value",
+      "table_add",
+      "table_add_rows",
+      "table_delete",
+      "table_read",
+      "table_update",
+      "tax_knowledge_search",
+      "toggle",
+      "tracked_set_value",
+      "tree_scroll",
+      "tree_top",
+      "vast_apply",
+      "vast_mapping_options",
+      "vast_mapping_select",
+      "vast_row_details",
+      "vast_row_set_expanded"
+    ];
+    SSE_INPUT_GUARDED_COMPOSED_OPERATIONS = [
+      "case_create",
+      "checker_open",
+      "fill_fields",
+      "scenario_run",
+      "ustva_change_value",
+      "ustva_open_section",
+      "ustva_select_period",
+      "ustva_set_flag"
+    ];
+    GUARDED = /* @__PURE__ */ new Set([
+      ...SSE_INPUT_GUARDED_WORKER_OPERATIONS,
+      ...SSE_INPUT_GUARDED_COMPOSED_OPERATIONS
+    ]);
+    SSE_USER_INPUT = Object.freeze({
+      interferenceKind: "interference",
+      policyField: "operationPolicy.<operation>.userInput",
+      policies: {
+        free: "Der Mensch darf Maus und Tastatur weiter benutzen. Die Operation sendet keine Eingabe und holt kein Fenster nach vorn.",
+        "hands-off": "Holt das Programmfenster nach vorn und bedient es mit Zeiger und Tasten oder ueberwacht fremde Eingaben. Solange der Aufruf laeuft, darf der Mensch Maus und Tastatur nicht benutzen.",
+        "hands-off-with-cursor-run": "Die passive Lesung stoert nicht. Nur der ausdruecklich angeforderte Cursorlauf (noKeys:false) bedient das Fenster und braucht die Eingabepause."
+      },
+      rule: "Vor einem Aufruf mit Eingabepause den Menschen darauf hinweisen. kind 'interference' heisst: Eine Eingabe oder ein Fensterwechsel hat den Auftrag gestoppt. Nur bei retryable:true ist der gemeldete Zustand belegt und der fehlende Teil darf mit den gemeldeten Werten erneut angefordert werden; sonst zuerst lesend abgleichen."
+    });
   }
 });
 
@@ -23297,6 +23404,7 @@ var init_capabilities = __esm({
     init_operation_live_evidence();
     init_worker_operation_policy();
     init_version();
+    init_user_input_policy();
     fallbackStages = [
       {
         intent: "Standard: Strukturierter Zustand",
@@ -23310,7 +23418,7 @@ var init_capabilities = __esm({
       },
       {
         intent: "Standard: Verifizierte Transaktion",
-        operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
+        operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_add_rows", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
         rule: "Passendes Spezialwerkzeug mit frischem Vorwert und Readback verwenden. Native Tabellenmutationen positionieren ihr Ziel selbst; keinen vollen Cursorlauf zur Schreibvorbereitung anfordern. Interne gebundene Positionierung bleibt Teil der Transaktion."
       },
       {
@@ -23427,6 +23535,9 @@ var init_capabilities = __esm({
         },
         rule: "Es laeuft immer nur eine Operation. Ein zweiter Aufruf wird mit 'busy' abgelehnt, nicht eingereiht. Warte auf das Ergebnis statt parallel erneut aufzurufen; /healthz meldet jederzeit, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf."
       },
+      // Welche Operationen eine Eingabepause des Menschen brauchen, steht je
+      // Operation in operationPolicy; hier stehen die Bedeutungen und die Regel.
+      userInput: SSE_USER_INPUT,
       batching: {
         rule: "Worker-Auftraege werden einzeln ausgefuehrt; ein Auftrag kann einen vorgewaermten Arbeitsprozess verwenden. scenario_run fuehrt seine Schritte seriell ueber den Executor aus, mit einem eigenen Auftrag je Worker-Schritt. Ein Szenario haelt keinen gemeinsamen Tabellen-Worker und ist keine Tabellen-Bulk-API.",
         levels: [
@@ -25131,6 +25242,7 @@ function createProfileOperationCapability(profileStatus, operationAccess, operat
     operation,
     class: profileOperationClass(operation),
     blockedOnBuildDrift: BUILD_DRIFT_BLOCKED.has(operation),
+    userInput: userInputPolicy(operation),
     ...interactionRequirement ? { interactionRequirement } : {}
   };
   if (BASE.has(operation)) {
@@ -25210,6 +25322,7 @@ var init_profile_operation_policy = __esm({
     init_api_contract();
     init_operation_traits();
     init_receipt_interaction_policy();
+    init_user_input_policy();
     EXPERIMENTAL_PROFILE_BASE_OPERATIONS = [
       "capabilities",
       "health",
@@ -29868,13 +29981,363 @@ var init_qt_native_snapshot = __esm({
   }
 });
 
+// src/qt-native-projections.ts
+import { createHash as createHash12 } from "node:crypto";
+function qtNativeFieldCaption(field, texts) {
+  const separator = field.aid.lastIndexOf(".");
+  if (separator > 0) {
+    const aid = field.aid.slice(0, separator) + ".Caption";
+    const siblings = texts.filter((text3) => text3.aid === aid);
+    if (siblings.length) {
+      if (siblings.length !== 1) return "";
+      const caption = siblings[0];
+      if (field.p !== caption.p || caption.w <= 0 || caption.h <= 0 || Math.abs(caption.y - field.y) > 14 || caption.x >= field.x) return "";
+      return caption.name;
+    }
+  }
+  const candidates = texts.filter((text3) => text3.w > 0 && text3.h > 0 && Math.abs(text3.y - field.y) <= 14 && text3.x < field.x && text3.x + text3.w <= field.x).sort((a, b) => field.x - (a.x + a.w) - (field.x - (b.x + b.w)));
+  if (!candidates.length) return "";
+  if (candidates.length > 1 && candidates[0].x + candidates[0].w === candidates[1].x + candidates[1].w) return "";
+  return candidates[0].name;
+}
+function powershellCompactJson(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === void 0) throw new TypeError("Fingerprint value is not JSON serializable.");
+  return serialized.replace(
+    /[&<>'\u0085\u2028\u2029]/gu,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
+  );
+}
+function transmissionName(name) {
+  if (!name) return false;
+  const normalized2 = comparableForm(name);
+  if (!normalized2) return false;
+  if (VERSAND_FORMS.has(normalized2)) return true;
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
+}
+function findContainerNode(nodes, aidSuffix, containerType = "") {
+  if (!aidSuffix) return null;
+  const hits = nodes.filter((node2) => (!containerType || node2.type === containerType) && node2.aid && node2.aid.endsWith(aidSuffix));
+  return hits.length === 1 ? hits[0] : null;
+}
+function containerDescendants(nodes, aidSuffix, childType, containerType = "") {
+  const container = findContainerNode(nodes, aidSuffix, containerType);
+  if (!container) return [];
+  const inSubtree = /* @__PURE__ */ new Set([container.i]);
+  const hits = [];
+  for (const node2 of nodes) {
+    if (node2.i === container.i || !inSubtree.has(node2.p)) continue;
+    inSubtree.add(node2.i);
+    if (node2.type === childType) hits.push(node2);
+  }
+  return hits.sort(byPosition);
+}
+function navigationSelection(nodes) {
+  const selected = nodes.filter((node2) => node2.type === "TreeItem" && node2.selected === true);
+  return selected.length === 1 ? selected[0].name : null;
+}
+function dirtyState(nodes) {
+  const save = nodes.find((node2) => node2.type === "Button" && node2.aid.endsWith(".MainToolBar.tb_sichern"));
+  return save ? save.on : null;
+}
+function splitWindowScope(nodes, keepRid = "") {
+  const rootOf = /* @__PURE__ */ new Map();
+  const foreignRoots = /* @__PURE__ */ new Map();
+  const order = [];
+  const own2 = [];
+  for (const node2 of nodes) {
+    const parentForeign = rootOf.has(node2.p);
+    const foreignWindow = node2.type === "Window" && (!keepRid || node2.rid !== keepRid);
+    if (!parentForeign && !foreignWindow) {
+      own2.push(node2);
+      continue;
+    }
+    let rootIndex;
+    if (parentForeign) rootIndex = rootOf.get(node2.p);
+    else {
+      rootIndex = node2.i;
+      foreignRoots.set(node2.i, { rid: node2.rid, name: node2.name, aid: node2.aid, x: node2.x, y: node2.y, w: node2.w, h: node2.h, nodeCount: 0 });
+      order.push(node2.i);
+    }
+    rootOf.set(node2.i, rootIndex);
+    foreignRoots.get(rootIndex).nodeCount += 1;
+  }
+  return { own: own2, foreign: order.map((index) => foreignRoots.get(index)) };
+}
+function checkerTreeItems(nodes) {
+  return containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree").filter((node2) => node2.name);
+}
+function checkerResults(nodes) {
+  const checkerTree = findContainerNode(nodes, CHECKER_TREE_SUFFIX, "Tree");
+  const allItems = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
+  const raw = checkerTreeItems(nodes).sort(byPosition);
+  if (!raw.length) {
+    return {
+      aktiv: checkerTree !== null,
+      leer: checkerTree !== null && allItems.length === 0,
+      fragenWarnungenAngekuendigt: 0,
+      tippsAngekuendigt: 0,
+      fragenWarnungenGruppeGesehen: false,
+      tippsGruppeGesehen: false,
+      fragenWarnungen: [],
+      tippsZusatzinfos: [],
+      sonstige: [],
+      gesamt: 0,
+      aufgeklappt: []
+    };
+  }
+  const left = Math.min(...raw.map((node2) => node2.x));
+  const top = raw.filter((node2) => node2.x <= left + 6);
+  const details = raw.filter((node2) => node2.x > left + 6 && node2.h >= 70);
+  const warn = [], tips = [], other = [];
+  let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
+  for (const node2 of top) {
+    const warnHeader = /^(?:(\d+)\s+Fragen oder Warnungen|(1)\s+Frage oder Warnung)\n?$/iu.exec(node2.name);
+    if (warnHeader) {
+      warnDeclared = Number(warnHeader[1] ?? warnHeader[2]);
+      warnSeen = true;
+      group = "fragenWarnungen";
+      continue;
+    }
+    const tipsHeader = /^(?:(\d+)\s+Tipps oder Zusatzinformationen|(1)\s+Tipp oder Zusatzinformation)\n?$/iu.exec(node2.name);
+    if (tipsHeader) {
+      tipsDeclared = Number(tipsHeader[1] ?? tipsHeader[2]);
+      tipsSeen = true;
+      group = "tippsZusatzinfos";
+      continue;
+    }
+    const item = {
+      text: node2.name,
+      rid: node2.rid,
+      y: node2.y,
+      aktiviert: node2.on,
+      aufgeklappt: details.some((detail) => psEquals(detail.name, node2.name))
+    };
+    if (group === "fragenWarnungen") warn.push(item);
+    else if (group === "tippsZusatzinfos") tips.push(item);
+    else other.push(item);
+  }
+  return {
+    aktiv: true,
+    leer: false,
+    fragenWarnungenAngekuendigt: warnDeclared,
+    tippsAngekuendigt: tipsDeclared,
+    fragenWarnungenGruppeGesehen: warnSeen,
+    tippsGruppeGesehen: tipsSeen,
+    fragenWarnungen: warn,
+    tippsZusatzinfos: tips,
+    sonstige: other,
+    gesamt: warn.length + tips.length + other.length,
+    aufgeklappt: [...new Set(details.map((detail) => detail.name))]
+  };
+}
+function checkerResultComplete(result, snapshot) {
+  if (!result.aktiv) return false;
+  if (result.leer && result.gesamt === 0) return true;
+  if (result.fragenWarnungenAngekuendigt !== result.fragenWarnungen.length || result.tippsAngekuendigt !== result.tippsZusatzinfos.length) return false;
+  if (result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen) return true;
+  if (result.fragenWarnungenGruppeGesehen === result.tippsGruppeGesehen || result.sonstige.length || !snapshot) return false;
+  const { stats, nodes } = snapshot;
+  if (stats.truncated !== false || stats.depthLimited !== false || stats.err !== 0 || stats.cyc !== 0 || stats.valErr !== 0 || stats.scrollErr !== 0) return false;
+  const items = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
+  if (items.some((node2) => !node2.name)) return false;
+  const headers = items.filter((node2) => /^(?:\d+\s+Fragen oder Warnungen|1\s+Frage oder Warnung|\d+\s+Tipps oder Zusatzinformationen|1\s+Tipp oder Zusatzinformation)\n?$/iu.test(node2.name));
+  return headers.length === 1;
+}
+function comparableDecimalText(value) {
+  if (value === null || value === void 0) return null;
+  const text3 = String(value).replace(/\s+/gu, "").replaceAll(".", "").replaceAll(",", ".").replace(/[^0-9+\-.]/gu, "");
+  if (!text3 || ["+", "-", "."].includes(text3)) return null;
+  return Number.isFinite(Number(text3)) ? text3 : null;
+}
+function scaledDecimal(text3, scale) {
+  const negative = text3.startsWith("-");
+  const [whole = "", fraction = ""] = text3.replace(/^[+-]/u, "").split(".");
+  const magnitude = BigInt(`${whole || "0"}${fraction.padEnd(scale, "0").slice(0, scale)}`);
+  return negative ? -magnitude : magnitude;
+}
+function comparisonInvariantResidual(actual, held, difference) {
+  const scale = Math.max(...[actual, held, difference].map((text3) => (text3.split(".")[1] ?? "").length));
+  const residual = scaledDecimal(actual, scale) - scaledDecimal(held, scale) - scaledDecimal(difference, scale);
+  const digits = (residual < 0n ? -residual : residual).toString().padStart(scale + 1, "0");
+  const whole = digits.slice(0, digits.length - scale), fraction = digits.slice(digits.length - scale);
+  return Number(`${residual < 0n ? "-" : ""}${whole}${scale ? `.${fraction}` : ""}`);
+}
+function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
+  const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
+  const unpositioned = allData.filter((node2) => node2.w <= 0 || node2.h <= 0);
+  const data = allData.filter((node2) => node2.w > 0 && node2.h > 0).sort(byPosition);
+  const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node2) => node2.w > 0 && node2.h > 0).sort((a, b) => a.x - b.x).map((node2) => node2.name);
+  const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
+  const scrollIncomplete = table !== null && table.scroll !== null;
+  const windowOpen = table !== null || windowKnownOpen;
+  if (!data.length) {
+    return {
+      verfuegbar: false,
+      fensterOffen: windowOpen,
+      anzahl: 0,
+      vollstaendig: false,
+      zeilen: [],
+      unvollstaendigeZeilen: [],
+      nichtPositionierteZellenAnzahl: unpositioned.length,
+      uiaKopfzeilen: headers,
+      kopfVollstaendig: headers.length === 4,
+      vergleichsInvariantGeprueft: 0,
+      vergleichsInvariantFehler: [],
+      vertikalUnvollstaendig: scrollIncomplete,
+      fingerprint: null,
+      hinweis: windowOpen ? "Werte-Info ist offen, aber die Qt-Tabelle war in diesem Snapshot nicht lesbar." : "Werte-Info ist nicht offen. Einmal sse_result_details aufrufen; danach liest sse_ui_state die Werte ohne weiteren Fensterwechsel mit."
+    };
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const node2 of data) groups.set(node2.y, [...groups.get(node2.y) ?? [], node2]);
+  const rows = [], malformed = [], invariantErrors = [];
+  let invariantChecked = 0;
+  for (const y of [...groups.keys()].sort((a, b) => a - b)) {
+    const cells = [...groups.get(y)].sort((a, b) => a.x - b.x);
+    if (cells.length !== 4) {
+      malformed.push({ y, cells: cells.map((cell) => cell.name) });
+      continue;
+    }
+    const row = {
+      beobachteterWert: cells[0].name,
+      aktuell: cells[1].name,
+      festgehalten: cells[2].name,
+      differenz: cells[3].name
+    };
+    rows.push(row);
+    const actual = comparableDecimalText(row.aktuell), held = comparableDecimalText(row.festgehalten);
+    const difference = comparableDecimalText(row.differenz);
+    if (actual !== null && held !== null && difference !== null) {
+      invariantChecked += 1;
+      if (Math.abs(comparisonInvariantResidual(actual, held, difference)) > 0.011) invariantErrors.push({ ...row });
+    }
+  }
+  const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc && !stats.err && !stats.depthLimited && !stats.valErr && !stats.scrollErr;
+  const fingerprintBody = powershellCompactJson(rows.length === 1 ? rows[0] : rows);
+  return {
+    verfuegbar: rows.length > 0,
+    fensterOffen: windowOpen,
+    anzahl: rows.length,
+    vollstaendig: complete,
+    zeilen: rows,
+    unvollstaendigeZeilen: malformed,
+    nichtPositionierteZellenAnzahl: unpositioned.length,
+    uiaKopfzeilen: headers,
+    kopfVollstaendig: headers.length === 4,
+    vergleichsInvariantGeprueft: invariantChecked,
+    vergleichsInvariantFehler: invariantErrors,
+    vertikalUnvollstaendig: scrollIncomplete,
+    fingerprint: rows.length ? textSha256(fingerprintBody) : null,
+    hinweis: "Aktuell ist der gegenwaertige Wert; festgehalten ist der Vergleichsstand; Differenz ist die Wirkung gegen diesen Stand."
+  };
+}
+async function readProcessWindowInventory(client, timeoutMs, signal) {
+  const measured = await client.request("window_inventory", {}, timeoutMs, signal);
+  if (!measured.result.ok) {
+    throw new QtNativeTransportError(
+      String(measured.result.error ?? "Native window inventory failed."),
+      String(measured.result.code ?? "native-read"),
+      measured.result.outcomeUnknown === true
+    );
+  }
+  const parsed = processWindowInventorySchema.safeParse(measured.result);
+  if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length || parsed.data.productWindowCount < parsed.data.visibleWindowCount) {
+    throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
+  }
+  return {
+    windows: parsed.data.windows,
+    untitledWindows: parsed.data.untitledWindows,
+    visibleWindowCount: parsed.data.visibleWindowCount,
+    productWindowCount: parsed.data.productWindowCount,
+    durationMs: measured.durationMs
+  };
+}
+function isSystemOverlay(window) {
+  return /^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80;
+}
+function auxiliaryWindowKind(window, profile) {
+  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
+  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
+  if (isSystemOverlay(window)) return "system-overlay";
+  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
+  const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
+    if (typeof definition !== "object" || definition === null) return false;
+    const entry = definition;
+    return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role) && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
+  });
+  return catalogued ? "known-nonmodal" : null;
+}
+function byWindowArea(left, right) {
+  return right.w * right.h - left.w * left.h || left.order - right.order;
+}
+var byPosition, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
+var init_qt_native_projections = __esm({
+  "src/qt-native-projections.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    byPosition = (a, b) => a.y - b.y || a.x - b.x;
+    psEquals = (left, right) => left.toLowerCase() === right.toLowerCase();
+    textSha256 = (text3) => createHash12("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    VERSAND = [
+      "ELSTER",
+      "Anmeldungen versenden",
+      "Jahreserklärungen abschließen",
+      "Belege nachreichen",
+      "Kommunikation mit dem Finanzamt per ELSTER",
+      "Senden",
+      "Senden & Drucken",
+      "Versenden",
+      "Übermitteln",
+      "Steuerdaten versenden",
+      "Abschicken",
+      "Elektronische Steuererklärung (ELSTER)"
+    ];
+    comparableForm = (text3) => text3.replaceAll("…", "").replaceAll("...", "").replaceAll("&", "").toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+    VERSAND_FORMS = new Set(VERSAND.map(comparableForm));
+    CHECKER_TREE_SUFFIX = "PrueferWidgetSSE.SteuerPruefer";
+    RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
+    processWindowSchema = external_exports.object({
+      hwnd: external_exports.number().int().positive(),
+      /** Enumeration (Z) order among the listed windows; Get-Windows breaks equal areas by it. */
+      order: external_exports.number().int().nonnegative(),
+      pid: external_exports.number().int().positive(),
+      class: external_exports.string().min(1).max(255),
+      title: external_exports.string().min(1).max(4095),
+      x: external_exports.number().int().safe(),
+      y: external_exports.number().int().safe(),
+      w: external_exports.number().int().nonnegative(),
+      h: external_exports.number().int().nonnegative(),
+      minimized: external_exports.boolean(),
+      hung: external_exports.boolean()
+    }).strict();
+    processWindowInventorySchema = external_exports.object({
+      ok: external_exports.literal(true),
+      windows: external_exports.array(processWindowSchema).max(256),
+      /** Visible untitled windows that are no shadow windows; a title cannot classify them. */
+      untitledWindows: external_exports.array(processWindowSchema.omit({ title: true })).max(256),
+      /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
+      visibleWindowCount: external_exports.number().int().nonnegative(),
+      /** The same population across every process whose executable and folder names match: what Get-Windows 'SSE' counts. */
+      productWindowCount: external_exports.number().int().nonnegative()
+    }).passthrough();
+    WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
+    TIPS_TITLE = "Steuer-Spar-Tipps";
+    CLOSABLE_NONMODAL_ROLES = /* @__PURE__ */ new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
+  }
+});
+
 // src/position-inventory.ts
 function readPositionInventory(nodes, stats, heading2, allowedHeadings = POSITION_OVERVIEW_HEADINGS) {
   const fail12 = (error62) => ({ ok: false, error: error62 });
   if (!stats || stats.truncated || stats.err || stats.cyc || stats.valErr || stats.depthLimited || heading2 === null || !allowedHeadings.includes(heading2)) {
     return fail12("Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.");
   }
-  const links = nodes.filter((node2) => node2.type === "Hyperlink" && node2.aid.includes(".GuideViewer."));
+  const guideSuffix = ".ClientFrameSSE.GuideViewer";
+  const links = containerDescendants(nodes, guideSuffix, "Hyperlink", "Group");
+  const texts = containerDescendants(nodes, guideSuffix, "Text", "Group");
   const edits = links.flatMap((node2) => {
     const match = /^»(.*)« bearbeiten$/u.exec(node2.name);
     return match ? [{ node: node2, label: match[1] }] : [];
@@ -29893,11 +30356,11 @@ function readPositionInventory(nodes, stats, heading2, allowedHeadings = POSITIO
   }
   const rows = [];
   for (const row of edits) {
-    const amounts = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.aid.includes(".GuideViewer.") && Math.abs(node2.y - row.node.y) < 10 && /^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}$/u.test(node2.name));
+    const amounts = texts.filter((node2) => node2.on && Math.abs(node2.y - row.node.y) < 10 && /^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}$/u.test(node2.name));
     if (amounts.length !== 1) return fail12("Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.");
     rows.push({ name: row.label, net: amounts[0].name });
   }
-  const empty = nodes.filter((node2) => node2.type === "Text" && node2.on && node2.aid.includes(".GuideViewer.") && node2.name === "Sie haben noch keine Angaben erfasst");
+  const empty = texts.filter((node2) => node2.on && node2.name === "Sie haben noch keine Angaben erfasst");
   const createCaption = rows.length ? "Weitere Position erfassen" : "Position erfassen";
   const commands = links.filter((node2) => node2.on && ["Position erfassen", "Weitere Position erfassen"].includes(node2.name));
   if (empty.length !== (rows.length ? 0 : 1) || commands.length !== 1 || commands[0].name !== createCaption) {
@@ -29909,12 +30372,13 @@ var POSITION_OVERVIEW_HEADINGS;
 var init_position_inventory = __esm({
   "src/position-inventory.ts"() {
     "use strict";
+    init_qt_native_projections();
     POSITION_OVERVIEW_HEADINGS = ["Erlöse Lieferungen/Leistungen", "Betriebsausgaben: Eigene Positionen"];
   }
 });
 
 // src/qt-native-pages.ts
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13 } from "node:crypto";
 import { setTimeout as delay2 } from "node:timers/promises";
 function roundEven(value) {
   const floor = Math.floor(value);
@@ -29961,7 +30425,7 @@ function heading(nodes, profile, visibleOnly = false) {
       if (node2.type === "Text" && (!visibleOnly || node2.w > 0 && node2.h > 0)) texts.push(node2);
     }
   }
-  return texts.sort(byPosition)[0]?.name ?? null;
+  return texts.sort(byPosition2)[0]?.name ?? null;
 }
 function qtNativeKnownHeading(nodes, profile, page) {
   const relativeAid = typeof page.headingAutomationIdRelative === "string" ? page.headingAutomationIdRelative : "";
@@ -29990,7 +30454,7 @@ function knownFieldValue(node2, controlType2) {
   return node2.val;
 }
 function knownEpoch(hwnd, currentHeading, dirty, fields2) {
-  return createHash12("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields: fields2 }), "utf8").digest("hex").toUpperCase();
+  return createHash13("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields: fields2 }), "utf8").digest("hex").toUpperCase();
 }
 async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, profile) {
   if (!profile || typeof args.pageId !== "string" || !args.pageId) {
@@ -30071,7 +30535,7 @@ async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile)
   const minX = typeof args.minX === "number" ? args.minX : bounds.minX;
   const maxX = typeof args.maxX === "number" ? args.maxX : bounds.maxX;
   const keep = /* @__PURE__ */ new Set(["Text", "DataItem", "Edit", "CheckBox", "Header", "RadioButton", "Button", "Hyperlink", "ComboBox"]);
-  const rows = result.nodes.filter((node2) => (node2.name || node2.val?.trim()) && node2.x >= minX && node2.x <= maxX && keep.has(node2.type)).sort(byPosition);
+  const rows = result.nodes.filter((node2) => (node2.name || node2.val?.trim()) && node2.x >= minX && node2.x <= maxX && keep.has(node2.type)).sort(byPosition2);
   const lines = [];
   let anchor2;
   for (const node2 of rows) {
@@ -30092,7 +30556,7 @@ async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile)
     nativeDurationMs: result.nativeDurationMs
   };
 }
-function transmissionName(name) {
+function transmissionName2(name) {
   const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
   return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
 }
@@ -30106,7 +30570,7 @@ async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
   const seen = /* @__PURE__ */ new Set();
   const subpages = [];
   for (const button of buttons) {
-    if (transmissionName(button.name)) continue;
+    if (transmissionName2(button.name)) continue;
     const caption = texts.filter((node2) => node2.p === button.p).sort((a, b) => a.x - b.x)[0] ?? texts.filter((node2) => Math.abs(node2.y - button.y) <= 14 && node2.x < button.x).sort((a, b) => b.x - a.x)[0];
     const value = values.filter((node2) => node2.p === button.p).sort((a, b) => a.x - b.x)[0];
     const name = button.name || "Öffnen", key = `${name}|${caption?.name ?? ""}|${button.y}`;
@@ -30179,7 +30643,7 @@ async function executeQtNativePositions(client, args, timeoutMs, signal, profile
     if (timeoutMs - (performance.now() - started) < MIN_READ_RETRY_BUDGET_MS + 50) return incomplete;
   }
 }
-var byPosition, fail4;
+var byPosition2, fail4;
 var init_qt_native_pages = __esm({
   "src/qt-native-pages.ts"() {
     "use strict";
@@ -30188,7 +30652,7 @@ var init_qt_native_pages = __esm({
     init_qt_native_client();
     init_qt_native_snapshot();
     init_position_inventory();
-    byPosition = (a, b) => a.y - b.y || a.x - b.x;
+    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
     fail4 = (kind, error62) => ({ ok: false, backend: "qt", kind, error: error62 });
   }
 });
@@ -30294,354 +30758,6 @@ var init_qt_native_find = __esm({
   }
 });
 
-// src/qt-native-projections.ts
-import { createHash as createHash13 } from "node:crypto";
-function qtNativeFieldCaption(field, texts) {
-  const separator = field.aid.lastIndexOf(".");
-  if (separator > 0) {
-    const aid = field.aid.slice(0, separator) + ".Caption";
-    const siblings = texts.filter((text3) => text3.aid === aid);
-    if (siblings.length) {
-      if (siblings.length !== 1) return "";
-      const caption = siblings[0];
-      if (field.p !== caption.p || caption.w <= 0 || caption.h <= 0 || Math.abs(caption.y - field.y) > 14 || caption.x >= field.x) return "";
-      return caption.name;
-    }
-  }
-  const candidates = texts.filter((text3) => text3.w > 0 && text3.h > 0 && Math.abs(text3.y - field.y) <= 14 && text3.x < field.x && text3.x + text3.w <= field.x).sort((a, b) => field.x - (a.x + a.w) - (field.x - (b.x + b.w)));
-  if (!candidates.length) return "";
-  if (candidates.length > 1 && candidates[0].x + candidates[0].w === candidates[1].x + candidates[1].w) return "";
-  return candidates[0].name;
-}
-function powershellCompactJson(value) {
-  const serialized = JSON.stringify(value);
-  if (serialized === void 0) throw new TypeError("Fingerprint value is not JSON serializable.");
-  return serialized.replace(
-    /[&<>'\u0085\u2028\u2029]/gu,
-    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
-  );
-}
-function transmissionName2(name) {
-  if (!name) return false;
-  const normalized2 = comparableForm(name);
-  if (!normalized2) return false;
-  if (VERSAND_FORMS.has(normalized2)) return true;
-  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
-}
-function findContainerNode(nodes, aidSuffix, containerType = "") {
-  if (!aidSuffix) return null;
-  const hits = nodes.filter((node2) => (!containerType || node2.type === containerType) && node2.aid && node2.aid.endsWith(aidSuffix));
-  return hits.length === 1 ? hits[0] : null;
-}
-function containerDescendants(nodes, aidSuffix, childType, containerType = "") {
-  const container = findContainerNode(nodes, aidSuffix, containerType);
-  if (!container) return [];
-  const inSubtree = /* @__PURE__ */ new Set([container.i]);
-  const hits = [];
-  for (const node2 of nodes) {
-    if (node2.i === container.i || !inSubtree.has(node2.p)) continue;
-    inSubtree.add(node2.i);
-    if (node2.type === childType) hits.push(node2);
-  }
-  return hits.sort(byPosition2);
-}
-function navigationSelection(nodes) {
-  const selected = nodes.filter((node2) => node2.type === "TreeItem" && node2.selected === true);
-  return selected.length === 1 ? selected[0].name : null;
-}
-function dirtyState(nodes) {
-  const save = nodes.find((node2) => node2.type === "Button" && node2.aid.endsWith(".MainToolBar.tb_sichern"));
-  return save ? save.on : null;
-}
-function splitWindowScope(nodes, keepRid = "") {
-  const rootOf = /* @__PURE__ */ new Map();
-  const foreignRoots = /* @__PURE__ */ new Map();
-  const order = [];
-  const own2 = [];
-  for (const node2 of nodes) {
-    const parentForeign = rootOf.has(node2.p);
-    const foreignWindow = node2.type === "Window" && (!keepRid || node2.rid !== keepRid);
-    if (!parentForeign && !foreignWindow) {
-      own2.push(node2);
-      continue;
-    }
-    let rootIndex;
-    if (parentForeign) rootIndex = rootOf.get(node2.p);
-    else {
-      rootIndex = node2.i;
-      foreignRoots.set(node2.i, { rid: node2.rid, name: node2.name, aid: node2.aid, x: node2.x, y: node2.y, w: node2.w, h: node2.h, nodeCount: 0 });
-      order.push(node2.i);
-    }
-    rootOf.set(node2.i, rootIndex);
-    foreignRoots.get(rootIndex).nodeCount += 1;
-  }
-  return { own: own2, foreign: order.map((index) => foreignRoots.get(index)) };
-}
-function checkerTreeItems(nodes) {
-  return containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree").filter((node2) => node2.name);
-}
-function checkerResults(nodes) {
-  const checkerTree = findContainerNode(nodes, CHECKER_TREE_SUFFIX, "Tree");
-  const allItems = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
-  const raw = checkerTreeItems(nodes).sort(byPosition2);
-  if (!raw.length) {
-    return {
-      aktiv: checkerTree !== null,
-      leer: checkerTree !== null && allItems.length === 0,
-      fragenWarnungenAngekuendigt: 0,
-      tippsAngekuendigt: 0,
-      fragenWarnungenGruppeGesehen: false,
-      tippsGruppeGesehen: false,
-      fragenWarnungen: [],
-      tippsZusatzinfos: [],
-      sonstige: [],
-      gesamt: 0,
-      aufgeklappt: []
-    };
-  }
-  const left = Math.min(...raw.map((node2) => node2.x));
-  const top = raw.filter((node2) => node2.x <= left + 6);
-  const details = raw.filter((node2) => node2.x > left + 6 && node2.h >= 70);
-  const warn = [], tips = [], other = [];
-  let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
-  for (const node2 of top) {
-    const warnHeader = /^(?:(\d+)\s+Fragen oder Warnungen|(1)\s+Frage oder Warnung)\n?$/iu.exec(node2.name);
-    if (warnHeader) {
-      warnDeclared = Number(warnHeader[1] ?? warnHeader[2]);
-      warnSeen = true;
-      group = "fragenWarnungen";
-      continue;
-    }
-    const tipsHeader = /^(?:(\d+)\s+Tipps oder Zusatzinformationen|(1)\s+Tipp oder Zusatzinformation)\n?$/iu.exec(node2.name);
-    if (tipsHeader) {
-      tipsDeclared = Number(tipsHeader[1] ?? tipsHeader[2]);
-      tipsSeen = true;
-      group = "tippsZusatzinfos";
-      continue;
-    }
-    const item = {
-      text: node2.name,
-      rid: node2.rid,
-      y: node2.y,
-      aktiviert: node2.on,
-      aufgeklappt: details.some((detail) => psEquals(detail.name, node2.name))
-    };
-    if (group === "fragenWarnungen") warn.push(item);
-    else if (group === "tippsZusatzinfos") tips.push(item);
-    else other.push(item);
-  }
-  return {
-    aktiv: true,
-    leer: false,
-    fragenWarnungenAngekuendigt: warnDeclared,
-    tippsAngekuendigt: tipsDeclared,
-    fragenWarnungenGruppeGesehen: warnSeen,
-    tippsGruppeGesehen: tipsSeen,
-    fragenWarnungen: warn,
-    tippsZusatzinfos: tips,
-    sonstige: other,
-    gesamt: warn.length + tips.length + other.length,
-    aufgeklappt: [...new Set(details.map((detail) => detail.name))]
-  };
-}
-function checkerResultComplete(result, snapshot) {
-  if (!result.aktiv) return false;
-  if (result.leer && result.gesamt === 0) return true;
-  if (result.fragenWarnungenAngekuendigt !== result.fragenWarnungen.length || result.tippsAngekuendigt !== result.tippsZusatzinfos.length) return false;
-  if (result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen) return true;
-  if (result.fragenWarnungenGruppeGesehen === result.tippsGruppeGesehen || result.sonstige.length || !snapshot) return false;
-  const { stats, nodes } = snapshot;
-  if (stats.truncated !== false || stats.depthLimited !== false || stats.err !== 0 || stats.cyc !== 0 || stats.valErr !== 0 || stats.scrollErr !== 0) return false;
-  const items = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
-  if (items.some((node2) => !node2.name)) return false;
-  const headers = items.filter((node2) => /^(?:\d+\s+Fragen oder Warnungen|1\s+Frage oder Warnung|\d+\s+Tipps oder Zusatzinformationen|1\s+Tipp oder Zusatzinformation)\n?$/iu.test(node2.name));
-  return headers.length === 1;
-}
-function comparableDecimalText(value) {
-  if (value === null || value === void 0) return null;
-  const text3 = String(value).replace(/\s+/gu, "").replaceAll(".", "").replaceAll(",", ".").replace(/[^0-9+\-.]/gu, "");
-  if (!text3 || ["+", "-", "."].includes(text3)) return null;
-  return Number.isFinite(Number(text3)) ? text3 : null;
-}
-function scaledDecimal(text3, scale) {
-  const negative = text3.startsWith("-");
-  const [whole = "", fraction = ""] = text3.replace(/^[+-]/u, "").split(".");
-  const magnitude = BigInt(`${whole || "0"}${fraction.padEnd(scale, "0").slice(0, scale)}`);
-  return negative ? -magnitude : magnitude;
-}
-function comparisonInvariantResidual(actual, held, difference) {
-  const scale = Math.max(...[actual, held, difference].map((text3) => (text3.split(".")[1] ?? "").length));
-  const residual = scaledDecimal(actual, scale) - scaledDecimal(held, scale) - scaledDecimal(difference, scale);
-  const digits = (residual < 0n ? -residual : residual).toString().padStart(scale + 1, "0");
-  const whole = digits.slice(0, digits.length - scale), fraction = digits.slice(digits.length - scale);
-  return Number(`${residual < 0n ? "-" : ""}${whole}${scale ? `.${fraction}` : ""}`);
-}
-function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
-  const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
-  const unpositioned = allData.filter((node2) => node2.w <= 0 || node2.h <= 0);
-  const data = allData.filter((node2) => node2.w > 0 && node2.h > 0).sort(byPosition2);
-  const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node2) => node2.w > 0 && node2.h > 0).sort((a, b) => a.x - b.x).map((node2) => node2.name);
-  const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
-  const scrollIncomplete = table !== null && table.scroll !== null;
-  const windowOpen = table !== null || windowKnownOpen;
-  if (!data.length) {
-    return {
-      verfuegbar: false,
-      fensterOffen: windowOpen,
-      anzahl: 0,
-      vollstaendig: false,
-      zeilen: [],
-      unvollstaendigeZeilen: [],
-      nichtPositionierteZellenAnzahl: unpositioned.length,
-      uiaKopfzeilen: headers,
-      kopfVollstaendig: headers.length === 4,
-      vergleichsInvariantGeprueft: 0,
-      vergleichsInvariantFehler: [],
-      vertikalUnvollstaendig: scrollIncomplete,
-      fingerprint: null,
-      hinweis: windowOpen ? "Werte-Info ist offen, aber die Qt-Tabelle war in diesem Snapshot nicht lesbar." : "Werte-Info ist nicht offen. Einmal sse_result_details aufrufen; danach liest sse_ui_state die Werte ohne weiteren Fensterwechsel mit."
-    };
-  }
-  const groups = /* @__PURE__ */ new Map();
-  for (const node2 of data) groups.set(node2.y, [...groups.get(node2.y) ?? [], node2]);
-  const rows = [], malformed = [], invariantErrors = [];
-  let invariantChecked = 0;
-  for (const y of [...groups.keys()].sort((a, b) => a - b)) {
-    const cells = [...groups.get(y)].sort((a, b) => a.x - b.x);
-    if (cells.length !== 4) {
-      malformed.push({ y, cells: cells.map((cell) => cell.name) });
-      continue;
-    }
-    const row = {
-      beobachteterWert: cells[0].name,
-      aktuell: cells[1].name,
-      festgehalten: cells[2].name,
-      differenz: cells[3].name
-    };
-    rows.push(row);
-    const actual = comparableDecimalText(row.aktuell), held = comparableDecimalText(row.festgehalten);
-    const difference = comparableDecimalText(row.differenz);
-    if (actual !== null && held !== null && difference !== null) {
-      invariantChecked += 1;
-      if (Math.abs(comparisonInvariantResidual(actual, held, difference)) > 0.011) invariantErrors.push({ ...row });
-    }
-  }
-  const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc;
-  const fingerprintBody = powershellCompactJson(rows.length === 1 ? rows[0] : rows);
-  return {
-    verfuegbar: rows.length > 0,
-    fensterOffen: windowOpen,
-    anzahl: rows.length,
-    vollstaendig: complete,
-    zeilen: rows,
-    unvollstaendigeZeilen: malformed,
-    nichtPositionierteZellenAnzahl: unpositioned.length,
-    uiaKopfzeilen: headers,
-    kopfVollstaendig: headers.length === 4,
-    vergleichsInvariantGeprueft: invariantChecked,
-    vergleichsInvariantFehler: invariantErrors,
-    vertikalUnvollstaendig: scrollIncomplete,
-    fingerprint: rows.length ? textSha256(fingerprintBody) : null,
-    hinweis: "Aktuell ist der gegenwaertige Wert; festgehalten ist der Vergleichsstand; Differenz ist die Wirkung gegen diesen Stand."
-  };
-}
-async function readProcessWindowInventory(client, timeoutMs, signal) {
-  const measured = await client.request("window_inventory", {}, timeoutMs, signal);
-  if (!measured.result.ok) {
-    throw new QtNativeTransportError(
-      String(measured.result.error ?? "Native window inventory failed."),
-      String(measured.result.code ?? "native-read"),
-      measured.result.outcomeUnknown === true
-    );
-  }
-  const parsed = processWindowInventorySchema.safeParse(measured.result);
-  if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length || parsed.data.productWindowCount < parsed.data.visibleWindowCount) {
-    throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
-  }
-  return {
-    windows: parsed.data.windows,
-    untitledWindows: parsed.data.untitledWindows,
-    visibleWindowCount: parsed.data.visibleWindowCount,
-    productWindowCount: parsed.data.productWindowCount,
-    durationMs: measured.durationMs
-  };
-}
-function isSystemOverlay(window) {
-  return /^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80;
-}
-function auxiliaryWindowKind(window, profile) {
-  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
-  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
-  if (isSystemOverlay(window)) return "system-overlay";
-  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
-  const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
-    if (typeof definition !== "object" || definition === null) return false;
-    const entry = definition;
-    return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role) && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
-  });
-  return catalogued ? "known-nonmodal" : null;
-}
-function byWindowArea(left, right) {
-  return right.w * right.h - left.w * left.h || left.order - right.order;
-}
-var byPosition2, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
-var init_qt_native_projections = __esm({
-  "src/qt-native-projections.ts"() {
-    "use strict";
-    init_zod();
-    init_qt_native_client();
-    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
-    psEquals = (left, right) => left.toLowerCase() === right.toLowerCase();
-    textSha256 = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
-    VERSAND = [
-      "ELSTER",
-      "Anmeldungen versenden",
-      "Jahreserklärungen abschließen",
-      "Belege nachreichen",
-      "Kommunikation mit dem Finanzamt per ELSTER",
-      "Senden",
-      "Senden & Drucken",
-      "Versenden",
-      "Übermitteln",
-      "Steuerdaten versenden",
-      "Abschicken",
-      "Elektronische Steuererklärung (ELSTER)"
-    ];
-    comparableForm = (text3) => text3.replaceAll("…", "").replaceAll("...", "").replaceAll("&", "").toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
-    VERSAND_FORMS = new Set(VERSAND.map(comparableForm));
-    CHECKER_TREE_SUFFIX = "PrueferWidgetSSE.SteuerPruefer";
-    RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
-    processWindowSchema = external_exports.object({
-      hwnd: external_exports.number().int().positive(),
-      /** Enumeration (Z) order among the listed windows; Get-Windows breaks equal areas by it. */
-      order: external_exports.number().int().nonnegative(),
-      pid: external_exports.number().int().positive(),
-      class: external_exports.string().min(1).max(255),
-      title: external_exports.string().min(1).max(4095),
-      x: external_exports.number().int().safe(),
-      y: external_exports.number().int().safe(),
-      w: external_exports.number().int().nonnegative(),
-      h: external_exports.number().int().nonnegative(),
-      minimized: external_exports.boolean(),
-      hung: external_exports.boolean()
-    }).strict();
-    processWindowInventorySchema = external_exports.object({
-      ok: external_exports.literal(true),
-      windows: external_exports.array(processWindowSchema).max(256),
-      /** Visible untitled windows that are no shadow windows; a title cannot classify them. */
-      untitledWindows: external_exports.array(processWindowSchema.omit({ title: true })).max(256),
-      /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
-      visibleWindowCount: external_exports.number().int().nonnegative(),
-      /** The same population across every process whose executable and folder names match: what Get-Windows 'SSE' counts. */
-      productWindowCount: external_exports.number().int().nonnegative()
-    }).passthrough();
-    WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
-    TIPS_TITLE = "Steuer-Spar-Tipps";
-    CLOSABLE_NONMODAL_ROLES = /* @__PURE__ */ new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
-  }
-});
-
 // src/qt-native-owned-windows.ts
 async function readMainWindowBinding(client, budget, signal) {
   const inventory = await readProcessWindowInventory(client, budget(), signal);
@@ -30731,7 +30847,7 @@ var init_qt_native_owned_windows = __esm({
 import { performance as performance11 } from "node:perf_hooks";
 function pageFields(own2, bounds, textMinX) {
   const texts = own2.filter((node2) => node2.type === "Text" && node2.name && node2.x >= textMinX && node2.x <= bounds.maxX);
-  return own2.filter((node2) => FIELD_TYPES.has(node2.type) && inContent(node2, bounds)).sort(byPosition2).map((field) => {
+  return own2.filter((node2) => FIELD_TYPES.has(node2.type) && inContent(node2, bounds)).sort(byPosition).map((field) => {
     return {
       label: qtNativeFieldCaption(field, texts) || field.name,
       typ: field.type,
@@ -30745,7 +30861,7 @@ function pageFields(own2, bounds, textMinX) {
 }
 function pageTable(own2) {
   const heads = own2.filter((node2) => node2.type === "Header" && node2.name && node2.w > 0).sort((a, b) => a.x - b.x);
-  const cells = own2.filter((node2) => node2.type === "DataItem" && node2.w > 0).sort(byPosition2);
+  const cells = own2.filter((node2) => node2.type === "DataItem" && node2.w > 0).sort(byPosition);
   const rows = [];
   for (const cell of cells) {
     const current = rows.at(-1);
@@ -30767,7 +30883,7 @@ function pageActions(own2, bounds, windowTop) {
   const candidates = own2.filter((node2) => (node2.type === "Button" || node2.type === "Hyperlink") && node2.name).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
   const actions = [];
   for (const node2 of candidates) {
-    const gesperrt = transmissionName2(node2.name);
+    const gesperrt = transmissionName(node2.name);
     const bereich = node2.y < windowTop + 160 ? "werkzeugleiste" : inContent(node2, bounds) ? "seite" : "hilfespalte";
     if (actions.some((action) => psEquals(action.name, node2.name) && action.bereich === bereich)) continue;
     actions.push({
@@ -32957,7 +33073,7 @@ function projectSection(entries) {
 }
 function qtNativeHelpProjection(nodes, windowRect) {
   const bounds = contentBounds([...nodes], windowRect);
-  const rechts = nodes.filter((node2) => node2.x > bounds.maxX && node2.name).sort(byPosition2);
+  const rechts = nodes.filter((node2) => node2.x > bounds.maxX && node2.name).sort(byPosition);
   const abschnitte = new OrderedSections();
   let aktuell = "Allgemein";
   for (const node2 of rechts) {
@@ -33074,7 +33190,7 @@ function qtNativeTableProjection(nodes) {
     });
     return best;
   };
-  const cells = nodes.filter((node2) => psEquals(node2.type, "DataItem") && node2.w > 0).sort(byPosition2);
+  const cells = nodes.filter((node2) => psEquals(node2.type, "DataItem") && node2.w > 0).sort(byPosition);
   const rows = [];
   const rowDetails = [];
   let current = null;
@@ -33424,7 +33540,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
   }
   const target = page ? String(page.headingNumberedLabel || page.headingPrefix || page.heading || "") : args.ziel ?? "";
   if (!target) return { ok: false, backend: "qt", kind: "bad-args", error: "The target heading is empty." };
-  if (transmissionName2(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
+  if (transmissionName(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
   const activeProfile = profile, started = performance.now(), path = [], visited = [];
   let mutationStarted = false, nativeDurationMs = 0, steps = 0, lastHeading = null, phase = "precondition";
   const budget = () => {
@@ -33464,7 +33580,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
     nativeDurationMs
   });
   const dispatch = async (snapshot, node2, action, extra = {}) => {
-    if (!node2.on || node2.w <= 0 || node2.h <= 0 || transmissionName2(node2.name))
+    if (!node2.on || node2.w <= 0 || node2.h <= 0 || transmissionName(node2.name))
       throw new GotoError("The exact navigation control is inactive, invisible or blocked.", "stale");
     let reply;
     try {
@@ -33536,7 +33652,7 @@ async function executeQtNativeGoto(client, input2, timeoutMs, signal, profile) {
       const navName = page ? String(page.navigationTreeItemName || target) : target;
       const treePage = page && !page.navigationTreeItemName && !/^[1-9][0-9]*\.\s*$/u.test(String(page.headingPrefix ?? "")) ? page : void 0;
       const item = visibleNavigationItem(snapshot.nodes, navName, treePage);
-      if (item && !transmissionName2(item.name)) {
+      if (item && !transmissionName(item.name)) {
         phase = "navigation-tree";
         await dispatch(snapshot, item, "activate-navigation-item");
         steps++;
@@ -37040,6 +37156,26 @@ var init_result_mutation_fields = __esm({
         ungespeichertVorher: OPTIONAL_BOOLEAN,
         ungespeichertNachher: OPTIONAL_BOOLEAN
       },
+      table_add_rows: {
+        verified: OPTIONAL_BOOLEAN,
+        mutationStarted: OPTIONAL_BOOLEAN,
+        page: OPTIONAL_STRING,
+        expectedPage: OPTIONAL_STRING,
+        sumLabel: OPTIONAL_STRING,
+        sumBefore: OPTIONAL_STRING,
+        sumAfter: OPTIONAL_STRING,
+        requestedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        completedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        retryable: OPTIONAL_BOOLEAN,
+        zeilen: OPTIONAL_ARRAY,
+        mutationPostProof: OPTIONAL_OBJECT,
+        checkerMessagesBefore: OPTIONAL_STRING_ARRAY,
+        checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
+        newCheckerMessages: OPTIONAL_STRING_ARRAY,
+        rollback: OPTIONAL_OBJECT,
+        ungespeichertVorher: OPTIONAL_BOOLEAN,
+        ungespeichertNachher: OPTIONAL_BOOLEAN
+      },
       table_update: {
         verified: OPTIONAL_BOOLEAN,
         page: OPTIONAL_STRING,
@@ -39167,7 +39303,7 @@ function createTableWorkerCapability() {
 }
 function tableWorkerEnvironment(capability, base = process.env) {
   if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
-  return { ...base, [environmentKey]: capability };
+  return { ...base, [environmentKey]: capability, [hostProcessKey]: String(process.pid) };
 }
 function bindTableWorkerArguments(args, capability) {
   if (Object.hasOwn(args, argumentKey)) throw new TypeError("Caller-supplied internal worker capability is forbidden.");
@@ -39175,11 +39311,12 @@ function bindTableWorkerArguments(args, capability) {
   if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
   return { ...args, [argumentKey]: capability };
 }
-var environmentKey, argumentKey;
+var environmentKey, hostProcessKey, argumentKey;
 var init_worker_table_capability = __esm({
   "src/worker-table-capability.ts"() {
     "use strict";
     environmentKey = "SSE_INTERNAL_TABLE_CAPABILITY";
+    hostProcessKey = "SSE_INTERNAL_HOST_PROCESS_ID";
     argumentKey = "__tableTransportCapability";
   }
 });
@@ -39212,6 +39349,9 @@ function poolSizeForHost(speicherGiB, kerne) {
 }
 function defaultPoolSize() {
   return poolSizeForHost(totalmem() / 1024 ** 3, availableParallelism());
+}
+function notifyPoolChange() {
+  for (const listener of [...poolChangeListeners]) listener();
 }
 function lastPrewarmFailure() {
   return failureReason;
@@ -39251,6 +39391,7 @@ function discard(candidate, reason) {
   candidate.child.stdin.destroy();
   candidate.child.stdout.destroy();
   candidate.child.stderr.destroy();
+  notifyPoolChange();
 }
 function startWarmSpare() {
   let child;
@@ -39275,6 +39416,7 @@ function startWarmSpare() {
     ready: false,
     discarded: false,
     startupPending: true,
+    startedAt: performance.now(),
     release: () => void 0
   };
   starting++;
@@ -39324,7 +39466,9 @@ function startWarmSpare() {
       return;
     }
     candidate.ready = true;
+    observedStartupMs = performance.now() - candidate.startedAt;
     failureReason = null;
+    notifyPoolChange();
   };
   const onStderr = (chunk) => {
     if (stderrText.length < MAX_HANDSHAKE_BYTES) stderrText += chunk.toString("utf8");
@@ -39394,6 +39538,43 @@ function takeWarmSpare() {
   setSparePriority(candidate.child, osConstants.priority.PRIORITY_NORMAL);
   return { child: candidate.child, transportCapability: candidate.transportCapability, residualStdout: candidate.residualStdout };
 }
+function oldestStartingSpare() {
+  const fingerprint = environmentFingerprint();
+  return spares.find((candidate) => !candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
+}
+function isMatchingSpareReady() {
+  const fingerprint = environmentFingerprint();
+  return spares.some((candidate) => candidate.ready && !candidate.discarded && candidate.environmentFingerprint === fingerprint);
+}
+function startingSpareWaitMs() {
+  if (!enabled || PREWARM_DISABLED || shuttingDown || observedStartupMs === null) return 0;
+  if (isMatchingSpareReady()) return 0;
+  const oldest = oldestStartingSpare();
+  if (!oldest) return 0;
+  const elapsedMs = performance.now() - oldest.startedAt;
+  if (elapsedMs < observedStartupMs * STARTING_SPARE_MIN_PROGRESS) return 0;
+  return Math.max(0, Math.ceil(observedStartupMs * STARTING_SPARE_PATIENCE - elapsedMs));
+}
+function waitForStartingSpare(maxWaitMs, signal) {
+  const budgetMs = Math.min(maxWaitMs, startingSpareWaitMs());
+  if (!(budgetMs > 0) || signal?.aborted || isWarmSpareReady()) return Promise.resolve();
+  const awaited = oldestStartingSpare();
+  if (awaited) setSparePriority(awaited.child, osConstants.priority.PRIORITY_NORMAL);
+  return new Promise((resolve17) => {
+    const finish = () => {
+      clearTimeout(timer);
+      poolChangeListeners.delete(onPoolChange);
+      signal?.removeEventListener("abort", finish);
+      resolve17();
+    };
+    const onPoolChange = () => {
+      if (isWarmSpareReady() || startingSpareWaitMs() <= 0) finish();
+    };
+    const timer = setTimeout(finish, budgetMs);
+    poolChangeListeners.add(onPoolChange);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
 function enableWorkerPrewarm() {
   enabled = true;
   shuttingDown = false;
@@ -39404,7 +39585,7 @@ function shutdownWarmSpare() {
   enabled = false;
   for (const candidate of [...spares]) discard(candidate, "API wurde beendet.");
 }
-var HERE, WORKER_SCRIPT, MAX_HANDSHAKE_BYTES, PREWARM_STARTUP_TIMEOUT_MS, PREWARM_RETRY_DELAY_MS, PREWARM_POOL_SIZE, PREWARM_DISABLED, enabled, spares, starting, blockedUntil, shuttingDown, failureReason;
+var HERE, WORKER_SCRIPT, MAX_HANDSHAKE_BYTES, PREWARM_STARTUP_TIMEOUT_MS, PREWARM_RETRY_DELAY_MS, PREWARM_POOL_SIZE, PREWARM_DISABLED, STARTING_SPARE_MIN_PROGRESS, STARTING_SPARE_PATIENCE, enabled, spares, starting, blockedUntil, shuttingDown, failureReason, observedStartupMs, poolChangeListeners;
 var init_worker_prewarm = __esm({
   "src/worker-prewarm.ts"() {
     "use strict";
@@ -39423,12 +39604,16 @@ var init_worker_prewarm = __esm({
     );
     PREWARM_POOL_SIZE = boundedPoolSizeFromEnvironment();
     PREWARM_DISABLED = process.env.SSE_WORKER_PREWARM === "0";
+    STARTING_SPARE_MIN_PROGRESS = 0.25;
+    STARTING_SPARE_PATIENCE = 1.5;
     enabled = false;
     spares = [];
     starting = 0;
     blockedUntil = 0;
     shuttingDown = false;
     failureReason = null;
+    observedStartupMs = null;
+    poolChangeListeners = /* @__PURE__ */ new Set();
   }
 });
 
@@ -39795,6 +39980,20 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
   );
 }
 async function dispatchWorkerOnDesktop(op, args, timeoutMs, signal, desk, markerAllowsWarmSpare) {
+  if (!desk) {
+    const waitBudgetMs = Math.min(startingSpareWaitMs(), Math.floor(timeoutMs / 2));
+    if (waitBudgetMs > 0) {
+      const waitStarted = performance.now();
+      await waitForStartingSpare(waitBudgetMs, signal);
+      if (signal?.aborted) {
+        throw new WorkerError(
+          "API-Client hat den Aufruf waehrend des Wartens auf einen Reservearbeiter abgebrochen; kein Worker wurde gestartet.",
+          "aborted"
+        );
+      }
+      timeoutMs = Math.max(1, timeoutMs - Math.ceil(performance.now() - waitStarted));
+    }
+  }
   const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
   let argsFile;

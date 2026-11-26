@@ -265,8 +265,14 @@ try {
   }, 300_000);
   assert.equal(deleted.ok, true, `Loeschen war nicht erfolgreich: ${JSON.stringify(deleted)}`);
   assert.equal(deleted.verified, true, `Loeschen wurde nicht verifiziert: ${JSON.stringify(deleted)}`);
+  assert.equal(deleted.target, updatedAmount, "Loeschen bestaetigte einen anderen Zielwert.");
+  assert.equal(deleted.page, heading, "Loeschen bestaetigte eine andere Seite.");
+  assert.equal(deleted.sumLabel, sumLabel, "Loeschen bestaetigte eine andere Kontrollsumme.");
+  assert.equal(deleted.before, sumAfterUpdate, "Loeschen bestaetigte einen anderen Ausgangsstand.");
+  assert.equal(deleted.geloescht, true, "Die gebundene Zeile wurde nicht als geloescht bestaetigt.");
+  assert.equal(deleted.nochVorhanden, false, "Das Loeschziel wird weiterhin als vorhanden gemeldet.");
+  assert.equal(deleted.outcomeUnknown, false, "Der Ausgang der Loeschung ist unbekannt.");
   assert.equal(deleted.after, sumStart, `Loeschen fuehrte nicht auf die Ausgangssumme: ${JSON.stringify(deleted)}`);
-  assertRegionBound(deleted.tableBinding, "Loeschen");
 
   const final = await readTable(hwnd, "Endstand");
   assert.equal(final.summe, sumStart,

@@ -149,11 +149,25 @@ function Test-SSEUiaDeleteEditorAgreement {
   [bool]($SnapshotState.editorFree -or @($RawEditors).Count -eq 1)
 }
 
+# A provider error while the program rebuilds an owned window leaves an
+# incomplete observation of the summary tree. The same bound summary is read
+# again, a bounded number of times. Nothing from an incomplete observation is
+# merged or decides anything, and every other defect is left to the caller.
+function Read-SSEUiaDeleteLabeledValue {
+  param($Binding,[string]$BoundAid)
+  for($attempt=0;$attempt -lt 3;$attempt++){
+    $read=Read-LabeledValue $Binding.hwnd $Binding.sumLabel $Binding.expectedBefore $Binding.sumOccurrence $BoundAid
+    if(-not (Test-SSESnapshotHasOnlyWalkErrors $read.tree.stats)){break}
+    if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The deletion window or input epoch changed.'}
+  }
+  $read
+}
+
 function Read-SSEUiaDeleteState {
   param($Binding,[switch]$AllowOwnEditor)
   $readWatch=[Diagnostics.Stopwatch]::StartNew()
   if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The deletion window or input epoch changed.'}
-  $firstRead=Read-LabeledValue $Binding.hwnd $Binding.sumLabel $Binding.expectedBefore $Binding.sumOccurrence $Binding.summaryAid
+  $firstRead=Read-SSEUiaDeleteLabeledValue $Binding $Binding.summaryAid
   if((Get-CurrentHeading $Binding.hwnd $firstRead.tree) -cne $Binding.expectedPage -or -not $firstRead.selected -or -not $firstRead.selected.aid){
     throw 'The exact deletion page or summary is unavailable.'
   }
@@ -190,7 +204,7 @@ function Read-SSEUiaDeleteState {
       throw 'A bound Grid header changed name, identity or geometry.'
     }
   }
-  $lastRead=Read-LabeledValue $Binding.hwnd $Binding.sumLabel $Binding.expectedBefore $Binding.sumOccurrence ([string]$firstRead.selected.aid)
+  $lastRead=Read-SSEUiaDeleteLabeledValue $Binding ([string]$firstRead.selected.aid)
   $lastRegion=Get-SSETableRegion $lastRead.tree $Binding.hwnd $lastRead
   $lastRoot=Get-SSEUiaDeleteTableRoot $lastRead.tree $lastRegion $root.aid
   $lastState=Get-SSETableSnapshotInputState $lastRead.tree $lastRoot.aid $lastRoot.rid

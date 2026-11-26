@@ -81,6 +81,12 @@ const groups = [
   },
   {
     classification: "destructive-non-happy-path",
+    subclassification: "multi-row-append",
+    reason: "Appending several rows through model coordinates repeats the single verified append this journey already measures; its own live journey proves rows beyond the displayed part, the restore and the saved file.",
+    operations: ["table_add_rows"],
+  },
+  {
+    classification: "destructive-non-happy-path",
     subclassification: "income-position-creation",
     reason: "Creating an income position requires a dedicated empty-position journey with a complete inventory and byte-identical backup binding.",
     operations: ["position_create"],

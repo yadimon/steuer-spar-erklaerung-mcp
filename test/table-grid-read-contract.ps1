@@ -424,6 +424,64 @@ $remainingStates=@(for($index=0;$index -lt 199;$index++){'Off'})
 Same (Get-SSEGridDeleteOutcome (Model (New-Scan $largeRows $largeStates)) (Model (New-Scan $remaining $remainingStates)) 150) 'deleted-exact' 'A virtualized model row was confused with visible rank.'
 Write-Output 'Logical Grid delete policy: complete observed rows, zero values, hidden data, restoration and model coordinates passed.'
 
+# An append is exact when every former row keeps its place, the requested
+# number of rows stands directly above the input slot and the slot is unchanged.
+$slotRow=@('','','','0,00','','','0,00')
+$appendRows=@(
+ @('1','01.01','Existing alpha','4,00','','Hidden alpha','4,00'),
+ @('2','02.01','Existing beta','0,00','','Hidden beta','0,00')
+)
+$newOne=@('','','New one','1,00','','','1,00');$newTwo=@('','','New two','2,00','','','2,00')
+$appendBeforeScan=New-Scan @($appendRows[0],$appendRows[1],$slotRow) @('Off','On','Off');$appendBefore=Model $appendBeforeScan
+$appendedScan=New-Scan @($appendRows[0],$appendRows[1],$newOne,$newTwo,$slotRow) @('Off','On','Off','Off','Off')
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $appendedScan) 2) 'appended-exact' 'Two rows above an unchanged input slot were not identified as an exact append.'
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $appendBeforeScan) 2) 'unchanged' 'An ineffective append was not identified as unchanged.'
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $appendedScan) 1) 'unexpected' 'More rows than requested were accepted.'
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $appendedScan) 3) 'unexpected' 'Fewer rows than requested were accepted.'
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $appendedScan) 0) 'unexpected' 'An append of no rows was accepted.'
+$slotOnly=Model (New-Scan (,$slotRow) @('Off'))
+Same (Get-SSEGridAppendOutcome $slotOnly (Model (New-Scan @($newOne,$slotRow) @('Off','Off'))) 1) 'appended-exact' 'The first row of an empty table was rejected.'
+$touched=New-Scan @($appendRows[0],@('2','02.01','Existing beta','9,00','','Hidden beta','9,00'),$newOne,$newTwo,$slotRow) @('Off','On','Off','Off','Off')
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $touched) 2) 'unexpected' 'A changed former row was accepted.'
+$toggled=New-Scan @($appendRows[0],$appendRows[1],$newOne,$newTwo,$slotRow) @('Off','Off','Off','Off','Off')
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $toggled) 2) 'unexpected' 'A changed former checkbox was accepted.'
+$hiddenTouched=Copy-Scan $appendedScan;$hiddenTouched.cells[5].name='Changed hidden value';$hiddenTouched.cells[5].semantic.value='Changed hidden value'
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $hiddenTouched) 2) 'unexpected' 'A changed hidden value of a former row was accepted.'
+$inserted=New-Scan @($appendRows[0],$newOne,$appendRows[1],$newTwo,$slotRow) @('Off','Off','On','Off','Off')
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $inserted) 2) 'unexpected' 'A row inserted between former rows was accepted.'
+$noSlot=New-Scan @($appendRows[0],$appendRows[1],$newOne,$newTwo,@('','','Trailing data','3,00','','','3,00')) @('Off','On','Off','Off','Off')
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $noSlot) 2) 'unexpected' 'A table without its former input slot at the end was accepted.'
+$restructured=Copy-Scan $appendedScan;$restructured.headers[2].name='Changed header'
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $restructured) 2) 'unexpected' 'A changed table structure was accepted.'
+$staleKey=Copy-Scan (Model $appendedScan);$staleKey.rowKeys[0]='Tampered key'
+Same (Get-SSEGridAppendOutcome $appendBefore $staleKey 2) 'unexpected' 'A stale cached model key hid changed row data.'
+Same (Get-SSEGridAppendOutcome (Model (New-Scan @() @())) (Model (New-Scan (,$newOne) @('Off'))) 1) 'unexpected' 'A table without an input slot received append authority.'
+$rebuiltAppend=Copy-Scan $appendedScan
+foreach($cell in $rebuiltAppend.cells){$cell.rid='Rebuilt.Cell.'+$cell.row+'.'+$cell.column}
+Same (Get-SSEGridAppendOutcome $appendBefore (Model $rebuiltAppend) 2) 'appended-exact' 'Fresh runtime identities were treated as changed row data.'
+Write-Output 'Logical Grid append policy: exact count, unchanged former rows, hidden data, input slot and structure passed.'
+
+# A restore empties rows, it does not remove them: behind the former rows only
+# rows equal to the former input slot may remain, and no more than were written.
+$emptiedScan=New-Scan @($appendRows[0],$appendRows[1],$slotRow,$slotRow,$slotRow) @('Off','On','Off','Off','Off')
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $appendBeforeScan) 2) 'unchanged' 'A completely restored model was not identified as unchanged.'
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedScan) 2) 'emptied-exact' 'Two emptied rows above the input slot were not identified.'
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedScan) 3) 'emptied-exact' 'Fewer left-over rows than written were rejected.'
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedScan) 1) 'unexpected' 'More left-over rows than written were accepted.'
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedScan) 0) 'unexpected' 'A restore of no rows was accepted.'
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $appendedScan) 2) 'unexpected' 'Rows that still carry values were accepted as emptied.'
+$halfEmptied=New-Scan @($appendRows[0],$appendRows[1],$slotRow,$newTwo,$slotRow) @('Off','On','Off','Off','Off')
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $halfEmptied) 2) 'unexpected' 'One remaining written row was accepted as emptied.'
+$emptiedTouched=New-Scan @($appendRows[0],@('2','02.01','Existing beta','9,00','','Hidden beta','9,00'),$slotRow,$slotRow,$slotRow) @('Off','On','Off','Off','Off')
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedTouched) 2) 'unexpected' 'A changed former row was accepted after a restore.'
+$shrunk=New-Scan @($appendRows[0],$slotRow) @('Off','Off')
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $shrunk) 2) 'unexpected' 'A lost former row was accepted after a restore.'
+$emptiedChecked=New-Scan @($appendRows[0],$appendRows[1],$slotRow,$slotRow,$slotRow) @('Off','On','On','Off','Off')
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedChecked) 2) 'unexpected' 'A left-over row with a changed checkbox was accepted as emptied.'
+$emptiedRestructured=Copy-Scan $emptiedScan;$emptiedRestructured.headers[2].name='Changed header'
+Same (Get-SSEGridAppendRestoreOutcome $appendBefore (Model $emptiedRestructured) 2) 'unexpected' 'A changed table structure was accepted after a restore.'
+Write-Output 'Logical Grid restore policy: unchanged model, emptied left-over rows, bounded count and untouched former rows passed.'
+
 # Exercise the actual table_read entry snapshot, not a replacement dispatcher.
 # The existing strict ClientFrame resolver owns its live root/ancestry proof;
 # this scalar fixture supplies its result or its fail-closed null result.
@@ -436,7 +494,7 @@ public static class SW {
  }
 }
 '@
-foreach($helper in @('Get-ContentBounds','LiesZeilen','Test-SSEGridContentBinding')) {
+foreach($helper in @('Get-ContentBounds','LiesZeilen','Test-SSEMainContentBinding')) {
   $definitions=@($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $helper
   },$true))
@@ -605,20 +663,22 @@ Write-Output 'Grid rebind diagnosis: fixed raw failure categories, unknown text 
 
 $binding=[pscustomobject]@{hwnd=[long]4242;pid=123;windowRid='Window.1';windowAid='Synthetic';rid='Form.1';
   aid='Synthetic.Form';type='Group';rect=@(60.0,40.0,420.0,300.0)}
-Assert (Test-SSEGridContentBinding $binding (Copy-Scan $binding)) 'Equal scalar form bindings were rejected.'
+Assert (Test-SSEMainContentBinding $binding (Copy-Scan $binding)) 'Equal scalar form bindings were rejected.'
 foreach($field in @('hwnd','pid','windowRid','windowAid','rid','aid','type','rect')) {
   $changed=Copy-Scan $binding
   if($field -ceq 'rect'){$changed.rect[0]+=0.25}else{$changed.$field='changed'}
-  Assert (-not (Test-SSEGridContentBinding $binding $changed)) ('Grid form drift was ignored: '+$field)
+  Assert (-not (Test-SSEMainContentBinding $binding $changed)) ('Grid form drift was ignored: '+$field)
 }
-Assert (-not (Test-SSEGridContentBinding $binding $null)) 'A missing final form binding was accepted.'
+Assert (-not (Test-SSEMainContentBinding $binding $null)) 'A missing final form binding was accepted.'
 $gridCalls=@($ast.FindAll({param($node)
   $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$resolved' -and
   $node.Right.Extent.Text.StartsWith('Get-SSEGridReadUncachedTable ',[StringComparison]::Ordinal)
 },$true))
 Assert ($gridCalls.Count -eq 1) 'Grid lost its dedicated scoped raw bridge.'
 $finalRootChecks=@($ast.FindAll({param($node)
-  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Test-SSEGridContentBinding'
+  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Test-SSEMainContentBinding' -and
+  $node.CommandElements[1].Extent.Text -ceq '$gridContentBefore' -and
+  $node.CommandElements[2].Extent.Text -ceq '$latestTableSnapshot.tree.contentBinding'
 },$true))
 Assert ($finalRootChecks.Count -eq 1) 'Grid did not compare its fresh form binding after both scans.'
 $unknownEditor=New-FormReadFixture

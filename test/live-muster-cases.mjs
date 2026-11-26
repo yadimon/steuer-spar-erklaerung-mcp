@@ -6,9 +6,9 @@
  *
  * Im Modus `full` entscheidet die Faehigkeitsmatrix des Profils aus
  * `sse_capabilities`, welche fallunveraendernden Operationen der Lauf
- * versucht. Unterstuetzte generische Lesewege laufen hier; Positionsinventare
- * werden mit ihrer eigenen erzeugten Uebersichtsfixture im vollstaendigen
- * Live-Gate geprueft. Weitere unzulaessige Operationen brauchen einen
+ * versucht. Positionsinventare brauchen eine profilierte Uebersichtsseite;
+ * die weitere Positionsanlage prueft ihre eigene erzeugte Fixture.
+ * Weitere unzulaessige Operationen brauchen einen
  * ausdruecklichen Sperrgrund der Matrix. `core-read` ist dagegen ein
  * bewusst kleinerer Evidenzmodus fuer die geoeffnete Musterfallseite und weist
  * seine nicht enthaltenen UI-Zweigwechsel im Ergebnis aus. Ein stiller SKIP
@@ -365,6 +365,20 @@ async function assertReadOnlyOperationSweep(definition, hwnd) {
     const compared = await call("sse_snapshot_compare", { hwnd, repetitions: snapshotCompareRepetitions }, 240_000);
     assertSnapshotComparison(definition, compared);
   }
+}
+
+async function assertPositionInventory(definition, hwnd) {
+  const { navigationItem, heading, names } = definition.positionInventory;
+  await callCanonical("sse_tree_top", { hwnd });
+  const branch = await callCanonical("sse_find", { name: navigationItem, type: "TreeItem", hwnd });
+  assert.equal(branch.count, 1, `${definition.id}: Navigation zur Positionsuebersicht ist nicht eindeutig.`);
+  await callCanonical("sse_click_point", { name: navigationItem, type: "TreeItem", waitMs: 4_000, hwnd });
+  const arrived = await callCanonical("sse_goto", { name: heading, useSearch: false, maxSteps: 20, hwnd });
+  assert.equal(arrived.ueberschrift, heading);
+  const inventory = await callCanonical("sse_positions", { hwnd });
+  assert.deepEqual(inventory.positionen, names, `${definition.id}: andere Positionen als in der Herstellerfixture.`);
+  assert.equal(inventory.anzahl, names.length);
+  semanticChecks += 1;
 }
 
 /**
@@ -765,9 +779,6 @@ async function assertDeepReadOnlySweep(definition, hwnd, pages) {
   // Die MCP-Textprojektion einiger Werkzeuge fuehrt kein 'ok'; ein
   // zurueckgegebenes Objekt beweist den Erfolg bereits, weil call() bei
   // isError wirft. Geprueft werden deshalb fachliche Felder.
-  // Positions require a supported complete overview, not an arbitrary sample page.
-  // Their positive product proof belongs to the generated income-position journey.
-
   const checked = await callCanonical("sse_check_page", { hwnd });
   assert.equal(typeof checked.beanstandungsfrei, "boolean", `${id}: check ohne Gesamturteil.`);
   assert(Array.isArray(checked.leerePflichtfelder), `${id}: check ohne Pflichtfeldliste.`);
@@ -930,6 +941,9 @@ try {
         semanticChecks += 1;
       }
       await assertReadOnlyOperationSweep(definition, instance.hwnd);
+      if (liveMode === "full" && definition.positionInventory) {
+        await assertPositionInventory(definition, instance.hwnd);
+      }
       const observation = {
         id: definition.id,
         file: definition.file,

@@ -104,6 +104,28 @@ export const SSE_MCP_UI_SCHEMAS = {
     ),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
+  "sse_table_add_rows": z.object({
+    expectedPage: z.string().describe("Exakte aktuelle Seitenueberschrift"),
+    zeilen: z.array(z.object({
+      werte: z.array(z.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).refine(
+        (werte) => werte.some((wert) => wert !== ""),
+        "Jede Zeile braucht mindestens einen zu schreibenden Wert.",
+      ).describe(
+        "Werte dieser Zeile in Spaltenreihenfolge ab der ERSTEN Spalte ('kopf' aus sse_table_read); " +
+        "fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden",
+      ),
+    }).strict()).min(1).max(SSE_OPERATION_LIMITS.tableAppendRows).describe(
+      `Eine bis ${SSE_OPERATION_LIMITS.tableAppendRows} neue Zeilen in der gewuenschten Reihenfolge`,
+    ),
+    sumLabel: z.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
+    sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
+    expectedBefore: z.string().describe("Exakter Summenwert vor dem Anlegen"),
+    expectedAfter: z.string().optional().describe(
+      "Optional: exakter Summenwert nach ALLEN Zeilen. Die Seitensumme addiert netto, nicht brutto. " +
+      "Weicht sie ab, werden alle eigenen Zeilen zurueckgenommen",
+    ),
+    hwnd: WINDOW_HANDLE.optional(),
+  }).strict(),
   "sse_table_update": z.object({
     expectedPage: z.string().describe("Exakte aktuelle Seitenueberschrift"),
     text: z.string().describe("Eindeutiger vorhandener Zelltext der Zielzeile"),

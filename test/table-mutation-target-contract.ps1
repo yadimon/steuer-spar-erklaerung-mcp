@@ -5,7 +5,8 @@ $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$errors)
 if (@($errors).Count) {throw 'Worker source does not parse.'}
 foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-SSETableMutationTargetProof','Get-SSETableMutationTargetLocation','Get-SSEInputEpochEvidence',
-  'Test-SSETableMutationInheritedContext','Test-SSETableMutationActionEpoch','Initialize-SSETableMutationFocus')) {
+  'Test-SSETableMutationInheritedContext','Test-SSETableMutationActionEpoch','Initialize-SSETableMutationFocus',
+  'Resolve-SSEOwnedInputTick')) {
   $found=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if ($found.Count -ne 1) {throw 'Private mutation proof must be unique.'}
   . ([scriptblock]::Create($found[0].Extent.Text))

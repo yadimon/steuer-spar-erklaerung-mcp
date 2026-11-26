@@ -80,18 +80,18 @@ function runCaseCreateCoverage() {
   assertNoRecoveryFile("Die Fallanlage");
 }
 
-function runIncomePositionCoverage() {
-  process.stdout.write("\n> Erzeugter Einnahmen-Positionsfall (2025/2026)\n");
-  const env = { ...process.env, SSE_PROFILE_ID: "2025", SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1" };
+function runIsolated2025Fixture(label, script, fixtureEnv = {}) {
+  process.stdout.write(`\n> ${label}\n`);
+  const env = { ...process.env, ...fixtureEnv, SSE_PROFILE_ID: "2025", SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1" };
   for (const key of ["SSE_OPERATE_EXPERIMENTAL", "SSE_LIVE_MUSTER_CASES", "SSE_MUSTER_DIR", "SSE_TEST_CASE_DIR", "SSE_CASE_DIR"]) delete env[key];
-  const run = spawnSync(process.execPath, ["test/with-api.mjs", process.execPath, "test/live-income-positions.mjs"], {
+  const run = spawnSync(process.execPath, ["test/with-api.mjs", process.execPath, script], {
     cwd: root, env, stdio: "inherit", windowsHide: true,
   });
-  if (run.error) throw new Error(`Einnahmen-Positionsreise konnte nicht laufen: ${run.error.message}`, { cause: run.error });
-  assert.equal(run.signal, null, `Einnahmen-Positionsreise endete mit Signal ${run.signal}.`);
-  assert.equal(run.status, 0, `Einnahmen-Positionsreise scheiterte mit Exit ${run.status}.`);
-  assertNoSse("Nach der Einnahmen-Positionsreise");
-  assertNoRecoveryFile("Die Einnahmen-Positionsreise");
+  if (run.error) throw new Error(`${label} konnte nicht laufen: ${run.error.message}`, { cause: run.error });
+  assert.equal(run.signal, null, `${label} endete mit Signal ${run.signal}.`);
+  assert.equal(run.status, 0, `${label} scheiterte mit Exit ${run.status}.`);
+  assertNoSse(label);
+  assertNoRecoveryFile(label);
 }
 
 function assertCaseFileParity(profileId) {
@@ -123,11 +123,11 @@ function assertCaseFileParity(profileId) {
  * duerfen. Genau die stellt das Gate hier selbst her, statt sie von aussen zu
  * verlangen - deshalb koennen diese Tests ueberhaupt verbindlich laufen.
  */
-function officialSampleCase(profileId) {
+function officialSampleCase(profileId, mode = "einur") {
   const profile = loadProductProfile(profileId);
   const expectations = JSON.parse(readFileSync(join(profile.profileDir, "tests", "expectations.json"), "utf8"));
-  const definition = expectations.cases.find((entry) => entry.mode === "einur");
-  assert(definition, `Profil ${profileId} nennt keinen Gewinnermittlungs-Musterfall.`);
+  const definition = expectations.cases.find((entry) => entry.mode === mode);
+  assert(definition, `Profil ${profileId} nennt keinen Musterfall fuer Modus '${mode}'.`);
   const source = join(
     STEUERTIPPS_ROOT,
     profile.executable.installationFolderName,
@@ -367,25 +367,32 @@ const FIXTURE_SCRIPTS = [
 ];
 
 /**
- * Die grosse Schreibreise ist bewusst KEIN Eintrag in FIXTURE_SCRIPTS: sie
- * speichert ihre Wegwerfkopie mit voller Absicht, und genau dieser Hashwechsel
+ * Speichernde Reisen sind bewusst KEIN Eintrag in FIXTURE_SCRIPTS: sie
+ * speichern ihre Wegwerfkopie mit voller Absicht, und genau dieser Hashwechsel
  * ist ihr Beweis. Die Invarianten sind deshalb andere - die Kopie MUSS sich
  * aendern, waehrend der Musterfall weiterhin byteidentisch bleiben muss.
  */
-function runWriteJourney(profileId, template) {
+const SAVING_JOURNEYS = [
+  { label: "Grosse Schreibreise", script: "test/live-write-journey.mjs", fixtureVariable: "SSE_JOURNEY_FIXTURE" },
+  { label: "Mehrzeilenanlage", script: "test/live-table-add-rows.mjs", fixtureVariable: "SSE_ROWS_FIXTURE" },
+];
+
+function runSavingJourney(profileId, template, { label, script, fixtureVariable }) {
   const fixture = provisionDisposableCase(profileId, template);
-  process.stdout.write(`\n> Grosse Schreibreise (${profileId})\n`);
+  process.stdout.write(`
+> ${label} (${profileId})
+`);
   try {
     const run = spawnSync(
       process.execPath,
-      ["test/with-api.mjs", process.execPath, "test/live-write-journey.mjs"],
+      ["test/with-api.mjs", process.execPath, script],
       {
         cwd: root,
         env: {
           ...process.env,
           SSE_PROFILE_ID: profileId,
           SSE_CASE_DIR: fixture.directory,
-          SSE_JOURNEY_FIXTURE: fixture.copy,
+          [fixtureVariable]: fixture.copy,
         },
         stdio: "inherit",
         windowsHide: true,
@@ -393,14 +400,14 @@ function runWriteJourney(profileId, template) {
     );
     const leakedPids = ssePids();
     if (run.error) {
-      throw new Error(`Grosse Schreibreise (${profileId}) konnte nicht ausgefuehrt werden: ${run.error.message}`, { cause: run.error });
+      throw new Error(`${label} (${profileId}) konnte nicht ausgefuehrt werden: ${run.error.message}`, { cause: run.error });
     }
-    assert.equal(run.status, 0, `Grosse Schreibreise (${profileId}) scheiterte mit Exit ${run.status}.`);
-    assert.equal(leakedPids, "", `Nach der Schreibreise (${profileId}): verbliebene SSE-Prozesse (${leakedPids}).`);
+    assert.equal(run.status, 0, `${label} (${profileId}) scheiterte mit Exit ${run.status}.`);
+    assert.equal(leakedPids, "", `Nach ${label} (${profileId}): verbliebene SSE-Prozesse (${leakedPids}).`);
     assert.notEqual(sha256(fixture.copy), fixture.copyHash,
-      "Die Schreibreise hat ihre Kopie nie gespeichert; der Speicherbeweis fehlt.");
+      `${label} hat ihre Kopie nie gespeichert; der Speicherbeweis fehlt.`);
     assert.equal(sha256(fixture.source), fixture.sourceHash,
-      "Die Schreibreise veraenderte den offiziellen Musterfall.");
+      `${label} veraenderte den offiziellen Musterfall.`);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
@@ -429,7 +436,7 @@ function runFixtureScripts(profileId) {
   try {
     positionTemplate(profileId, template);
     for (const entry of FIXTURE_SCRIPTS) runFixtureScript(profileId, entry, template.copy);
-    runWriteJourney(profileId, template.copy);
+    for (const entry of SAVING_JOURNEYS) runSavingJourney(profileId, template.copy, entry);
   } finally {
     rmSync(template.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
@@ -512,7 +519,10 @@ try {
     assertNoRecoveryFile(`Die Fixture-Skripte des Profils ${profileId}`);
   }
   runCaseCreateCoverage();
-  runIncomePositionCoverage();
+  runIsolated2025Fixture("Erzeugter Einnahmen-Positionsfall (2025/2026)", "test/live-income-positions.mjs");
+  runIsolated2025Fixture("Steuerwissen (2025)", "test/live-tax-knowledge.mjs", {
+    SSE_KNOWLEDGE_SOURCE_FILE: officialSampleCase("2025", "normal"),
+  });
   runCenterCoverage();
   for (const profileId of ["2025", "2024"]) assertProfileReadCoverage(profileId);
   assertLiveLedgers();

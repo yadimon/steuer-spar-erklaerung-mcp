@@ -81,7 +81,8 @@ function Test-SSENativeSurface {
       'SetForegroundWindow','SendMessageTimeout','SendMessageTimeoutA','SendMessageTimeoutW','SetCursorPos','GetCursorPos','GetAsyncKeyState','mouse_event','keybd_event',
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','GetDpiForWindow','GetPhysicalClientOrigin','GetMonitorWorkArea','PostMessage',
       'SendMessage','GetForegroundWindow','GetDoubleClickTime','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
-      'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText','EnterPhysicalDpiContext','RestoreDpiContext')
+      'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText','EnterPhysicalDpiContext','RestoreDpiContext',
+      'ActivateThroughInputSink','DisableOwnPowerThrottling','DisableHostPowerThrottling')
     SSEWindowEnumerator=@('Describe','DescribeIncludingHidden','ToViews')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()

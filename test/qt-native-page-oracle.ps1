@@ -22,7 +22,7 @@ $switchClauses = @($oracleAstNodes | Where-Object { $_ -is [Management.Automatio
 # Only the OS observation boundaries are supplied by the fixture; no product branch is copied.
 foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256',
     'Get-CaptionMinX','Get-SSEPageFieldLabel','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
-    'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails',
+    'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','Read-SSEValueInfoResult','New-SSETableRowDetails',
     'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor','New-SSEUiStateRootContext',
     'Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading','Read-SSEPositionInventory')) {
     $definitions = @($functionDefinitions | Where-Object { $_.Name -eq $name })
@@ -70,17 +70,31 @@ function Get-LiveElement($Hwnd, $RuntimeId) {
     $matches = @($script:observedTree.nodes | Where-Object { [string]$_.rid -ceq [string]$RuntimeId })
     if ($matches.Count -ne 1) { return $null }
     $node = $matches[0]
+    $owners = @($script:observedWindows | Where-Object { [int64]$_.hwnd -eq [int64]$Hwnd })
     $element = [pscustomobject]@{
         Offscreen = ($node.w -le 0 -or $node.h -le 0)
         Current = [pscustomobject]@{
             ControlType = [System.Windows.Automation.ControlType]::Text
             AutomationId = [string]$node.aid
             Name = [string]$node.name
+            ProcessId = $(if ($owners.Count -eq 1) { [int]$owners[0].pid } else { 0 })
         }
     }
     $element | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) $this.Offscreen }
+    # The live table model is an OS boundary. A fixture's model holds exactly the
+    # rows its snapshot shows, so the model-aware result reader has nothing to
+    # add and must hand back the snapshot projection.
+    $element | Add-Member ScriptMethod GetCurrentPattern {
+        param($pattern)
+        [pscustomobject]@{ Current = [pscustomobject]@{
+            RowCount = [int](Read-ResultDetailsFromTree $script:observedTree).anzahl; ColumnCount = 4
+        } }
+    }
     $element
 }
+# Whether a window or an element is still the observed one is a live OS fact; a fixture never goes stale.
+function Test-SSEDialogWindowCurrent($Window, [int]$TargetPid) { [bool]$Window }
+function Test-SSEElementIdentity($Element, [string]$RuntimeId, [string]$AutomationId, [string]$Name = '') { [bool]$Element }
 function Resolve-Window { [IntPtr]42 }
 function Test-Canary { [pscustomobject]@{ ok = $true } }
 function Walk-Tree { param($hwnd, $MaxNodes, $TimeoutSec, $MaxDepth, [switch]$WithValues, [switch]$WithScroll) $script:observedTree }

@@ -315,7 +315,8 @@
     "page": {
       "offline": "functional",
       "offlineLabels": [
-        "stateful-mock"
+        "stateful-mock",
+        "ustva-mock"
       ],
       "live": "functional"
     },
@@ -526,6 +527,13 @@
       "live": "functional"
     },
     "table_add": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "table_add_rows": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"

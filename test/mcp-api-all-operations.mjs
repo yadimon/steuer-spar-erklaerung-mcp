@@ -76,6 +76,8 @@ try {
   const instructions = client.getInstructions() ?? "";
   assert.match(instructions, /Als ersten fachlichen Tool-Aufruf sse_preflight/u);
   assert.match(instructions, /Niemals ueber ELSTER/u);
+  assert.match(instructions, /Werkzeuge mit der Marke \[Eingabepause\]/u);
+  assert.match(instructions, /Nur bei retryable:true\s+ist der gemeldete Zustand belegt/u);
   assert.match(instructions, /hashverifizierte Sicherung nach backups:/u);
   assert.match(instructions, /Aendern erlaubt kein Speichern/u);
   assert.match(instructions, /Originalfall ist der normale Arbeitsfall/u);
@@ -91,6 +93,15 @@ try {
   assert.match(saveTool.inputSchema.properties.correction.description, /Optionaler Korrekturmodus.+Original nicht noetig/u);
   assert.doesNotMatch(saveTool.inputSchema.properties.correction.description, /gesperrt/u,
     "Die Schema-Beschreibung darf keinen erlaubten Original-Save verbieten.");
+  // Die Marke fuer die Eingabepause steht an jedem betroffenen Werkzeug und an keinem anderen.
+  const describedAs = (name) => tools.find((tool) => tool.name === name).description;
+  assert.match(describedAs("sse_goto"), / \[Eingabepause\]$/u);
+  assert.match(describedAs("sse_table_add"), / \[Eingabepause\]$/u);
+  assert.match(describedAs("sse_fill_fields"), / \[Eingabepause\]$/u);
+  assert.match(describedAs("sse_table_add_rows"), / \[Eingabepause\]$/u);
+  assert.match(describedAs("sse_table_read"), / \[Eingabepause nur bei noKeys:false\]$/u);
+  assert.doesNotMatch(describedAs("sse_read_page"), /Eingabepause/u);
+  assert.doesNotMatch(describedAs("sse_instances"), /Eingabepause/u);
   const directTools = tools.filter((tool) => tool.name in SSE_MCP_TOOL_OPERATIONS);
   assert.equal(directTools.length, Object.keys(SSE_MCP_TOOL_OPERATIONS).length);
   for (const tool of directTools) {

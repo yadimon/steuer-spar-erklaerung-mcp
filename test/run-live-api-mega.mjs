@@ -12,6 +12,12 @@ import { loadProductProfile } from "../dist/product-profiles.js";
 import { desktopMarkerState, ssePids } from "./direct-worker-helpers.mjs";
 import { beginBelegManagerConfigIsolation } from "./performance/belegmanager-config-isolation.mjs";
 import {
+  isSuccessfulMegaReport,
+  matchesMegaBaseline,
+  MEGA_BENCHMARK,
+  megaJourneyFailureReasons,
+} from "./performance/api-mega-report.mjs";
+import {
   assertFreshMegaDist,
   megaMachineMetadata,
   MEGA_REPOSITORY_ROOT,
@@ -26,6 +32,10 @@ const orchestrationStartedAt = performance.now();
 const classificationArg = process.argv.find((argument) => argument.startsWith("--classification="));
 const classification = classificationArg?.slice("--classification=".length) ?? "cold";
 assert(["cold", "warm"].includes(classification), "--classification muss cold oder warm sein.");
+const executionBackend = process.env.SSE_TEST_NATIVE_PACKAGE ? "qt-win32-native" : "worker";
+const nativeManifestSha256 = process.env.SSE_TEST_NATIVE_MANIFEST_SHA256 || null;
+assert.equal(Boolean(nativeManifestSha256), executionBackend === "qt-win32-native",
+  "Native package and digest must be supplied together.");
 
 const evidenceRoot = resolve(process.env.SSE_MEGA_EVIDENCE_DIR ?? join(tmpdir(), "sse-api-mega-evidence"));
 mkdirSync(evidenceRoot, { recursive: true });
@@ -46,19 +56,21 @@ const sourceBefore = megaSourceFingerprint();
 assert.equal(sourceBefore.status, "", "Live-Benchmark verweigert einen nicht sauberen Arbeitsbaum.");
 assertFreshMegaDist();
 const runtimeBefore = megaRuntimeFingerprint();
+const baselineIdentity = {
+  head: sourceBefore.head,
+  artifactFingerprint: runtimeBefore.fingerprint,
+  executionBackend,
+  nativeManifestSha256,
+};
 const previousReports = readdirSync(evidenceRoot, { withFileTypes: true })
   .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith("."))
   .flatMap((entry) => {
     try {
       const report = JSON.parse(readFileSync(join(evidenceRoot, entry.name), "utf8"));
-      return report?.benchmark === "canonical-live-api-mega-happy-path" && report?.status === "passed"
-        ? [{ name: entry.name, report }]
-        : [];
+      return isSuccessfulMegaReport(report) ? [{ name: entry.name, report }] : [];
     } catch { return []; }
   });
-const sameFingerprintReports = previousReports.filter(({ report }) =>
-  report.source?.head === sourceBefore.head &&
-  report.runtime?.artifactFingerprint === runtimeBefore.fingerprint);
+const sameFingerprintReports = previousReports.filter(({ report }) => matchesMegaBaseline(report, baselineIdentity));
 const baselineOrdinal = previousReports.length + 1;
 const observedRunClass = sameFingerprintReports.length
   ? "repeat-same-source-runtime-fingerprint"
@@ -218,8 +230,9 @@ const fingerprintStable =
   sourceAfter.fingerprint === sourceBefore.fingerprint &&
   runtimeAfter.fingerprint === runtimeBefore.fingerprint;
 const fingerprintVerificationWallMs = rounded(performance.now() - postflightVerificationStartedAt);
-const childSucceeded = !setupFailure && child?.status === 0 && child?.signal === null && raw?.status === "passed";
-const cleanupSafe = childSucceeded && pidsAfter === "" && receiptConfigIsolationEvidence.ownChangeRestored &&
+const journeyFailureReasons = megaJourneyFailureReasons(child, raw);
+const cleanupSafe = !setupFailure && journeyFailureReasons.length === 0 &&
+  pidsAfter === "" && receiptConfigIsolationEvidence.ownChangeRestored &&
   receiptConfigIsolationEvidence.cleanupComplete && markerSafe && officialUnchanged && fingerprintStable;
 let disposableCleanup = { attempted: false, removed: false, preserved: true };
 let disposableCleanupWallMs = 0;
@@ -242,8 +255,7 @@ const postflightVerificationWallMs = rounded(performance.now() - postflightVerif
 
 const failureReasons = [
   ...(setupFailure ? [`setup: ${setupFailure.message}`] : []),
-  ...(child && child.status !== 0 ? [`child-exit-${child.status}`] : []),
-  ...(child?.signal ? [`child-signal-${child.signal}`] : []),
+  ...journeyFailureReasons,
   ...(pidsAfter ? ["owned-sse-process-remained"] : []),
   ...(!receiptConfigIsolationEvidence.active ? ["belegmanager-config-isolation-not-active"] : []),
   ...(!receiptConfigIsolationEvidence.ownChangeRestored ? ["belegmanager-owned-config-change-not-restored"] : []),
@@ -253,18 +265,16 @@ const failureReasons = [
   ...(!markerUnchanged ? ["hidden-desktop-marker-changed"] : []),
   ...(!officialUnchanged ? ["official-musterfall-hash-changed"] : []),
   ...(!fingerprintStable ? ["source-or-runtime-fingerprint-drift"] : []),
-  ...(!raw ? ["journey-report-missing"] : []),
-  ...(raw?.status === "failed" ? [raw.failure?.kind ?? "journey-failed"] : []),
   ...(cleanupSafe && !disposableCleanup.removed ? ["successful-disposable-cleanup-failed"] : []),
 ];
 const passed = failureReasons.length === 0;
 const report = {
   schemaVersion: 1,
-  benchmark: "canonical-live-api-mega-happy-path",
+  benchmark: MEGA_BENCHMARK,
   status: passed ? "passed" : "failed",
   classification,
-  executionBackend: process.env.SSE_TEST_NATIVE_PACKAGE ? "qt-win32-native" : "worker",
-  nativeManifestSha256: process.env.SSE_TEST_NATIVE_MANIFEST_SHA256 ?? null,
+  executionBackend,
+  nativeManifestSha256,
   classificationEvidence: {
     requestedCacheState: classification,
     observedRunClass,
@@ -277,7 +287,7 @@ const report = {
   },
   generatedAt,
   historicalComparison: {
-    comparableWholeJourneyBaselineExists: previousReports.length > 0,
+    comparableWholeJourneyBaselineExists: sameFingerprintReports.length > 0,
     baselineOrdinal,
     previousSuccessfulReports: previousReports.map((entry) => entry.name),
     note: !passed

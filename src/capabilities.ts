@@ -28,6 +28,7 @@ import {
 import { SSE_LIVE_EVIDENCE } from "./operation-live-evidence.js";
 import { SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS } from "./worker-operation-policy.js";
 import { SSE_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
+import { SSE_USER_INPUT } from "./user-input-policy.js";
 
 type FallbackStage = {
   intent: string;
@@ -51,7 +52,7 @@ const fallbackStages = [
   },
   {
     intent: "Standard: Verifizierte Transaktion",
-    operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
+    operations: ["goto", "tracked_set_value", "fill_fields", "table_add", "table_add_rows", "table_update", "table_delete", "toggle", "combo_options", "combo_select"],
     rule: "Passendes Spezialwerkzeug mit frischem Vorwert und Readback verwenden. Native Tabellenmutationen positionieren ihr Ziel selbst; " +
       "keinen vollen Cursorlauf zur Schreibvorbereitung anfordern. Interne gebundene Positionierung bleibt Teil der Transaktion.",
   },
@@ -180,6 +181,9 @@ export const SSE_CAPABILITIES = Object.freeze({
       "meldet jederzeit, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich " +
       "durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf.",
   },
+  // Welche Operationen eine Eingabepause des Menschen brauchen, steht je
+  // Operation in operationPolicy; hier stehen die Bedeutungen und die Regel.
+  userInput: SSE_USER_INPUT,
   batching: {
     rule: "Worker-Auftraege werden einzeln ausgefuehrt; ein Auftrag kann einen vorgewaermten Arbeitsprozess verwenden. " +
       "scenario_run fuehrt seine Schritte seriell ueber den Executor aus, mit einem eigenen Auftrag je Worker-Schritt. " +

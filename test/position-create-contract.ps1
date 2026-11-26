@@ -2,15 +2,26 @@ $ErrorActionPreference = 'Stop'
 $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '../powershell/sse-worker.ps1'))
 $tokens = $null; $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors)
+$workerFunctions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+. (Join-Path $PSScriptRoot '../powershell/structure-binding.ps1')
 foreach ($name in @('Read-SSEPositionInventory','Read-PositionOverview','Assert-PositionRows','Read-NewPosition','Invoke-PositionButton',
   'Set-SSECursorPoint','Assert-SSECursorPoint')) {
-  $functions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
+  $functions = @($workerFunctions | Where-Object Name -CEQ $name)
   if ($functions.Count -ne 1) { throw "Funktionsvertrag fehlt: $name" }
   Invoke-Expression $functions[0].Extent.Text
 }
 function Assert-PositionEpoch {}
-function Walk-Tree { $script:tree }
-function Get-CurrentHeading { $script:heading }
+function Walk-Tree {
+  if ($script:positionReadObservations -and $script:positionReadObservations.Count) {
+    return $script:positionReadObservations.Dequeue()
+  }
+  $script:tree
+}
+function Get-CurrentHeading($Window,$Tree) {
+  if ($Tree.heading) { return $Tree.heading }
+  $script:heading
+}
+function Test-Canary { @{ok=$true} }
 function Read-LabeledValueFromTree { @{ value='0,00'; candidateCount=1 } }
 function Test-SSEScalarEqual($left,$right) { $left -eq $right }
 function Get-SSETableRegion { $script:region }
@@ -21,12 +32,14 @@ function Must-Fail([scriptblock]$Action) {
 }
 $hwnd = [IntPtr]1
 $heading = 'Erl' + [char]246 + 'se Lieferungen/Leistungen'
+$guide = @{ type='Group'; aid='SSE.ClientFrameSSE.GuideViewer'; i=0; p=-1 }
 $tree = @{ stats=@{ truncated=$false; err=0 }; nodes=@(
-  @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Link'; name=([string][char]187 + 'Example' + [char]171 + ' bearbeiten'); y=300 },
-  @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Delete'; name=([string][char]187 + 'Example' + [char]171 + ' l' + [char]246 + 'schen'); y=300 },
-  @{ type='Text'; on=$true; aid='SSE.GuideViewer.Amount'; name='100,00'; y=300 },
-  @{ type='Custom'; on=$true; aid='SSE.GuideViewer.Amount'; name='100,00'; y=300 },
-  @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Create'; name='Weitere Position erfassen'; y=400 }
+  $guide,
+  @{ type='Hyperlink'; on=$true; aid=''; i=1; p=0; name=([string][char]187 + 'Example' + [char]171 + ' bearbeiten'); y=300 },
+  @{ type='Hyperlink'; on=$true; aid=''; i=2; p=0; name=([string][char]187 + 'Example' + [char]171 + ' l' + [char]246 + 'schen'); y=300 },
+  @{ type='Text'; on=$true; aid=''; i=3; p=0; name='100,00'; y=300 },
+  @{ type='Custom'; on=$true; aid=''; i=4; p=0; name='100,00'; y=300 },
+  @{ type='Hyperlink'; on=$true; aid=''; i=5; p=0; name='Weitere Position erfassen'; y=400 }
 ) }
 $overview = Read-PositionOverview
 if ($overview.createCaption -cne 'Weitere Position erfassen') { throw 'Gefuellte Uebersicht bindet nicht den weiteren Erfassungsbefehl.' }
@@ -35,8 +48,8 @@ Must-Fail { Assert-PositionRows $overview.rows @(@{ name='Example'; net='99,00' 
 Must-Fail { Assert-PositionRows $overview.rows @() }
 $namedNodes=@($tree.nodes)
 $tree.nodes+=@(
-  @{type='Hyperlink';on=$true;aid='SSE.GuideViewer.Draft';name=([string][char]187+'Synthetic draft'+[char]171+' erfassen');y=350},
-  @{type='Text';on=$true;aid='SSE.GuideViewer.DraftAmount';name='0,00';y=350}
+  @{type='Hyperlink';on=$true;aid='';i=6;p=0;name=([string][char]187+'Synthetic draft'+[char]171+' erfassen');y=350},
+  @{type='Text';on=$true;aid='';i=7;p=0;name='0,00';y=350}
 )
 $draftError='Die Uebersicht enthaelt eine unvollstaendige oder nicht lesbare Position; kein vollstaendiges Inventar.'
 try { Read-PositionOverview | Out-Null; throw 'Teilbestand wurde akzeptiert.' } catch {
@@ -69,9 +82,25 @@ foreach($validHeading in @($heading,('Betriebsausgaben: Eigene Positionen'))){
      $listed.anzahl -ne 1 -or $null -ne $listed.hinweis){throw 'Tatsaechlicher Positionszweig liest den gueltigen Bestand nicht vollstaendig.'}
 }
 $heading='Erl'+[char]246+'se Lieferungen/Leistungen'
+$tree.nodes=$namedNodes
+$providerFailure=@{stats=@{err=1;truncated=$false};nodes=$namedNodes}
+$script:positionReadObservations=New-Object Collections.Queue
+$script:positionReadObservations.Enqueue($providerFailure)
+$script:positionReadObservations.Enqueue($tree)
+$recovered=Invoke-FixturePositionRead
+if(-not $recovered.ok -or $recovered.positionen[0] -cne 'Example' -or $script:positionReadObservations.Count){
+  throw 'UIA observation error was not recovered with its own complete readback.'
+}
+$script:positionReadObservations.Enqueue($providerFailure)
+$script:positionReadObservations.Enqueue(@{stats=$tree.stats;nodes=$namedNodes;heading='Betriebsausgaben: Eigene Positionen'})
+$changed=Invoke-FixturePositionRead
+if($changed.ok -or $changed.kind -cne 'position-inventory-incomplete' -or $script:positionReadObservations.Count){
+  throw 'A retry accepted another page.'
+}
 $tree.nodes=@(
-  @{type='Text';on=$true;aid='SSE.GuideViewer.Empty';name='Sie haben noch keine Angaben erfasst'},
-  @{type='Hyperlink';on=$true;aid='SSE.GuideViewer.Create';name='Position erfassen'}
+  $guide,
+  @{type='Text';on=$true;aid='';i=1;p=0;name='Sie haben noch keine Angaben erfasst'},
+  @{type='Hyperlink';on=$true;aid='';i=2;p=0;name='Position erfassen'}
 )
 $listed=Invoke-FixturePositionRead
 if(-not $listed.ok -or @($listed.positionen).Count -ne 0 -or $listed.anzahl -ne 0 -or
@@ -104,25 +133,28 @@ $tree.nodes=$namedNodes
 $tree.stats.truncated = $true
 Must-Fail { Read-PositionOverview }
 $tree.stats.truncated = $false
-$tree.nodes += @{ type='Text'; on=$true; aid='SSE.GuideViewer.Amount'; name='200,00'; y=300 }
+$tree.nodes += @{ type='Text'; on=$true; aid=''; i=6; p=0; name='200,00'; y=300 }
 Must-Fail { Read-PositionOverview }
 $tree.nodes = @(
-  @{ type='Text'; on=$true; aid='SSE.GuideViewer.Empty'; name='Sie haben noch keine Angaben erfasst' },
-  @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Create'; name='Position erfassen' },
-  @{ type='Button'; on=$true; aid='SSE.GuideViewer.Create.Button'; name='Position erfassen' }
+  $guide,
+  @{ type='Text'; on=$true; aid=''; i=1; p=0; name='Sie haben noch keine Angaben erfasst' },
+  @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Create'; i=2; p=0; name='Position erfassen' },
+  @{ type='Button'; on=$true; aid=''; i=3; p=2; name='Position erfassen' }
 )
 $emptyOverview = Read-PositionOverview
 if ($emptyOverview.rows.Count -ne 0 -or $emptyOverview.createCaption -cne 'Position erfassen') { throw 'Erste Position wurde nicht an die belegte leere Uebersicht gebunden.' }
-$tree.nodes[0].on = $false
+$tree.nodes[1].on = $false
 Must-Fail { Read-PositionOverview }
-$tree.nodes[0].on = $true
-$tree.nodes[1].name = 'Weitere Position erfassen'
+$tree.nodes[1].on = $true
+$tree.nodes[2].name = 'Weitere Position erfassen'
 Must-Fail { Read-PositionOverview }
-$tree.nodes[1].name = 'Position erfassen'
-$tree.nodes[1].aid = 'SSE.HelpViewer.Create'
+$tree.nodes[2].name = 'Position erfassen'
+$help=@{type='Group';aid='SSE.HelpViewer';i=10;p=-1}
+$tree.nodes=@($help)+$tree.nodes
+$tree.nodes[3].p = 10
 Must-Fail { Read-PositionOverview }
-$tree.nodes[1].aid = 'SSE.GuideViewer.Create'
-$tree.nodes += @{ type='Hyperlink'; on=$true; aid='SSE.GuideViewer.Duplicate'; name='Position erfassen' }
+$tree.nodes[3].p = 0
+$tree.nodes += @{ type='Hyperlink'; on=$true; aid=''; i=4; p=0; name='Position erfassen' }
 Must-Fail { Read-PositionOverview }
 $tree.nodes = @()
 Must-Fail { Read-PositionOverview }

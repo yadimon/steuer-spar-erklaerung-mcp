@@ -10,6 +10,7 @@ import {
   receiptInteractionRequirement,
   type ReceiptInteractionRequirement,
 } from "./receipt-interaction-policy.js";
+import { userInputPolicy, type SseUserInputPolicy } from "./user-input-policy.js";
 
 export const EXPERIMENTAL_PROFILE_BASE_OPERATIONS = [
   "capabilities", "health", "help", "product_info", "workspace_status",
@@ -100,6 +101,8 @@ export interface ProfileOperationCapability {
   requiresInteractiveReceiptLease?: boolean;
   blockedOnBuildDrift: boolean;
   interactionRequirement?: ReceiptInteractionRequirement;
+  /** Was fuer Maus und Tastatur des Menschen gilt, solange die Operation laeuft. */
+  userInput: SseUserInputPolicy;
   reason: string;
 }
 
@@ -124,6 +127,7 @@ export function createProfileOperationCapability(
     operation,
     class: profileOperationClass(operation),
     blockedOnBuildDrift: BUILD_DRIFT_BLOCKED.has(operation),
+    userInput: userInputPolicy(operation),
     ...(interactionRequirement ? { interactionRequirement } : {}),
   };
   if (BASE.has(operation)) {

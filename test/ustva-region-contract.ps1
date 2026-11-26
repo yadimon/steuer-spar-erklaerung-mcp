@@ -4,12 +4,11 @@ $source=[IO.File]::ReadAllText((Join-Path $Repository 'powershell/sse-worker.ps1
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Invalid production worker syntax'}
-$caption=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-SSEPageFieldLabel'},$true))
-if($caption.Count -ne 1){throw 'Missing production caption helper'}
-. ([scriptblock]::Create($caption[0].Extent.Text))
-foreach($name in @('Test-SSEUstvaTreeComplete','New-SSEUstvaReadBudget','Get-SSEUstvaReadRemaining','Get-SSEUstvaDialogState','Read-SSEUstvaPage')){
-  $definitions=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true))
-  if($definitions.Count -ne 1){throw 'Missing production UStVA helper'}
+$workerFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
+foreach($name in @('Get-SSEPageFieldLabel','Test-SSESnapshotHasOnlyWalkErrors','Test-SSEUstvaTreeComplete','New-SSEUstvaReadBudget','Get-SSEUstvaReadRemaining',
+  'Get-SSEUstvaDialogState','Test-SSEUstvaHeadingBinding','Read-SSEUstvaPage')){
+  $definitions=@($workerFunctions | Where-Object Name -CEQ $name)
+  if($definitions.Count -ne 1){throw "Production UStVA helper '$name' is missing or ambiguous"}
   . ([scriptblock]::Create($definitions[0].Extent.Text))
 }
 function Assert-Equal($Actual,$Expected,[string]$Message){if($Actual -cne $Expected){throw $Message}}
@@ -24,6 +23,7 @@ foreach($deadline in @($null,0,1000L,'11000')){
   Assert-Equal $rejected $true 'Missing/expired/untyped deadline was accepted'
 }
 . (Join-Path $Repository 'powershell/window-scope.ps1')
+. (Join-Path $Repository 'powershell/structure-binding.ps1')
 $rawNodes=@(
   [pscustomobject]@{i=0;p=-1;type='Text';name='Own'},
   [pscustomobject]@{i=1;p=-1;type='Window';name='Own auxiliary';rid='auxiliary'},
@@ -35,18 +35,22 @@ Assert-Equal (Test-SSEUstvaTreeComplete $scoped) $true 'Actual split scope count
 Assert-Equal @($scoped.nodes).Count 1 'Foreign nodes were not actually excluded'
 function New-Fixture {
   $script:formMissing=$false;$script:libraryMissing=$false;$script:headingChanged=$false;$script:changeHeadingAfterLibrary=$false
+  $script:headingParent=[pscustomobject]@{key='header'};$script:changeHeadingParentAfterLibrary=$false
   $script:ancestryValid=$true;$script:dialogs=@();$script:windows=@(1);$script:formReads=0;$script:libraryReads=0
   $script:clock=[pscustomobject]@{timer=[pscustomobject]@{ElapsedMilliseconds=0};limitMs=45000}
   $script:elapsedAfterForm=0;$script:elapsedAfterLibrary=0
   $script:libraryChanged=$false;$script:changeLibraryAfterRead=$false
-  $script:heading=[pscustomobject]@{type='Text';rid='heading';aid='SyntheticRoot.ClientFrameSSE.ClientHeader.Heading';name='Umsatzsteuer-Voranmeldungen 2025'}
-  $script:UIAElementCache=@{heading=[pscustomobject]@{key='heading'}}
+  $script:libraryWalkFailures=0;$script:changeLibraryOnRetry=$false
+  $script:header=[pscustomobject]@{type='Group';rid='header';aid='SyntheticRoot.ClientFrameSSE.ClientHeader';i=11;p=3}
+  $script:heading=[pscustomobject]@{type='Text';rid='heading';aid='SyntheticRoot.ClientFrameSSE.ClientHeader.Heading';name='Umsatzsteuer-Voranmeldungen 2025';i=12;p=11}
+  $script:headingCurrent=[pscustomobject]@{ProcessId=7;AutomationId=$script:heading.aid;ControlType=[pscustomobject]@{ProgrammaticName='ControlType.Text'}}
+  $script:UIAElementCache=@{heading=[pscustomobject]@{key='heading';Current=$script:headingCurrent}}
   $script:form=[pscustomobject]@{
     nodes=@(
-      $script:heading,
+      $script:header,$script:heading,
       [pscustomobject]@{type='Text';name='Umsatzsteuerzahllast';aid='SyntheticRoot.Settlement.Caption';p=2;x=100;y=100;w=200;h=20},
       [pscustomobject]@{type='Edit';name='';aid='SyntheticRoot.Settlement.Wert';p=2;x=400;y=100;w=100;h=20;rid='value';val='12,34';ro=$true}
-    );stats=(New-Stats 3)
+    );stats=(New-Stats 4)
     contentBinding=[pscustomobject]@{hwnd=111;pid=7;windowAid='SyntheticRoot';windowRid='root'}
     contentBounds=[pscustomobject]@{minX=100;maxX=700}
   }
@@ -60,6 +64,8 @@ function New-Fixture {
   $script:libraryElement=[pscustomobject]@{key='library'}
   $script:elster=[pscustomobject]@{type='Button';name='ELSTER versenden';aid='SyntheticRoot.MainToolBar.tb_elster';rid='elster'}
 }
+$script:WLK=[pscustomobject]@{}
+$script:WLK | Add-Member ScriptMethod GetParent {param($Element) return $script:headingParent}
 function New-SSEUstvaReadBudget {$script:clock}
 function Get-SSEMainContentTree {param($Window,[switch]$WithValues,[int]$TimeoutSec)
   Assert-Equal $Window 111 'Unbound form window';Assert-Equal $WithValues.IsPresent $true 'Form values were not requested'
@@ -73,11 +79,24 @@ function Read-SSESearchRegion {param($Window,$RelativeAid,$Binding,[int]$Timeout
   Assert-Equal $Binding.rid 'root' 'Wrong status binding';$script:libraryReads++
   Assert-Equal ($TimeoutSec -gt 0 -and $TimeoutSec -le 5) $true 'Status did not inherit the bounded remaining time'
   if($script:libraryMissing){throw 'Synthetic provider secret must be redacted'}
-  $script:headingChanged=$script:changeHeadingAfterLibrary;$script:clock.timer.ElapsedMilliseconds=$script:elapsedAfterLibrary;$script:library
+  $script:headingChanged=$script:changeHeadingAfterLibrary
+  if($script:changeHeadingParentAfterLibrary){$script:headingParent=[pscustomobject]@{key='other-header'}}
+  $script:clock.timer.ElapsedMilliseconds=$script:elapsedAfterLibrary
+  $region=$script:library.PSObject.Copy()
+  if($script:libraryReads -le $script:libraryWalkFailures){
+    $region.tree=$script:library.tree.PSObject.Copy()
+    $region.tree.stats=$script:library.tree.stats.PSObject.Copy()
+    $region.tree.stats.err=1
+    $region.tree.nodes=@([pscustomobject]@{type='TreeItem';name='Incomplete warning'},$region.tree.nodes[1])
+  }
+  if($script:libraryReads -gt 1 -and $script:changeLibraryOnRetry){$region.root=$region.root.PSObject.Copy();$region.root.x++}
+  $region
 }
-function Get-SSEContainerChild {param($Nodes,$Suffix,$Type) $script:heading}
 function Get-SSEMainWindowSelectors {[pscustomobject]@{heading='.ClientHeader'}}
-function Test-SSEElementIdentity {param($Element,$Rid,$Aid,$Name) -not (($Rid -ceq 'heading' -and $script:headingChanged) -or ($Rid -ceq 'library' -and $script:libraryChanged))}
+function Test-SSEElementIdentity {param($Element,$Rid,$Aid,$Name)
+  if($Rid -ceq 'header'){return $Element.key -ceq 'header'}
+  -not (($Rid -ceq 'heading' -and $script:headingChanged) -or ($Rid -ceq 'library' -and $script:libraryChanged))
+}
 function Test-SSEElementVisible {param($Element) -not ($Element.key -ceq 'library' -and $script:libraryChanged)}
 function Test-SSEMainContentAncestry {$script:ancestryValid}
 function Find-ExactAutomationElement {param($Window,$Aid,[switch]$VisibleOnly)
@@ -106,9 +125,33 @@ Assert-Equal $read.felder[0].wert '12,34' 'Amount was lost'
 Assert-Equal $read.blockiert $true 'Real warning was dropped'
 Assert-Equal $read.prueferMeldungen.Count 1 'Checker noise was not filtered'
 Assert-Equal $read.aktionen[0].gesperrt $true 'Toolbar transmission boundary was lost'
-Assert-Equal $read.stats.n 5 'Measured region counters were not summed'
+Assert-Equal $read.stats.n 6 'Measured region counters were not summed'
 Assert-Equal $script:formReads 1 'Form was retried'
 Assert-Equal $script:libraryReads 1 'Status was retried'
+
+New-Fixture;$script:libraryWalkFailures=2
+$retryRead=Read-SSEUstvaPage 111
+Assert-Equal $retryRead.ok $true 'A fully rebound checker region did not recover after transient UIA walk failures'
+Assert-Equal $script:libraryReads 3 'The checker region did not get two independent rereads'
+Assert-Equal $script:formReads 1 'An unchanged form was read again'
+Assert-Equal ($retryRead.prueferMeldungen -join ',') 'Synthetic warning' 'A partial snapshot contributed a warning'
+New-Fixture;$script:libraryWalkFailures=3
+Assert-Equal (Read-SSEUstvaPage 111).ok $false 'Persistent UIA failure emitted a UStVA result'
+Assert-Equal $script:libraryReads 3 'Persistent UIA failure exceeded the reread limit'
+New-Fixture;$script:libraryWalkFailures=1;$script:changeLibraryOnRetry=$true
+Assert-Equal (Read-SSEUstvaPage 111).ok $false 'The reread accepted moved checker geometry'
+Assert-Equal $script:libraryReads 2 'A moved region triggered another reread'
+New-Fixture;$script:libraryWalkFailures=1;$script:changeHeadingAfterLibrary=$true
+Assert-Equal (Read-SSEUstvaPage 111).ok $false 'The reread retained a stale UStVA page'
+Assert-Equal $script:libraryReads 1 'A changed page triggered a reread'
+New-Fixture;$script:libraryWalkFailures=1;$script:elapsedAfterLibrary=45000
+Assert-Equal ((Read-SSEUstvaPage 111).error -like '*Lesebudget*') $true 'The reread ignored the shared budget'
+Assert-Equal $script:libraryReads 1 'An expired budget triggered a reread'
+
+New-Fixture
+$script:heading.aid=''
+$script:headingCurrent.AutomationId=''
+Assert-Equal (Read-SSEUstvaPage 111).ok $true 'A uniquely bound heading without an AutomationId was rejected'
 
 foreach($region in @('form','library')){
   foreach($key in @('err','cyc','valErr','scrollErr','n','truncated','depthLimited')){
@@ -125,6 +168,10 @@ foreach($alter in @(
   {$script:libraryMissing=$true},
   {$script:library.windowKey='foreign|8|112'},
   {$script:changeHeadingAfterLibrary=$true},
+  {$script:changeHeadingParentAfterLibrary=$true},
+  {$script:headingCurrent.ProcessId=8},
+  {$script:headingCurrent.AutomationId='Changed'},
+  {$script:form.nodes+=@($script:heading);$script:form.stats.n++},
   {$script:ancestryValid=$false},
   {$script:library.root.x=600},
   {$script:form.stats.valErr='0'},

@@ -122,7 +122,11 @@ Editorprüfungen erhalten zusätzliche Gegenfälle: aktiver Editor außerhalb
 der abwärts enumerierten Kinder, fremde oder zusätzliche Editoren,
 abweichender Wert, verborgene und Checkbox-Ziele, angeschnittene Zellen und
 ein anderer tatsächlicher Punkttreffer. Der Raw-Leser wird außerdem mit mehr
-als 2048 synthetischen Zellen geprüft. Die API-Verträge prüfen den echten
+als 2048 synthetischen Zellen geprüft. Derselbe Vertrag hält das begrenzte
+Nachlesen des Zustandslesers fest: Ein Baumlauf, der ausschließlich
+Providerfehler meldet, wird höchstens zweimal erneut gelesen; abgeschnittene
+oder wertfehlerhafte Beobachtungen und eine geänderte Fensterlage nicht. Die
+API-Verträge prüfen den echten
 Executor ohne Qt-Backend und verwerfen unbewiesene Erfolgs-/Rollbackangaben.
 Die vollständige reale Abnahme benötigt eigene Fallkopien und muss den
 Restbestand, übrige Felder sowie Speichern und Wiederöffnen einbeziehen.
@@ -266,12 +270,45 @@ Invoke-Fehler nach Aktionsbeginn und eine saubere Ablehnung vor Dispatch.
 Ein gefangener terminaler Emit-Sentinel darf nicht überschrieben werden.
 Der bestehende Invoke-Zugriff außerhalb des Plans und die Knopfbindung des
 Klickwegs bleiben eigene Kontrollfälle.
+`result_details` vergleicht die gelesenen Ergebniszeilen mit der Zeilenzahl
+des gebundenen UIA-Tabellenmodells. Bei einem kleineren sichtbaren Ausschnitt
+liest es die nachgewiesenen vier Spalten über ihre Modellkoordinaten. Das
+liefert auch Zeilen außerhalb des Fensterausschnitts ohne Scrollaktion.
+`ui_state` liest eine eindeutig offene Werte-Info über denselben Leser; beide
+Werkzeuge melden für ein unverändertes Fenster dieselben Zeilen und denselben
+Fingerprint. `value-info-window-contract.ps1` hält die gemeinsame Lesestelle
+fest, der Desktop-Lebenszyklus des Live-Gates den Gleichstand am echten Fenster.
 `verified-point-failure-contract.ps1` führt die produktiven Cursorhelfer bei
 verweigerter Positionierung, unlesbarer Position und Drift vor dem Dispatch aus.
 Der Transaktionspfad
 behält die Information, dass kein Klick gesendet wurde; der direkte Aufruf
 behält seinen terminalen Fehlervertrag. Auch eine normal zurückkehrende
 Fehlerroutine kann diese Schutzprüfung nicht aufheben.
+`table-uia-append-contract.ps1` führt die produktive Mehrzeilenanlage gegen
+ein synthetisches Tabellenmodell aus, das weder Zeiger noch Tasten oder
+Scrollen anbietet: zwölf Zeilen über Modellkoordinaten, alle Ablehnungen vor
+der Aktivierung und vor der ersten Schreibung, die Wertrücknahme bei falschem
+Rücklesewert, fehlender neuer Anlegezeile, falscher Nachsumme und neuer
+Prüfermeldung sowie die Fälle ohne blinde Rücknahme. `table-grid-read-contract.ps1`
+hält die beiden reinen Modellvergleiche dazu fest: exakte Anlage und
+Wertrücknahme mit verbliebenen Leerzeilen. Am echten Programm legt
+`npm run test:live-table-add-rows` mehr Zeilen an, als die Tabelle anzeigt,
+liest sie über das vollständige Grid-Inventar nach, speichert, öffnet neu
+und prüft Ablehnung und Wertrücknahme; dieselbe Reise gehört zum Live-Gate.
+Derselbe Vertrag belegt, dass die Anlage das Fenster genau einmal aktiviert
+und danach weder Vordergrund noch Eingaben liest - sein Modell bietet dafür
+keine Endpunkte -, und dass ein verschwundenes Fenster oder ein weiteres
+Fenster der Anwendung vor der nächsten Zeile stoppt: Eine passive Lesung
+belegt dann die vollständig angelegten Zeilen oder lässt den Zustand
+`unknown`.
+`user-input-policy-contract.mjs` rechnet am Syntaxbaum des Workers nach,
+welche Operationen eine Eingabepause des Menschen brauchen, und hält
+Selbstbeschreibung, Werkzeugmarken und den Hinweis bei `interference` daran.
+`click-point-target-contract.ps1` führt die produktive Zielauswahl des
+physischen Klicks aus: Baumeinträge und Detail-Links bleiben auch auf einem
+Monitor links oder oberhalb des Hauptmonitors wählbar, also bei negativen
+Bildschirmkoordinaten; Ziele ohne Fläche und andere Steuerelemente bleiben
+gesperrt.
 In `value-info-window-contract.ps1` durchläuft die Vorbereitung auch die
 tatsächliche Tracking-Hülle sowie Markenwechsel während Baumlesung und
 Fokusvorbereitung, ausgetauschte Knöpfe und ungebundene vorhandene Fenster.
@@ -457,7 +494,7 @@ produktfreie Testgrenzen; diese Regressionen ersetzen keine reale Abnahme.
 ## Live-Abdeckung
 
 Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;
-ein Vertragstest hält dieses Dokument dagegen. Dort stehen 96 der 102
+ein Vertragstest hält dieses Dokument dagegen. Dort stehen 97 der 103
 Operationen als live-funktional.
 
 Sechzehn Ledger-Einträge verwenden einen übernommenen separaten Nachweis statt
@@ -475,7 +512,7 @@ weiterhin nur als Fehlerpfad. Die Einteilung stammt aus
 `test/operation-coverage-contract.mjs` und darf nicht als Erfolg jeder Mutation
 gelesen werden.
 
-Noch 6 der 102 Operationen sind nicht live-funktional belegt.
+Noch 6 der 103 Operationen sind nicht live-funktional belegt.
 Diese Bilanz bezieht sich auf den aggregierten Release-Snapshot und ersetzt
 keinen erneuten Nachweis pro Paketversion, Backend und API-/MCP-Zugang.
 
@@ -502,6 +539,8 @@ weiteren Anlage abgewiesen werden. Dabei bleiben Inventar und Dateien
 unverändert. Sie benötigt eine freie sichtbare Windows-Sitzung.
 Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
 Schritte; seine Einzelbelege ersetzen keine umfassende Paketabnahme.
+Für Profil 2024 prüft der Musterfall zusätzlich das genaue Positionsinventar
+seiner Einnahmenübersicht über den regulären Lesepfad.
 
 `npm run test:live-goto-search` prüft den UIA-Suchweg über MCP an drei eigenen
 Kopien des Hersteller-Gewinnermittlungsfalls im Profil 2025. Der erste Suchsprung
@@ -519,9 +558,11 @@ isolierten Ergebnisbereich der Test-API. Dieser getrennte opt-in Test ändert
 die Live-Bilanz erst durch die reguläre Ledger-Regeneration.
 
 `npm run test:live-tax-knowledge` prüft `tax_knowledge_search` über API und MCP.
-Vorher müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible Hersteller-
-Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner außerhalb
-des Repositorys gesetzt sein. Alle SSE-/Steuerwissen-Fenster müssen geschlossen
+Das vollständige Live-Gate stellt dafür selbst einen offiziellen Musterfall
+aus Profil 2025 und einen isolierten Testordner bereit.
+Für den Einzellauf müssen `SSE_KNOWLEDGE_SOURCE_FILE` auf eine kompatible
+Hersteller-Musterdatei (`.ESt2025`) und `SSE_CASE_DIR` auf einen neuen Testordner
+außerhalb des Repositorys gesetzt sein. Alle SSE-/Steuerwissen-Fenster müssen geschlossen
 und die sichtbare Windows-Sitzung frei sein. Der Test kopiert die Musterdatei,
 prüft Treffer, wiederholte Suchbegriffe, bestätigte und wiederholte Nulltreffer,
 den Wechsel zurück zu Treffern sowie eine falsche Fensterbindung und
@@ -542,7 +583,7 @@ Mutationen. Ein fehlgeschlagener Lauf bleibt ein fehlgeschlagener Live-Nachweis.
 
 ## Native-Integration getrennt zählen
 
-Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen
+Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 103 Operationen
 den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind 22
 Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
 `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`,
@@ -598,9 +639,11 @@ begrenzten Sprünge bei einer sehr langen Seite Leselücken lassen, wird der
 Vollread vor einer Bewegung abgewiesen; die tatsächlichen Leseintervalle
 müssen zusätzlich überlappen.
 `read_full` bindet sowohl die anfängliche Rollaufnahme als auch jede
-Wertelesung an den profilierten Formularbereich. Fehlende oder unvollständige
-Teilbäume, Seitenwechsel und Geometrieänderungen ergeben weiterhin keinen
-Vollständigkeitsnachweis. Fehler zwischen den Lesestufen nennen einen festen
+Wertelesung an den profilierten Formularbereich. Bei einem UIA-Baumlauffehler
+dürfen `read_full` und `scroll_page` denselben Ausschnitt bis zu zweimal neu
+lesen. Die Prüfung verlangt dasselbe Formular, dieselbe Überschrift und bei
+gebundenen Qt-Lesestufen auch dieselbe Rollstellung. Nur der vollständige
+Snapshot zählt. Fehler zwischen den Lesestufen nennen einen festen
 Ursachencode; fremde Providertexte werden dabei nicht ausgegeben.
 Die UStVA-Mega-Reise stellt vor dem Betragscommit die Sichtbarkeit des konkreten
 Feldes im eigenen Viewport sicher und liest anschließend die ursprüngliche
@@ -611,6 +654,8 @@ Der UStVA-Vertrag führt die produktiven PowerShell-Funktionen für getrennte
 Formular- und Hinweislesungen gegen synthetische Providergrenzen aus. Er prüft
 fehlende oder fehlerhafte Teilbäume, lange Warntexte, geänderte Überschrift oder
 Spaltenbindung, eigene und fremde Dialoge sowie das gemeinsame Lesebudget.
+Für die Hinweisspalte prüft er auch zwei gebundene Neulesungen nach einem
+Baumlauffehler und den Abbruch bei Seitenwechsel oder dauerhafter Störung.
 Die API-Tests verweigern fehlende Vollständigkeitsangaben und beweisen, dass
 eine unvollständige Vorbereitung keine Mutation startet. Der interne Lesekontext
 kann nicht über öffentliche `page`-Argumente eingeschleust werden. Native
@@ -706,6 +751,10 @@ Paket zeigen. Der Bericht nennt den Ausführungsmodus und die Manifestidentität
 Die Prüfung der interaktiven Sitzung verwendet dann den verifizierten
 Win32-Helfer ohne PowerShell-Kompilierung. Ohne diese beiden Einstellungen
 misst der Test den Worker-Pfad. Native Messungen ändern das Worker-Coverage-Ledger nicht.
+Ein früherer Lauf zählt als Vergleichskandidat, wenn er erfolgreich war und
+Commit, Laufzeitartefakte, Ausführungsmodus und gegebenenfalls der native
+Manifest-Hash übereinstimmen. Ein fehlender oder ungültiger Rohbericht lässt
+den Lauf auch bei Exit-Code 0 des Kindprozesses fehlschlagen.
 Der Bereitschaftstest übernimmt `SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS` aus der
 Pool-Konfiguration; eine längere erlaubte Vorbereitung ist keine schnellere API-Operation.
 Ohne eigene Einstellung beträgt das begrenzte Startbudget 30 Sekunden; es gilt

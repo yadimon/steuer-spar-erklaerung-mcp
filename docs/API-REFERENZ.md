@@ -10,15 +10,15 @@ Operationsmerkmale in `src/operation-traits.ts`, das Abdeckungsledger
 
 ## Zahlen
 
-- Operationen insgesamt: **102**
-- davon live belegt: **96**
+- Operationen insgesamt: **103**
+- davon live belegt: **97**
 - davon nur auf dem Fehlerpfad belegt: **6**
 - davon live ungetestet: **0**
-- als MCP-Werkzeug veroeffentlicht: **102**
+- als MCP-Werkzeug veroeffentlicht: **103**
 - zusammengesetzte MCP-Werkzeuge: **1**
 - API-Lebenszykluswerkzeuge: **1**
-- nur lesend: **36**, destruktiv: **31**, Aufraeumen: **7**
-- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **35**
+- nur lesend: **36**, destruktiv: **32**, Aufraeumen: **7**
+- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **36**
 
 ## HTTP-Oberflaeche
 
@@ -30,7 +30,7 @@ OpenAPI 3.1.0, Titel „Unoffizielle lokale SteuerSparErklaerung API“.
 | `/healthz` | GET | Lokale API-Erreichbarkeit und Version |
 | `/v1/operations` | GET | Vollstaendiger API-Katalog mit Schemas und Sicherheitsmerkmalen |
 | `/v1/openapi.json` | GET | Diese generierte OpenAPI-3.1-Beschreibung |
-| `/v1/operations/{operation}` | GET, POST | Schema und Sicherheitsmerkmale lesen beziehungsweise die Operation ausfuehren (204 Pfadeintraege fuer 102 Operationen) |
+| `/v1/operations/{operation}` | GET, POST | Schema und Sicherheitsmerkmale lesen beziehungsweise die Operation ausfuehren (206 Pfadeintraege fuer 103 Operationen) |
 
 ## Operationen
 
@@ -113,6 +113,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 | `snapshot_compare` | `sse_snapshot_compare` | lesend | – | live belegt |
 | `subpages` | `sse_subpages` | lesend | – | live belegt |
 | `table_add` | `sse_table_add` | destruktiv | ja | live belegt |
+| `table_add_rows` | `sse_table_add_rows` | destruktiv | ja | live belegt |
 | `table_delete` | `sse_table_delete` | destruktiv | ja | live belegt |
 | `table_read` | `sse_table_read` | zustandsaendernd | – | live belegt |
 | `table_update` | `sse_table_update` | destruktiv | ja | live belegt |
@@ -145,7 +146,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 
 ## MCP-Werkzeuge
 
-Der Server meldet 104 Werkzeuge.
+Der Server meldet 105 Werkzeuge.
 
 ### `sse_accessibility_probe`
 
@@ -755,6 +756,14 @@ Legt eine neue Tabellenzeile als gepruefte Transaktion an.
 
 Operation: `table_add` (destruktiv, drift-gesperrt).
 
+### `sse_table_add_rows`
+
+**Mehrere Tabellenzeilen in einem Auftrag anlegen**
+
+Bevorzugt ab zwei neuen Zeilen: legt 1 bis 50 Zeilen in einem Arbeitsprozess an.
+
+Operation: `table_add_rows` (destruktiv, drift-gesperrt).
+
 ### `sse_table_delete`
 
 **Tabellenzeile loeschen**
@@ -1012,6 +1021,24 @@ Der MCP-Server gibt Clients diese Anweisung mit:
 >   Kein blinder Wiederholungsversuch und kein automatischer Backendwechsel.
 >   Selektoren, RID oder selectorNamespace nicht zur Umgehung einer Ablehnung austauschen.
 >   sse_capabilities beschreibt die Gruppen und ihre erlaubten Einsatzbedingungen.
+>
+> Eingaben des Menschen waehrend eines Aufrufs:
+> - Werkzeuge mit der Marke [Eingabepause] holen das Programmfenster nach vorn und
+>   bedienen es mit Zeiger und Tasten oder ueberwachen fremde Eingaben. Solange so
+>   ein Aufruf laeuft, darf der Mensch Maus und Tastatur nicht benutzen. Vor dem
+>   ersten solchen Aufruf einer Aufgabe darauf hinweisen. Werkzeuge ohne Marke
+>   stoeren seine Arbeit nicht.
+> - sse_table_add_rows holt das Fenster nach vorn, sendet aber keine Eingabe und
+>   ueberwacht keine: Eine Mausbewegung stoert nicht, Tasten des Menschen wuerden
+>   aber im Programm landen. Ob alles wie beauftragt steht, entscheidet der
+>   Tabellenzustand vor und nach dem Schreiben. Weicht er ab, frisch nachlesen und
+>   den Menschen fragen, ob er selbst etwas geaendert hat; nicht wiederholen.
+> - kind 'interference' heisst: Eine Eingabe oder ein Fensterwechsel hat den
+>   Auftrag gestoppt. Den Menschen um Eingabepause bitten. Nur bei retryable:true
+>   ist der gemeldete Zustand belegt (resultingState, completedCount, sumAfter);
+>   dann den fehlenden Teil mit diesen Werten erneut anfordern. Sonst zuerst
+>   lesend abgleichen. sse_capabilities nennt je Operation
+>   operationPolicy.<operation>.userInput.
 >
 > Auftrag, Originalfall und technische Grenzen:
 > - Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.

@@ -3025,6 +3025,9 @@ if (-not (Test-Path -LiteralPath $tableGridHelpers -PathType Leaf)) { Fail 'Read
 $tableUiaDeleteHelpers=Join-Path $PSScriptRoot 'table-uia-delete.ps1'
 if (-not (Test-Path -LiteralPath $tableUiaDeleteHelpers -PathType Leaf)) { Fail 'UIA Grid deletion helper is missing.' 'not-found' }
 . $tableUiaDeleteHelpers
+$tableUiaAppendHelpers=Join-Path $PSScriptRoot 'table-uia-append.ps1'
+if (-not (Test-Path -LiteralPath $tableUiaAppendHelpers -PathType Leaf)) { Fail 'UIA Grid append helper is missing.' 'not-found' }
+. $tableUiaAppendHelpers
 $tableComboHelpers = Join-Path $PSScriptRoot 'table-combobox.ps1'
 if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
   Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
@@ -3098,6 +3101,25 @@ $script:INIT_TIMINGS.nativeDllHash = $nativeLoad.dllHash
 $script:INIT_TIMINGS.nativeExpectedDllHash = $nativeLoad.expectedDllHash
 $script:INIT_TIMINGS.nativeDllHashMatch = $nativeLoad.dllHashMatch
 if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dllError }
+}
+
+# Unter Energiesparplaenen drosselt Windows Prozesse ohne Vordergrundfenster
+# wenige Sekunden nach ihrem Start: Effizienzkerne, niedriger Takt. Ein
+# wartender Reservearbeiter ist genau so ein Prozess - sein Auftrag liefe dann
+# um ein Mehrfaches langsamer, obwohl er vollstaendig vorbereitet ist. Der
+# Verzicht gilt nur fuer diesen einen Prozess und aendert keine
+# Systemeinstellung; ein wartender Arbeiter verbraucht weiterhin keine
+# Rechenzeit. Scheitert der Aufruf, bleibt der Arbeiter lediglich langsamer.
+try { $null = [SW]::DisableOwnPowerThrottling() } catch { }
+# Der API-Prozess, der diesen Arbeiter gestartet hat, ist ebenfalls ein
+# dauerhafter Prozess ohne Fenster und bliebe fuer jede Anfrage gedrosselt, die
+# er weiterreicht. Selbst kann er den Aufruf nicht absetzen; deshalb nennt er
+# seinen Arbeitern die eigene Prozess-Id. Der Helfer folgt der Bitte nur fuer
+# den tatsaechlichen Elternprozess. Ohne die Angabe - etwa beim Direktstart aus
+# einer Konsole - bleibt jeder fremde Prozess unberuehrt.
+$hostProcessId = 0
+if ([int]::TryParse([string]$env:SSE_INTERNAL_HOST_PROCESS_ID, [ref]$hostProcessId)) {
+  try { $null = [SW]::DisableHostPowerThrottling($hostProcessId) } catch { }
 }
 
 $desktopTempRoot = $(if ($env:TEMP) { $env:TEMP } elseif ($env:TMP) { $env:TMP } else { '.' })
@@ -3576,19 +3598,20 @@ function Resolve-SSEToolWindowKind([string]$Title, [int]$Width, [int]$Height) {
   ''
 }
 
-function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y) {
+function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y, [switch]$BindingOnly) {
   $point = New-Object SW+PT
   $point.X = $X; $point.Y = $Y
   $hitWindow = [SW]::WindowFromPoint($point)
   $hitRoot = [SW]::GetAncestor($hitWindow, 2) # GA_ROOT
   $boundPid = 0; [SW]::GetWindowThreadProcessId($BoundWindow, [ref]$boundPid) | Out-Null
   $hitPid = 0; [SW]::GetWindowThreadProcessId($hitWindow, [ref]$hitPid) | Out-Null
+  $isBoundTarget = [bool]($hitPid -eq $boundPid -and [int64]$hitRoot -eq [int64]$BoundWindow)
+  if ($BindingOnly) { return $isBoundTarget }
   $processName = ''
   if ($hitPid -gt 0) {
     try { $processName = [string](Get-Process -Id $hitPid -ErrorAction Stop).ProcessName } catch { }
   }
   $className = Get-SSEWindowClassName $hitRoot
-  $isBoundTarget = [bool]($hitPid -eq $boundPid -and [int64]$hitRoot -eq [int64]$BoundWindow)
   $blockerKind = if ($isBoundTarget) {
     'none'
   } elseif ($hitPid -eq $boundPid) {
@@ -3938,7 +3961,7 @@ function Initialize-SSEMenuHover([IntPtr]$Window, $Node, $ExpectedInputTick, [In
     }
     try { $bound = & $BeforeClickCheck $Window $Binding $Point.x $Point.y }
     catch { & $OnFailure 'Menue-Bindung waehrend Hover nicht lesbar. NICHT geklickt.' 'stale' }
-    if (-not $bound -or -not (Get-SSEPointObstruction $Window $Point.x $Point.y).isBoundTarget) {
+    if (-not $bound -or -not (Get-SSEPointObstruction $Window $Point.x $Point.y -BindingOnly)) {
       & $OnFailure 'Menue-Popup waehrend Hover nicht mehr gebunden. NICHT geklickt.' 'stale'
     }
     $element = $null
@@ -5199,6 +5222,12 @@ $script:SSE_FOREGROUND_LEASE = [ordered]@{
   foregroundHeldMs=0; foregroundRestored=$false; cursorRestored=$false
   releasedByEmit=$false; restoreSkippedReason=$null; cleanupError=$null
   watch=$null
+  # Auftragsweit, nicht je Lease: Fenster, deren Eingabewarteschlange keine
+  # Kopplung zulaesst, und die eigenen Aktivierungseingaben als Vorher-/
+  # Nachher-Paar der Eingabe-Epoche (siehe Enter-SSEForegroundInputSink).
+  unattachableForeground=(New-Object System.Collections.ArrayList)
+  ownActivationInputs=(New-Object System.Collections.ArrayList)
+  inputSinkAttempts=0
 }
 
 function Test-SSEWindowIsLockScreen([IntPtr]$Hwnd) {
@@ -5274,7 +5303,98 @@ function Set-SSEForegroundWindowCore([IntPtr]$hwnd, [switch]$Topmost) {
   }
   if (Wait-SSEExactForeground $hwnd 200) { return $true }
 
+  # Verweigert das Vordergrundfenster die Kopplung seiner Eingabewarteschlange,
+  # bleibt fuer das eigene Ziel nur die Aktivierung ueber eigene Eingabe.
+  if ($Topmost -and $vorne -ne [IntPtr]::Zero -and $tidFremd -ne 0 -and $tidFremd -ne $tidSelbst -and
+      -not $attachedForeground) {
+    return (Enter-SSEForegroundInputSink $hwnd $vorne)
+  }
   return $false
+}
+
+# Dritte Aktivierungsstufe. Die beiden eingabefreien Wege scheitern, solange
+# ein Fenster den Vordergrund haelt, dessen Eingabewarteschlange sich nicht
+# koppeln laesst - etwa die Benachrichtigungsflaeche der Shell, auf die der
+# Vordergrund faellt, sobald das zuvor aktive Fenster schliesst. Windows reicht
+# den Vordergrund dann nur an einen Prozess weiter, der selbst gerade Eingabe
+# erhalten hat. Genau ein eigener Klick auf ein eigenes, praktisch
+# unsichtbares 5x5-Fenster unter dem unbewegten Mauszeiger liefert das; er
+# erreicht kein fremdes Fenster.
+#
+# Diese eine Eingabe gehoert dem Worker. Ihr Vorher-/Nachher-Paar der
+# Eingabe-Epoche wird festgehalten, damit Test-SSELastInputUnchanged sie nicht
+# als fremde Eingabe wertet - und ausschliesslich sie: jede andere Aenderung
+# der Epoche bleibt ein Eingriff.
+function Enter-SSEForegroundInputSink([IntPtr]$Hwnd, [IntPtr]$DeniedForeground) {
+  $lease = $script:SSE_FOREGROUND_LEASE
+  if (@($lease.unattachableForeground) -notcontains [int64]$DeniedForeground) {
+    $null = $lease.unattachableForeground.Add([int64]$DeniedForeground)
+  }
+  if ($script:DESKTOP_NAME -or [int]$lease.inputSinkAttempts -ge 3 -or
+      (Test-SSEWindowIsLockScreen $DeniedForeground)) { return $false }
+  $lease.inputSinkAttempts = [int]$lease.inputSinkAttempts + 1
+  $evidence = $null
+  try { $evidence = [SW]::ActivateThroughInputSink($Hwnd, 600) } catch { return $false }
+  if ($null -eq $evidence -or $evidence.Count -ne 8 -or $evidence[2] -ne 1) { return $false }
+  if ($evidence[6] -ge 0 -and $evidence[7] -ge 0 -and $evidence[6] -ne $evidence[7]) {
+    $null = $lease.ownActivationInputs.Add([pscustomobject]@{
+      before=[uint64]$evidence[6]; after=[uint64]$evidence[7]
+    })
+    if ($null -ne $lease.lastOwnedInputTick -and [uint64]$lease.lastOwnedInputTick -eq [uint64]$evidence[6]) {
+      $lease.lastOwnedInputTick = [uint64]$evidence[7]
+      $lease.lastOwnedInputContext = 'foreground-input-sink'
+    }
+  }
+  [bool]($evidence[5] -eq 1 -and [SW]::GetForegroundWindow() -eq $Hwnd)
+}
+
+# Operationen, die den Vordergrund holen koennen: die statische Huelle aller
+# Wege zu Show-SSEWindow, Enter-SSEForegroundLease, Enter-SSEPopupForeground
+# und Set-SSEForegroundWindowCore. test/foreground-lease-contract.mjs rechnet
+# sie am Syntaxbaum nach; reine Leser stehen nicht darin.
+$script:SSE_FOREGROUND_CAPABLE_OPERATIONS = @(
+  'bulk_action','checker_detail','checker_open_plan','checker_reset','click','click_point','combo_select',
+  'desktop_stop','dialog_answer','export_csv','file_dialog_select','goto','goto_tree','menu','menu_click',
+  'position_create','receipt_manager_action','receipt_manager_bulk_upsert','receipt_manager_classification_options',
+  'receipt_manager_classify','receipt_manager_delete','receipt_manager_import','receipt_manager_link',
+  'receipt_manager_read','receipt_manager_update','result_details','save_as','table_add','table_add_rows',
+  'table_delete','table_read','table_update','tracked_set_value','tree_scroll','tree_top','vast_mapping_options',
+  'vast_mapping_select','vast_row_details','vast_row_set_expanded'
+)
+# Shell-Oberflaechen, deren Eingabewarteschlange keine Kopplung zulaesst.
+$script:SSE_SHELL_SURFACE_PROCESSES = @('ShellExperienceHost','StartMenuExperienceHost','SearchHost','SearchApp')
+
+# Vor dem Auftrag, bevor irgendein Pfad eine Eingabe-Epoche festhaelt: Haelt
+# eine Shell-Oberflaeche den Vordergrund, holt ihn eine Operation, die ihn
+# ohnehin braucht, sofort ueber die eigene Eingabe. Danach sehen alle
+# Eingabewaechter - auch die, die ihre Epoche roh vergleichen oder an eine
+# spaetere Phase weitergeben - nur die Epoche NACH dieser Eingabe, und die
+# Lease merkt sich das eigene Fenster statt der Shell-Oberflaeche als vorigen
+# Vordergrund. Reine Leser holen den Vordergrund nie. Ist das Ziel nicht
+# eindeutig, geschieht nichts: Die Operation meldet ihren Bindungsfehler selbst.
+function Initialize-SSEForegroundReachability([string]$Operation, $Arguments) {
+  if ($script:DESKTOP_NAME -or $script:SSE_FOREGROUND_CAPABLE_OPERATIONS -cnotcontains $Operation) { return }
+  if ($Operation -ceq 'table_read' -and $null -eq (Arg $Arguments '__tableCursorPlan') -and
+      ((Arg $Arguments 'noKeys' $false) -ne $false -or [string](Arg $Arguments 'readMode') -ceq 'grid')) { return }
+  $foreground = [SW]::GetForegroundWindow()
+  if ($foreground -eq [IntPtr]::Zero -or (Get-SSEWindowClassName $foreground) -cne 'Windows.UI.Core.CoreWindow') { return }
+  $foregroundPid = 0
+  [SW]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+  $foregroundName = ''
+  if ($foregroundPid -gt 0) {
+    try { $foregroundName = [string](Get-Process -Id $foregroundPid -ErrorAction Stop).ProcessName } catch { }
+  }
+  if ($script:SSE_SHELL_SURFACE_PROCESSES -cnotcontains $foregroundName) { return }
+  $windows = @(Get-Windows 'SSE')
+  $requestedHwnd = Arg $Arguments 'hwnd'
+  $requestedPid = Arg $Arguments 'pid'
+  $targets = @(if ($requestedHwnd) {
+    $windows | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd }
+  } else {
+    Get-SSEMainWindowCandidates $windows | Where-Object { -not $requestedPid -or [int]$_.pid -eq [int]$requestedPid }
+  })
+  if ($targets.Count -ne 1 -or $targets[0].minimiert -or $targets[0].hung) { return }
+  $null = Enter-SSEForegroundInputSink ([IntPtr][int64]$targets[0].hwnd) $foreground
 }
 
 function Enter-SSEForegroundLease([IntPtr]$Hwnd, [switch]$ObserveOnly, $ExpectedInputTick = $null) {
@@ -5418,6 +5538,10 @@ function Exit-SSEForegroundLease {
     # A rejected delegate must not be committed indirectly by restoring the
     # caller. Revoke this lease and remove TOPMOST without changing focus.
     $lease.restoreSkippedReason = $PreserveForegroundReason
+  } elseif ($lease.unattachableForeground -and @($lease.unattachableForeground) -contains [int64]$previous) {
+    # Von dort liesse sich der Vordergrund nicht wieder holen; die Rueckgabe
+    # wuerde die naechste Aktivierung dieses und jedes folgenden Auftrags sperren.
+    $lease.restoreSkippedReason = 'previous-window-refused-input-attachment'
   } elseif (-not $inputUnchanged) {
     $lease.restoreSkippedReason = 'input-changed'
   } elseif ($previous -eq [IntPtr]::Zero -or -not [SW]::IsWindow($previous)) {
@@ -5937,6 +6061,27 @@ function Get-SSEMainContentTree {
   } catch { return $null }
 }
 
+function Test-SSEMainContentBinding($Before,$After) {
+  if (-not $Before -or -not $After -or @($Before.rect).Count -ne 4 -or @($After.rect).Count -ne 4) { return $false }
+  foreach ($key in @('hwnd','pid','windowRid','windowAid','rid','aid','type')) {
+    if ($Before.$key -cne $After.$key) { return $false }
+  }
+  for ($edge=0; $edge -lt 4; $edge++) {
+    if ($Before.rect[$edge] -ne $After.rect[$edge]) { return $false }
+  }
+  $true
+}
+
+function Test-SSESnapshotHasOnlyWalkErrors($Stats) {
+  if (-not $Stats -or $Stats.truncated -isnot [bool] -or $Stats.truncated -or
+      $Stats.depthLimited -isnot [bool] -or $Stats.depthLimited -or
+      ($Stats.err -isnot [int] -and $Stats.err -isnot [long]) -or $Stats.err -le 0) { return $false }
+  foreach ($key in @('cyc','valErr','scrollErr')) {
+    if (($Stats.$key -isnot [int] -and $Stats.$key -isnot [long]) -or $Stats.$key -ne 0) { return $false }
+  }
+  $true
+}
+
 function Test-SSEUstvaTreeComplete($Tree) {
   if (-not $Tree -or -not $Tree.stats -or -not @($Tree.nodes).Count) { return $false }
   $stats=$Tree.stats
@@ -5978,6 +6123,19 @@ function Get-SSEUstvaDialogState([int]$ProcessId) {
   @($inventory | Where-Object {$_.kind -in @('native-dialog','qt-dialog')})
 }
 
+function Test-SSEUstvaHeadingBinding([IntPtr]$Hwnd, $Element, $Heading, $Header, $WindowBinding) {
+  if (-not (Test-SSEElementIdentity $Element $Heading.rid $Heading.aid $Heading.name) -or
+      -not (Test-SSEElementVisible $Element)) { return $false }
+  $current = $Element.Current
+  if ($current.ControlType.ProgrammaticName -cne 'ControlType.Text' -or
+      [int]$current.ProcessId -ne [int]$WindowBinding.processId -or
+      [string]$current.AutomationId -cne [string]$Heading.aid) { return $false }
+  $parent = $script:WLK.GetParent($Element)
+  [bool]((Test-SSEElementIdentity $parent $Header.rid $Header.aid) -and
+    (Test-SSEElementVisible $parent) -and
+    (Test-SSEMainContentAncestry $Hwnd $parent $WindowBinding))
+}
+
 # This producer is private to UStVA composition. Public page remains a whole-window read.
 function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
   function Incomplete-Ustva([string]$Reason) {
@@ -5988,6 +6146,13 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
       dialogs=@($Dialogs | ForEach-Object {[pscustomobject]@{
         hwnd=$_.hwnd;title=$_.title;fingerprint=$_.fingerprint;buttons=$_.buttons;unsupportedButtons=$_.unsupportedButtons
       }})}
+  }
+  function Test-UstvaLibraryRoot($Before,$After) {
+    if (-not $Before -or -not $After) { return $false }
+    foreach ($key in @('rid','aid','type','on','x','y','w','h')) {
+      if ($Before.$key -cne $After.$key) { return $false }
+    }
+    $true
   }
   try {
     $budget=New-SSEUstvaReadBudget $Arguments
@@ -6006,34 +6171,49 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
       return (Incomplete-Ustva 'Die UStVA-Fensterbindung ist nicht belegt; keine Werte ausgegeben.')
     }
     $windowBinding=[pscustomobject]@{aid=$binding.windowAid;rid=$binding.windowRid;processId=$binding.pid}
-    $headingNode=Get-SSEContainerChild $form.nodes (Get-SSEMainWindowSelectors).heading 'Text'
-    if (-not $headingNode -or -not $headingNode.rid -or -not $headingNode.aid -or -not $headingNode.name) {
+    $header=Find-SSEContainerNode $form.nodes (Get-SSEMainWindowSelectors).heading 'Group'
+    if (-not $header -or -not $header.rid -or $null -eq $header.i) {
       return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist nicht eindeutig gebunden; keine Werte ausgegeben.')
     }
+    # The header is named in both engines. Its Text leaf can lack an AutomationId.
+    $headings=@($form.nodes | Where-Object {$_.p -eq $header.i -and $_.type -ceq 'Text' -and $_.name})
+    if ($headings.Count -ne 1 -or -not $headings[0].rid) {
+      return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist nicht eindeutig gebunden; keine Werte ausgegeben.')
+    }
+    $headingNode=$headings[0]
     # Keep the exact live leaf before a second snapshot can replace the element cache.
     if (-not $script:UIAElementCache.ContainsKey([string]$headingNode.rid)) {
       return (Incomplete-Ustva 'Die frische UStVA-Ueberschrift fehlt im Elementcache; keine Werte ausgegeben.')
     }
     $headingElement=$script:UIAElementCache[[string]$headingNode.rid]
-    if (-not (Test-SSEElementIdentity $headingElement $headingNode.rid $headingNode.aid $headingNode.name)) {
+    if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
       return (Incomplete-Ustva 'Die UStVA-Ueberschrift ist veraltet; keine Werte ausgegeben.')
     }
     $null=Get-SSEUstvaReadRemaining $budget
-    $libraryElement=Find-ExactAutomationElement $Hwnd '.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE' -VisibleOnly
+    $libraryAid='.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE'
+    $libraryElement=Find-ExactAutomationElement $Hwnd $libraryAid -VisibleOnly
     $libraryBefore=Convert-ExactElementToNode $libraryElement
     if(-not $libraryBefore -or -not $libraryBefore.on -or $libraryBefore.w -le 0 -or $libraryBefore.h -le 0){
       return (Incomplete-Ustva 'Der UStVA-Prueferbereich ist nicht sicher lesbar. Hilfespalte einblenden und erneut lesen.')
     }
-    $libraryTimeout=[Math]::Min(5,(Get-SSEUstvaReadRemaining $budget))
-    try {
-      $library=Read-SSESearchRegion $Hwnd '.centralWidget.SearchSplitter.TopLevelHSplitter.LibraryFrameSSE' $windowBinding -TimeoutSec $libraryTimeout
-    } catch {
-      return (Incomplete-Ustva 'Die Bindung der UStVA-Hinweisspalte ist nicht vollstaendig bestaetigt; keine Werte ausgegeben.')
-    }
     $windowKey=[string]$binding.windowRid+'|'+[string]$binding.pid+'|'+[string][int64]$Hwnd
-    if (-not $libraryBefore -or $libraryBefore.rid -cne $library.root.rid -or
-        $library.windowKey -cne $windowKey -or -not (Test-SSEUstvaTreeComplete $library.tree)) {
-      return (Incomplete-Ustva 'Der gebundene UStVA-Prueferbereich ist unvollstaendig; keine Werte ausgegeben.')
+    for ($attempt=0; $attempt -le 2; $attempt++) {
+      $libraryTimeout=[Math]::Min(5,(Get-SSEUstvaReadRemaining $budget))
+      try {
+        $library=Read-SSESearchRegion $Hwnd $libraryAid $windowBinding -TimeoutSec $libraryTimeout
+      } catch {
+        return (Incomplete-Ustva 'Die Bindung der UStVA-Hinweisspalte ist nicht vollstaendig bestaetigt; keine Werte ausgegeben.')
+      }
+      if ($library.windowKey -cne $windowKey -or -not (Test-UstvaLibraryRoot $libraryBefore $library.root)) {
+        return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte seine Bindung; keine Werte ausgegeben.')
+      }
+      if (Test-SSEUstvaTreeComplete $library.tree) { break }
+      if ($attempt -eq 2 -or -not (Test-SSESnapshotHasOnlyWalkErrors $library.tree.stats)) {
+        return (Incomplete-Ustva 'Der gebundene UStVA-Prueferbereich ist unvollstaendig; keine Werte ausgegeben.')
+      }
+      if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
+        return (Incomplete-Ustva 'Die UStVA-Seite aenderte sich zwischen Formular- und Prueferlesung; keine Werte ausgegeben.')
+      }
     }
     $bounds=$form.contentBounds
     if (-not $bounds -or $bounds.maxX -le $bounds.minX -or $library.root.x -lt $bounds.maxX) {
@@ -6080,12 +6260,10 @@ function Read-SSEUstvaPage([IntPtr]$Hwnd,$Arguments) {
         -not (Test-SSEMainContentAncestry $Hwnd $libraryElement $windowBinding)) {
       return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte seine Bindung; keine Werte ausgegeben.')
     }
-    foreach($key in @('rid','aid','type','on','x','y','w','h')){
-      if($libraryAfter.$key -cne $library.root.$key){return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte sich; keine Werte ausgegeben.')}
+    if (-not (Test-UstvaLibraryRoot $library.root $libraryAfter)) {
+      return (Incomplete-Ustva 'Der UStVA-Prueferbereich aenderte sich; keine Werte ausgegeben.')
     }
-    if (-not (Test-SSEElementIdentity $headingElement $headingNode.rid $headingNode.aid $headingNode.name) -or
-        -not (Test-SSEElementVisible $headingElement) -or
-        -not (Test-SSEMainContentAncestry $Hwnd $headingElement $windowBinding)) {
+    if (-not (Test-SSEUstvaHeadingBinding $Hwnd $headingElement $headingNode $header $windowBinding)) {
       return (Incomplete-Ustva 'Die UStVA-Seite aenderte sich zwischen Formular- und Prueferlesung; keine Werte ausgegeben.')
     }
     $null=Get-SSEUstvaReadRemaining $budget
@@ -6978,7 +7156,7 @@ function Convert-SSEComparableNumber($Value) {
 # Snapshot gelesen werden. Das spart gegenueber drei getrennten MCP-Aufrufen
 # mehrere Workerstarts und vermeidet gemischte Vorher-/Nachher-Zustaende.
 function Read-ResultDetailsFromTree {
-  param($Tree)
+  param($Tree, $ModelRows = $null)
   # Ueber den Tabellen-Container binden, nie ueber die Ids der Zellen:
   # Engine 30 laesst sowohl das Zwischenstueck 'WerteInfo' als auch die
   # AutomationIds der Zellen und Kopfzeilen weg. Das Endstueck des
@@ -6995,9 +7173,10 @@ function Read-ResultDetailsFromTree {
   $tabelle = Find-SSEContainerNode $Tree.nodes $wertetabelle 'Table'
   $scrollIncomplete = [bool]($tabelle -and $null -ne $tabelle.scroll -and $tabelle.scroll.vScrollable -and
     [double]$tabelle.scroll.vView -lt 99.999)
+  if ($null -ne $ModelRows) { $scrollIncomplete = $false; $unpositioned = @() }
   # Der Tabellen-Container ist selbst der Beleg, dass die Werte-Info offen ist.
   $windowOpen = [bool]$tabelle
-  if (-not $data.Count) {
+  if (-not $data.Count -and -not @($ModelRows | Where-Object { $null -ne $_ }).Count) {
     return [pscustomobject]@{
       verfuegbar = $false; fensterOffen = [bool]$windowOpen; anzahl = 0
       vollstaendig = $false; zeilen = @(); unvollstaendigeZeilen = @()
@@ -7018,17 +7197,28 @@ function Read-ResultDetailsFromTree {
   $malformed = New-Object System.Collections.ArrayList
   $invariantErrors = New-Object System.Collections.ArrayList
   $invariantChecked = 0
-  foreach ($group in @($data | Group-Object y | Sort-Object { [int]$_.Name })) {
-    $cells = @($group.Group | Sort-Object x)
+  $rowValues = $ModelRows
+  if ($null -eq $rowValues) {
+    $rowValues = @(foreach ($group in @($data | Group-Object y | Sort-Object { [int]$_.Name })) {
+      $cells = @($group.Group | Sort-Object x | ForEach-Object { [string]$_.name })
+      if ($cells.Count -ne 4) {
+        $null = $malformed.Add([pscustomobject]@{ y=[int]$group.Name; cells=$cells })
+      } else {
+        [pscustomobject]@{ cells=$cells }
+      }
+    })
+  }
+  foreach ($values in $rowValues) {
+    $cells = $values.cells
     if ($cells.Count -ne 4) {
-      $null = $malformed.Add([pscustomobject]@{ y=[int]$group.Name; cells=@($cells | ForEach-Object { $_.name }) })
+      $null = $malformed.Add([pscustomobject]@{ y=$null; cells=@($cells) })
       continue
     }
     $row = [pscustomobject]@{
-      beobachteterWert = [string]$cells[0].name
-      aktuell = [string]$cells[1].name
-      festgehalten = [string]$cells[2].name
-      differenz = [string]$cells[3].name
+      beobachteterWert = [string]$cells[0]
+      aktuell = [string]$cells[1]
+      festgehalten = [string]$cells[2]
+      differenz = [string]$cells[3]
     }
     $null = $rows.Add($row)
     $actual = Convert-SSEComparableNumber $row.aktuell
@@ -7046,7 +7236,8 @@ function Read-ResultDetailsFromTree {
   }
   $complete = [bool]($rows.Count -gt 0 -and -not $malformed.Count -and
     -not $unpositioned.Count -and $headers.Count -eq 4 -and -not $scrollIncomplete -and
-    -not $invariantErrors.Count -and -not $Tree.stats.truncated -and -not $Tree.stats.cyc)
+    -not $invariantErrors.Count -and -not $Tree.stats.truncated -and -not $Tree.stats.cyc -and
+    -not $Tree.stats.err -and -not $Tree.stats.depthLimited -and -not $Tree.stats.valErr -and -not $Tree.stats.scrollErr)
   $fingerprintBody = @($rows | ForEach-Object {
     [pscustomobject]@{
       beobachteterWert=$_.beobachteterWert; aktuell=$_.aktuell
@@ -7064,6 +7255,68 @@ function Read-ResultDetailsFromTree {
     vertikalUnvollstaendig = $scrollIncomplete
     fingerprint = $(if ($rows.Count) { Get-SSETextSha256 $fingerprintBody } else { $null })
     hinweis = 'Aktuell ist der gegenwaertige Wert; festgehalten ist der Vergleichsstand; Differenz ist die Wirkung gegen diesen Stand.'
+  }
+}
+
+function Read-SSEValueInfoResult($Window, $Tree) {
+  $result = Read-ResultDetailsFromTree $Tree
+  $hwnd = [IntPtr][int64]$Window.hwnd
+  $table = Find-SSEContainerNode $Tree.nodes 'obj_Wertetabelle' 'Table'
+  try {
+    if (-not $table.rid -or -not (Test-SSEDialogWindowCurrent $Window ([int]$Window.pid))) { throw 'Stale values-info table.' }
+    $element = Get-LiveElement $hwnd $table.rid $table.aid
+    if (-not (Test-SSEElementIdentity $element $table.rid $table.aid) -or
+        [int]$element.Current.ProcessId -ne [int]$Window.pid) { throw 'Unbound values-info table.' }
+    $grid = $element.GetCurrentPattern([Windows.Automation.GridPattern]::Pattern)
+    $rowCount = [int]$grid.Current.RowCount
+    $columnCount = [int]$grid.Current.ColumnCount
+    if ($rowCount -lt 1 -or $rowCount -gt 1000 -or $columnCount -lt 4) { throw 'Unproven values-info dimensions.' }
+    if ($result.vollstaendig -and $rowCount -eq $result.anzahl) { return $result }
+    $result.vertikalUnvollstaendig = $result.vertikalUnvollstaendig -or $rowCount -gt $result.anzahl
+    $visibleCells = @(Get-SSEContainerDescendants $Tree.nodes 'obj_Wertetabelle' 'DataItem' 'Table' |
+      Where-Object { $_.w -gt 0 -and $_.h -gt 0 } | Group-Object y |
+      Where-Object Count -EQ 4 | Select-Object -First 1 -ExpandProperty Group | Sort-Object x)
+    if ($visibleCells.Count -ne 4) { throw 'Unproven values-info columns.' }
+    $visibleRow = $null
+    $columns = @(foreach ($cell in $visibleCells) {
+      $live = Get-LiveElement $hwnd $cell.rid
+      if (-not (Test-SSEElementIdentity $live $cell.rid $cell.aid $cell.name) -or
+          [int]$live.Current.ProcessId -ne [int]$Window.pid) { throw 'A visible values-info cell changed.' }
+      $item = $live.GetCurrentPattern([Windows.Automation.GridItemPattern]::Pattern).Current
+      if ($null -eq $visibleRow) { $visibleRow = $item.Row }
+      if ($item.Row -ne $visibleRow -or $item.Column -lt 0 -or $item.Column -ge $columnCount -or
+          ($item.ContainingGrid.GetRuntimeId() -join '.') -cne $table.rid) { throw 'Unbound values-info columns.' }
+      $item.Column
+    })
+    if (@($columns | Select-Object -Unique).Count -ne 4) { throw 'Ambiguous values-info columns.' }
+    $seen = New-Object 'Collections.Generic.HashSet[string]'
+    $budget = [Diagnostics.Stopwatch]::StartNew()
+    $rows = @(for ($row = 0; $row -lt $rowCount; $row++) {
+      if ($budget.ElapsedMilliseconds -ge 8000) { throw 'Values-info grid read timed out.' }
+      $cells = @(foreach ($column in $columns) {
+        $live = $grid.GetItem($row, $column)
+        $item = $live.GetCurrentPattern([Windows.Automation.GridItemPattern]::Pattern).Current
+        $rid = $live.GetRuntimeId() -join '.'
+        $name = $live.Current.Name
+        if (-not $rid -or -not $seen.Add($rid) -or [int]$live.Current.ProcessId -ne [int]$Window.pid -or
+            ($item.ContainingGrid.GetRuntimeId() -join '.') -cne $table.rid -or $item.Row -ne $row -or
+            $item.Column -ne $column -or $item.RowSpan -ne 1 -or $item.ColumnSpan -ne 1 -or $name -isnot [string]) {
+          throw 'Unbound values-info model cell.'
+        }
+        ($name -replace "`r|`n|`t", ' ').Trim()
+      })
+      [pscustomobject]@{ cells=$cells }
+    })
+    if ($grid.Current.RowCount -ne $rowCount -or $grid.Current.ColumnCount -ne $columnCount -or
+        -not (Test-SSEElementIdentity $element $table.rid $table.aid) -or
+        -not (Test-SSEDialogWindowCurrent $Window ([int]$Window.pid))) { throw 'The values-info model changed.' }
+    for ($i = 0; $i -lt $visibleCells.Count; $i++) {
+      if ($rows[$visibleRow].cells[$i] -cne [string]$visibleCells[$i].name) { throw 'The values-info model disagrees with the snapshot.' }
+    }
+    return (Read-ResultDetailsFromTree $Tree $rows)
+  } catch {
+    $result.vollstaendig = $false
+    $result
   }
 }
 
@@ -7258,6 +7511,35 @@ function Assert-SSEFullReadRange($Baseline, $Current, [double]$ExpectedValue) {
     if ($key -ceq 'body' -and $property -ceq 'y') { continue }
     if ($Current.rects[$key].$property -cne $Baseline.rects[$key].$property) { throw 'Full-read layout changed.' }
   } }
+}
+
+function Get-SSEPageReadSnapshot {
+  param([IntPtr]$Hwnd, [switch]$WithValues, [switch]$LegacyScroll, $RangeBinding, $Stage)
+  $tree = Get-SSEMainContentTree $Hwnd 5000 45 40 -WithValues:$WithValues -WithScroll:(-not $WithValues)
+  if (-not $tree -or $LegacyScroll) { return $tree }
+
+  # Bei einem Providerfehler den unveraenderten Ausschnitt begrenzt neu lesen.
+  # Keine Knoten aus unvollstaendigen Beobachtungen zusammenfuehren.
+  $origin = $tree.contentBinding
+  $heading = $null
+  for ($attempt=0; $attempt -lt 2; $attempt++) {
+    if (-not (Test-SSESnapshotHasOnlyWalkErrors $tree.stats)) { break }
+    if ($attempt -eq 0) {
+      $heading = [string](Get-SSEHeading $tree).text
+      if (-not $heading) { break }
+    }
+    $tree = Get-SSEMainContentTree $Hwnd 5000 5 40 -WithValues:$WithValues -WithScroll:(-not $WithValues)
+    if (-not (Test-SSEMainContentBinding $origin $tree.contentBinding) -or
+        [string](Get-SSEHeading $tree).text -cne $heading) { return $null }
+  }
+  if ($attempt -gt 0 -and $RangeBinding) {
+    try {
+      $fresh = Read-SSEPageRangeState $RangeBinding
+      Assert-SSEFullReadRange $Stage $fresh $Stage.value
+      if ($fresh.rects.body.y -cne $Stage.rects.body.y) { return $null }
+    } catch { return $null }
+  }
+  $tree
 }
 
 function Get-SSEFullReadFailureCode($Failure) {
@@ -7941,10 +8223,30 @@ function Get-SSELastInputTick {
   } catch { $null }
 }
 
+# Fuehrt eine Eingabe-Epoche ueber die eigenen Aktivierungseingaben dieses
+# Auftrags fort: genau ihre festgehaltenen Vorher-/Nachher-Paare, in zeitlicher
+# Reihenfolge, sonst nichts. Wer eine Epoche an eine spaetere Phase oder einen
+# anderen Prozess weitergibt, gibt diese fortgefuehrte Epoche weiter - dort
+# kennt niemand mehr die eigene Eingabe dieses Prozesses.
+function Resolve-SSEOwnedInputTick($Tick) {
+  if ($null -eq $Tick) { return $null }
+  $resolved = [uint64]$Tick
+  foreach ($ownInput in @($script:SSE_FOREGROUND_LEASE.ownActivationInputs)) {
+    if ($null -ne $ownInput -and [uint64]$ownInput.before -eq $resolved) { $resolved = [uint64]$ownInput.after }
+  }
+  $resolved
+}
+
 function Test-SSELastInputUnchanged($ExpectedTick) {
   if ($null -eq $ExpectedTick) { return $false }
   $current = Get-SSELastInputTick
-  [bool]($null -ne $current -and [uint64]$current -eq [uint64]$ExpectedTick)
+  if ($null -eq $current) { return $false }
+  if ([uint64]$current -eq [uint64]$ExpectedTick) { return $true }
+  # Die einzige weitere gueltige Epoche ist die eigene Aktivierungseingabe.
+  # Ohne Lease-Zustand gibt es keine; dann bleibt jede Abweichung ein Eingriff.
+  $resolved = $null
+  try { $resolved = Resolve-SSEOwnedInputTick $ExpectedTick } catch { }
+  [bool]($null -ne $resolved -and [uint64]$current -eq [uint64]$resolved)
 }
 
 function Get-SSEInputEpochEvidence($Baseline, $Observed, [string]$OwnActionContext) {
@@ -8524,7 +8826,9 @@ function Read-SSEPositionInventory($Tree, [string]$Heading,
       $Tree.stats.valErr -or $Tree.stats.depthLimited -or $AllowedHeadings -cnotcontains $Heading) {
     & $incomplete 'Die vollstaendig geladene Positionenuebersicht wird erwartet; aktuellen Seitenzustand frisch lesen.'
   }
-  $links = @($Tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.aid -clike '*.GuideViewer.*' })
+  $guideSuffix = '.ClientFrameSSE.GuideViewer'
+  $links = @(Get-SSEContainerDescendants $Tree.nodes $guideSuffix 'Hyperlink' 'Group')
+  $texts = @(Get-SSEContainerDescendants $Tree.nodes $guideSuffix 'Text' 'Group')
   $edits = @($links | Where-Object { $_.name -cmatch '^»(.*)« bearbeiten\z' } | ForEach-Object {
     [pscustomobject]@{ node=$_; label=($_.name -creplace '^»(.*)« bearbeiten\z', '$1') }
   })
@@ -8548,15 +8852,14 @@ function Read-SSEPositionInventory($Tree, [string]$Heading,
   }
   $rows = @($edits | ForEach-Object {
     $row = $_
-    $amounts = @($Tree.nodes | Where-Object {
-      $_.type -eq 'Text' -and $_.on -and $_.aid -clike '*.GuideViewer.*' -and
+    $amounts = @($texts | Where-Object {
+      $_.on -and
       [Math]::Abs($_.y - $row.node.y) -lt 10 -and $_.name -match '^-?(?:[0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+),[0-9]{2}\z'
     })
     if ($amounts.Count -ne 1) { & $incomplete 'Eine Positionssumme fehlt oder ist mehrdeutig; kein vollstaendiges Inventar.' }
     [pscustomobject]@{ name=[string]$row.label; net=[string]$amounts[0].name }
   })
-  $empty = @($Tree.nodes | Where-Object { $_.type -eq 'Text' -and $_.on -and
-    $_.aid -clike '*.GuideViewer.*' -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
+  $empty = @($texts | Where-Object { $_.on -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
   $caption = $(if ($rows.Count) { 'Weitere Position erfassen' } else { 'Position erfassen' })
   $commands = @($links | Where-Object { $_.on -and $_.name -cin @('Position erfassen','Weitere Position erfassen') })
   if ($empty.Count -ne $(if ($rows.Count) {0} else {1}) -or $commands.Count -ne 1 -or $commands[0].name -cne $caption) {
@@ -9191,16 +9494,6 @@ function Get-SSETableLiveInputState {
     [pscustomobject]@{ok=$true; editorClosed=$true; reason='exact-table-without-editor'; table=$table;
       focusedType=$focusedType; selectedCount=$selected.Count; selectedRids=@($selectedRids | Sort-Object);keyboardEvidence=$reject.keyboardEvidence}
   } catch { $reject.reason='live-table-provider-error';$reject }
-}
-
-function Test-SSEGridContentBinding {
-  param($Before,$After)
-  if(-not $Before -or -not $After -or @($Before.rect).Count -ne 4 -or @($After.rect).Count -ne 4){return $false}
-  foreach($key in @('hwnd','pid','windowRid','windowAid','rid','aid','type')) {
-    if($Before.$key -cne $After.$key){return $false}
-  }
-  for($edge=0;$edge -lt 4;$edge++){if($Before.rect[$edge] -ne $After.rect[$edge]){return $false}}
-  $true
 }
 
 function Get-SSEGridReadUncachedTable {
@@ -13002,7 +13295,7 @@ $buildDriftBlockedOps = @(
   'file_dialog_select', 'fill_fields', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
   'receipt_manager_action', 'receipt_manager_bulk_upsert', 'receipt_manager_classification_options', 'receipt_manager_classify',
   'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_link', 'receipt_manager_read', 'receipt_manager_update',
-  'table_add', 'table_delete', 'table_update', 'toggle',
+  'table_add', 'table_add_rows', 'table_delete', 'table_update', 'toggle',
   'tracked_set_value', 'ustva_change_value', 'ustva_open_section', 'ustva_select_period',
   'ustva_set_flag', 'vast_apply', 'vast_mapping_select',
   'vast_row_set_expanded'
@@ -13348,12 +13641,15 @@ function Test-SSEMenuPointBinding([IntPtr]$Popup, $Binding) {
         [SW]::GetAncestor($main,2) -ne $main -or [SW]::GetAncestor($Popup,2) -ne $Popup -or
         [SW]::GetForegroundWindow() -ne $main -or
         (Get-SSEWindowClassName $Popup) -notmatch '^Qt\d+QWindowPopupDropShadowSaveBits$') { return $false }
+    # Das vollstaendige Inventar bindet den Eintrag vor dem Hover. Pruefe hier
+    # das exakte Popup und dessen Produktprozess direkt, ohne alle Fenster
+    # fuer jeden einzelnen Hover-Punkt erneut zu beschreiben.
+    if (-not (Test-SSEProcess (Get-Process -Id $expectedPid -ErrorAction Stop))) { return $false }
     $mainPid = 0; $popupPid = 0
     $null = [SW]::GetWindowThreadProcessId($main,[ref]$mainPid)
     $null = [SW]::GetWindowThreadProcessId($Popup,[ref]$popupPid)
-    if ($mainPid -ne $expectedPid -or $popupPid -ne $expectedPid) { return $false }
-    $listed = @(Get-SSEMenuPopupWindows $expectedPid | Where-Object { [int64]$_.hwnd -eq [int64]$Popup })
-    [bool]($listed.Count -eq 1 -and [SW]::GetForegroundWindow() -eq $main)
+    [bool]($mainPid -eq $expectedPid -and $popupPid -eq $expectedPid -and
+      [SW]::IsWindowVisible($Popup) -and [SW]::GetForegroundWindow() -eq $main)
   } catch { $false }
 }
 
@@ -14685,7 +14981,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $window = $valueWindows[0]
     $hwnd = [IntPtr][int64]$window.hwnd
     $tree = Walk-Tree $hwnd 4000 80 20 -WithValues -WithScroll
-    $result = Read-ResultDetailsFromTree $tree
+    $result = Read-SSEValueInfoResult $window $tree
     Emit ([pscustomobject]@{
       ok = $true
       geoeffnet = $opened
@@ -17358,10 +17654,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $t = Walk-Tree $hwnd
     $cands = @(Resolve-Nodes $t $a)
     if (-not $cands.Count) { Fail "Element '$(if($nm){$nm}else{$aid})' nicht gefunden." 'not-found' }
+    # Das Vorzeichen einer Bildschirmkoordinate sagt nichts ueber Sichtbarkeit:
+    # Links oder oberhalb des Hauptmonitors sind alle Koordinaten negativ. Dass
+    # der Punkt zum gebundenen Fenster gehoert, beweist der verifizierte Klick.
     $physicalTargets = @($cands | Where-Object {
       $safeDetailLink = $_.type -eq 'Hyperlink' -and $_.name -match '(?i)(erfassen|bearbeiten)$'
       ($_.type -eq 'TreeItem' -or $safeDetailLink) -and
-        $_.w -gt 0 -and $_.h -gt 0 -and $_.x -ge 0
+        $_.w -gt 0 -and $_.h -gt 0
     })
     if (-not $physicalTargets.Count) {
       Fail ('Physische MCP-Klicks sind nur fuer TreeItems des Navigations-/Prueferbaums und eng benannte ' +
@@ -20131,8 +20430,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     if ($was -ne 'list') { Fail "Unbekannte aktion '$was' (erlaubt: list)" 'bad-args' }
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
+    if (-not (Test-Canary $hwnd).ok) { Fail 'Positionsfenster antwortet nicht innerhalb der Lesefrist.' 'position-inventory-incomplete' }
     $t = Walk-Tree $hwnd -WithValues
-    try { $inventory = Read-SSEPositionInventory $t (Get-CurrentHeading $hwnd $t) }
+    $heading = Get-CurrentHeading $hwnd $t
+    # Each attempt needs its own complete observation of the same overview.
+    for ($read = 0; $read -lt 2 -and $heading -and $t.stats.err -gt 0 -and -not $t.stats.truncated; $read++) {
+      $fresh = Walk-Tree $hwnd 4000 5 -WithValues
+      if ((Get-CurrentHeading $hwnd $fresh) -cne $heading) {
+        Fail 'Positionsseite hat sich zwischen den Leseversuchen geaendert.' 'position-inventory-incomplete'
+      }
+      $t = $fresh
+    }
+    try { $inventory = Read-SSEPositionInventory $t $heading }
     catch {
       if ($_.Exception.Data['kind'] -ne 'position-inventory-incomplete') { throw }
       Fail $_.Exception.Message 'position-inventory-incomplete'
@@ -21020,7 +21329,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($mode -cnotin @('info','percent','amount')) { Fail 'Unbekannter Seiten-Rollmodus.' 'bad-args' }
     # Nur das exakt gebundene Formular bestimmt seinen Rollbereich. Ein
     # Zyklus in Navigation oder Tippsfenstern ist kein Formularbefund.
-    $t = Get-SSEMainContentTree $hwnd -MaxNodes 5000 -TimeoutSec 45 -MaxDepth 40 -WithScroll
+    $t = Get-SSEPageReadSnapshot $hwnd
     if (-not $t) { Fail 'Seitenformular ist nicht frisch und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
     try { $rangeBinding = Get-SSEPageRangeBinding $hwnd $t }
     catch { Fail 'Seiten-Rollbereich ist nicht vollstaendig und eindeutig gebunden; nichts gerollt.' 'scroll-state-unknown' }
@@ -21066,11 +21375,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Qt haelt nur den sichtbaren Ausschnitt im Elementbaum; eine lange Seite
     # einmal zu lesen liefert also stillschweigend zu wenig.
     $hwnd = Resolve-Window $a
-    $pageScrollTree = Get-SSEMainContentTree $hwnd 5000 45 40 -WithScroll
+    $pageScrollTree = Get-SSEPageReadSnapshot $hwnd
     if (-not $pageScrollTree) { Fail 'Vollstaendiger Seitenread braucht einen frisch gebundenen Formularbereich; nichts gerollt.' 'scroll-state-unknown' }
     try { $pageRangeBinding = Get-SSEPageRangeBinding $hwnd $pageScrollTree }
     catch { Fail 'Vollstaendiger Seitenread braucht einen frischen eindeutigen Rollbereich.' 'scroll-state-unknown' }
     $rangeInitial = $null
+    $fullRangePrevious = $null
+    $legacyScroll = $null
     if ($pageRangeBinding) {
       try {
         $fullRangeBaseline = Read-SSEPageRangeState $pageRangeBinding
@@ -21083,13 +21394,19 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Assert-SSEFullReadRange $fullRangeBaseline $fullRangePrevious 0
         if ($fullRangePrevious.rects.body.y -lt $fullRangePrevious.rects.viewport.y) { throw 'Full-read top is clipped.' }
       } catch { Fail 'Seitenanfang und unveraenderter Lesebereich sind nicht bestaetigt.' 'incomplete' }
+    } else {
+      $b0 = Get-ContentBounds $pageScrollTree $hwnd
+      $legacyScroll = @($pageScrollTree.nodes | Where-Object {
+        $null -ne $_.scroll -and $_.scroll.vScrollable -and $_.x -ge ($b0.minX - 60) -and $_.x -le $b0.maxX
+      } | Sort-Object { -($_.w * $_.h) })[0]
     }
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
     $ueberschrift = $null
 
     $lies = {
-      $t = Get-SSEMainContentTree $hwnd 5000 45 40 -WithValues
+      $t = Get-SSEPageReadSnapshot $hwnd -WithValues -LegacyScroll:([bool]$legacyScroll) `
+        -RangeBinding $pageRangeBinding -Stage $fullRangePrevious
       if (-not $t) { Fail 'Der Formularbereich ist nicht mehr eindeutig gebunden; keinen Vollstaendigkeitsnachweis ausgeben.' 'incomplete' }
       if (-not $t.stats -or $t.stats.truncated -isnot [bool] -or $t.stats.depthLimited -isnot [bool] -or
           $t.stats.truncated -or $t.stats.depthLimited -or
@@ -21194,12 +21511,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($fullRangeFinal.rects.body.y -lt $fullRangeFinal.rects.viewport.y) { throw 'Final full-read top is clipped.' }
       } catch { Fail 'Unveraenderter vollstaendiger Seitenstand und Seitenanfang sind nicht frisch bestaetigt.' 'incomplete' }
     } else {
-      # Rollbereich suchen und in Stufen durchgehen
-      $t0 = $pageScrollTree
-      $b0 = Get-ContentBounds $t0 $hwnd
-      $roll = @($t0.nodes | Where-Object { $null -ne $_.scroll -and $_.scroll.vScrollable -and
-                                           $_.x -ge ($b0.minX - 60) -and $_.x -le $b0.maxX } |
-                Sort-Object { -($_.w * $_.h) })[0]
+      $roll = $legacyScroll
       $stufen = 0
       if ($roll) {
         foreach ($p in 20, 40, 60, 80, 100) {
@@ -22568,7 +22880,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if (-not $preparation.ok) { Emit $preparation }
     }
     $phaseInputBefore=$(if ($cursorPhase -or $gridRequested) {Get-SSELastInputTick} else {$null})
-    $gridForegroundBefore=$(if($gridRequested){[SW]::GetForegroundWindow()}else{$null})
     # Der Sichern-Schalter ist ein einzelnes Element mit stabiler AutomationId.
     # Ihn ueber einen vollstaendigen Baumlauf zu suchen kostete hier zweimal je
     # Aufruf einen kompletten Lauf; die gezielte Abfrage liefert denselben Wert
@@ -22767,7 +23078,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($erst.error) { Fail $erst.error 'precondition-failed' }
     if($gridRequested) {
       $inputBefore=$phaseInputBefore
-      $foregroundBefore=$gridForegroundBefore
       $windowsBefore=Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd
       if($null -eq $inputBefore -or $null -eq $dirtyBefore -or $erst.tabelleAnzahl -ne 1 -or
           -not $erst.navigationBinding.complete -or -not $erst.navigationBinding.editorFree -or -not $erst.tableRoot -or
@@ -22779,10 +23089,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           [bool]$erst.navigationBinding.complete,[bool]$erst.navigationBinding.editorFree,[bool]$erst.tableRoot,
           @($windowsBefore.windows | Where-Object {$_.role -ne 'main'}).Count,[string]$erst.editorStateReason) 'precondition-failed'
       }
-      $gridGuard={
-        (Test-SSELastInputUnchanged $inputBefore) -and [SW]::IsWindow($hwnd) -and
-        [SW]::GetForegroundWindow() -eq $foregroundBefore
-      }.GetNewClosure()
+      # Eine Lesung sendet keine Eingabe. Was der Mensch waehrenddessen tippt und
+      # welches Fenster vorn liegt, sagt nichts ueber ihre Gueltigkeit: Belegt
+      # wird sie durch zwei gleiche Beobachtungen und die Bindungen danach.
+      $gridGuard={ [bool][SW]::IsWindow($hwnd) }.GetNewClosure()
       try {
         $gridWatch=[Diagnostics.Stopwatch]::StartNew()
         $gridContentBefore=$latestTableSnapshot.tree.contentBinding
@@ -22817,11 +23127,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $after=LiesZeilen $hwnd
         if(-not (& $gridGuard) -or -not $after.navigationBinding.editorFree -or
-            -not (Test-SSEGridContentBinding $gridContentBefore $latestTableSnapshot.tree.contentBinding) -or
+            -not (Test-SSEMainContentBinding $gridContentBefore $latestTableSnapshot.tree.contentBinding) -or
             -not (Test-SSETableReadSnapshotBinding $erst $after -BeforeNavigation) -or
             (Get-DirtyStateFast $hwnd) -ne $dirtyBefore -or
             (Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -cne $windowsBefore.fingerprint) {
-          throw 'Window, table, summary or input binding changed during the Grid read.'
+          throw 'Window, table or summary binding changed during the Grid read.'
         }
         $projected | Add-Member NoteProperty ok $true
         $projected | Add-Member NoteProperty backend 'uia'
@@ -22848,7 +23158,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       param($Snapshot,$InputEpoch)
       $clientOrigin=@([SW]::GetPhysicalClientOrigin($hwnd))
       if ($clientOrigin.Count -ne 2) { Fail 'Physischer HWND-Clientursprung konnte nicht gebunden werden.' 'precondition-failed' }
-      [pscustomobject]@{hwnd=[int64]$hwnd;pid=[int]$main.pid;inputEpoch=$InputEpoch;dirty=[bool]$dirtyBefore;
+      [pscustomobject]@{hwnd=[int64]$hwnd;pid=[int]$main.pid;inputEpoch=(Resolve-SSEOwnedInputTick $InputEpoch);dirty=[bool]$dirtyBefore;
         windowTitle=Get-SSEWindowTitleText $hwnd;
         clientOrigin=$clientOrigin;
         dpi=[int][SW]::GetDpiForWindow($hwnd);windowFingerprint=(Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint;
@@ -24692,6 +25002,76 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     })
   }
 
+  'table_add_rows' {
+    $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
+    $expectedPage = [string](Arg $a 'expectedPage')
+    $sumLabel = [string](Arg $a 'sumLabel')
+    $expectedBefore = [string](Arg $a 'expectedBefore')
+    if (-not $expectedPage -or -not $sumLabel -or -not $expectedBefore) {
+      Fail 'expectedPage, sumLabel und expectedBefore sind Pflicht.' 'bad-args'
+    }
+    $rows = @(Get-SSEBoundedArrayArg $a 'zeilen' 1 50)
+    foreach ($row in $rows) {
+      if (-not (Test-SSEExactProperties $row @('werte')) -or @($row.werte).Count -gt 100 -or
+          -not @(@($row.werte) | Where-Object { [string]$_ }).Count) {
+        Fail "Jede Zeile braucht genau 'werte' mit mindestens einem zu schreibenden Wert und hoechstens 100 Spalten." 'bad-args'
+      }
+    }
+    if ($script:DESKTOP_NAME) {
+      Fail ('Die Mehrzeilenanlage ist nur fuer den sichtbaren Desktop belegt. ' +
+            'Auf dem versteckten Desktop Zeilen einzeln mit sse_table_add anlegen.') 'hidden-desktop'
+    }
+    $targetPid = 0
+    [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
+    $dialogsBefore = @(Get-DialogInventory | Where-Object {
+      [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
+    })
+    if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Zeilenanlage nicht begonnen.' 'precondition-failed' }
+    function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 1, [string]$boundAid = '') {
+      $tree = Walk-BoundTree $window -WithValues
+      $read = Read-LabeledValueFromTree $tree $window $label $occurrence
+      $selected = $read.selected
+      if ($boundAid) {
+        $boundMatches=@($read.candidates | Where-Object {[string]$_.aid -ceq $boundAid})
+        $selected=$(if($boundMatches.Count -eq 1){$boundMatches[0]}else{$null})
+      }
+      [pscustomobject]@{
+        value=$(if ($selected) { [string]$selected.value } else { $null })
+        selected=$selected; tree=$tree; candidates=$read.candidates; occurrence=$occurrence
+      }
+    }
+    $appendProcess=[Diagnostics.Process]::GetProcessById($targetPid)
+    try {
+      $null=$appendProcess.Handle
+      $appended=Invoke-SSEUiaTableAppendRows $hwnd $targetPid $a $appendProcess
+      if ($appended.ok) {
+        Emit ([pscustomobject]@{
+          ok=$true; verified=$true; page=$expectedPage; expectedPage=$expectedPage
+          sumLabel=$sumLabel; sumBefore=$appended.sumBefore; sumAfter=$appended.sumAfter
+          requestedCount=$rows.Count; completedCount=[int]$appended.completed; zeilen=@($appended.rows)
+          mutationStarted=$true; outcomeUnknown=$false; resultingState=[string]$appended.resultingState
+          mutationPostProof=$appended.proof
+          checkerMessagesBefore=@($appended.checkerBefore); checkerMessagesAfter=@($appended.checkerAfter)
+          newCheckerMessages=@()
+          ungespeichertVorher=$appended.dirtyBefore; ungespeichertNachher=$appended.dirtyAfter
+          physicalInputAttempted=$false; physicalInputUsed=$false
+        })
+      }
+      Emit ([pscustomobject]@{
+        ok=$false; verified=$false; kind=[string]$appended.kind; error=[string]$appended.error; phase=[string]$appended.phase
+        page=$expectedPage; expectedPage=$expectedPage
+        sumLabel=$sumLabel; sumBefore=$appended.sumBefore; sumAfter=$appended.sumAfter
+        requestedCount=$rows.Count; completedCount=[int]$appended.completed; zeilen=@($appended.rows)
+        mutationStarted=[bool]$appended.mutationStarted; outcomeUnknown=[bool]$appended.outcomeUnknown
+        resultingState=[string]$appended.resultingState
+        reconciliationRequired=[bool]$appended.outcomeUnknown; retryable=[bool]$appended.retryable
+        checkerMessagesBefore=@($appended.checkerBefore)
+        rollback=$appended.rollback
+        ungespeichertVorher=$appended.dirtyBefore; ungespeichertNachher=$appended.dirtyAfter
+        physicalInputAttempted=$false; physicalInputUsed=$false
+      })
+    } finally {$appendProcess.Dispose()}
+  }
   'table_update' {
     # Sichtbare Tabellenzeile rein ueber ValuePattern aktualisieren. Seite,
     # Summenregion, Zielzeile und alle Zellen werden vorab gebunden. Eigene
@@ -25239,7 +25619,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       versteckterDesktop=[bool]$script:DESKTOP_NAME
     }
-    if ($mutationAuthority) {$mutationSuccess | Add-Member NoteProperty mutationPostProof ([pscustomobject]@{inputEpoch=$inputBaseline;dirty=[bool](Get-DirtyState $afterTree)})}
+    if ($mutationAuthority) {$mutationSuccess | Add-Member NoteProperty mutationPostProof ([pscustomobject]@{inputEpoch=(Resolve-SSEOwnedInputTick $inputBaseline);dirty=[bool](Get-DirtyState $afterTree)})}
     Emit $mutationSuccess
   }
 
@@ -25709,7 +26089,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         selectionCount=$selectionCount;selectionNames=$selectionNames;selectionYs=$selectionYs
         tableBinding=[pscustomobject]@{sumOccurrence=$sumOccurrence;sumY=$regionUpperY;previousSummaryY=$targetRegion.previousSummaryY;rowY=$zelle.y}
         searchSteps=$searchSteps
-        mutationPostProof=[pscustomobject]@{inputEpoch=$deleteInputBaseline;dirty=[bool](Get-DirtyStateFast $hwnd);nativeVerificationPending=$true}
+        mutationPostProof=[pscustomobject]@{inputEpoch=(Resolve-SSEOwnedInputTick $deleteInputBaseline);dirty=[bool](Get-DirtyStateFast $hwnd);nativeVerificationPending=$true}
       })
     }
     throw 'Native deletion did not return its complete-model verification handoff.'
@@ -28900,7 +29280,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       (-not $_.val -or -not "$($_.val)".Trim())
     } | ForEach-Object { [pscustomobject]@{ y=$_.y; aid=($_.aid -split '\.')[-1]; rid=$_.rid } })
     $dirty = Get-DirtyState $t
-    $ergebnis = Read-ResultDetailsFromTree $t
+    # Dieselbe Lesung wie sse_result_details: Liegen Ergebniszeilen ausserhalb
+    # des Fensterausschnitts, kommen sie aus dem gebundenen Tabellenmodell. Der
+    # Snapshot allein zeigt nur den sichtbaren Ausschnitt - ohne diesen Schritt
+    # meldeten beide Werkzeuge fuer dieselbe offene Werte-Info verschiedene
+    # Zeilen und verschiedene Fingerprints.
+    $werteInfoFenster = @($wins | Where-Object { $_.title -eq $script:WERTE_INFO_TITEL })
+    $ergebnis = $(
+      if ($werteInfoFenster.Count -eq 1) { Read-SSEValueInfoResult $werteInfoFenster[0] $t }
+      else { Read-ResultDetailsFromTree $t }
+    )
     $dialoge = @($fenster | Where-Object { $_.art -in @('dialog','warnung') })
     $warnungen = @($fenster | Where-Object { $_.art -eq 'warnung' })
     $unsicher = @($fenster | Where-Object { $_.art -in @('unbekannt','nicht-lesbar') })
@@ -29013,6 +29402,62 @@ if ($Prewarm) {
   $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
 }
 
+<#
+.SYNOPSIS
+Durchlaeuft den Auftragsrahmen einmal trocken, bevor der Reservearbeiter wartet.
+
+.DESCRIPTION
+Jeder Auftrag durchlaeuft um seine Operation herum dieselben Schritte:
+Argumentdatei pruefen und lesen, Argumente begrenzen, Prozesse und Fenster der
+Anwendung suchen, die Eingabe-Epoche lesen, die Vordergrund-Lease abschliessen
+und das Ergebnis schreiben. In einem frischen Prozess kostet jede dieser
+Anweisungen beim ersten Mal ein Vielfaches ihrer spaeteren Laufzeit, weil
+PowerShell Funktionen erst bei der ersten Ausfuehrung uebersetzt und ihre
+Aufrufstellen bindet. Der Reservearbeiter durchlaeuft den Rahmen deshalb
+einmal mit eigenen, bedeutungslosen Werten, solange niemand auf ihn wartet.
+
+Erlaubt ist hier nur, was nichts hinterlaesst und nichts beruehrt: keine
+UIA- oder MSAA-Abfrage (die Zusage "Reserve ohne UIA-Abfrage" gilt
+unveraendert), kein Sitzungsmutex, kein Schreiben, keine Eingabe, kein
+Fensterwechsel. Eine Vordergrund-Lease gibt es vor dem Auftrag nicht; ihr
+Abschluss kehrt deshalb an seiner ersten Pruefung zurueck.
+test/worker-prewarm-placement-contract.ps1 haelt die erlaubten Aufrufe fest.
+#>
+function Invoke-SSEJobFrameWarmup {
+  # Transport und Argumente. Die Argumentdatei gibt es nicht; ihre Pruefung
+  # laeuft trotzdem vollstaendig und endet in der eigenen Ablehnung.
+  try {
+    $null = Resolve-SSEWorkerArgsFile (Join-Path ([IO.Path]::GetTempPath()) ('sse-args-' + ('0' * 32) + '.json'))
+  } catch { }
+  $null = Read-SSEJsonFileStrict (Join-Path $script:SSE_PROFILE_DIR 'profile.json') 8MB
+  $frameArguments = '{"hwnd":1,"pid":1,"occurrence":1,"types":["warmup"]}' | ConvertFrom-Json
+  $null = Test-SSEPrivateTableTransport $frameArguments 'product_info' '' '' ''
+  $frameNodes = 0
+  Assert-SSEWorkerArgumentBudget $frameArguments 0 ([ref]$frameNodes)
+  $null = Get-SSEBoundedIntegerArg $frameArguments 'hwnd' 0 1 9007199254740991
+  $null = Get-SSEBoundedArrayArg $frameArguments 'types' 0 50
+
+  # Prozesse und Fenster: dieselbe lesende Suche, mit der fast jeder Auftrag
+  # beginnt - hier zusaetzlich fuer den eigenen Prozess, damit sie auch ohne
+  # laufende Anwendung vollstaendig durchlaufen wird.
+  $null = Get-SSEProcessIdentities
+  $null = Get-SSEProcessIdentity (Get-Process -Id $PID)
+  $null = ConvertTo-SSEWindowDescriptors ([SSEWindowEnumerator]::Describe([int[]]@($PID)))
+
+  # Eingabe-Epoche und Abschluss der hier nie erworbenen Vordergrund-Lease.
+  $frameTick = Get-SSELastInputTick
+  $null = Test-SSELastInputUnchanged $frameTick
+  $null = Get-SSEInputEpochEvidence $frameTick $frameTick 'job-frame-warmup'
+  Exit-SSEForegroundLease -Force -Reason 'job-frame-warmup'
+  $null = Get-SSEForegroundLeaseTelemetry
+
+  # Ergebnisausgang: dieselben Cmdlets wie in Emit, auf einem Wegwerfobjekt.
+  $frameResult = [pscustomobject]@{ ok=$true; rows=@([pscustomobject]@{ value=1 }) }
+  $frameResult | Add-Member -NotePropertyName ms -NotePropertyValue 0 -Force
+  $null = $frameResult | ConvertTo-Json -Depth 24 -Compress
+  $null = Get-Command Exit-SSEForegroundLease -CommandType Function -ErrorAction SilentlyContinue
+}
+
 if ($Prewarm) {
   # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
   # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
@@ -29034,6 +29479,10 @@ if ($Prewarm) {
   # frueher vorgezogen wurde (41 ms fuer Knoten, 19 ms fuer Fenster je frischem
   # Arbeitsprozess), gibt es nicht mehr - ein Warmlauf haette nur noch sich
   # selbst gewaermt und kostete Bereitschaftszeit.
+
+  # Den Rahmen, den jeder Auftrag um seine Operation herum durchlaeuft, einmal
+  # trocken ausfuehren - siehe Invoke-SSEJobFrameWarmup.
+  Invoke-SSEJobFrameWarmup
 
   # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
   # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
@@ -29274,6 +29723,7 @@ if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
   }
 }
 Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
+Initialize-SSEForegroundReachability $Op $a
 
 # Beide Startpfade haben dieselbe Dispatcherdefinition bereits registriert.
 # Der vorgewaermte Pfad hat zusaetzlich die Uebersetzung vor der Bereitschaft

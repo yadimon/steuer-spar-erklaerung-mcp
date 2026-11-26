@@ -15,6 +15,8 @@ try {
     const profile = loadProductProfile(profileId);
     const pageId = Object.keys(profile.pageObjectsCatalog.pages)[0];
     assert(pageId, `Profil ${profileId} braucht mindestens ein Page-Object.`);
+    assert.match(profile.pageObjectsCatalog.windows?.main?.contentAutomationId ?? "", /^\.[^\s]+\.ClientFrameSSE$/u,
+      `Profil ${profileId} braucht fuer read_full und scroll_page eine relative Formular-AutomationId.`);
 
     const workerEnvironment = {
       SSE_PROFILE_ID: profileId,

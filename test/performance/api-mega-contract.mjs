@@ -17,6 +17,62 @@ import {
   MEGA_MUTATION_READBACKS,
   MEGA_OPERATION_CATALOG,
 } from "./api-mega-catalog.mjs";
+import { matchesMegaBaseline, MEGA_BENCHMARK, megaJourneyFailureReasons } from "./api-mega-report.mjs";
+
+const workerIdentity = {
+  head: "a".repeat(40),
+  artifactFingerprint: "b".repeat(64),
+  executionBackend: "worker",
+  nativeManifestSha256: null,
+};
+const nativeIdentity = {
+  ...workerIdentity,
+  executionBackend: "qt-win32-native",
+  nativeManifestSha256: "c".repeat(64),
+};
+const workerReport = {
+  benchmark: MEGA_BENCHMARK,
+  status: "passed",
+  source: { head: workerIdentity.head },
+  runtime: { artifactFingerprint: workerIdentity.artifactFingerprint },
+  executionBackend: workerIdentity.executionBackend,
+  nativeManifestSha256: workerIdentity.nativeManifestSha256,
+};
+const nativeReport = {
+  ...workerReport,
+  executionBackend: nativeIdentity.executionBackend,
+  nativeManifestSha256: nativeIdentity.nativeManifestSha256,
+};
+assert.equal(matchesMegaBaseline(workerReport, workerIdentity), true);
+assert.equal(matchesMegaBaseline(nativeReport, nativeIdentity), true);
+assert.equal(matchesMegaBaseline(workerReport, nativeIdentity), false);
+assert.equal(matchesMegaBaseline(nativeReport, { ...nativeIdentity, nativeManifestSha256: "d".repeat(64) }), false);
+assert.equal(matchesMegaBaseline(workerReport, { ...workerIdentity, head: "e".repeat(40) }), false);
+assert.equal(matchesMegaBaseline(workerReport, { ...workerIdentity, artifactFingerprint: "f".repeat(64) }), false);
+assert.equal(matchesMegaBaseline({ ...workerReport, status: "failed" }, workerIdentity), false);
+
+const successfulChild = { status: 0, signal: null };
+const successfulRawReport = {
+  schemaVersion: 1,
+  status: "passed",
+  operations: { count: 1, calls: [{ operation: "product_info" }] },
+  timings: { totalWallMs: 5 },
+};
+assert.deepEqual(megaJourneyFailureReasons(successfulChild, successfulRawReport), []);
+assert.deepEqual(megaJourneyFailureReasons(successfulChild, { schemaVersion: 1, status: "incomplete" }),
+  ["journey-report-invalid"]);
+assert.deepEqual(megaJourneyFailureReasons(successfulChild, { schemaVersion: 1, status: "passed" }),
+  ["journey-report-invalid"]);
+assert.deepEqual(megaJourneyFailureReasons(successfulChild,
+  { ...successfulRawReport, operations: { ...successfulRawReport.operations, count: 2 } }),
+  ["journey-report-invalid"]);
+assert.deepEqual(megaJourneyFailureReasons(successfulChild, null), ["journey-report-missing"]);
+assert.deepEqual(megaJourneyFailureReasons(null, successfulRawReport), ["child-result-missing"]);
+assert.deepEqual(megaJourneyFailureReasons({ status: null, signal: "SIGTERM" }, successfulRawReport),
+  ["child-exit-null", "child-signal-SIGTERM"]);
+assert.deepEqual(megaJourneyFailureReasons({ status: 1, signal: null },
+  { schemaVersion: 1, status: "failed", failure: { kind: "readback-mismatch" } }),
+  ["child-exit-1", "readback-mismatch"]);
 
 const allowedClasses = new Set([
   "covered",
@@ -36,7 +92,7 @@ for (const entry of MEGA_OPERATION_CATALOG) {
   assert(!byOperation.has(entry.operation), `${entry.operation}: doppelte Katalogzeile.`);
   byOperation.set(entry.operation, entry);
 }
-assert.equal(MEGA_OPERATION_CATALOG.length, 102, "Der aktuelle API-Katalog umfasst 102 Operationen.");
+assert.equal(MEGA_OPERATION_CATALOG.length, 103, "Der aktuelle API-Katalog umfasst 103 Operationen.");
 assert.deepEqual([...byOperation.keys()].sort(), [...SSE_API_OPERATIONS].sort(),
   "Jede aktuelle API-Operation braucht genau eine Mega-Klassifikation.");
 assert(MEGA_OPERATION_CATALOG.some((entry) => entry.classification !== "covered"),
@@ -46,8 +102,11 @@ assert.equal(byOperation.get("positions").subclassification, "dedicated-position
 const incomePositionSource = readFileSync("test/live-income-positions.mjs", "utf8");
 assert.match(incomePositionSource, /call\("positions"/u);
 assert.match(incomePositionSource, /call\("position_create"/u);
-assert.match(readFileSync("test/run-live-suite.mjs", "utf8"), /runIncomePositionCoverage\(\);/u,
+const liveSuiteSource = readFileSync("test/run-live-suite.mjs", "utf8");
+assert.match(liveSuiteSource, /runIsolated2025Fixture\([^\n]+, "test\/live-income-positions\.mjs"\);/u,
   "Die getrennte positive Positionsreise muss im vollstaendigen Live-Gate registriert bleiben.");
+assert.match(liveSuiteSource, /runIsolated2025Fixture\([^\n]+, "test\/live-tax-knowledge\.mjs",/u,
+  "Die positive Steuerwissen-Reise muss im vollstaendigen Live-Gate registriert bleiben.");
 assert.equal(JSON.parse(readFileSync("package.json", "utf8")).scripts["test:live-income-positions"],
   "npm run build && node test/with-api.mjs node test/live-income-positions.mjs");
 

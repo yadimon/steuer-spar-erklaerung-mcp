@@ -15,8 +15,9 @@ $workerPath=Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($workerPath,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Production worker syntax is invalid'}
-foreach($name in @('Arg','Test-SSEElementIdentity','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Get-SSEFullReadFailureCode','Assert-SSEFullReadStageCoverage')){
- $definitions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+$helpers=$ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|Group-Object Name -AsHashTable
+foreach($name in @('Arg','Test-SSEElementIdentity','Test-SSEMainContentBinding','Test-SSESnapshotHasOnlyWalkErrors','Get-SSEPageReadSnapshot','Get-SSEPageRangeBinding','Read-SSEPageRangeState','Invoke-SSEPageRangeScroll','Assert-SSEFullReadRange','Get-SSEFullReadFailureCode','Assert-SSEFullReadStageCoverage')){
+ $definitions=@($helpers[$name]|Where-Object Name -CEQ $name)
  if($definitions.Count -ne 1){throw 'Production page-scroll helper is missing or ambiguous'}
  . ([scriptblock]::Create($definitions[0].Extent.Text))
 }
@@ -75,7 +76,7 @@ function New-Fixture([double]$Scale=1,[double]$Value=0){
   $key=$order[$i];$e=$script:elements[$key]
   $nodes+=@([pscustomobject]@{i=$i;p=$order.IndexOf($e.Parent);rid=$e.Id;aid=$e.Current.AutomationId;type=$e.Current.ControlType.ProgrammaticName.Replace('ControlType.','')})
  }
- $script:tree=[pscustomobject]@{nodes=$nodes;stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0}}
+ $script:tree=[pscustomobject]@{nodes=$nodes;stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr=0;scrollErr=0}}
 }
 function Run-Scroll($Arguments){try{$binding=Get-SSEPageRangeBinding 111 $script:tree}catch{return [pscustomobject]@{ok=$false;kind='bind-failed'}};if(-not $binding){throw 'Expected exact Qt binding'};Invoke-SSEPageRangeScroll $binding $Arguments}
 
@@ -245,22 +246,23 @@ try{
 # Execute the actual dispatcher bodies as well as the extracted helpers.
 # All window, provider and traversal boundaries below are explicit canaries.
 $cases=@{}
+$switchClauses=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.SwitchStatementAst]},$true)|ForEach-Object{$_.Clauses})
 foreach($name in @('scroll_page','read_full')){
- $clauses=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.SwitchStatementAst]},$true)|ForEach-Object{$_.Clauses}|Where-Object{$_.Item1.Value -ceq $name})
+ $clauses=@($switchClauses|Where-Object{$_.Item1.Value -ceq $name})
  if($clauses.Count -ne 1){throw 'Production scroll dispatcher is missing or ambiguous'}
  $body=$clauses[0].Item2.Extent.Text
  $cases[$name]=[scriptblock]::Create($body.Substring(1,$body.Length-2))
 }
 function Resolve-Window { [IntPtr]111 }
 function Get-ContentBounds { [pscustomobject]@{minX=0;maxX=1000} }
-function Get-SSEHeading { [pscustomobject]@{text=$(if($script:valueFailure -ceq 'late-heading' -and $script:pattern.Current.Value -eq 185){'Different page'}else{'Synthetic scroll page'})} }
+function Get-SSEHeading { param($Tree) [pscustomobject]@{text=$Tree.heading} }
 function Emit($Result){$script:emitted=$Result;throw 'PAGE_SCROLL_TEST_EMIT'}
 function Fail($Message,$Kind){$script:emitted=[pscustomobject]@{ok=$false;kind=$Kind;error=$Message};throw 'PAGE_SCROLL_TEST_EMIT'}
 function Get-SSEMainContentTree {
  param($Hwnd,$MaxNodes,$TimeoutSec,$MaxDepth,[switch]$WithValues,[switch]$WithScroll)
  Assert-Equal ([long]$Hwnd) 111 'Scoped read lost its exact window'
  Assert-Equal $MaxNodes 5000 'Scoped read changed its node bound'
- Assert-Equal $TimeoutSec 45 'Scoped read changed its deadline'
+ Assert-Equal ($TimeoutSec -in @(5,45)) $true 'Scoped read changed its deadline'
  Assert-Equal $MaxDepth 40 'Scoped read changed its depth bound'
  Assert-Equal (([bool]$WithScroll) -xor ([bool]$WithValues)) $true 'Scoped read omitted or mixed its required evidence'
  $script:scopedWalks++
@@ -278,7 +280,25 @@ function Get-SSEMainContentTree {
   $marker=if($script:pattern.Current.Value -eq 0){'Top marker'}elseif($script:pattern.Current.Value -eq 925){'Bottom marker'}else{'Middle marker'}
   $nodes+=@([pscustomobject]@{type='Text';name=$marker;x=150;y=150;w=120;h=20})
  }
- [pscustomobject]@{nodes=$nodes;stats=$script:tree.stats}
+ $stats=$script:tree.stats.PSObject.Copy()
+ $binding=[pscustomobject]@{hwnd=111;pid=7;windowRid='root';windowAid='SyntheticRoot';rid='form';aid='SyntheticRoot.ClientFrameSSE';type='Group';rect=@(0,0,800,800)}
+ $heading='Synthetic scroll page'
+ if($script:valueFailure -ceq 'late-heading' -and $script:pattern.Current.Value -eq 185){$heading='Different page'}
+ if($script:valueFailure -ceq 'transient-initial' -and $script:scopedWalks -eq 1){$stats.err=1}
+ if($WithValues -and $script:valueFailure -in @('transient-value','retry-different-form','retry-different-page','retry-different-position')) {
+  if($script:scopedWalks -eq 3){
+   $stats.err=1
+   $nodes+=@([pscustomobject]@{type='Text';name='Incomplete marker';x=150;y=150;w=120;h=20})
+  }
+  if($script:scopedWalks -eq 4){
+   switch($script:valueFailure){
+    'retry-different-form' {$binding.rid='another-form'}
+    'retry-different-page' {$heading='Different page'}
+    'retry-different-position' {$script:pattern.Current.Value=186.0;$script:elements.body.Current.BoundingRectangle.Y=-86.0}
+   }
+  }
+ }
+ [pscustomobject]@{nodes=$nodes;stats=$stats;contentBinding=$binding;heading=$heading}
 }
 function Walk-Tree {
  $script:walks++
@@ -298,6 +318,11 @@ Assert-Equal $script:walks 0 'Scroll inspected unrelated global UIA state'
 New-Fixture
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'Complete scoped content was blocked by the global traversal canary'
 Assert-Equal $script:sets 1 'Scoped scroll did not perform exactly one verified movement'
+New-Fixture
+$script:valueFailure='transient-initial'
+Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).ok $true 'Fresh bound scroll read did not recover a transient traversal failure'
+Assert-Equal $script:scopedWalks 2 'Scroll did not independently reobserve the form'
+Assert-Equal $script:sets 1 'Scroll verification replayed a movement'
 New-Fixture
 $script:scopeMissing=$true
 Assert-Equal (Run-Operation 'scroll_page' ([pscustomobject]@{mode='percent';vPercent=100})).kind 'scroll-state-unknown' 'A missing form scope fell through to global traversal'
@@ -324,6 +349,20 @@ Assert-Equal $full.stufen 5 'Actual full reader did not visit every bounded stag
 Assert-Equal $script:scopedWalks 7 'Full reader did not bind initialization and each value stage separately'
 Assert-Equal $script:walks 0 'Full reader directly walked unrelated global state'
 Assert-Equal ($script:targets -join ',') '0,185,370,555,740,925,0' 'Full reader did not start at the top, visit every stage and restore the top'
+New-Fixture
+$script:valueFailure='transient-value'
+$retried=Run-Operation 'read_full' ([pscustomobject]@{})
+Assert-Equal $retried.ok $true 'Fresh complete read did not recover a same-page traversal failure'
+Assert-Equal $script:scopedWalks 8 'Full reader did not independently reobserve the failed stage'
+Assert-Equal ($retried.zeilen -contains 'Incomplete marker') $false 'Incomplete stage contributed values to the full read'
+Assert-Equal ($script:targets -join ',') '185,370,555,740,925,0' 'A fresh stage observation replayed a movement'
+foreach($failure in @('retry-different-form','retry-different-page','retry-different-position')){
+ New-Fixture
+ $script:valueFailure=$failure
+ Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'incomplete' 'Full reader accepted a different form, page or viewport after an incomplete stage'
+ Assert-Equal $script:scopedWalks 4 'Changed retry stage queried another snapshot'
+ Assert-Equal $script:sets 1 'Changed retry stage dispatched a movement or restore'
+}
 New-Fixture
 $script:scopeMissing=$true
 Assert-Equal (Run-Operation 'read_full' ([pscustomobject]@{})).kind 'scroll-state-unknown' 'Missing initial full-read scope fell through to a global tree'
