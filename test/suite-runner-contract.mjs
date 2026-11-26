@@ -133,6 +133,8 @@ assert.deepEqual(exclusiveSteps.map((step) => step.name), [
   "worker-controller-lock", "mcp-api-supervisor", "api-control-runtime", "mcp-api-control", "agent-plugin-runtime", "performance-harness", "no-console-window",
 ]);
 assert.equal(exclusiveSteps[0].timeoutMs, 420_000);
+assert.equal(parallelSteps.find(step => step.name === "receipt-manager-action").timeoutMs, 600_000,
+  "Der umfangreichste PowerShell-Vertrag braucht seine eigene, laengere Frist.");
 assert.deepEqual(exclusiveSteps.find(step => step.name === "performance-harness").args, [
   "--test", "--experimental-test-isolation=none", "--test-concurrency=1",
   "test/performance/performance-harness-contract.mjs",

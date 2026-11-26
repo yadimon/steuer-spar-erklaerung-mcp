@@ -114,7 +114,9 @@ export const parallelSteps = Object.freeze([
   psFile("desktop-persistent-launch", "test/desktop-persistent-launch-contract.ps1"),
   psFile("tool-window-close", "test/tool-window-close-contract.ps1"),
   psFile("tool-window-read", "test/tool-window-read-contract.ps1"),
-  psFile("receipt-manager-action", "test/receipt-manager-action-contract.ps1"),
+  // Der umfangreichste PowerShell-Vertrag der Suite. Unter einem
+  // energiesparenden Windows-Plan reicht ihm die allgemeine Frist nicht.
+  { ...psFile("receipt-manager-action", "test/receipt-manager-action-contract.ps1"), timeoutMs: 600_000 },
   psFile("receipt-vat-precondition", "test/receipt-vat-precondition-contract.ps1"),
   psFile("receipt-rollback-ownership", "test/receipt-rollback-ownership-contract.ps1"),
   psFile("receipt-vat-selection", "test/receipt-vat-selection-contract.ps1"),
