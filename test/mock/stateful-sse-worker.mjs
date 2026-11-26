@@ -1559,7 +1559,7 @@ export function createStatefulSseWorker({
         if (!caseState) return { ok: false, kind: "not-found", error: "Kein Steuerfall offen." };
         const unchanged = (kind, error) => ({
           ok: false, verified: false, kind, error, mutationStarted: false, outcomeUnknown: false,
-          resultingState: "unchanged", requestedCount: args.zeilen.length, zeilen: [],
+          resultingState: "unchanged", requestedCount: args.zeilen.length, completedCount: 0, retryable: false, zeilen: [],
         });
         if (currentPage !== String(args.expectedPage)) {
           return unchanged("precondition-failed", `Aktuelle Seite '${currentPage}', erwartet '${args.expectedPage}'.`);
@@ -1594,7 +1594,7 @@ export function createStatefulSseWorker({
             ok: false, verified: false, kind: "postcondition-failed",
             error: `Nachsumme '${after}', erwartet '${args.expectedAfter}'. Eigene Zeilen zurueckgenommen.`,
             mutationStarted: true, outcomeUnknown: false, resultingState: "restored",
-            sumBefore: before, requestedCount: args.zeilen.length, zeilen,
+            sumBefore: before, requestedCount: args.zeilen.length, completedCount: 0, retryable: false, zeilen,
             rollback: { versucht: true, methode: "raw-value-row-restore", erfolgreich: true, werteWiederhergestellt: true,
               strukturEntfernt: true, verbliebeneLeerzeilen: 0, summe: before },
           };
@@ -1603,7 +1603,7 @@ export function createStatefulSseWorker({
         epoch += 1;
         return {
           ok: true, verified: true, sumBefore: before, sumAfter: after,
-          requestedCount: args.zeilen.length, zeilen,
+          requestedCount: args.zeilen.length, completedCount: args.zeilen.length, zeilen,
           mutationStarted: true, outcomeUnknown: false, resultingState: "completed-verified",
           mutationPostProof: {
             schemaVersion: 1, method: "uia-grid-logical-model", outcome: "appended-exact",

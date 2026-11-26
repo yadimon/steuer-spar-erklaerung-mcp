@@ -291,6 +291,15 @@ Wertrücknahme mit verbliebenen Leerzeilen. Am echten Programm legt
 `npm run test:live-table-add-rows` mehr Zeilen an, als die Tabelle anzeigt,
 liest sie über das vollständige Grid-Inventar nach, speichert, öffnet neu
 und prüft Ablehnung und Wertrücknahme; dieselbe Reise gehört zum Live-Gate.
+Derselbe Vertrag belegt, dass die Anlage das Fenster genau einmal aktiviert
+und danach weder Vordergrund noch Eingaben liest - sein Modell bietet dafür
+keine Endpunkte -, und dass ein verschwundenes Fenster oder ein weiteres
+Fenster der Anwendung vor der nächsten Zeile stoppt: Eine passive Lesung
+belegt dann die vollständig angelegten Zeilen oder lässt den Zustand
+`unknown`.
+`user-input-policy-contract.mjs` rechnet am Syntaxbaum des Workers nach,
+welche Operationen eine Eingabepause des Menschen brauchen, und hält
+Selbstbeschreibung, Werkzeugmarken und den Hinweis bei `interference` daran.
 `click-point-target-contract.ps1` führt die produktive Zielauswahl des
 physischen Klicks aus: Baumeinträge und Detail-Links bleiben auch auf einem
 Monitor links oder oberhalb des Hauptmonitors wählbar, also bei negativen

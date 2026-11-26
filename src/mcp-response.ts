@@ -139,6 +139,20 @@ function apiErrorHint(operation: string, result: Record<string, unknown>): strin
     return "Der Ausgang des API-Auftrags ist ungewiss. Der Auftrag kann bereits ausgefuehrt sein. " +
       "Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
   }
+  if (result.kind === "interference") {
+    return result.retryable === true
+      ? "Eine Eingabe des Menschen oder ein Fensterwechsel hat den Auftrag gestoppt; der gemeldete Zustand ist belegt " +
+        "(resultingState, bei Tabellenzeilen completedCount und sumAfter). Den Menschen bitten, Maus und Tastatur ruhen " +
+        "zu lassen, dann nur den fehlenden Teil mit den gemeldeten Werten als neuem Ausgangspunkt erneut anfordern."
+      : "Eine Eingabe des Menschen oder ein Fensterwechsel hat den Auftrag gestoppt. Den Menschen bitten, Maus und " +
+        "Tastatur waehrend der Aufrufe ruhen zu lassen. Vor einem neuen Versuch den betroffenen Zustand frisch lesen; " +
+        "nichts blind wiederholen.";
+  }
+  if (operation === "table_add_rows" && result.mutationStarted === true) {
+    return "Die Tabelle steht nach dem Schreiben nicht wie beauftragt; resultingState und rollback sagen, was belegt ist. " +
+      "Mit sse_table_read und readMode:'grid' frisch lesen und mit dem Auftrag vergleichen. Den Menschen fragen, ob er " +
+      "waehrenddessen selbst etwas an der Tabelle geaendert hat, bevor etwas wiederholt wird.";
+  }
   if (result.reason === "foreground-required-operation-disabled") {
     return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. " +
       "Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";

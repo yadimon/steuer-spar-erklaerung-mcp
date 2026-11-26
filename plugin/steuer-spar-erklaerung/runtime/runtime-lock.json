@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "ed2de9d4e76018572bd3656d94f409b282dd9d2a20b89266b153f9d6ba6cc346",
-      "size": 1791501
+      "sha256": "f7fea987782491b2204f3e4eed2153643968bf5bdd4fe52a92db45bd88b85423",
+      "size": 1794797
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "485df3ec0610fbcb6bd5080347021ea263006c6b63387c0cfb9134dc2ff3a37f",
-      "size": 1809340
+      "sha256": "c138828ee014248c9b07fde2ad7709118e93b5893a812778591410046d1c5e98",
+      "size": 1815376
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -103,8 +103,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "d65eff13e79cf12fa91a7a0084f03db71c62621874c7d77b0fe57f14d6507b7c",
-      "size": 1716981
+      "sha256": "6c0c21f08e7cac1df9fbb2e9b869ef2ae5b10bc0e2a4c48aef5f4c208b976ca7",
+      "size": 1715971
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -148,8 +148,8 @@
     },
     {
       "path": "powershell/table-uia-append.ps1",
-      "sha256": "06b4f9c2f211e542099805becfb20cc498cc7c4e3b48c0874c7378504793ae2e",
-      "size": 21563
+      "sha256": "8ac1ff4276d9e6c9f70e2f5dd336b43e7bbfc4ccd2c4ed2be46f8f0378fbde91",
+      "size": 24920
     },
     {
       "path": "powershell/table-uia-delete.ps1",

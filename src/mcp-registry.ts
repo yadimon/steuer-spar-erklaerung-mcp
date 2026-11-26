@@ -18,6 +18,7 @@ import {
   type SseMcpToolName,
 } from "./operation-catalog.js";
 import { operationAnnotations } from "./operation-traits.js";
+import { userInputDescriptionTag } from "./user-input-policy.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "./result-contract.js";
 import { assertApiSingletonIdentity } from "./mcp-api-supervisor.js";
 import { McpBudgetError, McpOperationBudget } from "./mcp-operation-budget.js";
@@ -145,7 +146,13 @@ export function createMcpRegistry(server: McpServer) {
     const firstOperation = operations[0];
     if (!firstOperation) throw new Error(`MCP-Werkzeug '${name}' besitzt keine API-Basisoperation.`);
     const traits = operations.map((operation) => operationAnnotations(operation));
-    const { inputSchema: inputShape, ...toolConfig } = config;
+    const { inputSchema: inputShape, ...declaredConfig } = config;
+    // Die Marke steht an jedem Werkzeug, dessen Operationen eine Eingabepause
+    // des Menschen brauchen; die Regel dazu steht in den Server-Hinweisen.
+    const inputTag = userInputDescriptionTag(operations);
+    const toolConfig = inputTag
+      ? { ...declaredConfig, description: [declaredConfig.description, inputTag].filter(Boolean).join(" ") }
+      : declaredConfig;
     const strictInputSchema = z.object(inputShape).strict();
     return server.registerTool<z.ZodType, typeof strictInputSchema>(
       name,

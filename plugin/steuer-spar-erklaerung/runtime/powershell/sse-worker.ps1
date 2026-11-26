@@ -22880,7 +22880,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if (-not $preparation.ok) { Emit $preparation }
     }
     $phaseInputBefore=$(if ($cursorPhase -or $gridRequested) {Get-SSELastInputTick} else {$null})
-    $gridForegroundBefore=$(if($gridRequested){[SW]::GetForegroundWindow()}else{$null})
     # Der Sichern-Schalter ist ein einzelnes Element mit stabiler AutomationId.
     # Ihn ueber einen vollstaendigen Baumlauf zu suchen kostete hier zweimal je
     # Aufruf einen kompletten Lauf; die gezielte Abfrage liefert denselben Wert
@@ -23079,7 +23078,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($erst.error) { Fail $erst.error 'precondition-failed' }
     if($gridRequested) {
       $inputBefore=$phaseInputBefore
-      $foregroundBefore=$gridForegroundBefore
       $windowsBefore=Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd
       if($null -eq $inputBefore -or $null -eq $dirtyBefore -or $erst.tabelleAnzahl -ne 1 -or
           -not $erst.navigationBinding.complete -or -not $erst.navigationBinding.editorFree -or -not $erst.tableRoot -or
@@ -23091,10 +23089,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           [bool]$erst.navigationBinding.complete,[bool]$erst.navigationBinding.editorFree,[bool]$erst.tableRoot,
           @($windowsBefore.windows | Where-Object {$_.role -ne 'main'}).Count,[string]$erst.editorStateReason) 'precondition-failed'
       }
-      $gridGuard={
-        (Test-SSELastInputUnchanged $inputBefore) -and [SW]::IsWindow($hwnd) -and
-        [SW]::GetForegroundWindow() -eq $foregroundBefore
-      }.GetNewClosure()
+      # Eine Lesung sendet keine Eingabe. Was der Mensch waehrenddessen tippt und
+      # welches Fenster vorn liegt, sagt nichts ueber ihre Gueltigkeit: Belegt
+      # wird sie durch zwei gleiche Beobachtungen und die Bindungen danach.
+      $gridGuard={ [bool][SW]::IsWindow($hwnd) }.GetNewClosure()
       try {
         $gridWatch=[Diagnostics.Stopwatch]::StartNew()
         $gridContentBefore=$latestTableSnapshot.tree.contentBinding
@@ -23133,7 +23131,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             -not (Test-SSETableReadSnapshotBinding $erst $after -BeforeNavigation) -or
             (Get-DirtyStateFast $hwnd) -ne $dirtyBefore -or
             (Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -cne $windowsBefore.fingerprint) {
-          throw 'Window, table, summary or input binding changed during the Grid read.'
+          throw 'Window, table or summary binding changed during the Grid read.'
         }
         $projected | Add-Member NoteProperty ok $true
         $projected | Add-Member NoteProperty backend 'uia'
@@ -25005,12 +25003,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   }
 
   'table_add_rows' {
-    # Mehrere Zeilen in EINEM Auftrag in die Anlegezeile der gebundenen Tabelle
-    # schreiben. Gebunden wird ueber Modellkoordinaten (Grid-Zeile und -Spalte)
-    # statt ueber sichtbare Geometrie: Auch Zeilen jenseits des angezeigten
-    # Tabellenausschnitts entstehen ohne Scrollen, Zeiger und Tasten. Danach
-    # stehen entweder alle Zeilen nachgewiesen im Modell, oder die eigenen
-    # Zeilen werden zurueckgenommen und der Ausgangszustand wird bewiesen.
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $expectedPage = [string](Arg $a 'expectedPage')
     $sumLabel = [string](Arg $a 'sumLabel')
@@ -25031,15 +25023,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
-    $preparation=Invoke-SSETablePreparation $hwnd $targetPid
-    if (-not $preparation.ok) { Emit $preparation }
     $dialogsBefore = @(Get-DialogInventory | Where-Object {
       [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
     })
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Zeilenanlage nicht begonnen.' 'precondition-failed' }
-
-    # Dieselbe Summenauswahl wie Add, Update und Delete: ein gemeinsamer
-    # Kandidatenbestand, hier ueber Vorkommen oder die gebundene AutomationId.
     function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 1, [string]$boundAid = '') {
       $tree = Walk-BoundTree $window -WithValues
       $read = Read-LabeledValueFromTree $tree $window $label $occurrence
@@ -25053,48 +25040,38 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         selected=$selected; tree=$tree; candidates=$read.candidates; occurrence=$occurrence
       }
     }
-
     $appendProcess=[Diagnostics.Process]::GetProcessById($targetPid)
     try {
-      # Hold the kernel process identity through Emit's foreground cleanup.
       $null=$appendProcess.Handle
       $appended=Invoke-SSEUiaTableAppendRows $hwnd $targetPid $a $appendProcess
-      $appendInputGuard=[pscustomobject]@{
-        aktiv=$true; lockScreenIsolation=$false; foreignForegroundIsolation=$false
-        baseline=$appended.inputBaseline; beobachtet=$(Get-SSELastInputTick)
-        eingriffErkannt=[bool]($appended.kind -ceq 'interference')
-      }
       if ($appended.ok) {
         Emit ([pscustomobject]@{
           ok=$true; verified=$true; page=$expectedPage; expectedPage=$expectedPage
           sumLabel=$sumLabel; sumBefore=$appended.sumBefore; sumAfter=$appended.sumAfter
-          requestedCount=$rows.Count; zeilen=@($appended.rows)
+          requestedCount=$rows.Count; completedCount=[int]$appended.completed; zeilen=@($appended.rows)
           mutationStarted=$true; outcomeUnknown=$false; resultingState=[string]$appended.resultingState
           mutationPostProof=$appended.proof
           checkerMessagesBefore=@($appended.checkerBefore); checkerMessagesAfter=@($appended.checkerAfter)
           newCheckerMessages=@()
           ungespeichertVorher=$appended.dirtyBefore; ungespeichertNachher=$appended.dirtyAfter
           physicalInputAttempted=$false; physicalInputUsed=$false
-          inputGuard=$appendInputGuard
         })
       }
       Emit ([pscustomobject]@{
         ok=$false; verified=$false; kind=[string]$appended.kind; error=[string]$appended.error; phase=[string]$appended.phase
         page=$expectedPage; expectedPage=$expectedPage
-        sumLabel=$sumLabel; sumBefore=$appended.sumBefore
-        requestedCount=$rows.Count; zeilen=@($appended.rows)
+        sumLabel=$sumLabel; sumBefore=$appended.sumBefore; sumAfter=$appended.sumAfter
+        requestedCount=$rows.Count; completedCount=[int]$appended.completed; zeilen=@($appended.rows)
         mutationStarted=[bool]$appended.mutationStarted; outcomeUnknown=[bool]$appended.outcomeUnknown
         resultingState=[string]$appended.resultingState
-        reconciliationRequired=[bool]$appended.outcomeUnknown; retryable=$false
+        reconciliationRequired=[bool]$appended.outcomeUnknown; retryable=[bool]$appended.retryable
         checkerMessagesBefore=@($appended.checkerBefore)
         rollback=$appended.rollback
-        ungespeichertVorher=$appended.dirtyBefore
+        ungespeichertVorher=$appended.dirtyBefore; ungespeichertNachher=$appended.dirtyAfter
         physicalInputAttempted=$false; physicalInputUsed=$false
-        inputGuard=$appendInputGuard
       })
     } finally {$appendProcess.Dispose()}
   }
-
   'table_update' {
     # Sichtbare Tabellenzeile rein ueber ValuePattern aktualisieren. Seite,
     # Summenregion, Zielzeile und alle Zellen werden vorab gebunden. Eigene

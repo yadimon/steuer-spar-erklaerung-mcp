@@ -31,6 +31,20 @@ läuft dagegen nach wenigen Zeilen in die langsame Suche nach der Anlegezeile.
   vorher, die eigenen Zeilen sind als Leerzeilen stehen geblieben
   (`rollback.verbliebeneLeerzeilen`). Das dem Nutzer sagen; Leerzeilen
   entfernt nur er selbst im Programm.
+- Das Programmfenster kommt für die Dauer des Aufrufs nach vorn und geht
+  danach zurück. Der Aufruf sendet keine Eingabe und überwacht keine: Eine
+  Mausbewegung stört nicht, getippte Tasten würden aber im Programm landen.
+  Den Nutzer vorher um eine kurze Eingabepause bitten. Ob alles wie
+  beauftragt steht, entscheidet der Tabellenzustand vor und nach dem
+  Schreiben.
+- Weicht die Tabelle danach vom Auftrag ab, nicht wiederholen: frisch
+  nachlesen, mit dem Auftrag vergleichen und den Nutzer fragen, ob er
+  währenddessen selbst etwas an der Tabelle geändert hat.
+- `kind: "interference"` mit `retryable: true` heißt: Die Fensterlage hat
+  sich geändert, etwa durch einen Dialog, und der Stand ist belegt.
+  `completedCount` Zeilen stehen (die ersten des Auftrags), `sumAfter` ist
+  die Summe danach. Nur die übrigen Zeilen mit `sumAfter` als
+  `expectedBefore` erneut anfordern.
 - `resultingState: "unknown"` heißt: frisch nachlesen, nicht wiederholen.
 
 ## Seitensummen addieren netto

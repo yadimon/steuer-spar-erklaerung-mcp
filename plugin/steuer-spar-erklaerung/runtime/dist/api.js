@@ -23311,6 +23311,88 @@ var init_version = __esm({
   }
 });
 
+// src/user-input-policy.ts
+function userInputPolicy(operation) {
+  if (operation === "table_read") return "hands-off-with-cursor-run";
+  return GUARDED.has(operation) ? "hands-off" : "free";
+}
+var SSE_INPUT_GUARDED_WORKER_OPERATIONS, SSE_INPUT_GUARDED_COMPOSED_OPERATIONS, GUARDED, SSE_USER_INPUT;
+var init_user_input_policy = __esm({
+  "src/user-input-policy.ts"() {
+    "use strict";
+    SSE_INPUT_GUARDED_WORKER_OPERATIONS = [
+      "bulk_action",
+      "checker_detail",
+      "checker_open_plan",
+      "checker_reset",
+      "click",
+      "click_point",
+      "collect",
+      "combo_select",
+      "desktop_stop",
+      "dialog_answer",
+      "export_csv",
+      "file_dialog_select",
+      "goto",
+      "goto_tree",
+      "menu",
+      "menu_click",
+      "position_create",
+      "receipt_manager_action",
+      "receipt_manager_bulk_upsert",
+      "receipt_manager_classification_options",
+      "receipt_manager_classify",
+      "receipt_manager_delete",
+      "receipt_manager_import",
+      "receipt_manager_link",
+      "receipt_manager_read",
+      "receipt_manager_update",
+      "result_details",
+      "save_as",
+      "set_value",
+      "table_add",
+      "table_add_rows",
+      "table_delete",
+      "table_read",
+      "table_update",
+      "tax_knowledge_search",
+      "toggle",
+      "tracked_set_value",
+      "tree_scroll",
+      "tree_top",
+      "vast_apply",
+      "vast_mapping_options",
+      "vast_mapping_select",
+      "vast_row_details",
+      "vast_row_set_expanded"
+    ];
+    SSE_INPUT_GUARDED_COMPOSED_OPERATIONS = [
+      "case_create",
+      "checker_open",
+      "fill_fields",
+      "scenario_run",
+      "ustva_change_value",
+      "ustva_open_section",
+      "ustva_select_period",
+      "ustva_set_flag"
+    ];
+    GUARDED = /* @__PURE__ */ new Set([
+      ...SSE_INPUT_GUARDED_WORKER_OPERATIONS,
+      ...SSE_INPUT_GUARDED_COMPOSED_OPERATIONS
+    ]);
+    SSE_USER_INPUT = Object.freeze({
+      interferenceKind: "interference",
+      policyField: "operationPolicy.<operation>.userInput",
+      policies: {
+        free: "Der Mensch darf Maus und Tastatur weiter benutzen. Die Operation sendet keine Eingabe und holt kein Fenster nach vorn.",
+        "hands-off": "Holt das Programmfenster nach vorn und bedient es mit Zeiger und Tasten oder ueberwacht fremde Eingaben. Solange der Aufruf laeuft, darf der Mensch Maus und Tastatur nicht benutzen.",
+        "hands-off-with-cursor-run": "Die passive Lesung stoert nicht. Nur der ausdruecklich angeforderte Cursorlauf (noKeys:false) bedient das Fenster und braucht die Eingabepause."
+      },
+      rule: "Vor einem Aufruf mit Eingabepause den Menschen darauf hinweisen. kind 'interference' heisst: Eine Eingabe oder ein Fensterwechsel hat den Auftrag gestoppt. Nur bei retryable:true ist der gemeldete Zustand belegt und der fehlende Teil darf mit den gemeldeten Werten erneut angefordert werden; sonst zuerst lesend abgleichen."
+    });
+  }
+});
+
 // src/capabilities.ts
 var fallbackStages, SSE_CAPABILITIES;
 var init_capabilities = __esm({
@@ -23322,6 +23404,7 @@ var init_capabilities = __esm({
     init_operation_live_evidence();
     init_worker_operation_policy();
     init_version();
+    init_user_input_policy();
     fallbackStages = [
       {
         intent: "Standard: Strukturierter Zustand",
@@ -23452,6 +23535,9 @@ var init_capabilities = __esm({
         },
         rule: "Es laeuft immer nur eine Operation. Ein zweiter Aufruf wird mit 'busy' abgelehnt, nicht eingereiht. Warte auf das Ergebnis statt parallel erneut aufzurufen; /healthz meldet jederzeit, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf."
       },
+      // Welche Operationen eine Eingabepause des Menschen brauchen, steht je
+      // Operation in operationPolicy; hier stehen die Bedeutungen und die Regel.
+      userInput: SSE_USER_INPUT,
       batching: {
         rule: "Worker-Auftraege werden einzeln ausgefuehrt; ein Auftrag kann einen vorgewaermten Arbeitsprozess verwenden. scenario_run fuehrt seine Schritte seriell ueber den Executor aus, mit einem eigenen Auftrag je Worker-Schritt. Ein Szenario haelt keinen gemeinsamen Tabellen-Worker und ist keine Tabellen-Bulk-API.",
         levels: [
@@ -25156,6 +25242,7 @@ function createProfileOperationCapability(profileStatus, operationAccess, operat
     operation,
     class: profileOperationClass(operation),
     blockedOnBuildDrift: BUILD_DRIFT_BLOCKED.has(operation),
+    userInput: userInputPolicy(operation),
     ...interactionRequirement ? { interactionRequirement } : {}
   };
   if (BASE.has(operation)) {
@@ -25235,6 +25322,7 @@ var init_profile_operation_policy = __esm({
     init_api_contract();
     init_operation_traits();
     init_receipt_interaction_policy();
+    init_user_input_policy();
     EXPERIMENTAL_PROFILE_BASE_OPERATIONS = [
       "capabilities",
       "health",
@@ -37077,12 +37165,13 @@ var init_result_mutation_fields = __esm({
         sumBefore: OPTIONAL_STRING,
         sumAfter: OPTIONAL_STRING,
         requestedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        completedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        retryable: OPTIONAL_BOOLEAN,
         zeilen: OPTIONAL_ARRAY,
         mutationPostProof: OPTIONAL_OBJECT,
         checkerMessagesBefore: OPTIONAL_STRING_ARRAY,
         checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
         newCheckerMessages: OPTIONAL_STRING_ARRAY,
-        inputGuard: OPTIONAL_OBJECT,
         rollback: OPTIONAL_OBJECT,
         ungespeichertVorher: OPTIONAL_BOOLEAN,
         ungespeichertNachher: OPTIONAL_BOOLEAN

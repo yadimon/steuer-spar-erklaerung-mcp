@@ -213,6 +213,19 @@
             "outcomes": [
               "success"
             ]
+          },
+          "userInput": {
+            "types": [
+              "object:{\"interferenceKind\":\"string-other\",\"policies\":\"object\",\"policyField\":\"string-other\",\"rule\":\"string-other\"}"
+            ],
+            "labels": [
+              "scenario-mock",
+              "stateful-mock",
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       },
@@ -20020,6 +20033,18 @@
       "offline": {
         "profiles": [],
         "fields": {
+          "completedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "error": {
             "types": [
               "string-other"
@@ -20135,6 +20160,17 @@
               "success"
             ]
           },
+          "retryable": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "rollback": {
             "types": [
               "object:{\"erfolgreich\":\"boolean\",\"methode\":\"string-other\",\"strukturEntfernt\":\"boolean\",\"summe\":\"string-other\",\"verbliebeneLeerzeilen\":\"nonnegative-number\",\"versucht\":\"boolean\",\"werteWiederhergestellt\":\"boolean\"}"
@@ -20216,6 +20252,18 @@
           "checkerMessagesBefore": {
             "types": [
               "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "completedCount": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -20496,12 +20544,14 @@
           },
           "sumAfter": {
             "types": [
+              "null",
               "string-other"
             ],
             "labels": [
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -20532,7 +20582,8 @@
           },
           "treeWalkDetail": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "worker"
@@ -20568,12 +20619,14 @@
           },
           "ungespeichertNachher": {
             "types": [
-              "boolean"
+              "boolean",
+              "null"
             ],
             "labels": [
               "worker"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },

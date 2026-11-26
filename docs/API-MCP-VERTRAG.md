@@ -641,19 +641,24 @@ Mauszeiger, Tasten und ohne Cursorlauf.
 Der Ablauf:
 
 1. Seite und Vorsumme werden passiv verglichen. Eine falsche Seite oder eine
-   veraltete Summe wird abgelehnt, ohne das Fenster zu aktivieren.
-2. Das gebundene Hauptfenster kommt einmal nach vorn. Vordergrund und
-   Eingabe-Epoche gelten für die ganze Transaktion; ein weiteres unbekanntes
-   oder blockierendes Fenster der Anwendung führt zur Ablehnung.
+   veraltete Summe wird mit ihrem eigenen Grund abgelehnt.
+2. Das gebundene Hauptfenster kommt einmal nach vorn: Das Programm aktiviert
+   sein Fenster ohnehin selbst, sobald eine Zelle geschrieben wird, und die
+   Vordergrund-Lease gibt den Vordergrund mit dem Ergebnis zurück. Eingaben
+   des Menschen und der Vordergrund werden danach nicht überwacht: Die
+   Operation sendet keine Eingabe, die fehlgehen könnte. Was geschrieben
+   wurde, entscheidet allein der gelesene Tabellenzustand. Ein weiteres
+   unbekanntes oder blockierendes Fenster der Anwendung führt zur Ablehnung.
 3. Der vollständige Tabellenzustand wird gelesen: zwei gleiche Grid-Lesungen,
    Summenbindung, Editorlage. Auswahllisten-Spalten des Produktprofils,
    Checkbox-Spalten, schreibgeschützte Zellen, Tabellen mit eigenem
    Zeilenvertrag und eine nicht freie letzte Zeile werden vor der ersten
    Schreibung abgelehnt.
-4. Je Zeile: Die Anlegezeile muss frei sein, die Rohwerte ihrer beschreibbaren
-   Zellen werden festgehalten, die Werte geschrieben und an derselben
-   Koordinate zurückgelesen. Danach muss das Modell um genau eine Zeile
-   gewachsen sein.
+4. Je Zeile: Die Bindung wird geprüft, die Anlegezeile muss frei sein, die
+   Rohwerte ihrer beschreibbaren Zellen werden festgehalten, die Werte
+   geschrieben und an derselben Koordinate zurückgelesen. Danach muss das
+   Modell um genau eine Zeile gewachsen sein. Eine begonnene Zeile wird zu
+   Ende geschrieben; ein Stopp trifft deshalb nur ganze Zeilen.
 5. Der vollständige Tabellenzustand wird erneut gelesen. Erfolg heißt: genau
    die angeforderte Zahl neuer Zeilen steht direkt über einer unveränderten
    Anlegezeile, alle früheren Zeilen sind unverändert, jede geschriebene Zelle
@@ -671,15 +676,68 @@ wieder frei: Sie bleibt als Leerzeile stehen. Das Ergebnis nennt das als
 `rollback.strukturEntfernt` und `rollback.verbliebeneLeerzeilen`. Nur ein
 unverändertes Modell heißt `restored`.
 
-Fremde Eingabe, ein verlorener Vordergrund oder ein veränderter Fenstersatz
-stoppt die Transaktion als `interference` ohne blinde Rücknahme. Ist eine
-Schreibung bereits begonnen, lautet der Zustand `unknown`; der Aufrufer
-gleicht dann mit `table_read` und `readMode: "grid"` frisch ab. Ohne
-`expectedAfter` wird keine Summe vorhergesagt; die Seitensumme addiert netto.
+Verschwindet das Fenster, erscheint ein weiteres Fenster der Anwendung oder
+ändert sich ihr Fenstersatz, stoppt die Transaktion vor der nächsten Zeile
+als `interference`, ohne Rücknahme in die veränderte Lage. Danach liest der
+Worker den vollständigen Tabellenzustand noch einmal passiv,
+gebunden nur an dasselbe lebende Fenster. Stehen genau die vollständig
+angelegten Zeilen über einer freien Anlegezeile und zeigen sie ihre Werte,
+lautet der Zustand `partially-completed-verified`: `completedCount` nennt die
+Zahl dieser Zeilen - die ersten des Auftrags -, `sumAfter` die Summe danach,
+und `retryable: true` erlaubt, die übrigen Zeilen mit `sumAfter` als neuer
+Vorsumme erneut anzufordern. Ein Stopp vor der ersten Schreibung meldet
+`unchanged` und ist ebenfalls wiederholbar. Lässt sich der Zustand nicht
+belegen, lautet er `unknown`; der Aufrufer gleicht dann mit `table_read` und
+`readMode: "grid"` frisch ab. Ohne `expectedAfter` wird keine Summe
+vorhergesagt; die Seitensumme addiert netto.
+
+Arbeitet der Mensch währenddessen selbst im Programm, entscheidet derselbe
+Vergleich: Ändert er eine frühere Zeile oder eine der neuen, stimmt der
+Tabellenzustand nicht mit dem Auftrag überein, und das Ergebnis sagt, was
+belegt ist. Ein Agent liest dann frisch nach und fragt den Menschen, statt zu
+wiederholen; das Fehlerergebnis trägt diese Anweisung im Feld `hint`. Nicht
+sichtbar ist dem Vergleich nur, was noch nicht im Tabellenmodell steht - etwa
+eine angefangene, noch nicht übernommene Eingabe des Menschen in derselben
+Tabelle. Weil das Programmfenster während der Anlage vorn liegt, landen
+Tasten des Menschen in dieser Zeit im Programm; die Operation gehört deshalb
+zu den Werkzeugen mit Eingabepause.
 
 Die Operation läuft nur auf dem sichtbaren Desktop. Zeilen mit Auswahllisten
 oder Checkboxen und Tabellen mit eigenem Zeilenvertrag bleiben Aufgabe von
 `table_add`.
+
+## Eingaben des Menschen während eines Auftrags
+
+Viele Operationen holen das Programmfenster nach vorn und bedienen es mit
+Zeiger und Tasten, oder sie überwachen die systemweite Eingabe-Epoche. Eine
+Eingabe des Menschen stoppt sie mit `kind: "interference"`. Welche Operationen
+das sind, wird nicht geschätzt: Es sind genau die Worker-Klauseln, die eine
+Vordergrundanforderung oder den Leser der Eingabe-Epoche erreichen können,
+berechnet am Syntaxbaum des Workers. Dazu kommen die zusammengesetzten
+Operationen, deren Executor solche Worker-Operationen auslöst.
+
+`capabilities` nennt die Regel je Operation in
+`operationPolicy.<operation>.userInput` und erklärt die Werte in `userInput`:
+
+| Wert | Bedeutung |
+|---|---|
+| `free` | Der Mensch darf Maus und Tastatur weiter benutzen. |
+| `hands-off` | Solange der Aufruf läuft, darf der Mensch Maus und Tastatur nicht benutzen. |
+| `hands-off-with-cursor-run` | `table_read`: Nur der ausdrücklich angeforderte Cursorlauf (`noKeys: false`) braucht die Eingabepause. |
+
+`table_add_rows` ist `hands-off`, weil das Programmfenster während der Anlage
+vorn liegt. Die Operation selbst sendet und überwacht keine Eingabe; ihr
+Beleg ist der Tabellenzustand vor und nach dem Schreiben. Die vollständige
+Grid-Lesung von `table_read` ist an Fenster, Tabelle, Summe und Fenstersatz
+gebunden, nicht an Eingaben des Menschen oder den Vordergrund.
+
+Im MCP trägt jedes betroffene Werkzeug die Marke `[Eingabepause]` am Ende
+seiner Beschreibung, bei `sse_table_read` mit dem Zusatz für den Cursorlauf. Die
+Server-Hinweise verlangen, den Menschen vor dem ersten solchen Aufruf einer
+Aufgabe darauf hinzuweisen. Ein Fehlerergebnis mit `kind: "interference"`
+trägt die Anweisung im Feld `hint`: bei `retryable: true` nur den fehlenden
+Teil mit den gemeldeten Werten erneut anfordern, sonst zuerst lesend
+abgleichen.
 
 ## Bekanntes Hilfsfenster vor Tabellenbindung schließen
 

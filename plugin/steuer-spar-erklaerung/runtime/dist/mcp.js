@@ -23010,12 +23010,13 @@ var init_result_mutation_fields = __esm({
         sumBefore: OPTIONAL_STRING,
         sumAfter: OPTIONAL_STRING,
         requestedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        completedCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        retryable: OPTIONAL_BOOLEAN,
         zeilen: OPTIONAL_ARRAY,
         mutationPostProof: OPTIONAL_OBJECT,
         checkerMessagesBefore: OPTIONAL_STRING_ARRAY,
         checkerMessagesAfter: OPTIONAL_STRING_ARRAY,
         newCheckerMessages: OPTIONAL_STRING_ARRAY,
-        inputGuard: OPTIONAL_OBJECT,
         rollback: OPTIONAL_OBJECT,
         ungespeichertVorher: OPTIONAL_BOOLEAN,
         ungespeichertNachher: OPTIONAL_BOOLEAN
@@ -25438,6 +25439,12 @@ function apiErrorResult(operation, result) {
 function apiErrorHint(operation, result) {
   if (result.outcomeUnknown === true && result.reconciliationRequired === true) {
     return "Der Ausgang des API-Auftrags ist ungewiss. Der Auftrag kann bereits ausgefuehrt sein. Zuerst den betroffenen Zustand vollstaendig lesen und abgleichen; keine automatische Schreibwiederholung.";
+  }
+  if (result.kind === "interference") {
+    return result.retryable === true ? "Eine Eingabe des Menschen oder ein Fensterwechsel hat den Auftrag gestoppt; der gemeldete Zustand ist belegt (resultingState, bei Tabellenzeilen completedCount und sumAfter). Den Menschen bitten, Maus und Tastatur ruhen zu lassen, dann nur den fehlenden Teil mit den gemeldeten Werten als neuem Ausgangspunkt erneut anfordern." : "Eine Eingabe des Menschen oder ein Fensterwechsel hat den Auftrag gestoppt. Den Menschen bitten, Maus und Tastatur waehrend der Aufrufe ruhen zu lassen. Vor einem neuen Versuch den betroffenen Zustand frisch lesen; nichts blind wiederholen.";
+  }
+  if (operation === "table_add_rows" && result.mutationStarted === true) {
+    return "Die Tabelle steht nach dem Schreiben nicht wie beauftragt; resultingState und rollback sagen, was belegt ist. Mit sse_table_read und readMode:'grid' frisch lesen und mit dem Auftrag vergleichen. Den Menschen fragen, ob er waehrenddessen selbst etwas an der Tabelle geaendert hat, bevor etwas wiederholt wird.";
   }
   if (result.reason === "foreground-required-operation-disabled") {
     return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";
@@ -43254,6 +43261,99 @@ var init_operation_traits = __esm({
   }
 });
 
+// src/user-input-policy.ts
+function userInputPolicy(operation) {
+  if (operation === "table_read") return "hands-off-with-cursor-run";
+  return GUARDED.has(operation) ? "hands-off" : "free";
+}
+function userInputDescriptionTag(operations) {
+  const policies = new Set(operations.map((operation) => userInputPolicy(operation)));
+  for (const policy of ["hands-off", "hands-off-with-cursor-run"]) {
+    if (policies.has(policy)) return DESCRIPTION_TAGS[policy];
+  }
+  return void 0;
+}
+var SSE_INPUT_GUARDED_WORKER_OPERATIONS, SSE_INPUT_GUARDED_COMPOSED_OPERATIONS, GUARDED, DESCRIPTION_TAGS, SSE_USER_INPUT;
+var init_user_input_policy = __esm({
+  "src/user-input-policy.ts"() {
+    "use strict";
+    SSE_INPUT_GUARDED_WORKER_OPERATIONS = [
+      "bulk_action",
+      "checker_detail",
+      "checker_open_plan",
+      "checker_reset",
+      "click",
+      "click_point",
+      "collect",
+      "combo_select",
+      "desktop_stop",
+      "dialog_answer",
+      "export_csv",
+      "file_dialog_select",
+      "goto",
+      "goto_tree",
+      "menu",
+      "menu_click",
+      "position_create",
+      "receipt_manager_action",
+      "receipt_manager_bulk_upsert",
+      "receipt_manager_classification_options",
+      "receipt_manager_classify",
+      "receipt_manager_delete",
+      "receipt_manager_import",
+      "receipt_manager_link",
+      "receipt_manager_read",
+      "receipt_manager_update",
+      "result_details",
+      "save_as",
+      "set_value",
+      "table_add",
+      "table_add_rows",
+      "table_delete",
+      "table_read",
+      "table_update",
+      "tax_knowledge_search",
+      "toggle",
+      "tracked_set_value",
+      "tree_scroll",
+      "tree_top",
+      "vast_apply",
+      "vast_mapping_options",
+      "vast_mapping_select",
+      "vast_row_details",
+      "vast_row_set_expanded"
+    ];
+    SSE_INPUT_GUARDED_COMPOSED_OPERATIONS = [
+      "case_create",
+      "checker_open",
+      "fill_fields",
+      "scenario_run",
+      "ustva_change_value",
+      "ustva_open_section",
+      "ustva_select_period",
+      "ustva_set_flag"
+    ];
+    GUARDED = /* @__PURE__ */ new Set([
+      ...SSE_INPUT_GUARDED_WORKER_OPERATIONS,
+      ...SSE_INPUT_GUARDED_COMPOSED_OPERATIONS
+    ]);
+    DESCRIPTION_TAGS = {
+      "hands-off": "[Eingabepause]",
+      "hands-off-with-cursor-run": "[Eingabepause nur bei noKeys:false]"
+    };
+    SSE_USER_INPUT = Object.freeze({
+      interferenceKind: "interference",
+      policyField: "operationPolicy.<operation>.userInput",
+      policies: {
+        free: "Der Mensch darf Maus und Tastatur weiter benutzen. Die Operation sendet keine Eingabe und holt kein Fenster nach vorn.",
+        "hands-off": "Holt das Programmfenster nach vorn und bedient es mit Zeiger und Tasten oder ueberwacht fremde Eingaben. Solange der Aufruf laeuft, darf der Mensch Maus und Tastatur nicht benutzen.",
+        "hands-off-with-cursor-run": "Die passive Lesung stoert nicht. Nur der ausdruecklich angeforderte Cursorlauf (noKeys:false) bedient das Fenster und braucht die Eingabepause."
+      },
+      rule: "Vor einem Aufruf mit Eingabepause den Menschen darauf hinweisen. kind 'interference' heisst: Eine Eingabe oder ein Fensterwechsel hat den Auftrag gestoppt. Nur bei retryable:true ist der gemeldete Zustand belegt und der fehlende Teil darf mit den gemeldeten Werten erneut angefordert werden; sonst zuerst lesend abgleichen."
+    });
+  }
+});
+
 // src/mcp-operation-budget.ts
 var MCP_RESPONSE_BUDGET_MS, MCP_API_CLEANUP_MARGIN_MS, MCP_DEFAULT_OPERATION_MS, McpBudgetError, McpOperationBudget;
 var init_mcp_operation_budget = __esm({
@@ -43416,7 +43516,9 @@ function createMcpRegistry(server) {
     const firstOperation = operations[0];
     if (!firstOperation) throw new Error(`MCP-Werkzeug '${name}' besitzt keine API-Basisoperation.`);
     const traits = operations.map((operation) => operationAnnotations(operation));
-    const { inputSchema: inputShape, ...toolConfig } = config2;
+    const { inputSchema: inputShape, ...declaredConfig } = config2;
+    const inputTag = userInputDescriptionTag(operations);
+    const toolConfig = inputTag ? { ...declaredConfig, description: [declaredConfig.description, inputTag].filter(Boolean).join(" ") } : declaredConfig;
     const strictInputSchema = external_exports.object(inputShape).strict();
     return server.registerTool(
       name,
@@ -43498,6 +43600,7 @@ var init_mcp_registry = __esm({
     init_mcp_response();
     init_operation_catalog();
     init_operation_traits();
+    init_user_input_policy();
     init_result_contract();
     init_mcp_api_supervisor();
     init_mcp_operation_budget();
@@ -45481,6 +45584,24 @@ var MCP_CONDUCT_INSTRUCTIONS = [
   "  Kein blinder Wiederholungsversuch und kein automatischer Backendwechsel.",
   "  Selektoren, RID oder selectorNamespace nicht zur Umgehung einer Ablehnung austauschen.",
   "  sse_capabilities beschreibt die Gruppen und ihre erlaubten Einsatzbedingungen.",
+  "",
+  "Eingaben des Menschen waehrend eines Aufrufs:",
+  "- Werkzeuge mit der Marke [Eingabepause] holen das Programmfenster nach vorn und",
+  "  bedienen es mit Zeiger und Tasten oder ueberwachen fremde Eingaben. Solange so",
+  "  ein Aufruf laeuft, darf der Mensch Maus und Tastatur nicht benutzen. Vor dem",
+  "  ersten solchen Aufruf einer Aufgabe darauf hinweisen. Werkzeuge ohne Marke",
+  "  stoeren seine Arbeit nicht.",
+  "- sse_table_add_rows holt das Fenster nach vorn, sendet aber keine Eingabe und",
+  "  ueberwacht keine: Eine Mausbewegung stoert nicht, Tasten des Menschen wuerden",
+  "  aber im Programm landen. Ob alles wie beauftragt steht, entscheidet der",
+  "  Tabellenzustand vor und nach dem Schreiben. Weicht er ab, frisch nachlesen und",
+  "  den Menschen fragen, ob er selbst etwas geaendert hat; nicht wiederholen.",
+  "- kind 'interference' heisst: Eine Eingabe oder ein Fensterwechsel hat den",
+  "  Auftrag gestoppt. Den Menschen um Eingabepause bitten. Nur bei retryable:true",
+  "  ist der gemeldete Zustand belegt (resultingState, completedCount, sumAfter);",
+  "  dann den fehlenden Teil mit diesen Werten erneut anfordern. Sonst zuerst",
+  "  lesend abgleichen. sse_capabilities nennt je Operation",
+  "  operationPolicy.<operation>.userInput.",
   "",
   "Auftrag, Originalfall und technische Grenzen:",
   "- Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.",

@@ -1,7 +1,9 @@
 # Appends rows to one exactly bound table through its model coordinates. The
 # input slot is the last Grid row; rectangles and runtime IDs are observations,
 # never row keys. Nothing here moves a pointer, sends a key or scrolls: a row
-# beyond the displayed part of the table is written like any other.
+# beyond the displayed part of the table is written like any other. Nothing
+# watches what the person does either. The evidence is the complete table
+# state before and after the writes.
 
 function New-SSEUiaAppendRefusal {
   param([string]$Message,[string]$Kind)
@@ -81,10 +83,9 @@ function Test-SSEUiaAppendSlotFree {
 }
 
 function Wait-SSEUiaAppendRows {
-  param($Binding,$Grid,[int]$ExpectedRows)
+  param($Grid,[int]$ExpectedRows)
   $settle=[Diagnostics.Stopwatch]::StartNew()
   do {
-    if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw (New-SSEUiaAppendRefusal 'Fenster oder Eingabe-Epoche aenderte sich waehrend der Zeilenanlage.' 'interference')}
     if([int]$Grid.Current.RowCount -eq $ExpectedRows){return $true}
     Start-Sleep -Milliseconds 25
   } while($settle.ElapsedMilliseconds -lt 1500)
@@ -93,9 +94,14 @@ function Wait-SSEUiaAppendRows {
 }
 
 # Writes one row into the current input slot. Every writable cell's raw value
-# is recorded first, so a later restore can hand the slot back as it was.
+# is recorded first, so a later restore can hand the slot back as it was. The
+# binding is proved once, before the first cell; a row that was begun is
+# completed. A stop therefore leaves only complete rows.
 function Write-SSEUiaAppendRow {
   param($Binding,$State,$Grid,[int]$Row,$Planned,$Plan,$TableProfile,$Transaction)
+  if(-not (Test-SSEUiaDeleteEpoch $Binding)){
+    throw (New-SSEUiaAppendRefusal "Fenster oder Fenstersatz der Anwendung aenderte sich vor Zeile $($Planned.index+1)." 'interference')
+  }
   if([int]$Grid.Current.RowCount -ne $Row+1){
     throw (New-SSEUiaAppendRefusal 'Die Anlegezeile ist nicht mehr die letzte Modellzeile.' 'postcondition-failed')
   }
@@ -116,15 +122,13 @@ function Write-SSEUiaAppendRow {
       throw (New-SSEUiaAppendRefusal "Spalte $($cell.spalte) der Anlegezeile ist nicht beschreibbar." 'readonly')
     }
   }
-  $record=[pscustomobject]@{row=$Row;index=[int]$Planned.index;cells=@($Planned.cells);restore=@($restore);zellen=(New-Object System.Collections.ArrayList)}
+  $record=[pscustomobject]@{row=$Row;index=[int]$Planned.index;cells=@($Planned.cells);restore=@($restore);zellen=(New-Object System.Collections.ArrayList)
+    begun=$false;complete=$false}
   # From here on the row belongs to the transaction, whatever a write reports.
   $null=$Transaction.written.Add($record)
   foreach($cell in $Planned.cells){
-    if(-not (Test-SSEUiaDeleteEpoch $Binding)){
-      throw (New-SSEUiaAppendRefusal 'Fenster oder Eingabe-Epoche aenderte sich vor einer Zellschreibung.' 'interference')
-    }
     $target=Read-SSEUiaAppendCell (Get-SSEUiaAppendCell $State $Grid $Binding.processId $Row ([int]$cell.column))
-    $Transaction.started=$true
+    $Transaction.started=$true;$record.begun=$true
     $target.pattern.SetValue([string]$cell.requested)
     $settle=[Diagnostics.Stopwatch]::StartNew();$actual=$null
     do {
@@ -138,9 +142,10 @@ function Write-SSEUiaAppendRow {
       throw (New-SSEUiaAppendRefusal "Zeile $($Planned.index+1), Spalte $($cell.spalte) zeigt '$actual' statt '$($cell.requested)'." 'postcondition-failed')
     }
   }
-  if(-not (Wait-SSEUiaAppendRows $Binding $Grid ($Row+2))){
+  if(-not (Wait-SSEUiaAppendRows $Grid ($Row+2))){
     throw (New-SSEUiaAppendRefusal "Zeile $($Planned.index+1) erzeugte keine neue Anlegezeile." 'postcondition-failed')
   }
+  $record.complete=$true
 }
 
 # Restores the values of the written rows, last row first. Qt keeps a
@@ -154,7 +159,7 @@ function Undo-SSEUiaAppendRows {
     if([int]$Grid.Current.RowCount -le [int]$entry.row){throw 'A written row is no longer part of the model.'}
     $pending=New-Object System.Collections.ArrayList
     foreach($slotCell in $entry.restore){
-      if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The restore window or input epoch changed.'}
+      if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The window situation changed during the restore.'}
       $live=Read-SSEUiaAppendCell (Get-SSEUiaAppendCell $State $Grid $Binding.processId $entry.row ([int]$slotCell.column))
       $own=@($entry.cells|Where-Object{$_.column -eq $slotCell.column})
       # The raw value alone is no evidence: an amount cell keeps it empty and
@@ -173,12 +178,12 @@ function Undo-SSEUiaAppendRows {
     }
     $restoreOrder=@($pending);[array]::Reverse($restoreOrder)
     foreach($step in $restoreOrder){
-      if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The restore window or input epoch changed.'}
+      if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The window situation changed during the restore.'}
       $step.pattern.SetValue([string]$step.raw)
     }
     $settle=[Diagnostics.Stopwatch]::StartNew()
     do {
-      if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The restore window or input epoch changed.'}
+      if(-not (Test-SSEUiaDeleteEpoch $Binding)){throw 'The window situation changed during the restore.'}
       $differing=@(foreach($slotCell in $entry.restore){
         $live=Read-SSEUiaAppendCell (Get-SSEUiaAppendCell $State $Grid $Binding.processId $entry.row ([int]$slotCell.column))
         if([string]$live.raw -cne [string]$slotCell.raw -or -not (Test-SSETableCellEquivalent $live.text ([string]$slotCell.text))){$slotCell.column}
@@ -190,31 +195,64 @@ function Undo-SSEUiaAppendRows {
   }
 }
 
+# After a stop the binding no longer holds, but reading is passive. One
+# complete read, bound only to the same live window and the window set it
+# finds, classifies what stands in the model: exactly the rows this
+# transaction completed, or nothing that can be proved.
+function Read-SSEUiaAppendStoppedState {
+  param($Binding,$Initial,$Transaction,[IntPtr]$Hwnd,[int]$ProcessId,[Diagnostics.Process]$Process)
+  # A row that was begun and not completed may stand in the model in part.
+  if(@($Transaction.written|Where-Object{$_.begun -and -not $_.complete}).Count){throw 'A row was begun but not completed.'}
+  $rowsDone=@($Transaction.written|Where-Object{$_.complete})
+  $observer=[pscustomobject]@{hwnd=$Binding.hwnd;processId=$Binding.processId;sumLabel=$Binding.sumLabel
+    expectedPage=$Binding.expectedPage;expectedBefore=$Binding.expectedBefore;sumOccurrence=$Binding.sumOccurrence
+    summaryAid=$Binding.summaryAid;tableAid=$Binding.tableAid;watch=$Binding.watch;maxReadMs=$Binding.maxReadMs
+    maxRawMs=$Binding.maxRawMs;guard=$null
+    transaction=[pscustomobject]@{windows=(Get-SSEInteractionWindowSet $ProcessId $Hwnd);editorEvidence=$null}}
+  $observer.guard={
+    $windowPid=0
+    [bool](-not $Process.HasExited -and [SW]::IsWindow($Hwnd) -and
+      [SW]::GetWindowThreadProcessId($Hwnd,[ref]$windowPid) -gt 0 -and $windowPid -eq $ProcessId)
+  }.GetNewClosure()
+  $observed=Read-SSEUiaDeleteState $observer -AllowOwnEditor
+  if((Get-SSEGridAppendOutcome $Initial.model $observed.model $rowsDone.Count) -cne 'appended-exact'){
+    throw 'The stopped model does not show exactly the completed rows.'
+  }
+  foreach($entry in $rowsDone){
+    foreach($cell in $entry.cells){
+      $shown=[string]$observed.scan.cells[[int]$entry.row*[int]$observed.scan.columns+[int]$cell.column].name
+      if(-not (Test-SSETableCellEquivalent $shown ([string]$cell.requested))){throw 'A completed row no longer shows its written value.'}
+    }
+  }
+  [pscustomobject]@{completed=[int]$rowsDone.Count;summary=$observed.summary;dirty=$observed.dirty}
+}
+
 function Invoke-SSEUiaTableAppendRows {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Arguments,[Diagnostics.Process]$Process)
   $rows=@(Arg $Arguments 'zeilen');$expectedAfter=[string](Arg $Arguments 'expectedAfter')
-  $transaction=[pscustomobject]@{started=$false;touched=$false;epoch=$null;foreground=[SW]::GetForegroundWindow();windows=$null;
-    phase='initial';editorEvidence=$null;written=(New-Object System.Collections.ArrayList)}
+  # No input is sent that could go astray, so neither the foreground nor the
+  # person's input is evidence of anything. The binding only says that the
+  # same live window with the same set of program windows is still there;
+  # what was written is decided by reading the complete table state.
+  $transaction=[pscustomobject]@{started=$false;touched=$false;windows=$null;phase='initial';editorEvidence=$null;
+    written=(New-Object System.Collections.ArrayList)}
   $binding=[pscustomobject]@{hwnd=$Hwnd;processId=$ProcessId;sumLabel=[string](Arg $Arguments 'sumLabel');
     expectedPage=[string](Arg $Arguments 'expectedPage');expectedBefore=[string](Arg $Arguments 'expectedBefore');
     sumOccurrence=[int](Arg $Arguments 'sumOccurrence' 1);summaryAid='';tableAid='';watch=[Diagnostics.Stopwatch]::StartNew();
     maxReadMs=0.0;maxRawMs=0.0;guard=$null;transaction=$transaction}
-  $transaction.epoch=Get-SSELastInputTick
   $transaction.windows=Get-SSEInteractionWindowSet $ProcessId $Hwnd
   $binding.guard={
     $windowPid=0
     [bool]($binding.watch.ElapsedMilliseconds -lt 60000 -and -not $Process.HasExited -and [SW]::IsWindow($Hwnd) -and
-      [SW]::GetWindowThreadProcessId($Hwnd,[ref]$windowPid) -gt 0 -and $windowPid -eq $ProcessId -and
-      (Test-SSELastInputUnchanged $transaction.epoch) -and [SW]::GetForegroundWindow() -eq $transaction.foreground)
+      [SW]::GetWindowThreadProcessId($Hwnd,[ref]$windowPid) -gt 0 -and $windowPid -eq $ProcessId)
   }.GetNewClosure()
   $initial=$null;$grid=$null;$checkerBefore=@();$failure=$null;$failureKind=$null
   try {
-    if($null -eq $transaction.epoch -or @($transaction.windows.windows|Where-Object{$_.role -cne 'main'}).Count){
-      throw (New-SSEUiaAppendRefusal ('Die Zeilenanlage braucht eine lesbare Eingabe-Epoche und darf kein weiteres, ' +
-        'unbekanntes oder blockierendes Fenster der Anwendung vorfinden.') 'precondition-failed')
+    if(@($transaction.windows.windows|Where-Object{$_.role -cne 'main'}).Count){
+      throw (New-SSEUiaAppendRefusal 'Die Zeilenanlage darf kein weiteres, unbekanntes oder blockierendes Fenster der Anwendung vorfinden.' 'precondition-failed')
     }
-    # Page and summary are compared passively first: a wrong page or a stale
-    # sum is refused without raising the window.
+    # Page and summary are compared first, so that a wrong page or a stale
+    # sum is refused with its own reason.
     $transaction.phase='precondition'
     $passive=Read-LabeledValue $Hwnd $binding.sumLabel $binding.expectedBefore $binding.sumOccurrence
     $passiveHeading=[string](Get-CurrentHeading $Hwnd $passive.tree)
@@ -227,19 +265,18 @@ function Invoke-SSEUiaTableAppendRows {
     if(-not (Test-SSEScalarEqual $passive.value $binding.expectedBefore)){
       throw (New-SSEUiaAppendRefusal "Vorbedingung verletzt: '$($binding.sumLabel)' ist '$($passive.value)', erwartet '$($binding.expectedBefore)'." 'precondition-failed')
     }
+    # The program activates its own window as soon as a cell is written.
+    # Raising it once through the foreground lease makes that deterministic,
+    # and the lease hands the foreground back when the result is emitted.
     $transaction.phase='activation'
-    if(-not (& $binding.guard)){throw (New-SSEUiaAppendRefusal 'Eingabe-Epoche ging vor der Fensteraktivierung verloren.' 'interference')}
     $transaction.touched=$true
     $null=Show-SSEWindow $Hwnd
-    $transaction.foreground=$Hwnd
-    # Showing may move or restore the window, but must not hide an input or
-    # window-set change.
-    $activatedWindows=Get-SSEInteractionWindowSet $ProcessId $Hwnd
-    if(-not (& $binding.guard) -or $activatedWindows.windows.Count -ne 1 -or
-        @($activatedWindows.windows|Where-Object{$_.role -cne 'main'}).Count){
-      throw (New-SSEUiaAppendRefusal 'Vordergrund, Eingabe-Epoche oder Fenstersatz aenderte sich bei der Fensteraktivierung.' 'interference')
+    # Showing may move or restore the window; the binding continues from the
+    # window set found afterwards, which must still be the main window alone.
+    $transaction.windows=Get-SSEInteractionWindowSet $ProcessId $Hwnd
+    if(@($transaction.windows.windows|Where-Object{$_.role -cne 'main'}).Count){
+      throw (New-SSEUiaAppendRefusal 'Bei der Fensteraktivierung erschien ein weiteres Fenster der Anwendung.' 'interference')
     }
-    $transaction.windows=$activatedWindows
     $transaction.phase='initial-read'
     $initial=Read-SSEUiaDeleteState $binding -AllowOwnEditor
     if(-not (Test-SSEScalarEqual $initial.summary $binding.expectedBefore)){
@@ -284,21 +321,25 @@ function Invoke-SSEUiaTableAppendRows {
     }
     return [pscustomobject]@{ok=$true;kind=$null;error=$null;phase='completed';mutationStarted=$true;outcomeUnknown=$false;
       resultingState='completed-verified';sumBefore=$initial.summary;sumAfter=$final.summary
+      completed=[int]$rows.Count;retryable=$false
       rows=@($transaction.written|ForEach-Object{[pscustomobject]@{index=[int]$_.index;modelRow=[int]$_.row;zellen=@($_.zellen)}})
       proof=[pscustomobject]@{schemaVersion=1;method='uia-grid-logical-model';outcome=$outcome;rowsBefore=$initial.model.rows;
         rowsAfter=$final.model.rows;beforeFingerprint=$initial.model.fingerprint;afterFingerprint=$final.model.fingerprint}
       checkerBefore=$checkerBefore;checkerAfter=$checkerAfter;newChecker=@();dirtyBefore=$initial.dirty;dirtyAfter=$final.dirty
-      rollback=$null;inputBaseline=$transaction.epoch}
+      rollback=$null}
   } catch {
     if($script:SSE_CAPTURE_OPERATION_RESULT -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL){throw}
     $failure=[string]$_.Exception.Message;$failureKind=[string]$_.Exception.Data['kind']
   }
   $failedPhase=[string]$transaction.phase
-  $interference=[bool]($failureKind -ceq 'interference' -or -not (& $binding.guard))
+  # A refusal before the first write keeps its own reason. Once a write was
+  # begun, a changed window situation decides: nothing is restored into it.
+  $interference=[bool]($failureKind -ceq 'interference' -or
+    (-not (Test-SSEUiaDeleteEpoch $binding) -and ($transaction.started -or -not $failureKind)))
   $rollback=$null;$resultingState=$(if($transaction.started){'unknown'}else{'unchanged'})
+  $completed=0;$stoppedSummary=$null;$stoppedDirty=$null
   if($transaction.started -and -not $interference -and $initial -and $grid){
-    # Only an ordinary, own failure is restored. After foreign input or a
-    # changed window there is no blind restore.
+    # Only an ordinary, own failure is restored.
     $transaction.phase='restore'
     $rollback=[ordered]@{versucht=$true;methode='raw-value-row-restore';erfolgreich=$false;werteWiederhergestellt=$false
       strukturEntfernt=$false;verbliebeneLeerzeilen=$null;error=$null}
@@ -324,15 +365,31 @@ function Invoke-SSEUiaTableAppendRows {
       $rollback.error=[string]$_.Exception.Message
     }
   } elseif($transaction.started) {
-    $rollback=[ordered]@{versucht=$false;erfolgreich=$false;grund='Kein blinder Rollback nach fremder Eingabe oder veraenderter Fensterlage.'}
+    $rollback=[ordered]@{versucht=$false;erfolgreich=$false;grund='Keine Ruecknahme in eine veraenderte Fensterlage.'}
+    # Nothing is written or restored any more. A passive complete read may
+    # still prove that exactly the completed rows stand in the model.
+    $transaction.phase='stopped-read'
+    try {
+      $stopped=Read-SSEUiaAppendStoppedState $binding $initial $transaction $Hwnd $ProcessId $Process
+      $completed=[int]$stopped.completed;$stoppedSummary=$stopped.summary;$stoppedDirty=$stopped.dirty
+      $resultingState='partially-completed-verified'
+    } catch {
+      if($script:SSE_CAPTURE_OPERATION_RESULT -and $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL){throw}
+      $rollback.zustandsbeweis=[string]$_.Exception.Message
+    }
   }
+  # With an unknown state the window stays in front for the person to see.
   if($transaction.touched -and $resultingState -ceq 'unknown'){$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true}
   [pscustomobject]@{ok=$false
     kind=$(if($interference){'interference'}elseif($failureKind){$failureKind}elseif($transaction.started){'postcondition-failed'}else{'precondition-failed'})
     error=$failure;phase=$failedPhase;mutationStarted=[bool]$transaction.started;outcomeUnknown=[bool]($resultingState -ceq 'unknown')
-    resultingState=$resultingState;sumBefore=$(if($initial){$initial.summary}else{$null});sumAfter=$null
+    resultingState=$resultingState;sumBefore=$(if($initial){$initial.summary}else{$null});sumAfter=$stoppedSummary
+    completed=$completed
+    # Only a stop with a proven state may be repeated: with the remaining
+    # rows and the reported sum as the new starting point.
+    retryable=[bool]($interference -and $resultingState -cin @('unchanged','partially-completed-verified'))
     rows=@($transaction.written|ForEach-Object{[pscustomobject]@{index=[int]$_.index;modelRow=[int]$_.row;zellen=@($_.zellen)}})
     proof=$null;checkerBefore=$checkerBefore;checkerAfter=@();newChecker=@()
-    dirtyBefore=$(if($initial){$initial.dirty}else{$null});dirtyAfter=$null
-    rollback=$(if($rollback){[pscustomobject]$rollback}else{$null});inputBaseline=$transaction.epoch}
+    dirtyBefore=$(if($initial){$initial.dirty}else{$null});dirtyAfter=$stoppedDirty
+    rollback=$(if($rollback){[pscustomobject]$rollback}else{$null})}
 }
